@@ -8,7 +8,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 const ROTATION_PERIOD_SECONDS = 16; // one full revolution every 16s, constant/linear
 
-// Obsidian black — deep, near-mirror body color shared by the ring and the tail.
+// Obsidian black �� deep, near-mirror body color shared by the ring and the tail.
 const OBSIDIAN_BLACK = "#08080A";
 
 // Ring proportions, shared by the ring shape and the tail's penetration math below.
@@ -203,17 +203,10 @@ export default function Q3DCanvasScene({
    *  modal — stay transparent and blend into the page behind them). */
   withBackdrop?: boolean;
 }) {
-  // Tracks whether the WebGL context/scene has completed its first commit, so
-  // the canvas can fade smoothly into view instead of abruptly "popping in"
-  // once the lazily-loaded chunk finishes mounting — purely a timing/opacity
-  // fix, no colors/lighting/materials are touched.
-  const [isReady, setIsReady] = useState(false);
-
   return (
     <Canvas
       className={className}
-      style={{ opacity: isReady ? 1 : 0, transition: "opacity 400ms ease-out" }}
-      onCreated={() => setIsReady(true)}
+      style={{ width: "100%", height: "100%" }}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
       dpr={[1, 2]}
       // Slight three-quarter angle: raised and shifted to the right of center so
