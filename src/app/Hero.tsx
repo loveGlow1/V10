@@ -1,6 +1,5 @@
 import React from 'react';
 import { ArrowRight, Shield, Cpu, Zap } from 'lucide-react';
-import Image from 'next/image';
 
 export function Hero() {
   return (
@@ -17,15 +16,13 @@ export function Hero() {
         </button>
       </div>
 
-      {/* Showcase Image Integration */}
+      {/* Showcase Image Container */}
       <div className="max-w-5xl mx-auto relative rounded-2xl p-[1px] bg-gradient-to-r from-blue-500/50 via-indigo-500/50 to-purple-500/50 shadow-2xl shadow-indigo-950/50">
-        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video flex items-center justify-center">
-          <Image
-            src="/hero-preview.png.jpg"
+        <div className="relative rounded-2xl overflow-hidden bg-slate-900">
+          <img
+            src="/hero-preview.jpg"
             alt="QuickStart.Ai Platform Experience"
-            fill
-            priority
-            className="object-cover transform hover:scale-[1.01] transition-transform duration-500"
+            className="w-full h-auto object-cover transform hover:scale-[1.01] transition-transform duration-500"
           />
         </div>
       </div>
