@@ -20,7 +20,7 @@ export function Hero() {
       <div className="max-w-5xl mx-auto relative rounded-2xl p-[1px] bg-gradient-to-r from-blue-500/50 via-indigo-500/50 to-purple-500/50 shadow-2xl shadow-indigo-950/50">
         <div className="relative rounded-2xl overflow-hidden bg-slate-900">
           <img
-            src="/hero-preview.jpg"
+            src="https://raw.githubusercontent.com/loveGlow1/V10/main/public/hero-preview.jpg"
             alt="QuickStart.Ai Platform Experience"
             className="w-full h-auto object-cover transform hover:scale-[1.01] transition-transform duration-500"
           />
