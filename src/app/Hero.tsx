@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowRight, Shield, Cpu, Zap } from 'lucide-react';
+import Image from 'next/image';
 
 export function Hero() {
   return (
@@ -10,10 +11,23 @@ export function Hero() {
       <p className="max-w-2xl mx-auto text-xl text-slate-400 mb-10">
         Deploy production-ready applications with unmatched speed, security, and scalability.
       </p>
-      <div className="flex justify-center gap-4">
+      <div className="flex justify-center gap-4 mb-16">
         <button className="bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-6 rounded-lg flex items-center gap-2">
           Get Started <ArrowRight className="w-5 h-5" />
         </button>
+      </div>
+
+      {/* Showcase Image Integration */}
+      <div className="max-w-5xl mx-auto relative rounded-2xl p-[1px] bg-gradient-to-r from-blue-500/50 via-indigo-500/50 to-purple-500/50 shadow-2xl shadow-indigo-950/50">
+        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video flex items-center justify-center">
+          <Image
+            src="/hero-preview.png.jpg"
+            alt="QuickStart.Ai Platform Experience"
+            fill
+            priority
+            className="object-cover transform hover:scale-[1.01] transition-transform duration-500"
+          />
+        </div>
       </div>
     </section>
   );
