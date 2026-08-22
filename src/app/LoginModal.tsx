@@ -222,14 +222,19 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
   const brandingBlock = brandingBlockWith(signInSubtext);
   const brandingBlockSignUp = brandingBlockWith(signUpSubtext);
 
+  // The link labels are kept whole — the max-width cap here used to be narrower than the
+  // space the modal actually offers, which broke "Privacy Policy" across two lines. Letting
+  // the sentence use the available width and balancing the wrap keeps it on one line at
+  // normal widths and splits it evenly when it cannot.
+  const footerLinkClass = "whitespace-nowrap underline underline-offset-4";
   const footerLinks = (
-    <p className="mx-auto max-w-[20rem] text-center text-[11px] leading-[1.55] text-white/45 sm:max-w-[22rem] sm:text-xs">
+    <p className="mx-auto text-balance text-center text-[11px] leading-[1.55] text-white/45 sm:text-xs">
       By continuing, you agree to our{" "}
-      <a href="#" className="underline underline-offset-4">
+      <a href="#" className={footerLinkClass}>
         Terms of Service
       </a>{" "}
       /{" "}
-      <a href="#" className="underline underline-offset-4">
+      <a href="#" className={footerLinkClass}>
         Privacy Policy
       </a>
     </p>
@@ -398,6 +403,8 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                     </button>
                   </div>
                 </form>
+
+                {footerLinks}
               </div>
             )}
 
