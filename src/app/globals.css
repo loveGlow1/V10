@@ -100,6 +100,18 @@ body {
   gap: clamp(0.75rem, 2vh, 1.5rem);
 }
 
+/* Short viewports — a small phone in portrait, a phone in landscape, or a desktop browser
+   in a shallow window — do not have the vertical budget for the hero's full rhythm, and the
+   last auth row was landing under the fold (56px under at 375x600, 42px at 360x640, 8px at
+   1280x610). The mark derives its own clearance from --q-logo-size, so stepping that one
+   token down carries the halo gap down with it in proportion and the clearance stays as
+   wide relative to the mark as the measured falloff requires. The stack gap tightens in
+   step; both are vertical rhythm rather than content, so this costs no legibility. */
+@media (max-height: 700px) {
+  .q-logo-block { --q-logo-size: clamp(60px, 10vmin, 104px); }
+  .hero-auth-stack { gap: 0.5rem; }
+}
+
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 
