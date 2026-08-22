@@ -180,43 +180,47 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
       <p className="text-xs font-semibold uppercase tracking-[0.2em]">
         <span className="wordmark-quickstart">QuickStart</span><span className="wordmark-ai">.Ai</span>
       </p>
-      <h2 className="max-w-[19rem] text-center text-[clamp(1.2rem,5vw,2.4rem)] font-bold leading-[1.15] tracking-tight sm:max-w-[21rem]">
+      <h2 className="whitespace-nowrap text-center text-[clamp(1.2rem,5vw,2.4rem)] font-bold leading-[1.15] tracking-tight">
         <span className="metal-shimmer">Build Full-Stack</span>
-        <br />
-        <span className="bg-gradient-to-r from-emerald-300 via-emerald-400 to-emerald-500 bg-clip-text text-transparent">
-          Web &amp; Mobile Apps in Minutes
-        </span>
       </h2>
     </div>
   );
 
+  const accountPromptClass = "text-center text-sm text-white/50";
+  const accountPromptLinkClass =
+    "font-medium text-emerald-400 transition-colors hover:text-emerald-300";
+
   const signInSubtext = (
-    <p className="text-center text-sm text-white/50">
+    <p className={accountPromptClass}>
       Already have an account?{" "}
-      <button
-        type="button"
-        onClick={() => setAuthStep("signin")}
-        className="font-medium text-emerald-400 underline underline-offset-4 transition-colors hover:text-emerald-300"
-      >
+      <button type="button" onClick={() => setAuthStep("signin")} className={accountPromptLinkClass}>
         Sign in
       </button>
     </p>
   );
 
-  const brandingBlock = (
+  const signUpSubtext = (
+    <p className={accountPromptClass}>
+      Don&apos;t have an account?{" "}
+      <button type="button" onClick={() => setAuthStep("email")} className={accountPromptLinkClass}>
+        Sign up
+      </button>
+    </p>
+  );
+
+  // Every step composes its header the same way, so the account prompt always lands in the
+  // same slot — directly under the headline — rather than above the emblem on one step and
+  // below the headline on another.
+  const brandingBlockWith = (subtext: React.ReactNode) => (
     <div className="mb-6 flex flex-col items-center gap-4 text-center sm:mb-7 sm:gap-5">
       {logoEmblem}
       {heading}
-      {signInSubtext}
+      {subtext}
     </div>
   );
 
-  const brandingBlockNoSubtext = (
-    <div className="mb-6 flex flex-col items-center gap-4 text-center sm:mb-7 sm:gap-5">
-      {logoEmblem}
-      {heading}
-    </div>
-  );
+  const brandingBlock = brandingBlockWith(signInSubtext);
+  const brandingBlockSignUp = brandingBlockWith(signUpSubtext);
 
   const footerLinks = (
     <p className="mx-auto max-w-[20rem] text-center text-[11px] leading-[1.55] text-white/45 sm:max-w-[22rem] sm:text-xs">
@@ -399,18 +403,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
 
             {authStep === "signin" && (
               <div>
-                <p className="mb-3 text-center text-sm sm:text-base font-medium text-white/85">
-                  Don&apos;t have an account?{" "}
-                  <button
-                    type="button"
-                    onClick={() => setAuthStep("email")}
-                    className="underline underline-offset-4 hover:text-emerald-400 transition-colors"
-                  >
-                    Sign up
-                  </button>
-                </p>
-
-                {brandingBlockNoSubtext}
+                {brandingBlockSignUp}
 
                 <form
                   onSubmit={async (e) => {
@@ -483,18 +476,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
 
             {authStep === "phone" && (
               <div>
-                {brandingBlockNoSubtext}
-
-                <p className="mb-3 text-center text-sm sm:text-base font-medium text-white/85">
-                  Already have an account?{" "}
-                  <button
-                    type="button"
-                    onClick={() => setAuthStep("signin")}
-                    className="underline underline-offset-4 hover:text-emerald-400 transition-colors"
-                  >
-                    Sign in
-                  </button>
-                </p>
+                {brandingBlock}
 
                 <form
                   onSubmit={async (e) => {
