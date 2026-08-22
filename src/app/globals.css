@@ -37,6 +37,30 @@ body {
   .header-surface { background-color: rgba(5, 5, 5, 0.72); }
 }
 
+/* One content column shared by the header, every section and the footer, so they all
+   line up on the same edges. It holds the existing 1280px desktop cap, then steps up on
+   very large displays (TVs / 4K) where a fixed 1280px column strands the layout in the
+   middle of the screen. */
+.page-shell {
+  width: 100%;
+  margin-inline: auto;
+  max-width: 80rem;
+}
+
+@media (min-width: 1920px) { .page-shell { max-width: 90rem; } }
+@media (min-width: 2560px) { .page-shell { max-width: 108rem; } }
+
+/* The hero mark and the gap beneath it are driven by one size token so they cannot drift
+   apart. .q-logo-backdrop bleeds past the mark on every edge (inset: -42%, fading out
+   around 3/4 of that), so the gap below has to clear that bleed — otherwise the headline
+   renders inside the glow, which is what it did on phones. */
+.q-logo-block {
+  --q-logo-size: clamp(100px, 15vmin, 200px);
+  width: var(--q-logo-size);
+  height: var(--q-logo-size);
+  margin-bottom: calc(var(--q-logo-size) * 0.2 + clamp(1rem, 3vh, 3rem));
+}
+
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 
@@ -54,27 +78,26 @@ body {
   box-shadow: 0 20px 40px -15px rgba(142, 240, 138, 0.12);
 }
 
+/* `isolation: isolate` makes the card its own stacking context unconditionally, so the
+   green wave below always paints on the card surface (above its background, beneath the
+   text) instead of depending on .glass-card's backdrop-filter to establish that context —
+   which is what the original relied on, and what would have dropped the wave behind the
+   card entirely in a browser without backdrop-filter support. */
 .pro-glow-border {
   position: relative;
+  isolation: isolate;
 }
 
-/* The sweeping highlight is masked down to the 1px ring so it traces the card edge.
-   It previously relied on `z-index: -1` to sit behind the card, but .glass-card's
-   backdrop-filter makes the card its own stacking context, so a negative z-index
-   child paints *above* the card background — flooding the whole Pro card green. */
 .pro-glow-border::before {
   content: '';
   position: absolute;
   inset: -1px;
-  border-radius: 25px;
-  padding: 1px;
-  background: linear-gradient(90deg, transparent, rgba(142, 240, 138, 0.75), transparent);
+  border-radius: 24px;
+  background: linear-gradient(90deg, transparent, rgba(142, 240, 138, 0.4), transparent);
+  z-index: -1;
   background-size: 200% 100%;
   animation: border-glow 4s linear infinite;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
+  /* Without this the pseudo-element sits over the tier's CTA and swallows its clicks. */
   pointer-events: none;
 }
 

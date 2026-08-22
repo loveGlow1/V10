@@ -277,7 +277,7 @@ const FOOTER_LINK_COLUMNS = [
 ] as const;
 
 const HERO_SECONDARY_ACTION_BUTTON_CLASS =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap py-4 px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
+  "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -462,7 +462,7 @@ export default function LandingPage() {
           {/* [1fr_auto_1fr] keeps the nav optically centred no matter how wide the logo or
               the CTA are, and the always-present third column reserves the CTA's space so
               the nav does not jump sideways when the button mounts on scroll. */}
-          <div className="max-w-7xl mx-auto h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+          <div className="page-shell h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
             <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStart.Ai Homepage">
               <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
               <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStart</span><span className="wordmark-ai">.Ai</span></span>
@@ -493,16 +493,13 @@ export default function LandingPage() {
         )}
         {/* min-h is the viewport minus the 5rem fixed header that <main> already offsets with
             pt-20. Using a bare min-h-screen made the hero 100vh *below* the header, which both
-            pushed the block optically low and overflowed the fold on 900px/800px-tall laptops. */}
-        <section className="min-h-[calc(100vh-5rem)] flex flex-col items-center justify-center px-6 relative overflow-hidden pb-16">
+            pushed the block optically low and overflowed the fold on 900px/800px-tall laptops.
+            svh (where supported) measures the viewport with mobile browser chrome *expanded*,
+            so the auth block is not left under Safari's toolbars on a phone; vh stays as the
+            fallback for browsers without svh. */}
+        <section className="min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center justify-center px-6 relative overflow-hidden pb-12 sm:pb-16">
           {/* 3D logo with oval spotlight backdrop */}
-          {/* Spacing under the mark scales with viewport *height*, not width: the tall-screen
-              value keeps the composition airy, while short laptop viewports (720-800px) get a
-              tighter gap so the auth block still lands above the fold. */}
-          <div
-            className="relative mt-2 mb-8 lg:mb-10 [@media(min-height:900px)]:mb-16 flex items-center justify-center overflow-visible"
-            style={{ width: 144, height: 144 }}
-          >
+          <div className="q-logo-block relative flex items-center justify-center overflow-visible">
             <div
               className="absolute q-logo-backdrop pointer-events-none"
               style={{ inset: "-42%", zIndex: 0 }}
@@ -513,17 +510,20 @@ export default function LandingPage() {
           </div>
 
           {/* Headline */}
-          <div className="max-w-4xl lg:max-w-6xl text-center mx-auto mb-10 z-20 reveal-element active">
-            <h1 className="text-balance text-4xl sm:text-6xl md:text-7xl font-bold tracking-tighter leading-[1.05] text-white">
-              <span className="metal-shimmer">Build Full-Stack</span>
-              <br />
-              <span style={{ color: "#70F39B" }}>Web &amp; Mobile Apps in Minutes</span>
+          <div className="max-w-4xl lg:max-w-6xl 3xl:max-w-[96rem] text-center mx-auto mb-6 sm:mb-10 z-20 reveal-element active">
+            {/* Each line is its own block so `text-balance` can even out its wrap on its own.
+                With the previous <br /> the browser treated both lines as one inline flow and
+                balancing was skipped, which left "Minutes" orphaned on a third line. The size
+                ramp is graded so the green line lands on one row from 1024px up. */}
+            <h1 className="text-balance text-4xl sm:text-5xl md:text-6xl xl:text-7xl 3xl:text-8xl font-bold tracking-tighter leading-[1.05] text-white">
+              <span className="block metal-shimmer">Build Full-Stack</span>
+              <span className="block" style={{ color: "#70F39B" }}>Web &amp; Mobile Apps in Minutes</span>
             </h1>
           </div>
 
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
-          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg mx-auto z-20 reveal-element active">
-            <div className="space-y-6">
+          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element active">
+            <div className="space-y-4 sm:space-y-6">
               <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:bg-brandGreen hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
                 <span>Continue with Google</span>
@@ -547,7 +547,7 @@ export default function LandingPage() {
         </section>
 
         <section id="features" className="px-6 py-24">
-          <div className="max-w-7xl mx-auto space-y-12">
+          <div className="page-shell space-y-12">
             <Reveal className="max-w-3xl">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStart.Ai</p>
               <h2 className="mt-4 text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white">
@@ -594,7 +594,7 @@ export default function LandingPage() {
         </section>
 
         <section id="pricing" className="px-6 py-24">
-          <div className="max-w-7xl mx-auto space-y-10">
+          <div className="page-shell space-y-10">
             <Reveal className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">Pricing</p>
@@ -685,7 +685,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
-        <div className="max-w-7xl mx-auto flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
+        <div className="page-shell flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
           <Reveal className="max-w-sm xl:max-w-xs">
             <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus:ring-2 focus:ring-brandGreen/40" aria-label="QuickStart.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
