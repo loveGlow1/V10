@@ -128,50 +128,6 @@ function ParticleCanvas() {
   return <canvas ref={canvasRef} id="particle-canvas" className="fixed inset-0 pointer-events-none z-[2] opacity-40" />;
 }
 
-function CustomCursor() {
-  const cursorRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const cursor = cursorRef.current;
-    if (!cursor) return;
-
-    const onMove = (e: MouseEvent) => {
-      cursor.style.left = e.clientX + "px";
-      cursor.style.top = e.clientY + "px";
-    };
-    document.addEventListener("mousemove", onMove);
-
-    const targets = document.querySelectorAll('button, a, input, select, textarea, .cursor-pointer');
-    const onEnter = () => {
-      cursor.style.width = "35px";
-      cursor.style.height = "35px";
-      cursor.style.borderColor = "#8EF08A";
-      cursor.style.backgroundColor = "rgba(142, 240, 138, 0.1)";
-    };
-    const onLeave = () => {
-      cursor.style.width = "20px";
-      cursor.style.height = "20px";
-      cursor.style.borderColor = "rgba(255, 255, 255, 0.3)";
-      cursor.style.backgroundColor = "transparent";
-    };
-
-    targets.forEach((t) => {
-      t.addEventListener("mouseenter", onEnter);
-      t.addEventListener("mouseleave", onLeave);
-    });
-
-    return () => {
-      document.removeEventListener("mousemove", onMove);
-      targets.forEach((t) => {
-        t.removeEventListener("mouseenter", onEnter);
-        t.removeEventListener("mouseleave", onLeave);
-      });
-    };
-  }, []);
-
-  return <div ref={cursorRef} id="custom-cursor" />;
-}
-
 const FEATURES = [
   { icon: Zap, title: "AI Full Stack Generation", desc: "Generate user-interfaces, structural databases, route endpoints, third-party authentication protocols, and edge APIs dynamically from one single baseline prompt.", tag: "Autonomous Architecture" },
   { icon: Layout, title: "Frontend Engine", desc: "Beautiful layouts compiled using Next.js 15, Tailwind, and React 19. Perfectly customized components natively designed to match standard screen resolutions dynamically.", tag: "Next.js 15 & React 19" },
@@ -447,7 +403,6 @@ export default function LandingPage() {
 
   return (
     <div className="bg-brandBg text-white antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-black min-h-screen relative">
-      <CustomCursor />
       <div className="noise-bg" />
       <div className="radial-vignette" />
       <div className="ambient-glow-1" />
@@ -772,8 +727,6 @@ export default function LandingPage() {
         .reveal-element { opacity: 0; transform: translateY(30px) scale(0.97); filter: blur(8px); transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
         .reveal-element.active { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         .glass-card { background: rgba(16, 16, 16, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.06); }
-        #custom-cursor { width: 20px; height: 20px; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50%; position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 10000; transition: width 0.3s, height 0.3s, background-color 0.3s, border-color 0.3s; display: none; }
-        @media (hover: hover) { #custom-cursor { display: block; } }
       `}</style>
     </div>
   );

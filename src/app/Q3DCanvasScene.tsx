@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, Suspense, useRef, useState, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
@@ -81,83 +81,104 @@ class EnvironmentErrorBoundary extends Component<{ children: ReactNode }, { hasE
   }
 }
 
-function QLogo({ scale = 1 }: { scale?: number }) {
-  const groupRef = useRef<THREE.Group>(null);
+/* The mark is rendered in several places at once (nav, hero, footer, auth modal), and
+   neither the geometry nor the material varies between them — the per-instance scale is
+   applied to the group, not the geometry. Building them once for the page instead of once
+   per <Canvas> matters because the extrude is not cheap: two shapes at curveSegments 128 /
+   bevelSegments 32, then a merge. Doing that work three times was delaying the mark's first
+   paint on slower devices. Nothing disposes either object — they live for the page's
+   lifetime — so a shared instance is safe across the separate renderers. */
+let sharedObsidianMaterial: THREE.MeshPhysicalMaterial | null = null;
+
+function getObsidianMirrorMaterial() {
+  if (sharedObsidianMaterial) return sharedObsidianMaterial;
 
   // Shared by the ring AND the tail so both read as one continuous piece of
   // ultra-glossy obsidian metal — deep black body with crisp mirror-bright
   // specular highlights rather than a flat matte or silver look.
-  const obsidianMirrorMaterial = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        color: OBSIDIAN_BLACK,
-        metalness: 0.9,
-        roughness: 0.1,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.03,
-        reflectivity: 1.0,
-        envMapIntensity: 1.4,
-        flatShading: false,
-      }),
-    []
-  );
+  sharedObsidianMaterial = new THREE.MeshPhysicalMaterial({
+    color: OBSIDIAN_BLACK,
+    metalness: 0.9,
+    roughness: 0.1,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.03,
+    reflectivity: 1.0,
+    envMapIntensity: 1.4,
+    flatShading: false,
+  });
 
-  const logoGeometry = useMemo(() => {
-    // --- Ring: a flat annulus (outer circle minus inner hole), extruded. ---
-    const ringShape = new THREE.Shape();
-    ringShape.absarc(0, 0, RING_OUTER_RADIUS, 0, Math.PI * 2, false);
+  return sharedObsidianMaterial;
+}
 
-    const innerHole = new THREE.Path();
-    innerHole.absarc(0, 0, RING_INNER_RADIUS, 0, Math.PI * 2, true);
-    ringShape.holes.push(innerHole);
+let sharedLogoGeometry: THREE.BufferGeometry | null = null;
 
-    const ringGeometry = new THREE.ExtrudeGeometry(ringShape, SHARED_EXTRUDE_SETTINGS);
+function getLogoGeometry(): THREE.BufferGeometry {
+  if (sharedLogoGeometry) return sharedLogoGeometry;
 
-    // --- Tail: a straight block built directly along the target radial line,
-    // so it naturally starts inside the hollow and ends past the outer wall —
-    // no boolean subtraction is needed because the ring already has an open
-    // hole for the tail to cross through. ---
-    const tailShape = new THREE.Shape();
-    tailShape.moveTo(-TAIL_STROKE_WIDTH / 2, TAIL_INNER_REACH);
-    tailShape.lineTo(TAIL_STROKE_WIDTH / 2, TAIL_INNER_REACH);
-    tailShape.lineTo(TAIL_STROKE_WIDTH / 2, TAIL_OUTER_REACH);
-    tailShape.lineTo(-TAIL_STROKE_WIDTH / 2, TAIL_OUTER_REACH);
-    tailShape.closePath();
 
-    const tailGeometry = new THREE.ExtrudeGeometry(tailShape, SHARED_EXTRUDE_SETTINGS);
-    // The shape's local +Y axis currently points straight "up" (90°); rotating
-    // it about the shared origin by (TAIL_ANGLE - PI/2) swings that same axis
-    // to point along TAIL_ANGLE instead, so the block now runs from
-    // TAIL_INNER_REACH to TAIL_OUTER_REACH along the 45° diagonal — starting
-    // inside the ring's inner hollow, crossing the wall, and exiting outward.
-    tailGeometry.rotateZ(TAIL_ANGLE - Math.PI / 2);
+  // --- Ring: a flat annulus (outer circle minus inner hole), extruded. ---
+  const ringShape = new THREE.Shape();
+  ringShape.absarc(0, 0, RING_OUTER_RADIUS, 0, Math.PI * 2, false);
 
-    // Merge into a single BufferGeometry (one mesh, one draw call) so the tail
-    // reads as an inseparable part of the ring body rather than a bolted-on
-    // piece — same depth, bevel, and material by construction.
-    const merged = mergeGeometries([ringGeometry, tailGeometry], false);
-    if (!merged) {
-      // mergeGeometries only returns null if attribute layouts mismatch, which
-      // can't happen here since both shapes use the same ExtrudeGeometry
-      // settings — kept as a defensive fallback so a build-time regression
-      // still renders the ring (without its tail) instead of crashing the
-      // canvas outright.
-      // eslint-disable-next-line no-console
-      console.warn(
-        "Q3DCanvas: failed to merge ring and tail geometries (mismatched attribute layout); rendering ring only."
-      );
-      const fallback = ringGeometry.clone();
-      fallback.center();
-      return fallback;
-    }
-    // Both pieces share identical extrude settings, so their z-range is
-    // already identical; simply re-center that shared depth around 0 without
-    // touching x/y (which must stay put — the ring's circular symmetry keeps
-    // it centered, and the tail's radial offset from the origin must not be
-    // disturbed, or it would no longer line up with the ring's hole/wall).
-    merged.translate(0, 0, -EXTRUDE_DEPTH / 2);
-    return merged;
-  }, []);
+  const innerHole = new THREE.Path();
+  innerHole.absarc(0, 0, RING_INNER_RADIUS, 0, Math.PI * 2, true);
+  ringShape.holes.push(innerHole);
+
+  const ringGeometry = new THREE.ExtrudeGeometry(ringShape, SHARED_EXTRUDE_SETTINGS);
+
+  // --- Tail: a straight block built directly along the target radial line,
+  // so it naturally starts inside the hollow and ends past the outer wall —
+  // no boolean subtraction is needed because the ring already has an open
+  // hole for the tail to cross through. ---
+  const tailShape = new THREE.Shape();
+  tailShape.moveTo(-TAIL_STROKE_WIDTH / 2, TAIL_INNER_REACH);
+  tailShape.lineTo(TAIL_STROKE_WIDTH / 2, TAIL_INNER_REACH);
+  tailShape.lineTo(TAIL_STROKE_WIDTH / 2, TAIL_OUTER_REACH);
+  tailShape.lineTo(-TAIL_STROKE_WIDTH / 2, TAIL_OUTER_REACH);
+  tailShape.closePath();
+
+  const tailGeometry = new THREE.ExtrudeGeometry(tailShape, SHARED_EXTRUDE_SETTINGS);
+  // The shape's local +Y axis currently points straight "up" (90°); rotating
+  // it about the shared origin by (TAIL_ANGLE - PI/2) swings that same axis
+  // to point along TAIL_ANGLE instead, so the block now runs from
+  // TAIL_INNER_REACH to TAIL_OUTER_REACH along the 45° diagonal — starting
+  // inside the ring's inner hollow, crossing the wall, and exiting outward.
+  tailGeometry.rotateZ(TAIL_ANGLE - Math.PI / 2);
+
+  // Merge into a single BufferGeometry (one mesh, one draw call) so the tail
+  // reads as an inseparable part of the ring body rather than a bolted-on
+  // piece — same depth, bevel, and material by construction.
+  const merged = mergeGeometries([ringGeometry, tailGeometry], false);
+  if (!merged) {
+    // mergeGeometries only returns null if attribute layouts mismatch, which
+    // can't happen here since both shapes use the same ExtrudeGeometry
+    // settings — kept as a defensive fallback so a build-time regression
+    // still renders the ring (without its tail) instead of crashing the
+    // canvas outright.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "Q3DCanvas: failed to merge ring and tail geometries (mismatched attribute layout); rendering ring only."
+    );
+    const fallback = ringGeometry.clone();
+    fallback.center();
+    sharedLogoGeometry = fallback;
+    return sharedLogoGeometry;
+  }
+  // Both pieces share identical extrude settings, so their z-range is
+  // already identical; simply re-center that shared depth around 0 without
+  // touching x/y (which must stay put — the ring's circular symmetry keeps
+  // it centered, and the tail's radial offset from the origin must not be
+  // disturbed, or it would no longer line up with the ring's hole/wall).
+  merged.translate(0, 0, -EXTRUDE_DEPTH / 2);
+  sharedLogoGeometry = merged;
+  return sharedLogoGeometry;
+}
+
+function QLogo({ scale = 1 }: { scale?: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  const obsidianMirrorMaterial = getObsidianMirrorMaterial();
+  const logoGeometry = getLogoGeometry();
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
