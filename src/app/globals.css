@@ -61,12 +61,15 @@ body {
   --q-logo-size: clamp(100px, 15vmin, 200px);
   width: var(--q-logo-size);
   height: var(--q-logo-size);
-  /* Clearance above as well as below: without it the mark sat flush against the header and
-     its halo was cut off by the section edge. The top value is the smaller of the two on
-     purpose — the glow fading out behind the translucent header reads fine, whereas the
-     headline needs real separation from it. */
-  margin-top: calc(var(--q-logo-size) * 0.3 + clamp(0.5rem, 1.5vh, 1.75rem));
-  margin-bottom: calc(var(--q-logo-size) * 0.55 + clamp(0.75rem, 2vh, 2rem));
+  /* Equal clearance above and below, so the mark reads as centred in its own space rather
+     than pushed against the header. The halo is symmetric around the mark, so matching the
+     two margins is what makes the breathing room look even — and it guarantees the glow has
+     somewhere to fade out at the top even when the stack is taller than the viewport and
+     gets top-aligned. Sized from the measured falloff: the last perceptible light sits
+     about 1.1x the mark's size out, and 0.55 plus the clamp clears its visible edge. */
+  --q-logo-clearance: calc(var(--q-logo-size) * 0.55 + clamp(0.75rem, 2vh, 2rem));
+  margin-top: var(--q-logo-clearance);
+  margin-bottom: var(--q-logo-clearance);
 }
 
 /* Hero shell. Both properties here are stated as a plain baseline plus an @supports
@@ -92,12 +95,12 @@ body {
 /* The hero's vertical rhythm is expressed in vh-based clamps rather than fixed steps, so a
    short laptop viewport tightens the stack automatically (keeping the auth block near the
    fold) while a tall screen keeps the composition open. */
-.hero-lede { margin-bottom: clamp(1.25rem, 4.5vh, 2.5rem); }
+.hero-lede { margin-bottom: clamp(1.25rem, 4vh, 2.5rem); }
 
 .hero-auth-stack {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.75rem, 2.2vh, 1.5rem);
+  gap: clamp(0.75rem, 2vh, 1.5rem);
 }
 
 .rounded-pill { border-radius: 9999px; }
