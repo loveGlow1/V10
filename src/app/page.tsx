@@ -473,7 +473,7 @@ export default function LandingPage() {
                 With the previous <br /> the browser treated both lines as one inline flow and
                 balancing was skipped, which left "Minutes" orphaned on a third line. The size
                 ramp is graded so the green line lands on one row from 1024px up. */}
-            <h1 className="text-balance text-4xl sm:text-5xl md:text-6xl xl:text-7xl 3xl:text-8xl font-bold tracking-tighter leading-[1.05] text-white">
+            <h1 className="text-balance text-3xl md:text-4xl 2xl:text-5xl 3xl:text-6xl font-bold tracking-tighter leading-[1.15] text-white">
               <span className="block metal-shimmer">Build Full-Stack</span>
               <span className="block" style={{ color: "#70F39B" }}>Web &amp; Mobile Apps in Minutes</span>
             </h1>
@@ -508,7 +508,7 @@ export default function LandingPage() {
           <div className="page-shell space-y-12">
             <Reveal className="max-w-3xl">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStart.Ai</p>
-              <h2 className="mt-4 text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white">
+              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
                 QuickStart.Ai helps teams <span className="text-brandGreen">Build Full-Stack Web &amp; Mobile Apps in Minutes</span>.
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
@@ -556,7 +556,7 @@ export default function LandingPage() {
             <Reveal className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">Pricing</p>
-                <h2 className="mt-4 text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white">
+                <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
                   Choose the plan that fits your build velocity.
                 </h2>
                 <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">

@@ -58,7 +58,7 @@ body {
    so the headline reads as a separate block sitting under the mark rather than inside its
    glow. */
 .q-logo-block {
-  --q-logo-size: clamp(100px, 15vmin, 200px);
+  --q-logo-size: clamp(88px, 12vmin, 160px);
   width: var(--q-logo-size);
   height: var(--q-logo-size);
   /* Equal clearance above and below, so the mark reads as centred in its own space rather
