@@ -27,6 +27,16 @@ body {
 .text-brandGreen { color: var(--brandGreen); }
 .text-brandTextSec { color: var(--brandTextSec); }
 .selection\:bg-brandGreen ::selection { background-color: var(--brandGreen); color: #000000; }
+/* The brand colours above are plain hand-written classes, not Tailwind theme colours,
+   so Tailwind cannot synthesise opacity variants of them: the header's `bg-brandBg/60`
+   compiled to nothing and the fixed bar shipped with a backdrop blur but no tint at all,
+   letting page content read straight through it while scrolling. */
+.header-surface { background-color: color-mix(in srgb, var(--brandBg) 72%, transparent); }
+
+@supports not (background-color: color-mix(in srgb, red 50%, transparent)) {
+  .header-surface { background-color: rgba(5, 5, 5, 0.72); }
+}
+
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 
@@ -48,15 +58,24 @@ body {
   position: relative;
 }
 
+/* The sweeping highlight is masked down to the 1px ring so it traces the card edge.
+   It previously relied on `z-index: -1` to sit behind the card, but .glass-card's
+   backdrop-filter makes the card its own stacking context, so a negative z-index
+   child paints *above* the card background — flooding the whole Pro card green. */
 .pro-glow-border::before {
   content: '';
   position: absolute;
   inset: -1px;
-  border-radius: 24px;
-  background: linear-gradient(90deg, transparent, rgba(142, 240, 138, 0.4), transparent);
-  z-index: -1;
+  border-radius: 25px;
+  padding: 1px;
+  background: linear-gradient(90deg, transparent, rgba(142, 240, 138, 0.75), transparent);
   background-size: 200% 100%;
   animation: border-glow 4s linear infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 @keyframes border-glow {

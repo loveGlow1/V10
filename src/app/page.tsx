@@ -277,7 +277,7 @@ const FOOTER_LINK_COLUMNS = [
 ] as const;
 
 const HERO_SECONDARY_ACTION_BUTTON_CLASS =
-  "inline-flex items-center justify-center gap-2 py-4 px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap py-4 px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -454,21 +454,31 @@ export default function LandingPage() {
       <div className="ambient-glow-2" />
       <ParticleCanvas />
 
-      <header className="fixed top-0 left-0 w-full z-50 border-b border-brandBorder bg-brandBg/60 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <a href="#" className="flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStart.Ai Homepage">
-            <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
-            <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStart</span><span className="wordmark-ai">.Ai</span></span>
-          </a>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-brandTextSec">
-            <a href="#features" className="hover:text-white transition-colors duration-200">Features</a>
-            <a href="#workflow" className="hover:text-white transition-colors duration-200">Workflow</a>
-            <a href="#pricing" className="hover:text-white transition-colors duration-200">Pricing</a>
-            <a href="#faq" className="hover:text-white transition-colors duration-200">FAQ</a>
-          </nav>
-          {showGetStartedButton && (
-            <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center bg-white text-black px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-sm">Get Started</button>
-          )}
+      <header className="fixed top-0 left-0 w-full z-50 border-b border-brandBorder header-surface backdrop-blur-xl">
+        {/* px-6 wraps max-w-7xl here (rather than sitting inside it) so the header content
+            column is identical to every <section> below — otherwise the wordmark renders
+            24px further in than the feature/pricing cards it should line up with. */}
+        <div className="px-6">
+          {/* [1fr_auto_1fr] keeps the nav optically centred no matter how wide the logo or
+              the CTA are, and the always-present third column reserves the CTA's space so
+              the nav does not jump sideways when the button mounts on scroll. */}
+          <div className="max-w-7xl mx-auto h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStart.Ai Homepage">
+              <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
+              <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStart</span><span className="wordmark-ai">.Ai</span></span>
+            </a>
+            <nav className="hidden md:flex justify-self-center items-center gap-8 text-sm font-medium text-brandTextSec">
+              <a href="#features" className="hover:text-white transition-colors duration-200">Features</a>
+              <a href="#workflow" className="hover:text-white transition-colors duration-200">Workflow</a>
+              <a href="#pricing" className="hover:text-white transition-colors duration-200">Pricing</a>
+              <a href="#faq" className="hover:text-white transition-colors duration-200">FAQ</a>
+            </nav>
+            <div className="justify-self-end">
+              {showGetStartedButton && (
+                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-white text-black px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-sm">Get Started</button>
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
@@ -481,10 +491,16 @@ export default function LandingPage() {
             </div>
           </section>
         )}
-        <section className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden pb-16">
+        {/* min-h is the viewport minus the 5rem fixed header that <main> already offsets with
+            pt-20. Using a bare min-h-screen made the hero 100vh *below* the header, which both
+            pushed the block optically low and overflowed the fold on 900px/800px-tall laptops. */}
+        <section className="min-h-[calc(100vh-5rem)] flex flex-col items-center justify-center px-6 relative overflow-hidden pb-16">
           {/* 3D logo with oval spotlight backdrop */}
+          {/* Spacing under the mark scales with viewport *height*, not width: the tall-screen
+              value keeps the composition airy, while short laptop viewports (720-800px) get a
+              tighter gap so the auth block still lands above the fold. */}
           <div
-            className="relative mt-4 mb-20 flex items-center justify-center overflow-visible"
+            className="relative mt-2 mb-8 lg:mb-10 [@media(min-height:900px)]:mb-16 flex items-center justify-center overflow-visible"
             style={{ width: 144, height: 144 }}
           >
             <div
@@ -497,8 +513,8 @@ export default function LandingPage() {
           </div>
 
           {/* Headline */}
-          <div className="max-w-4xl text-center mx-auto mb-4 z-20 reveal-element active">
-            <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold tracking-tighter leading-[1.05] text-white">
+          <div className="max-w-4xl lg:max-w-6xl text-center mx-auto mb-10 z-20 reveal-element active">
+            <h1 className="text-balance text-4xl sm:text-6xl md:text-7xl font-bold tracking-tighter leading-[1.05] text-white">
               <span className="metal-shimmer">Build Full-Stack</span>
               <br />
               <span style={{ color: "#70F39B" }}>Web &amp; Mobile Apps in Minutes</span>
@@ -506,7 +522,7 @@ export default function LandingPage() {
           </div>
 
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
-          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md mx-auto z-20 reveal-element active">
+          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg mx-auto z-20 reveal-element active">
             <div className="space-y-6">
               <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:bg-brandGreen hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
@@ -552,7 +568,7 @@ export default function LandingPage() {
               </div>
             </Reveal>
 
-            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map((feature) => {
                 const Icon = feature.icon;
 
@@ -590,35 +606,43 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div className="inline-flex items-center rounded-pill border border-brandBorder bg-brandSurface p-1 text-sm">
-                <button type="button" className="rounded-pill bg-white px-4 py-2 font-semibold text-black">
+              <div className="inline-flex shrink-0 items-center self-start rounded-pill border border-brandBorder bg-brandSurface p-1 text-sm lg:self-auto">
+                <button type="button" className="whitespace-nowrap rounded-pill bg-white px-4 py-2 font-semibold text-black">
                   Monthly
                 </button>
-                <button type="button" disabled className="rounded-pill px-4 py-2 font-semibold text-white/45">
+                <button type="button" disabled className="whitespace-nowrap rounded-pill px-4 py-2 font-semibold text-white/45">
                   Annual Soon
                 </button>
               </div>
             </Reveal>
 
-            <div className="grid gap-6 xl:grid-cols-3">
+            <div className="grid gap-6 lg:grid-cols-3">
               {PRICING_TIERS.map((tier) => {
                 const Icon = tier.icon;
 
                 return (
                   <Reveal key={tier.name} className="h-full">
                     <article
-                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 bg-brandSurfaceAccent shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] xl:-translate-y-3" : ""}`}
+                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 bg-brandSurfaceAccent shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
                     >
-                      {tier.highlight && (
-                        <span className="mb-6 inline-flex w-fit rounded-pill border border-brandGreen/30 bg-brandGreen/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-brandGreen">
-                          Most Popular
-                        </span>
-                      )}
+                      {/* The badge row is rendered for every tier (hidden, not omitted, on the
+                          non-highlighted ones) so plan names, prices, feature lists and CTAs
+                          share a baseline across the row. */}
+                      <span
+                        aria-hidden={!tier.highlight}
+                        className={`mb-6 inline-flex w-fit rounded-pill border px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${tier.highlight ? "border-brandGreen/30 bg-brandGreen/10 text-brandGreen" : "invisible border-transparent"}`}
+                      >
+                        Most Popular
+                      </span>
 
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <h3 className="text-2xl font-semibold text-white">{tier.name}</h3>
-                          <p className="mt-3 text-sm leading-relaxed text-brandTextSec">{tier.description}</p>
+                          {/* In the 1024-1279px band the three descriptions wrap to different line
+                              counts, which pushed each card's price row to a different height.
+                              Reserving the tallest (5 lines x 1.625 leading = 8.125em) keeps the
+                              prices, feature lists and CTAs on a shared baseline across the row. */}
+                          <p className="mt-3 text-sm leading-relaxed text-brandTextSec lg:min-h-[8.125em] xl:min-h-0">{tier.description}</p>
                         </div>
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brandBorder bg-brandSurface text-brandGreen">
                           <Icon className="h-5 w-5" />
@@ -661,8 +685,8 @@ export default function LandingPage() {
       </main>
 
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
-        <div className="max-w-7xl mx-auto flex flex-col gap-12 lg:flex-row lg:items-start lg:justify-between">
-          <Reveal className="max-w-sm">
+        <div className="max-w-7xl mx-auto flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
+          <Reveal className="max-w-sm xl:max-w-xs">
             <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus:ring-2 focus:ring-brandGreen/40" aria-label="QuickStart.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
                 <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" />
@@ -676,7 +700,7 @@ export default function LandingPage() {
             </p>
           </Reveal>
 
-          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
             {FOOTER_LINK_COLUMNS.map((column) => (
               <Reveal key={column.title}>
                 <div>
@@ -697,7 +721,7 @@ export default function LandingPage() {
             <Reveal>
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/80">Social</h3>
-                <div className="mt-4 flex flex-wrap gap-3">
+                <div className="mt-4 flex flex-wrap gap-2">
                   {[
                     { label: "GitHub", icon: GitHubIcon },
                     { label: "X", icon: X },
@@ -711,7 +735,7 @@ export default function LandingPage() {
                         key={social.label}
                         href="#"
                         aria-label={social.label}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-white/70 transition-all duration-300 hover:border-brandGreen/40 hover:text-brandGreen"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-white/70 transition-all duration-300 hover:border-brandGreen/40 hover:text-brandGreen"
                       >
                         <Icon className="h-4 w-4" />
                       </a>
