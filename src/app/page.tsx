@@ -497,13 +497,10 @@ export default function LandingPage() {
             svh (where supported) measures the viewport with mobile browser chrome *expanded*,
             so the auth block is not left under Safari's toolbars on a phone; vh stays as the
             fallback for browsers without svh. */}
-        {/* overflow-x-clip rather than overflow-hidden: the mark's halo reaches well above the
-            mark itself, and a plain overflow-hidden sliced it off flat against the header. Clip
-            only the horizontal axis so the glow can fade out behind the translucent header
-            instead of being cut. `safe center` keeps the stack centred while there is room, but
-            falls back to top-aligned once it is taller than the viewport, so the top of the mark
-            can never end up above the scroll position and out of reach. */}
-        <section className="min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center [justify-content:safe_center] px-6 relative overflow-x-clip pb-12 sm:pb-16">
+        {/* .hero-shell carries the centring and the horizontal-only clip (see globals.css):
+            the mark's halo reaches well above the mark itself, and the previous overflow-hidden
+            sliced it off flat against the header, so only the inline axis may be clipped. */}
+        <section className="hero-shell min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center px-6 relative pb-12 sm:pb-16">
           {/* 3D logo with oval spotlight backdrop */}
           <div className="q-logo-block relative flex items-center justify-center overflow-visible">
             <div
