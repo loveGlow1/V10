@@ -3,12 +3,27 @@
 @tailwind utilities;
 
 :root {
-  --brandBg: #050505;
-  --brandSurface: #0f0f0f;
-  --brandSurfaceAccent: #151515;
+  /* Brand colours are defined once, as bare `R G B` channel triplets, so that Tailwind
+     can compose opacity variants of them. Tailwind builds a variant like `bg-brandBg/72`
+     by substituting an alpha channel into the colour, which it can only do if the colour
+     is spelled as channels; a hex literal behind a `var()` gives it nothing to slot the
+     alpha into and the class silently compiles to nothing. tailwind.config.js reads the
+     `*-rgb` triplets; the `--brand*` values below wrap them back into ready-to-use
+     colours for the hand-written CSS in this file, so both spellings share one source. */
+  --brandBg-rgb: 5 5 5;
+  --brandSurface-rgb: 15 15 15;
+  --brandSurfaceAccent-rgb: 21 21 21;
+  --brandGreen-rgb: 142 240 138;
+  --brandTextSec-rgb: 161 161 170;
+
+  --brandBg: rgb(var(--brandBg-rgb));
+  --brandSurface: rgb(var(--brandSurface-rgb));
+  --brandSurfaceAccent: rgb(var(--brandSurfaceAccent-rgb));
+  --brandGreen: rgb(var(--brandGreen-rgb));
+  --brandTextSec: rgb(var(--brandTextSec-rgb));
+  /* Carries its own alpha, so it is not a channel triplet: it is used as a flat border
+     tint and never takes an opacity variant. */
   --brandBorder: rgba(255, 255, 255, 0.08);
-  --brandGreen: #8EF08A;
-  --brandTextSec: #a1a1aa;
 }
 
 body {
@@ -17,24 +32,6 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   margin: 0;
   padding: 0;
-}
-
-.bg-brandBg { background-color: var(--brandBg); }
-.bg-brandSurface { background-color: var(--brandSurface); }
-.bg-brandSurfaceAccent { background-color: var(--brandSurfaceAccent); }
-.border-brandBorder { border-color: var(--brandBorder); }
-.bg-brandGreen { background-color: var(--brandGreen); }
-.text-brandGreen { color: var(--brandGreen); }
-.text-brandTextSec { color: var(--brandTextSec); }
-.selection\:bg-brandGreen ::selection { background-color: var(--brandGreen); color: #000000; }
-/* The brand colours above are plain hand-written classes, not Tailwind theme colours,
-   so Tailwind cannot synthesise opacity variants of them: the header's `bg-brandBg/60`
-   compiled to nothing and the fixed bar shipped with a backdrop blur but no tint at all,
-   letting page content read straight through it while scrolling. */
-.header-surface { background-color: color-mix(in srgb, var(--brandBg) 72%, transparent); }
-
-@supports not (background-color: color-mix(in srgb, red 50%, transparent)) {
-  .header-surface { background-color: rgba(5, 5, 5, 0.72); }
 }
 
 /* One content column shared by the header, every section and the footer, so they all
@@ -103,33 +100,39 @@ body {
   gap: clamp(0.75rem, 2vh, 1.5rem);
 }
 
-/* Selected row in the capability list. The brand colours are plain hand-written classes
-   rather than Tailwind theme colours, so an opacity variant like `border-brandGreen/40`
-   compiles to nothing — the tinted border has to be stated outright. */
-.capability-active {
-  background-color: var(--brandSurface);
-  border-color: color-mix(in srgb, var(--brandGreen) 42%, transparent);
-}
-
-@supports not (background-color: color-mix(in srgb, red 50%, transparent)) {
-  .capability-active { border-color: rgba(142, 240, 138, 0.42); }
+/* Short viewports — a small phone in portrait, a phone in landscape, or a desktop browser
+   in a shallow window — do not have the vertical budget for the hero's full rhythm, and the
+   last auth row was landing under the fold (56px under at 375x600, 42px at 360x640, 8px at
+   1280x610). The mark derives its own clearance from --q-logo-size, so stepping that one
+   token down carries the halo gap down with it in proportion and the clearance stays as
+   wide relative to the mark as the measured falloff requires. The stack gap tightens in
+   step; both are vertical rhythm rather than content, so this costs no legibility. */
+@media (max-height: 700px) {
+  .q-logo-block { --q-logo-size: clamp(60px, 10vmin, 104px); }
+  .hero-auth-stack { gap: 0.5rem; }
 }
 
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 
-.glass-card {
-  background: rgba(16, 16, 16, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--brandBorder);
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
+/* In the components layer, not as plain CSS after `@tailwind utilities`, so a utility on
+   the element still wins. As a plain rule the `border` shorthand here re-set the colour
+   after Tailwind had run, which is why the Pro tier's `border-brandGreen/40` rendered as
+   the default hairline instead of green. */
+@layer components {
+  .glass-card {
+    background: rgba(16, 16, 16, 0.65);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--brandBorder);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
 
-.glass-card:hover {
-  border-color: rgba(142, 240, 138, 0.3);
-  transform: translateY(-6px);
-  box-shadow: 0 20px 40px -15px rgba(142, 240, 138, 0.12);
+  .glass-card:hover {
+    border-color: rgba(142, 240, 138, 0.3);
+    transform: translateY(-6px);
+    box-shadow: 0 20px 40px -15px rgba(142, 240, 138, 0.12);
+  }
 }
 
 /* `isolation: isolate` makes the card its own stacking context unconditionally, so the

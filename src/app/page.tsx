@@ -410,7 +410,7 @@ export default function LandingPage() {
       <div className="ambient-glow-2" />
       <ParticleCanvas />
 
-      <header className="fixed top-0 left-0 w-full z-50 border-b border-brandBorder header-surface backdrop-blur-xl">
+      <header className="fixed top-0 left-0 w-full z-50 border-b border-brandBorder bg-brandBg/[0.72] backdrop-blur-xl">
         {/* px-6 wraps max-w-7xl here (rather than sitting inside it) so the header content
             column is identical to every <section> below — otherwise the wordmark renders
             24px further in than the feature/pricing cards it should line up with. */}
@@ -533,7 +533,7 @@ export default function LandingPage() {
                         key={feature.title}
                         className={!isActive && index < FEATURES.length - 1 ? "border-b border-brandBorder" : ""}
                       >
-                        <div className={isActive ? "capability-active rounded-premium border p-5 sm:p-6" : ""}>
+                        <div className={isActive ? "rounded-premium border border-brandGreen/40 bg-brandSurface p-5 sm:p-6" : ""}>
                           <button
                             type="button"
                             onClick={() => setActiveFeature(index)}
@@ -605,7 +605,7 @@ export default function LandingPage() {
                 return (
                   <Reveal key={tier.name} className="h-full">
                     <article
-                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 bg-brandSurfaceAccent shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
+                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
                     >
                       {/* The badge row is rendered for every tier (hidden, not omitted, on the
                           non-highlighted ones) so plan names, prices, feature lists and CTAs
@@ -750,7 +750,6 @@ export default function LandingPage() {
         @keyframes slow-drift-2 { 0% { transform: translate(0, 0) scale(1.1); } 100% { transform: translate(-60px, 50px) scale(0.9); } }
         .reveal-element { opacity: 0; transform: translateY(30px) scale(0.97); filter: blur(8px); transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
         .reveal-element.active { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-        .glass-card { background: rgba(16, 16, 16, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.06); }
       `}</style>
     </div>
   );
