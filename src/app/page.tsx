@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
 import LoginModal, { FacebookIcon, GoogleIcon, PROVIDER_ICON_CLASS, ProviderButton } from "./LoginModal";
 import Q3DCanvas from "./Q3DCanvas";
@@ -16,8 +15,6 @@ import {
   Zap,
   Layout,
   Server,
-  Database,
-  ShieldCheck,
   Cpu,
   Check,
   ChevronDown,
@@ -129,13 +126,31 @@ function ParticleCanvas() {
   return <canvas ref={canvasRef} id="particle-canvas" className="fixed inset-0 pointer-events-none z-[2] opacity-40" />;
 }
 
+/* Three pillars, each with its own panel on the right. The list consolidates what used
+   to be six rows: six titles beside one static image made the section long and gave the
+   visual nothing to say, since it never changed. */
 const FEATURES = [
-  { icon: Zap, title: "AI Full Stack Generation", desc: "Generate user-interfaces, structural databases, route endpoints, third-party authentication protocols, and edge APIs dynamically from one single baseline prompt.", tag: "Autonomous Architecture" },
-  { icon: Layout, title: "Frontend Engine", desc: "Beautiful layouts compiled using Next.js 15, Tailwind, and React 19. Perfectly customized components natively designed to match standard screen resolutions dynamically.", tag: "Next.js 15 & React 19" },
-  { icon: Server, title: "Sovereign Backend", desc: "Engineered Node.js, Express, and Serverless API structures. Type-safe routing controls, absolute payload validations, dynamic load balancing, and secure headers.", tag: "Type-safe endpoints" },
-  { icon: Database, title: "Database Integration", desc: "Structured SQL/NoSQL schema schemas automatically constructed. Deep-link models to Supabase, Postgres, Firebase, or complex remote Vector Databases.", tag: "PostgreSQL & Supabase" },
-  { icon: ShieldCheck, title: "Enterprise Authentication", desc: "Out-of-the-box user management. Integrate secure multi-factor MFA, JSON Web Tokens (JWT), biometric passkeys, NextAuth setups, or OAuth profiles seamlessly.", tag: "Zero-trust security" },
-  { icon: Cpu, title: "AI Agents & Workflows", desc: "Embed complex autonomous systems into your software application. Orchestrate background processors, webhooks, Vector memory searches, and Stripe-enabled actions.", tag: "Autonomous workflows" },
+  {
+    icon: Layout,
+    title: "Build web and mobile apps",
+    desc: "Turn a single prompt into production interfaces — Next.js 15, React 19 and Tailwind components that fit every screen and deploy the moment they compile.",
+    image: "/feature-apps.svg",
+    alt: "A generated web app shown in a browser window alongside its mobile layout",
+  },
+  {
+    icon: Server,
+    title: "Build secure backends",
+    desc: "Type-safe routes, validated payloads and schema-perfect SQL or NoSQL models, wired to Supabase, Postgres or Firebase with authentication already in place.",
+    image: "/feature-backend.svg",
+    alt: "Generated API endpoints connected to a database and its schema",
+  },
+  {
+    icon: Cpu,
+    title: "Build AI agents and workflows",
+    desc: "Embed autonomous systems in your product — background processors, webhooks, vector memory and Stripe-enabled actions that keep running without you.",
+    image: "/feature-agents.svg",
+    alt: "A grid of configurable AI agents, one of them selected",
+  },
 ];
 
 const SHOW_SUPABASE_CONFIG_WARNING =
@@ -550,7 +565,6 @@ export default function LandingPage() {
                           {isActive && (
                             <div id={panelId}>
                               <p className="mt-3 text-sm leading-relaxed text-brandTextSec sm:text-base">{feature.desc}</p>
-                              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.22em] text-brandGreen">{feature.tag}</p>
                             </div>
                           )}
                         </div>
@@ -560,15 +574,22 @@ export default function LandingPage() {
                 </ul>
               </Reveal>
 
+              {/* All three panels are rendered and cross-faded rather than swapped, so
+                  selecting a row never shows an empty frame while its image decodes. They
+                  are static SVG — a few kB each, resolution-independent, and nothing a
+                  raster optimiser could improve — so a plain <img> is the right element. */}
               <Reveal>
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-premium border border-brandBorder bg-brandSurface">
-                  <Image
-                    src="/product-showcase.jpg"
-                    alt="QuickStart.Ai generating an application across desktop and mobile"
-                    fill
-                    sizes="(min-width: 1024px) 50vw, 100vw"
-                    className="object-cover"
-                  />
+                  {FEATURES.map((feature, index) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={feature.title}
+                      src={feature.image}
+                      alt={feature.alt}
+                      aria-hidden={index !== activeFeature}
+                      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${index === activeFeature ? "opacity-100" : "opacity-0"}`}
+                    />
+                  ))}
                 </div>
               </Reveal>
             </div>
