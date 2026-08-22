@@ -498,7 +498,7 @@ export default function LandingPage() {
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
           <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element active">
             <div className="hero-auth-stack">
-              <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:bg-brandGreen hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-lg group">
+              <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
                 <span>Continue with Google</span>
               </ProviderButton>
