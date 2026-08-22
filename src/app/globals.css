@@ -69,6 +69,26 @@ body {
   margin-bottom: calc(var(--q-logo-size) * 0.55 + clamp(0.75rem, 2vh, 2rem));
 }
 
+/* Hero shell. Both properties here are stated as a plain baseline plus an @supports
+   upgrade, because as bare Tailwind utilities they were single declarations that older
+   engines drop entirely:
+   - `safe center` only lands in Safari 16.4; without a fallback the whole declaration is
+     discarded and the hero silently reverts to flex-start (pinned to the top with dead
+     space beneath it). Plain `center` is the floor, `safe center` the upgrade.
+   - `overflow-x: clip` needs Safari 16. Where it is missing the axis simply stays visible,
+     which is the safe direction — the hero measures 0 horizontal overflow at every
+     viewport. It must never fall back to `overflow-x: hidden`: that forces the block axis
+     to become a scroll container, which is exactly what was slicing the mark's halo. */
+.hero-shell { justify-content: center; }
+
+@supports (justify-content: safe center) {
+  .hero-shell { justify-content: safe center; }
+}
+
+@supports (overflow: clip) {
+  .hero-shell { overflow-x: clip; }
+}
+
 /* The hero's vertical rhythm is expressed in vh-based clamps rather than fixed steps, so a
    short laptop viewport tightens the stack automatically (keeping the auth block near the
    fold) while a tall screen keeps the composition open. */
