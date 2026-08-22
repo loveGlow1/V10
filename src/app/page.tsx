@@ -497,7 +497,13 @@ export default function LandingPage() {
             svh (where supported) measures the viewport with mobile browser chrome *expanded*,
             so the auth block is not left under Safari's toolbars on a phone; vh stays as the
             fallback for browsers without svh. */}
-        <section className="min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center justify-center px-6 relative overflow-hidden pb-12 sm:pb-16">
+        {/* overflow-x-clip rather than overflow-hidden: the mark's halo reaches well above the
+            mark itself, and a plain overflow-hidden sliced it off flat against the header. Clip
+            only the horizontal axis so the glow can fade out behind the translucent header
+            instead of being cut. `safe center` keeps the stack centred while there is room, but
+            falls back to top-aligned once it is taller than the viewport, so the top of the mark
+            can never end up above the scroll position and out of reach. */}
+        <section className="min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center [justify-content:safe_center] px-6 relative overflow-x-clip pb-12 sm:pb-16">
           {/* 3D logo with oval spotlight backdrop */}
           <div className="q-logo-block relative flex items-center justify-center overflow-visible">
             <div
@@ -510,7 +516,7 @@ export default function LandingPage() {
           </div>
 
           {/* Headline */}
-          <div className="max-w-4xl lg:max-w-6xl 3xl:max-w-[96rem] text-center mx-auto mb-6 sm:mb-10 z-20 reveal-element active">
+          <div className="max-w-4xl lg:max-w-6xl 3xl:max-w-[96rem] text-center mx-auto hero-lede z-20 reveal-element active">
             {/* Each line is its own block so `text-balance` can even out its wrap on its own.
                 With the previous <br /> the browser treated both lines as one inline flow and
                 balancing was skipped, which left "Minutes" orphaned on a third line. The size
@@ -523,7 +529,7 @@ export default function LandingPage() {
 
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
           <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element active">
-            <div className="space-y-4 sm:space-y-6">
+            <div className="hero-auth-stack">
               <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:bg-brandGreen hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
                 <span>Continue with Google</span>
