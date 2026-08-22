@@ -103,6 +103,18 @@ body {
   gap: clamp(0.75rem, 2vh, 1.5rem);
 }
 
+/* Selected row in the capability list. The brand colours are plain hand-written classes
+   rather than Tailwind theme colours, so an opacity variant like `border-brandGreen/40`
+   compiles to nothing — the tinted border has to be stated outright. */
+.capability-active {
+  background-color: var(--brandSurface);
+  border-color: color-mix(in srgb, var(--brandGreen) 42%, transparent);
+}
+
+@supports not (background-color: color-mix(in srgb, red 50%, transparent)) {
+  .capability-active { border-color: rgba(142, 240, 138, 0.42); }
+}
+
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 

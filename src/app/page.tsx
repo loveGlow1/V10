@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
 import LoginModal, { FacebookIcon, GoogleIcon, PROVIDER_ICON_CLASS, ProviderButton } from "./LoginModal";
 import Q3DCanvas from "./Q3DCanvas";
@@ -137,7 +138,6 @@ const FEATURES = [
   { icon: Cpu, title: "AI Agents & Workflows", desc: "Embed complex autonomous systems into your software application. Orchestrate background processors, webhooks, Vector memory searches, and Stripe-enabled actions.", tag: "Autonomous workflows" },
 ];
 
-const TECH_TAGS = ["React", "Next.js", "Flutter", "Stripe", "PostgreSQL", "Vector Databases", "GitHub Integration", "One Click Deploy"];
 const SHOW_SUPABASE_CONFIG_WARNING =
   !isSupabaseConfigured &&
   (process.env.NODE_ENV !== "production" ||
@@ -240,6 +240,7 @@ export default function LandingPage() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalInitialStep, setAuthModalInitialStep] = useState<"options" | "email" | "phone" | "signin">("options");
   const [showGetStartedButton, setShowGetStartedButton] = useState(false);
+  const [activeFeature, setActiveFeature] = useState(0);
   const heroAuthButtonsRowRef = useRef<HTMLDivElement | null>(null);
 
   // Redirect already-authenticated users straight to the dashboard.
@@ -506,47 +507,70 @@ export default function LandingPage() {
 
         <section id="features" className="px-6 py-24">
           <div className="page-shell space-y-12">
-            <Reveal className="max-w-3xl">
+            <Reveal className="mx-auto max-w-3xl text-center">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStart.Ai</p>
               <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
-                QuickStart.Ai helps teams <span className="text-brandGreen">Build Full-Stack Web &amp; Mobile Apps in Minutes</span>.
+                What can QuickStart.Ai do for you?
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
                 Instantly generate native mobile applications, progressive web apps, production APIs, schema-perfect databases, authentication architectures, AI agents, secure cloud storage, and fully automated deployment configurations using simple natural language.
               </p>
             </Reveal>
 
-            <Reveal>
-              <div className="flex flex-wrap gap-3">
-                {TECH_TAGS.map((tag) => (
-                  <span key={tag} className="rounded-pill border border-brandBorder bg-brandSurface px-4 py-2 text-sm font-medium text-white/80">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </Reveal>
+            <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
+              {/* Capability list: the selected row opens to reveal its description, the rest
+                  stay as single title rows separated by a hairline. */}
+              <Reveal>
+                <ul className="flex flex-col">
+                  {FEATURES.map((feature, index) => {
+                    const Icon = feature.icon;
+                    const isActive = index === activeFeature;
+                    const panelId = `feature-panel-${index}`;
 
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURES.map((feature) => {
-                const Icon = feature.icon;
+                    return (
+                      // The hairline separates rows, so the last one never carries it.
+                      <li
+                        key={feature.title}
+                        className={!isActive && index < FEATURES.length - 1 ? "border-b border-brandBorder" : ""}
+                      >
+                        <div className={isActive ? "capability-active rounded-premium border p-5 sm:p-6" : ""}>
+                          <button
+                            type="button"
+                            onClick={() => setActiveFeature(index)}
+                            aria-expanded={isActive}
+                            aria-controls={panelId}
+                            className={`flex w-full items-center gap-3 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen ${isActive ? "" : "py-5 hover:text-white"}`}
+                          >
+                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-brandGreen" : "text-white/60"}`} />
+                            <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isActive ? "text-brandGreen" : "text-white/85"}`}>
+                              {feature.title}
+                            </span>
+                          </button>
 
-                return (
-                  <Reveal key={feature.title}>
-                    <article className="glass-card rounded-premium h-full p-6 sm:p-7">
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brandBorder bg-brandSurfaceAccent text-brandGreen">
-                          <Icon className="h-5 w-5" />
+                          {isActive && (
+                            <div id={panelId}>
+                              <p className="mt-3 text-sm leading-relaxed text-brandTextSec sm:text-base">{feature.desc}</p>
+                              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.22em] text-brandGreen">{feature.tag}</p>
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-3">
-                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brandGreen/80">{feature.tag}</p>
-                          <h3 className="text-xl font-semibold text-white">{feature.title}</h3>
-                          <p className="text-sm leading-relaxed text-brandTextSec">{feature.desc}</p>
-                        </div>
-                      </div>
-                    </article>
-                  </Reveal>
-                );
-              })}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Reveal>
+
+              <Reveal>
+                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-premium border border-brandBorder bg-brandSurface">
+                  <Image
+                    src="/product-showcase.jpg"
+                    alt="QuickStart.Ai generating an application across desktop and mobile"
+                    fill
+                    sizes="(min-width: 1024px) 50vw, 100vw"
+                    className="object-cover"
+                  />
+                </div>
+              </Reveal>
             </div>
           </div>
         </section>
