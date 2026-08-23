@@ -134,22 +134,22 @@ const FEATURES = [
     icon: Layout,
     title: "Build web and mobile apps",
     desc: "Turn a single prompt into production interfaces — Next.js 15, React 19 and Tailwind components that fit every screen and deploy the moment they compile.",
-    image: "/feature-apps.svg",
-    alt: "A generated web app shown in a browser window alongside its mobile layout",
+    image: "/feature-apps.jpg",
+    alt: "A generated reading app running in a desktop browser beside its mobile layout",
   },
   {
     icon: Server,
     title: "Build secure backends",
     desc: "Type-safe routes, validated payloads and schema-perfect SQL or NoSQL models, wired to Supabase, Postgres or Firebase with authentication already in place.",
-    image: "/feature-backend.svg",
-    alt: "Generated API endpoints connected to a database and its schema",
+    image: "/feature-backend.jpg",
+    alt: "A phone toggling connections to an MCP server, a knowledge base and GitHub",
   },
   {
     icon: Cpu,
     title: "Build AI agents and workflows",
     desc: "Embed autonomous systems in your product — background processors, webhooks, vector memory and Stripe-enabled actions that keep running without you.",
-    image: "/feature-agents.svg",
-    alt: "A grid of configurable AI agents, one of them selected",
+    image: "/feature-agents.jpg",
+    alt: "A grid of AI agents covering research, writing, everyday tasks and custom roles",
   },
 ];
 
@@ -575,9 +575,9 @@ export default function LandingPage() {
               </Reveal>
 
               {/* All three panels are rendered and cross-faded rather than swapped, so
-                  selecting a row never shows an empty frame while its image decodes. They
-                  are static SVG — a few kB each, resolution-independent, and nothing a
-                  raster optimiser could improve — so a plain <img> is the right element. */}
+                  selecting a row never shows an empty frame while its image decodes. A plain
+                  <img> keeps all three in the markup at once, which the optimiser's one-image
+                  -per-render model does not express. */}
               <Reveal>
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-premium border border-brandBorder bg-brandSurface">
                   {FEATURES.map((feature, index) => (
