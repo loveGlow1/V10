@@ -16,6 +16,7 @@ import {
   Layout,
   Server,
   Cpu,
+  ArrowRight,
   Check,
   ChevronDown,
   X,
@@ -774,6 +775,40 @@ export default function LandingPage() {
               </div>
             </Reveal>
           </div>
+        </section>
+
+        {/* Closing call to action. Full-bleed rather than a card: this is the last thing
+            before the footer, and the sky reads as an ending only when it runs edge to
+            edge. The button is the same openAuthModal() the header and pricing CTAs
+            call, so every "Get Started" on the page opens the same door. */}
+        <section id="get-started" className="cta-skyline relative overflow-hidden px-6 py-24 text-center">
+          <Reveal className="page-shell flex flex-col items-center">
+            {/* Not .wordmark-quickstart here: its silver gradient is cut for the near-black
+                page and greys out against a bright sky. Solid white holds, and .Ai keeps the
+                green so the mark still reads as itself. */}
+            <span className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(12,40,72,0.5)]">
+              QuickStart<span className="wordmark-ai">.Ai</span>
+            </span>
+
+            <h2 className="mt-8 max-w-4xl text-balance text-3xl font-bold leading-[1.15] tracking-tighter text-white drop-shadow-[0_4px_24px_rgba(12,40,72,0.45)] md:text-4xl 2xl:text-5xl 3xl:text-6xl">
+              <span className="block">Start building</span>
+              <span className="block">on QuickStart.Ai today.</span>
+            </h2>
+
+            <p className="mt-6 max-w-xl text-base leading-relaxed text-white/90 drop-shadow-[0_2px_12px_rgba(12,40,72,0.45)] sm:text-lg">
+              Turn your ideas into fully functional apps — faster than ever.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => openAuthModal()}
+              className="group mt-10 inline-flex items-center justify-center gap-3 whitespace-nowrap rounded-pill bg-white px-8 py-4 text-base font-semibold text-black shadow-[0_18px_40px_-18px_rgba(12,40,72,0.7)] transition-all duration-300 hover:scale-[1.02] hover:bg-brandGreen focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            >
+              <span>Get Started</span>
+              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+            </button>
+
+          </Reveal>
         </section>
       </main>
 

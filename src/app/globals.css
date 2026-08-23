@@ -112,6 +112,23 @@ body {
   .hero-auth-stack { gap: 0.5rem; }
 }
 
+/* The closing call to action paints its own sky. A photograph can be dropped in at
+   /cta-backdrop.jpg and it layers over the top with no code change; the gradients stay
+   underneath as the shipped default, so a missing file leaves a finished panel rather
+   than a blank one. The horizon sits where the green meets the blue. */
+.cta-skyline {
+  background-color: #4c9fdc;
+  background-image:
+    url('/cta-backdrop.jpg'),
+    radial-gradient(78% 46% at 50% 112%, #2c7a3c 0%, #47a053 46%, rgba(71, 160, 83, 0) 78%),
+    radial-gradient(60% 30% at 22% 18%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 60%),
+    radial-gradient(52% 26% at 82% 34%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, #1c68c4 0%, #3f92d8 38%, #86c4ea 66%, #bfe0f4 82%, #7fb45f 100%);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+}
+
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 
