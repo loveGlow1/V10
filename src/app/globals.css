@@ -112,21 +112,6 @@ body {
   .hero-auth-stack { gap: 0.5rem; }
 }
 
-/* The narrow-screen fallback for the closing call to action, where /page.png's baked-in
-   type would be too small to read. Sky, horizon and grass, painted so the live text above
-   it lands on the same scene the artwork shows. */
-.cta-skyline {
-  background-color: #4c9fdc;
-  background-image:
-    radial-gradient(78% 46% at 50% 112%, #2c7a3c 0%, #47a053 46%, rgba(71, 160, 83, 0) 78%),
-    radial-gradient(60% 30% at 22% 18%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 60%),
-    radial-gradient(52% 26% at 82% 34%, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0) 62%),
-    linear-gradient(180deg, #1c68c4 0%, #3f92d8 38%, #86c4ea 66%, #bfe0f4 82%, #7fb45f 100%);
-  background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center;
-}
-
 .rounded-pill { border-radius: 9999px; }
 .rounded-premium { border-radius: 24px; }
 

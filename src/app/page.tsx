@@ -17,7 +17,6 @@ import {
   Layout,
   Server,
   Cpu,
-  ArrowRight,
   Check,
   ChevronDown,
   X,
@@ -778,55 +777,37 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Closing call to action. The artwork at /page.png is the whole composition —
-            wordmark, headline, promise and a painted button — so nothing is drawn over it;
-            a transparent hotspot sits on the painted button instead, sized as a percentage
-            of the image so it tracks the button at every width. Below sm the baked-in type
-            is too small to read, so the same offer is rebuilt in live text. */}
+        {/* Closing call to action, built on the composed artwork at /page.png — wordmark,
+            headline, promise and a painted button are all in the image, so nothing is drawn
+            over it. Narrow screens crop in rather than swap to different markup: the frame
+            turns square, the artwork keeps its own 16:9 inside it, and the sides are clipped
+            evenly. 56% of the width stays visible, which clears the headline's 50% reach, and
+            the type lands close to twice the size it would if the whole width were squeezed
+            into a phone. The corner marks are the only thing the crop loses. Every figure
+            here — including the hotspot, a percentage of the artwork rather than of the
+            frame, so cropping moves it with the painted button — is measured off the file
+            and has to be re-measured whenever the artwork is replaced. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative hidden sm:block">
-            <Image
-              src="/page.png"
-              alt="Start building on QuickStart.Ai today — turn your ideas into fully functional apps, faster than ever."
-              width={1536}
-              height={1024}
-              sizes="100vw"
-              className="h-auto w-full"
-            />
-            <button
-              type="button"
-              onClick={() => openAuthModal("email")}
-              style={{ left: "41.15%", top: "44.43%", width: "17.71%", height: "6.93%" }}
-              className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
-            >
-              <span className="sr-only">Get Started</span>
-            </button>
-          </div>
-
-          <div className="cta-skyline px-6 py-20 text-center sm:hidden">
-            <Reveal className="flex flex-col items-center">
-              <span className="text-xl font-bold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(12,40,72,0.5)]">
-                QuickStart<span className="wordmark-ai">.Ai</span>
-              </span>
-
-              <h2 className="mt-6 text-balance text-3xl font-bold leading-[1.15] tracking-tighter text-white drop-shadow-[0_4px_24px_rgba(12,40,72,0.45)]">
-                <span className="block">Start building</span>
-                <span className="block">on QuickStart.Ai today.</span>
-              </h2>
-
-              <p className="mt-5 text-base leading-relaxed text-white/90 drop-shadow-[0_2px_12px_rgba(12,40,72,0.45)]">
-                Turn your ideas into fully functional apps — faster than ever.
-              </p>
-
+          <div className="relative w-full overflow-hidden aspect-square sm:aspect-[1672/941]">
+            <div className="absolute left-1/2 top-1/2 h-full aspect-[1672/941] -translate-x-1/2 -translate-y-1/2">
+              <Image
+                src="/page.png"
+                alt="Start building on QuickStart.Ai today — turn your ideas into fully functional apps, faster than ever."
+                width={1672}
+                height={941}
+                sizes="(min-width: 640px) 100vw, 178vw"
+                className="h-full w-full"
+                priority
+              />
               <button
                 type="button"
                 onClick={() => openAuthModal("email")}
-                className="group mt-8 inline-flex items-center justify-center gap-3 whitespace-nowrap rounded-pill bg-white px-8 py-4 text-base font-semibold text-black shadow-[0_18px_40px_-18px_rgba(12,40,72,0.7)] transition-all duration-300 hover:scale-[1.02] hover:bg-brandGreen focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                style={{ left: "41.27%", top: "43.25%", width: "17.40%", height: "7.12%" }}
+                className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
               >
-                <span>Get Started</span>
-                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                <span className="sr-only">Get Started</span>
               </button>
-            </Reveal>
+            </div>
           </div>
         </section>
       </main>
