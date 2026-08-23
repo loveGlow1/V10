@@ -780,27 +780,29 @@ export default function LandingPage() {
         {/* Closing call to action, built on the composed artwork at /page.png — wordmark,
             headline, promise and a painted button are all in the image, so nothing is drawn
             over it. Narrow screens crop in rather than swap to different markup: the frame
-            turns square-ish, the artwork keeps its own 3:2 inside it, and the sides are
-            clipped evenly. 64% of the width stays visible, which clears the headline's 56%
-            reach with room to spare, and the type lands about twice the size it would if the
-            whole width were squeezed into a phone. The hotspot is a percentage of the
-            artwork, not of the frame, so cropping never walks it off the painted button. */}
+            turns square, the artwork keeps its own 16:9 inside it, and the sides are clipped
+            evenly. 56% of the width stays visible, which clears the headline's 50% reach, and
+            the type lands close to twice the size it would if the whole width were squeezed
+            into a phone. The corner marks are the only thing the crop loses. Every figure
+            here — including the hotspot, a percentage of the artwork rather than of the
+            frame, so cropping moves it with the painted button — is measured off the file
+            and has to be re-measured whenever the artwork is replaced. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative w-full overflow-hidden aspect-[24/25] sm:aspect-[3/2]">
-            <div className="absolute left-1/2 top-1/2 h-full aspect-[3/2] -translate-x-1/2 -translate-y-1/2">
+          <div className="relative w-full overflow-hidden aspect-square sm:aspect-[1672/941]">
+            <div className="absolute left-1/2 top-1/2 h-full aspect-[1672/941] -translate-x-1/2 -translate-y-1/2">
               <Image
-                src="/page.png"
+                src="/page-2.png"
                 alt="Start building on QuickStart.Ai today — turn your ideas into fully functional apps, faster than ever."
-                width={1536}
-                height={1024}
-                sizes="(min-width: 640px) 100vw, 160vw"
+                width={1672}
+                height={941}
+                sizes="(min-width: 640px) 100vw, 178vw"
                 className="h-full w-full"
                 priority
               />
               <button
                 type="button"
                 onClick={() => openAuthModal("email")}
-                style={{ left: "41.15%", top: "44.43%", width: "17.71%", height: "6.93%" }}
+                style={{ left: "41.27%", top: "43.25%", width: "17.40%", height: "7.12%" }}
                 className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
               >
                 <span className="sr-only">Get Started</span>
