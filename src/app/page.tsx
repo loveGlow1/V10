@@ -791,7 +791,7 @@ export default function LandingPage() {
           <div className="relative w-full overflow-hidden aspect-square sm:aspect-[1672/941]">
             <div className="absolute left-1/2 top-1/2 h-full aspect-[1672/941] -translate-x-1/2 -translate-y-1/2">
               <Image
-                src="/page-2.png"
+                src="/page.png"
                 alt="Start building on QuickStart.Ai today — turn your ideas into fully functional apps, faster than ever."
                 width={1672}
                 height={941}
