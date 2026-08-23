@@ -147,7 +147,7 @@ const FEATURES = [
   {
     icon: Cpu,
     title: "Build AI agents and workflows",
-    desc: "Embed autonomous systems in your product — background processors, webhooks, vector memory and Stripe-enabled actions that keep running without you.",
+    desc: "Put agents inside your product that keep working when you're not — they remember what matters, react to events, and can even take payments.",
     image: "/feature-agents.jpg",
     alt: "A grid of AI agents covering research, writing, everyday tasks and custom roles",
   },
