@@ -140,14 +140,14 @@ const FEATURES = [
   {
     icon: Server,
     title: "Build secure backends",
-    desc: "Type-safe routes, validated payloads and schema-perfect SQL or NoSQL models, wired to Supabase, Postgres or Firebase with authentication already in place.",
+    desc: "Everything behind the scenes, handled for you: somewhere safe to keep your data, checks that stop bad data getting in, and sign-ins that work from day one — on Supabase, Postgres or Firebase.",
     image: "/feature-backend.jpg",
     alt: "A phone toggling connections to an MCP server, a knowledge base and GitHub",
   },
   {
     icon: Cpu,
     title: "Build AI agents and workflows",
-    desc: "Embed autonomous systems in your product — background processors, webhooks, vector memory and Stripe-enabled actions that keep running without you.",
+    desc: "Put agents inside your product that keep working when you're not — they remember what matters, react to events, and can even take payments.",
     image: "/feature-agents.jpg",
     alt: "A grid of AI agents covering research, writing, everyday tasks and custom roles",
   },
