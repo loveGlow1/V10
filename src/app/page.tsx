@@ -221,6 +221,42 @@ const PRICING_TIERS = [
   },
 ] as const;
 
+/* The header has linked to #faq since before the section existed. Answers stay inside
+   what the rest of the page already promises — the three pillars above and the tiers
+   below — so the FAQ never becomes the only place a claim is made. */
+const FAQS = [
+  {
+    question: "What is QuickStart.Ai and how does it work?",
+    answer:
+      "Describe the product you want in plain language and QuickStart.Ai builds it — the screens people see, the backend behind them, the database underneath and the sign-in flow, ready to go live. Web and mobile come out of the same description.",
+  },
+  {
+    question: "What can I build with it?",
+    answer:
+      "Anything with a front end and something running behind it: customer-facing web and mobile apps, dashboards, marketplaces, booking and subscription products, internal tools. If it needs pages, accounts, data and payments, it is in range.",
+  },
+  {
+    question: "Do I need coding experience to use QuickStart.Ai?",
+    answer:
+      "No. You describe what you want in ordinary words and QuickStart.Ai does the building. What it writes underneath is real Next.js and React code, so if you bring in a developer later there is something familiar for them to pick up.",
+  },
+  {
+    question: "Where does my data live, and what does it connect to?",
+    answer:
+      "Your data sits on Supabase, Postgres or Firebase — whichever you prefer — with sign-ins wired up from the start. Beyond that, your app can reach the rest of your stack through webhooks and take payments through Stripe.",
+  },
+  {
+    question: "What are AI agents and workflows?",
+    answer:
+      "Agents are the parts of your product that keep working when you are not. They watch for events, run jobs in the background, remember what matters between sessions, and can take payments. You describe the job once and they handle it from then on.",
+  },
+  {
+    question: "How does pricing work?",
+    answer:
+      "Free lets you start building at no cost. Pro is $15 a month for people shipping real products, and Premium is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
+  },
+] as const;
+
 const FOOTER_LINK_COLUMNS = [
   {
     title: "Product",
@@ -256,6 +292,7 @@ export default function LandingPage() {
   const [authModalInitialStep, setAuthModalInitialStep] = useState<"options" | "email" | "phone" | "signin">("options");
   const [showGetStartedButton, setShowGetStartedButton] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const heroAuthButtonsRowRef = useRef<HTMLDivElement | null>(null);
 
   // Redirect already-authenticated users straight to the dashboard.
@@ -683,6 +720,59 @@ export default function LandingPage() {
                 );
               })}
             </div>
+          </div>
+        </section>
+
+        <section id="faq" className="px-6 py-24">
+          <div className="page-shell space-y-12">
+            <Reveal className="mx-auto max-w-3xl text-center">
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">FAQ</p>
+              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
+                Questions people ask before they build.
+              </h2>
+              <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
+                What QuickStart.Ai builds for you, what it connects to, and what it costs — answered in plain words.
+              </p>
+            </Reveal>
+
+            <Reveal className="mx-auto w-full max-w-4xl">
+              <div className="glass-card rounded-premium px-6 sm:px-8">
+                <ul className="flex flex-col">
+                  {FAQS.map((faq, index) => {
+                    const isOpen = index === openFaq;
+                    const panelId = `faq-panel-${index}`;
+
+                    return (
+                      // The hairline separates rows, so the last one never carries it.
+                      <li key={faq.question} className={index < FAQS.length - 1 ? "border-b border-brandBorder" : ""}>
+                        <h3>
+                          <button
+                            type="button"
+                            onClick={() => setOpenFaq(isOpen ? null : index)}
+                            aria-expanded={isOpen}
+                            aria-controls={panelId}
+                            className="flex w-full items-center justify-between gap-6 py-6 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen"
+                          >
+                            <span className={`text-base font-semibold tracking-tight sm:text-lg ${isOpen ? "text-brandGreen" : "text-white/85"}`}>
+                              {faq.question}
+                            </span>
+                            <ChevronDown
+                              className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-white/50"}`}
+                            />
+                          </button>
+                        </h3>
+
+                        {isOpen && (
+                          <div id={panelId} className="pb-6 sm:pr-12">
+                            <p className="text-sm leading-relaxed text-brandTextSec sm:text-base">{faq.answer}</p>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </Reveal>
           </div>
         </section>
       </main>
