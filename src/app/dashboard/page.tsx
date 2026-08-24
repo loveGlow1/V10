@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
+import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
@@ -16,6 +17,7 @@ import {
   Smartphone,
   MonitorSmartphone,
   FileText,
+  AppWindow,
   Bot,
   X,
   Check,
@@ -33,7 +35,7 @@ import {
 const projectTypes = [
   { id: "web", label: "Web App", icon: MonitorSmartphone },
   { id: "mobile", label: "Mobile App", icon: Smartphone },
-  { id: "landing", label: "Landing Page", icon: FileText },
+  { id: "landing", label: "Website", icon: AppWindow },
 ];
 
 export default function DashboardPage() {
@@ -153,36 +155,40 @@ export default function DashboardPage() {
         onUpgradeClick={() => setBillingOpen(true)}
       />
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
+      <SupportChat />
 
       <main className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-[900px] min-w-[320px] mx-auto">
         <h1 className="text-3xl md:text-[38px] font-semibold text-white text-center leading-tight max-w-2xl tracking-tight mb-2">
           What will you build today?
         </h1>
 
-        <div className="flex items-center gap-3 mt-6 mb-8 overflow-x-auto max-w-full px-2 pb-1">
-          {projectTypes.map((type) => {
-            const Icon = type.icon;
-            const active = activeType === type.id;
-            return (
-              <button
-                key={type.id}
-                onClick={() => setActiveType(type.id)}
-                className={`flex items-center gap-2 h-[42px] px-5 rounded-full text-sm font-medium whitespace-nowrap transition-all active:scale-[0.98] border ${
-                  active
-                    ? "bg-neutral-700/80 text-white border-white/20"
-                    : "bg-neutral-800/80 text-[#8F939A] border-white/10 hover:bg-neutral-700/70 hover:border-white/20"
-                }`}
-              >
-                <Icon className="w-4 h-4 text-[#8F939A]" />
-                {type.label}
-              </button>
-            );
-          })}
-        </div>
+        <div className="mt-6" />
 
         {/* Ambient atmospheric background bloom beneath container */}
         <div className="relative w-full max-w-[900px]" ref={popoverRef}>
           <div className="pointer-events-none absolute -inset-2 rounded-[32px] bg-gradient-to-r from-emerald-500/10 to-teal-500/10 blur-2xl transition-all duration-500" />
+
+          {/* Target tabs, fused to the canvas below them */}
+          <div className="relative z-40 flex items-center gap-1 overflow-x-auto px-3">
+            {projectTypes.map((type) => {
+              const Icon = type.icon;
+              const active = activeType === type.id;
+              return (
+                <button
+                  key={type.id}
+                  onClick={() => setActiveType(type.id)}
+                  className={`-mb-px flex items-center gap-2 whitespace-nowrap rounded-t-[14px] border px-5 py-2.5 text-sm font-medium transition-all ${
+                    active
+                      ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#26252A] text-white"
+                      : "border-transparent bg-transparent text-[#8F939A] hover:text-white"
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 ${active ? "text-white" : "text-[#8F939A]"}`} />
+                  {type.label}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Floating Dropdown Overlay Menu - Unclipped & Positioned Above Chat Box */}
           <AnimatePresence>
@@ -301,6 +307,15 @@ export default function DashboardPage() {
                     <Paperclip className="w-4 h-4" />
                   </button>
 
+                  {/* Source control, as in the reference toolbar */}
+                  <button
+                    title="Connect a repository"
+                    aria-label="Connect a repository"
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
+                  >
+                    <Github className="h-4 w-4" />
+                  </button>
+
                   {/* E-1 Agent Selector Button with Preserved Green Accent */}
                   <button
                     onClick={() => setIsAgentModalOpen(true)}
@@ -315,9 +330,10 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="w-10 h-10 rounded-full bg-white/[0.03] border border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] flex items-center justify-center transition-all active:scale-[0.98] text-[#8F939A] hover:text-white"
+                    className="flex h-10 items-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-3.5 text-sm text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
                   >
-                    <Globe className="w-4 h-4" />
+                    <Globe className="h-4 w-4" />
+                    <span className="font-medium capitalize tracking-tight">{selectedPrivacy}</span>
                   </button>
                   <button
                     onClick={() => setIsAdvancedModalOpen(true)}
@@ -339,9 +355,18 @@ export default function DashboardPage() {
                     {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                   </button>
 
-                  {/* Send Arrow Button updated to match reference green color */}
-                  <button className="w-10 h-10 rounded-full bg-[#10E885] flex items-center justify-center hover:bg-[#0ED478] transition-all active:scale-[0.98] text-black shadow-[0_4px_16px_rgba(16,232,133,0.3)]">
-                    <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                  {/* Send sits in the bar's own material rather than shouting over it,
+                      and only lifts once there is something to send. */}
+                  <button
+                    disabled={!transcript.trim()}
+                    aria-label="Send"
+                    className={`flex h-10 w-10 items-center justify-center rounded-full border transition-all active:scale-[0.98] ${
+                      transcript.trim()
+                        ? "border-white/20 bg-white/[0.14] text-white hover:bg-white/[0.2]"
+                        : "border-[rgba(255,255,255,0.08)] bg-white/[0.05] text-[#6C7078]"
+                    }`}
+                  >
+                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
                   </button>
                 </div>
               </div>
