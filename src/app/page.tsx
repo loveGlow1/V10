@@ -13,7 +13,7 @@ import {
   isSupabaseConfigured,
 } from "@/lib/supabase";
 import {
-  Zap,
+  Gift,
   Layout,
   Server,
   Cpu,
@@ -180,13 +180,22 @@ function getSupabaseClientCreationFailureMessage(error: unknown) {
   return `${message} Technical details: ${error.message}`;
 }
 
+/* Annual billing is priced as the monthly rate less this share, charged twelve months at a
+   time, so the card can show both the discounted per-month figure and the yearly total from
+   one number per tier. */
+const ANNUAL_DISCOUNT = 0.2;
+
+function formatPrice(value: number) {
+  return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
 const PRICING_TIERS = [
   {
     name: "Free",
     description: "A simple starting point to explore QuickStart.Ai and validate your first product ideas.",
-    price: "$0",
+    monthlyPrice: 0,
     ctaLabel: "Get Started",
-    icon: Zap,
+    icon: Gift,
     highlight: false,
     features: [
       "Core product building workflows",
@@ -197,7 +206,7 @@ const PRICING_TIERS = [
   {
     name: "Standard",
     description: "The most balanced plan for serious builders shipping polished web and mobile experiences.",
-    price: "$15",
+    monthlyPrice: 15,
     ctaLabel: "Try QuickStart.Ai",
     icon: Layout,
     highlight: true,
@@ -210,7 +219,7 @@ const PRICING_TIERS = [
   {
     name: "Pro",
     description: "A high-touch tier for advanced teams orchestrating larger systems and more complex launches.",
-    price: "$150",
+    monthlyPrice: 150,
     ctaLabel: "Get Started",
     icon: Cpu,
     highlight: false,
@@ -294,6 +303,13 @@ export default function LandingPage() {
   const [showGetStartedButton, setShowGetStartedButton] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  /* Billing period is tracked per tier rather than for the section as a whole: each paid
+     card carries its own Annual switch, so a visitor can price one plan yearly while
+     leaving the others on the monthly rate they are comparing against. */
+  const [annualTiers, setAnnualTiers] = useState<Record<string, boolean>>({});
+
+  const toggleAnnualTier = (name: string) =>
+    setAnnualTiers((current) => ({ ...current, [name]: !current[name] }));
   const heroAuthButtonsRowRef = useRef<HTMLDivElement | null>(null);
 
   // Redirect already-authenticated users straight to the dashboard.
@@ -714,19 +730,22 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div className="inline-flex shrink-0 items-center self-start rounded-pill border border-brandBorder bg-brandSurface p-1 text-sm lg:self-auto">
-                <button type="button" className="whitespace-nowrap rounded-pill bg-white px-4 py-2 font-semibold text-black">
-                  Monthly
-                </button>
-                <button type="button" disabled className="whitespace-nowrap rounded-pill px-4 py-2 font-semibold text-white/45">
-                  Annual Soon
-                </button>
-              </div>
+              {/* Replaces the old section-wide "Annual Soon" placeholder: the switch now lives on
+                  each paid card, so this line only has to say what those switches do. */}
+              <p className="inline-flex shrink-0 items-center gap-2 self-start rounded-pill border border-brandBorder bg-brandSurface px-4 py-2 text-sm font-semibold text-brandTextSec lg:self-auto">
+                <span className="text-brandGreen">Save 20%</span>
+                <span className="whitespace-nowrap">with annual billing</span>
+              </p>
             </Reveal>
 
             <div className="grid gap-6 lg:grid-cols-3">
               {PRICING_TIERS.map((tier) => {
                 const Icon = tier.icon;
+                // Only paid tiers can be billed annually — $0 has no yearly equivalent to offer.
+                const canBillAnnually = tier.monthlyPrice > 0;
+                const isAnnual = canBillAnnually && Boolean(annualTiers[tier.name]);
+                const perMonthPrice = isAnnual ? tier.monthlyPrice * (1 - ANNUAL_DISCOUNT) : tier.monthlyPrice;
+                const yearlyTotal = perMonthPrice * 12;
 
                 return (
                   <Reveal key={tier.name} className="h-full">
@@ -743,23 +762,70 @@ export default function LandingPage() {
                         Most Popular
                       </span>
 
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
+                      {/* Plan name, its glyph and the billing switch share one row. The glyph sits
+                          inline rather than in its own top-right block so the switch has room to
+                          sit beside it. In the 1024-1279px band the cards are too narrow even for
+                          that, so there the switch drops onto its own line — on every card, the
+                          hidden one on Free included, so the rows stay the same height. */}
+                      <div className="flex min-h-[2.75rem] items-center justify-between gap-3 lg:flex-col lg:items-start lg:gap-3 xl:flex-row xl:items-center">
+                        <div className="flex min-w-0 items-center gap-2.5">
                           <h3 className="text-2xl font-semibold text-white">{tier.name}</h3>
-                          {/* In the 1024-1279px band the three descriptions wrap to different line
-                              counts, which pushed each card's price row to a different height.
-                              Reserving the tallest (5 lines x 1.625 leading = 8.125em) keeps the
-                              prices, feature lists and CTAs on a shared baseline across the row. */}
-                          <p className="mt-3 text-sm leading-relaxed text-brandTextSec lg:min-h-[8.125em] xl:min-h-0">{tier.description}</p>
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brandBorder bg-brandSurface text-brandGreen">
+                            <Icon className="h-4 w-4" />
+                          </span>
                         </div>
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-brandBorder bg-brandSurface text-brandGreen">
-                          <Icon className="h-5 w-5" />
-                        </div>
+
+                        {/* Rendered on every card and only hidden on Free, so the name rows keep a
+                            shared baseline across the row. */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={isAnnual}
+                          aria-hidden={!canBillAnnually}
+                          tabIndex={canBillAnnually ? undefined : -1}
+                          disabled={!canBillAnnually}
+                          aria-label={`Bill the ${tier.name} plan annually`}
+                          onClick={() => toggleAnnualTier(tier.name)}
+                          className={`group inline-flex shrink-0 items-center gap-2 rounded-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${canBillAnnually ? "" : "invisible"}`}
+                        >
+                          <span
+                            className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandGreen" : "text-brandTextSec group-hover:text-white/80"}`}
+                          >
+                            Annual
+                          </span>
+                          <span
+                            className={`relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-200 ${isAnnual ? "bg-brandGreen" : "bg-white/15"}`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200 ${isAnnual ? "left-[1.125rem]" : "left-0.5"}`}
+                            />
+                          </span>
+                        </button>
                       </div>
 
-                      <div className="mt-8 flex items-end gap-2">
-                        <span className="text-5xl font-bold tracking-tight text-white">{tier.price}</span>
-                        <span className="pb-1 text-sm font-medium text-brandGreen">/ month</span>
+                      {/* In the 1024-1279px band the three descriptions wrap to different line
+                          counts, which pushed each card's price row to a different height.
+                          Reserving the tallest (5 lines x 1.625 leading = 8.125em) keeps the
+                          prices, feature lists and CTAs on a shared baseline across the row. */}
+                      <p className="mt-3 text-sm leading-relaxed text-brandTextSec lg:min-h-[8.125em] xl:min-h-0">{tier.description}</p>
+
+                      <div className="mt-8">
+                        <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+                          <span className="text-5xl font-bold tracking-tight text-white">{formatPrice(perMonthPrice)}</span>
+                          <span className="pb-1 text-sm font-medium text-brandGreen">/ month</span>
+                          {isAnnual ? (
+                            <span className="pb-1 text-sm font-medium text-white/40 line-through">{formatPrice(tier.monthlyPrice)}</span>
+                          ) : null}
+                        </div>
+                        {/* Reserved on every card so the feature lists below stay on a shared
+                            baseline whichever billing period each card is showing. */}
+                        <p className="mt-2 min-h-[1.25rem] text-xs font-medium text-brandTextSec">
+                          {!canBillAnnually
+                            ? "Free forever — no card required"
+                            : isAnnual
+                              ? `Billed annually at ${formatPrice(yearlyTotal)} — save 20%`
+                              : "Billed monthly"}
+                        </p>
                       </div>
 
                       <div className="mt-8 flex-1">
