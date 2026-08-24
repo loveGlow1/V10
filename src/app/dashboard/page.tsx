@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Globe,
   Settings,
+  SlidersHorizontal,
   Mic,
   MicOff,
   ArrowUp,
@@ -169,7 +170,7 @@ export default function DashboardPage() {
           <div className="pointer-events-none absolute -inset-2 rounded-[32px] bg-gradient-to-r from-emerald-500/10 to-teal-500/10 blur-2xl transition-all duration-500" />
 
           {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 flex items-center gap-1 overflow-x-auto px-3">
+          <div className="relative z-40 flex items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
               const Icon = type.icon;
               const active = activeType === type.id;
@@ -177,7 +178,7 @@ export default function DashboardPage() {
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`-mb-px flex items-center gap-2 whitespace-nowrap rounded-t-[14px] border px-5 py-2.5 text-sm font-medium transition-all ${
+                  className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[14px] border px-3 py-2 text-[13px] font-medium transition-all sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
                     active
                       ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#26252A] text-white"
                       : "border-transparent bg-transparent text-[#8F939A] hover:text-white"
@@ -252,7 +253,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[21px] border border-[rgba(255,255,255,0.08)] border-t-white/20 bg-[#26252A] p-5 backdrop-blur-2xl md:rounded-[23px]">
+            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[21px] border border-[rgba(255,255,255,0.08)] border-t-white/20 bg-[#26252A] p-3.5 backdrop-blur-2xl sm:p-5 md:rounded-[23px]">
               <textarea
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
@@ -263,8 +264,8 @@ export default function DashboardPage() {
                 className="w-full bg-transparent text-white text-base placeholder:text-[#8F939A] resize-none outline-none"
               />
 
-              <div className="flex items-center justify-between mt-4 relative">
-                <div className="flex items-center gap-2 relative">
+              <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
+                <div className="relative flex shrink-0 items-center gap-1 sm:gap-2">
                   {/* Hidden File Inputs */}
                   <input
                     type="file"
@@ -298,7 +299,7 @@ export default function DashboardPage() {
                   {/* Attachment Clip Button */}
                   <button
                     onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
-                    className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-[0.98] ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-[#8F939A] hover:text-white"
@@ -311,35 +312,37 @@ export default function DashboardPage() {
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
 
-                  {/* E-1 Agent Selector Button with Preserved Green Accent */}
+                  {/* Model selector, as in the reference toolbar */}
                   <button
-                    onClick={() => setIsAgentModalOpen(true)}
-                    className="h-10 px-3.5 rounded-full bg-white/[0.03] hover:bg-white/[0.06] flex items-center gap-2 text-sm text-white/90 transition-all active:scale-[0.98] border border-[rgba(255,255,255,0.08)] hover:border-white/[0.12] whitespace-nowrap"
+                    onClick={() => setIsAdvancedModalOpen(true)}
+                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2 text-[12px] text-white/90 transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Bot className="w-4 h-4 text-[#34F5A0]" />
-                    <span className="font-medium tracking-tight">E-1</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-[#8F939A]" />
+                    <Sparkles className="h-4 w-4 text-[#34F5A0]" />
+                    <span className="font-medium tracking-tight">{selectedModel}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-[#8F939A]" />
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1 sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-10 items-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-3.5 text-sm text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98]"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
-                    <Globe className="h-4 w-4" />
-                    <span className="font-medium capitalize tracking-tight">{selectedPrivacy}</span>
+                    <Globe className="h-4 w-4 shrink-0" />
+                    <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
                   </button>
                   <button
-                    onClick={() => setIsAdvancedModalOpen(true)}
-                    className="w-10 h-10 rounded-full bg-white/[0.03] border border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] flex items-center justify-center transition-all active:scale-[0.98] text-[#8F939A] hover:text-white"
+                    onClick={() => setIsAgentModalOpen(true)}
+                    title={`Agent: ${selectedAgent}`}
+                    aria-label="Choose an agent"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-10"
                   >
-                    <Settings className="w-4 h-4" />
+                    <SlidersHorizontal className="h-4 w-4" />
                   </button>
 
                   {/* Interactive Voice Recording Button */}
@@ -360,7 +363,7 @@ export default function DashboardPage() {
                   <button
                     disabled={!transcript.trim()}
                     aria-label="Send"
-                    className={`flex h-10 w-10 items-center justify-center rounded-full border transition-all active:scale-[0.98] ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
                         ? "border-white/20 bg-white/[0.14] text-white hover:bg-white/[0.2]"
                         : "border-[rgba(255,255,255,0.08)] bg-white/[0.05] text-[#6C7078]"
