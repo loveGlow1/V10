@@ -195,7 +195,7 @@ const PRICING_TIERS = [
     ],
   },
   {
-    name: "Pro",
+    name: "Standard",
     description: "The most balanced plan for serious builders shipping polished web and mobile experiences.",
     price: "$15",
     ctaLabel: "Try QuickStart.Ai",
@@ -208,14 +208,14 @@ const PRICING_TIERS = [
     ],
   },
   {
-    name: "Premium",
+    name: "Pro",
     description: "A high-touch tier for advanced teams orchestrating larger systems and more complex launches.",
     price: "$150",
     ctaLabel: "Get Started",
     icon: Cpu,
     highlight: false,
     features: [
-      "Everything in Pro, plus:",
+      "Everything in Standard, plus:",
       "Advanced platform access for larger delivery needs",
       "Priority-ready infrastructure and workflow coverage",
     ],
@@ -254,7 +254,7 @@ const FAQS = [
   {
     question: "How does pricing work?",
     answer:
-      "Free lets you start building at no cost. Pro is $15 a month for people shipping real products, and Premium is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
+      "Free lets you start building at no cost. Standard is $15 a month for people shipping real products, and Pro is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
   },
 ] as const;
 
