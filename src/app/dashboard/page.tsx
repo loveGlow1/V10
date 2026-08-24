@@ -181,7 +181,7 @@ export default function DashboardPage() {
                   className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[14px] border px-3 py-2 text-[13px] font-medium transition-all sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
                     active
                       ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#26252A] text-white"
-                      : "border-transparent bg-transparent text-[#8F939A] hover:text-white"
+                      : "border-transparent bg-white/[0.03] text-[#8F939A] hover:bg-white/[0.06] hover:text-white"
                   }`}
                 >
                   <Icon className={`h-4 w-4 ${active ? "text-white" : "text-[#8F939A]"}`} />
@@ -246,14 +246,14 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="relative w-full rounded-[22px] md:rounded-[24px] p-[1px] overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35),0_0_50px_rgba(34,197,94,0.12)] min-h-[120px] md:min-h-[140px]">
+          <div className="relative w-full rounded-2xl p-[1px] overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35),0_0_50px_rgba(34,197,94,0.12)] min-h-[120px] md:min-h-[140px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
-            <div className="absolute inset-0 rounded-[22px] md:rounded-[24px] pointer-events-none overflow-hidden z-25">
+            <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden z-25">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[21px] border border-[rgba(255,255,255,0.08)] border-t-white/20 bg-[#26252A] p-3.5 backdrop-blur-2xl sm:p-5 md:rounded-[23px]">
+            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.08)] border-t-white/20 bg-[#26252A] p-3.5 backdrop-blur-2xl sm:p-5 ">
               <textarea
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
@@ -365,8 +365,8 @@ export default function DashboardPage() {
                     aria-label="Send"
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
-                        ? "border-white/20 bg-white/[0.14] text-white hover:bg-white/[0.2]"
-                        : "border-[rgba(255,255,255,0.08)] bg-white/[0.05] text-[#6C7078]"
+                        ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
+                        : "border-transparent bg-[#35343B] text-[#7C818A]"
                     }`}
                   >
                     <ArrowUp className="h-4 w-4 stroke-[2.5]" />
