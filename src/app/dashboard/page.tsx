@@ -167,7 +167,7 @@ export default function DashboardPage() {
 
         {/* Ambient atmospheric background bloom beneath container */}
         <div className="relative w-full max-w-[900px]" ref={popoverRef}>
-          <div className="pointer-events-none absolute -inset-2 rounded-[32px] bg-gradient-to-r from-emerald-500/10 to-teal-500/10 blur-2xl transition-all duration-500" />
+          <div className="pointer-events-none absolute -inset-2 rounded-[32px] bg-white/[0.02] blur-2xl transition-all duration-500" />
 
           {/* Target tabs, fused to the canvas below them */}
           <div className="relative z-40 flex items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -246,7 +246,7 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="relative w-full rounded-2xl p-[1px] overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35),0_0_50px_rgba(34,197,94,0.12)] min-h-[120px] md:min-h-[140px]">
+          <div className="relative w-full rounded-2xl p-[1px] overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35)] min-h-[120px] md:min-h-[140px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden z-25">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
