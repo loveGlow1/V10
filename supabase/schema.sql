@@ -6,7 +6,7 @@
 -- Covers two tables:
 --   user_profiles — already created; this adds the policies and the trigger
 --                   that fills it, without which it stays empty forever.
---   project_logs  — read and written by the dashboard, and not yet created.
+--   projects      — read by the dashboard, and not yet created.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Shared helper: keep updated_at honest without the client having to set it.
@@ -97,56 +97,44 @@ from auth.users
 on conflict (user_id) do nothing;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- project_logs — what the dashboard reads and writes.
---
--- The column names match the shape the existing dashboard components already
--- expect (project_name, repository, branch, tech_stack, latest_activity), so
--- nothing has to be renamed on either side.
+-- projects — the dashboard reads id, name, updated_at, status from this.
 -- ─────────────────────────────────────────────────────────────────────────────
-create table if not exists public.project_logs (
-  id               uuid primary key default gen_random_uuid(),
-  user_id          uuid not null references auth.users (id) on delete cascade,
-  project_name     text not null,
-  repository       text not null,
-  branch           text not null default 'main',
-  -- active_development | shipped | paused, matching the card's status colours.
-  status           text not null default 'active_development',
-  description      text,
-  tech_stack       text[] not null default '{}',
-  -- The troubleshooter flips latest_activity.status to 'resolved'; keeping the
-  -- whole record as jsonb means the shape can grow without a migration.
-  latest_activity  jsonb,
-  created_at       timestamptz not null default now(),
-  updated_at       timestamptz not null default now()
+create table if not exists public.projects (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  name        text not null,
+  status      text not null default 'Draft',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
 );
 
-alter table public.project_logs enable row level security;
+alter table public.projects enable row level security;
 
-drop policy if exists "Owners read their project logs" on public.project_logs;
-create policy "Owners read their project logs"
-  on public.project_logs for select
+drop policy if exists "Owners read their projects" on public.projects;
+create policy "Owners read their projects"
+  on public.projects for select
   using (auth.uid() = user_id);
 
-drop policy if exists "Owners create their project logs" on public.project_logs;
-create policy "Owners create their project logs"
-  on public.project_logs for insert
+drop policy if exists "Owners create their projects" on public.projects;
+create policy "Owners create their projects"
+  on public.projects for insert
   with check (auth.uid() = user_id);
 
-drop policy if exists "Owners update their project logs" on public.project_logs;
-create policy "Owners update their project logs"
-  on public.project_logs for update
+drop policy if exists "Owners update their projects" on public.projects;
+create policy "Owners update their projects"
+  on public.projects for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-drop policy if exists "Owners delete their project logs" on public.project_logs;
-create policy "Owners delete their project logs"
-  on public.project_logs for delete
+drop policy if exists "Owners delete their projects" on public.projects;
+create policy "Owners delete their projects"
+  on public.projects for delete
   using (auth.uid() = user_id);
 
-drop trigger if exists project_logs_set_updated_at on public.project_logs;
-create trigger project_logs_set_updated_at
-  before update on public.project_logs
+drop trigger if exists projects_set_updated_at on public.projects;
+create trigger projects_set_updated_at
+  before update on public.projects
   for each row execute function public.set_updated_at();
 
-create index if not exists project_logs_user_id_updated_at_idx
-  on public.project_logs (user_id, updated_at desc);
+create index if not exists projects_user_id_updated_at_idx
+  on public.projects (user_id, updated_at desc);
