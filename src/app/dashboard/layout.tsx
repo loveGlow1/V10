@@ -25,11 +25,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#060606] text-white">
-      {/* Deep blue-to-black atmospheric background */}
-      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#1E5FAF]/40 via-[#0d1a2e] to-[#060606]" />
-      {/* Center glow */}
-      <div className="pointer-events-none fixed left-1/2 top-1/4 -z-10 h-[600px] w-[900px] -translate-x-1/2 rounded-full bg-[#2B6CB0]/20 blur-[140px]" />
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0d0d0f] text-white">
+      {/* The page stays nearly black so nothing competes with the composer; the
+          existing blue is kept only as a faint wash rather than a backdrop. */}
+      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f]" />
 
       {children}
     </div>

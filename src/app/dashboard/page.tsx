@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import TopBar from "./components/TopBar";
-import Sidebar from "./components/Sidebar";
+import TopNav from "./components/TopNav";
 import BillingModal from "./components/billing/BillingModal";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,11 +26,17 @@ import {
   Cpu,
   Github,
   ChevronRight,
+  ArrowRight,
   Image as ImageIcon,
   Camera,
   FolderOpen,
   Triangle,
 } from "lucide-react";
+
+/* No credits service exists yet, so the panel shows the figure the app already
+   displayed rather than a number invented for the design. */
+const CREDITS = "0.00";
+const PROJECT_NAME = "QuickStart Project";
 
 const projectTypes = [
   { id: "web", label: "Web App", icon: MonitorSmartphone },
@@ -40,7 +45,6 @@ const projectTypes = [
 ];
 
 export default function DashboardPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
@@ -145,30 +149,50 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="w-full min-h-[100dvh] h-[100dvh] flex flex-col justify-between overflow-x-hidden relative pt-[env(safe-area-inset-top)] pb-[max(16px,env(safe-area-inset-bottom))] px-[12px] md:px-[24px] py-[32px]">
-      <TopBar
-        onMenuClick={() => setSidebarOpen(true)}
+    <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
+      <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
+        projectName={PROJECT_NAME}
+        credits={CREDITS}
       />
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onUpgradeClick={() => setBillingOpen(true)}
-      />
+
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
       <SupportChat />
 
-      <main className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-[900px] min-w-[320px] mx-auto">
-        <h1 className="text-3xl md:text-[38px] font-semibold text-white text-center leading-tight max-w-2xl tracking-tight mb-2">
+      {/* Centred on the viewport: this screen has no sidebar to offset against. */}
+      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-10">
+        {/* Announcement */}
+        <div className="flex w-full max-w-[680px] items-center gap-3 rounded-full border border-white/[0.07] bg-white/[0.03] px-3 py-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#34F5A0]/15">
+            <Sparkles className="h-3.5 w-3.5 text-[#34F5A0]" />
+          </span>
+          <p className="min-w-0 flex-1 truncate text-[13px] text-[#C7CAD0]">
+            Start on Standard free for a month, with credits to build.
+          </p>
+          <button
+            onClick={() => setBillingOpen(true)}
+            className="h-7 shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-black transition-all hover:brightness-95"
+          >
+            Claim now
+          </button>
+          <button className="hidden h-7 shrink-0 rounded-full px-3 text-xs font-medium text-[#8F939A] transition-colors hover:text-white sm:block">
+            No thanks
+          </button>
+        </div>
+
+        {/* Project selector */}
+        <button className="mt-9 flex h-[42px] w-[210px] items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-4 text-sm text-white transition-colors hover:bg-white/[0.07]">
+          <span className="h-4 w-4 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
+          <span className="truncate">{PROJECT_NAME}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-[#8F939A]" />
+        </button>
+
+        <h1 className="mt-7 text-center text-[28px] font-semibold leading-tight tracking-tight text-[#f0f0f2] sm:text-[32px]">
           What will you build today?
         </h1>
 
-        <div className="mt-6" />
-
-        {/* Ambient atmospheric background bloom beneath container */}
-        <div className="relative w-full max-w-[900px]" ref={popoverRef}>
-          <div className="pointer-events-none absolute -inset-2 rounded-[32px] bg-white/[0.02] blur-2xl transition-all duration-500" />
-
+        {/* Tabs and composer share this column, so they stay aligned. */}
+        <div className="relative mt-7 w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
           <div className="relative z-40 flex items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
@@ -180,7 +204,7 @@ export default function DashboardPage() {
                   onClick={() => setActiveType(type.id)}
                   className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[14px] border px-3 py-2 text-[13px] font-medium transition-all sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
                     active
-                      ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#26252A] text-white"
+                      ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#171719] text-white"
                       : "border-transparent bg-white/[0.03] text-[#8F939A] hover:bg-white/[0.06] hover:text-white"
                   }`}
                 >
@@ -246,26 +270,26 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="relative w-full rounded-2xl p-[1px] overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35)] min-h-[120px] md:min-h-[140px]">
+          <div className="relative w-full rounded-[14px] p-0 overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35)] min-h-[159px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
-            <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden z-25">
+            <div className="absolute inset-0 rounded-[14px] pointer-events-none overflow-hidden z-25">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-2xl border border-[rgba(255,255,255,0.08)] border-t-white/20 bg-[#26252A] p-3.5 backdrop-blur-2xl sm:p-5 ">
+            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[14px] border-[3px] border-[#292b32] bg-[#171719] p-3.5 sm:p-[18px] ">
               <textarea
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
-                placeholder="Build me a clone of netflix..."
+                placeholder="Build me an e-commerce platform with..."
                 rows={3}
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
-                className="w-full bg-transparent text-white text-base placeholder:text-[#8F939A] resize-none outline-none"
+                className="w-full resize-none bg-transparent text-base text-white outline-none placeholder:text-[#85858a]"
               />
 
               <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
-                <div className="relative flex shrink-0 items-center gap-1 sm:gap-2">
+                <div className="relative flex shrink-0 items-center gap-[3px] sm:gap-2">
                   {/* Hidden File Inputs */}
                   <input
                     type="file"
@@ -320,15 +344,15 @@ export default function DashboardPage() {
                   {/* Model selector, as in the reference toolbar */}
                   <button
                     onClick={() => setIsAdvancedModalOpen(true)}
-                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2 text-[12px] text-white/90 transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-1.5 text-[12px] text-white/90 transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Sparkles className="h-4 w-4 text-[#34F5A0]" />
+                    <Sparkles className="h-4 w-4 text-[#9BA0A8]" />
                     <span className="font-medium tracking-tight">{selectedModel}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-[#8F939A]" />
                   </button>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+                <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
                     className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
@@ -375,6 +399,17 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Announcement card, the same width as the composer above it */}
+          <button className="mt-3 flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-left transition-colors hover:bg-white/[0.05]">
+            <Sparkles className="h-4 w-4 shrink-0 text-[#8F939A]" />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-[#C7CAD0]">
+              New in QuickStart.Ai: build mobile and web from one prompt
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-[13px] text-[#8F939A]">
+              View <ArrowRight className="h-3.5 w-3.5" />
+            </span>
+          </button>
         </div>
       </main>
 
