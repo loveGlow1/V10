@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LayoutGrid, Sparkles, ChevronDown, Coins } from "lucide-react";
+import { Plus, LayoutGrid, Sparkles, ChevronDown, Coins, LogOut } from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
+import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 interface SidebarProps {
   open: boolean;
@@ -12,6 +14,54 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps) {
+  const router = useRouter();
+  const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  // The card used to show one hardcoded person, which every visitor would have
+  // seen as their own. Read the signed-in user instead.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+
+    createSupabaseBrowserClient()
+      .auth.getUser()
+      .then(({ data: { user } }) => {
+        if (cancelled || !user) return;
+        const metadata = user.user_metadata ?? {};
+        setAccount({
+          name: (metadata.full_name as string) || (metadata.name as string) || "",
+          email: user.email ?? "",
+        });
+      })
+      .catch(() => {
+        // Leave the card blank rather than showing someone else's name.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Reopening the drawer should not reopen the menu on top of it.
+  useEffect(() => {
+    if (!open) setAccountMenuOpen(false);
+  }, [open]);
+
+  async function handleSignOut() {
+    if (!isSupabaseConfigured) return;
+    setSigningOut(true);
+    try {
+      await createSupabaseBrowserClient().auth.signOut();
+      // refresh() re-runs the layout, which redirects once the cookies are gone.
+      router.push("/");
+      router.refresh();
+    } catch {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <AnimatePresence>
       {open && (
@@ -103,23 +153,53 @@ export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps)
               </div>
 
               {/* User Profile Card */}
-              <div className="rounded-[20px] bg-white/[0.02] border border-white/[0.06] p-3 flex items-center justify-between">
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-9 h-9 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-inner">
-                    J
+              <div className="relative">
+                {/* The chevron was inert; it now opens the account menu that holds
+                    sign-out, which the drawer otherwise had nowhere to live. */}
+                <AnimatePresence>
+                  {accountMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute bottom-full left-0 right-0 mb-2 rounded-[16px] border border-white/[0.08] bg-[rgba(18,18,22,0.98)] p-1.5 shadow-xl backdrop-blur-xl"
+                    >
+                      <button
+                        onClick={handleSignOut}
+                        disabled={signingOut}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white disabled:opacity-60"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        <span className="text-sm font-medium">{signingOut ? "Signing out…" : "Sign out"}</span>
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="rounded-[20px] bg-white/[0.02] border border-white/[0.06] p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-9 h-9 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-inner">
+                      {(account.name || account.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-white text-sm font-medium leading-tight truncate">
+                        {account.name || "Your account"}
+                      </p>
+                      <p className="text-[#8F939A] text-xs leading-tight underline underline-offset-2 truncate">
+                        {account.email || "Signed in"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="overflow-hidden">
-                    <p className="text-white text-sm font-medium leading-tight truncate">
-                      Jephthah Kofi
-                    </p>
-                    <p className="text-[#8F939A] text-xs leading-tight underline underline-offset-2 truncate">
-                      jephthahkofi@gmail.com
-                    </p>
-                  </div>
+                  <button
+                    onClick={() => setAccountMenuOpen((value) => !value)}
+                    aria-expanded={accountMenuOpen}
+                    aria-label="Account menu"
+                    className="w-7 h-7 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-[#8F939A] hover:text-white transition-all flex-shrink-0"
+                  >
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${accountMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
                 </div>
-                <button className="w-7 h-7 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-[#8F939A] hover:text-white transition-all flex-shrink-0">
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
           </motion.aside>
