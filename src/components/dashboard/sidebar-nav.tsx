@@ -8,12 +8,13 @@ const links = [
   { href: '/dashboard/settings', label: 'Settings' },
 ];
 
-export function SidebarNav() {
+export function SidebarNav({ accountName }: { accountName?: string }) {
   return (
     <div className="flex h-full flex-col gap-8 px-6 py-8">
       <div className="space-y-2">
         <p className="text-sm uppercase tracking-[0.3em] text-sky-300">Workspace</p>
-        <h1 className="text-2xl font-semibold text-white">Emergent V10</h1>
+        <h1 className="text-2xl font-semibold text-white">QuickStart.Ai</h1>
+        {accountName ? <p className="truncate text-sm text-slate-400">{accountName}</p> : null}
       </div>
       <nav className="space-y-2">
         {links.map((link) => (

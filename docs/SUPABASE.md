@@ -80,45 +80,34 @@ default, and the app handles both settings:
 - **Off** — sign-up returns a session immediately and goes straight to the
   dashboard.
 
-## 5. The `projects` table
+## 5. The tables
+
+Run [`supabase/schema.sql`](../supabase/schema.sql) in the SQL editor. It is safe
+to run more than once, and it covers both tables the app touches.
+
+### `user_profiles`
+
+The table already exists with the right shape. Two things were missing, and both
+fail silently:
+
+- **Policies.** RLS is enabled. With RLS on and no policies, every read returns
+  nothing and every write is refused — indistinguishable from an empty table.
+  The script adds owner-scoped select/insert/update.
+- **Something to fill it.** Nothing in the app writes this table, so it stays at
+  zero rows however many people sign up. The script adds a trigger on
+  `auth.users` that inserts a profile on sign-up, taking `full_name` from
+  sign-up metadata (or `name` / `avatar_url` from an OAuth provider), and
+  backfills anyone who registered before the trigger existed.
+
+The dashboard reads `full_name` from this table for the sidebar, falling back to
+the session's own metadata and then the email address.
+
+### `projects`
 
 The dashboard reads `id, name, updated_at, status` from `projects`, newest
-first. Run this in the SQL editor:
-
-```sql
-create table if not exists public.projects (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users (id) on delete cascade,
-  name        text not null,
-  status      text not null default 'Draft',
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
-);
-
-alter table public.projects enable row level security;
-
--- Each policy is scoped to the owner: without these, RLS is on and every query
--- returns an empty list, which looks exactly like "no projects yet".
-create policy "Owners read their projects"
-  on public.projects for select
-  using (auth.uid() = user_id);
-
-create policy "Owners create their projects"
-  on public.projects for insert
-  with check (auth.uid() = user_id);
-
-create policy "Owners update their projects"
-  on public.projects for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-create policy "Owners delete their projects"
-  on public.projects for delete
-  using (auth.uid() = user_id);
-
-create index if not exists projects_user_id_updated_at_idx
-  on public.projects (user_id, updated_at desc);
-```
+first. This table does not exist yet, which is why the dashboard lists nothing —
+the query fails and the page falls back to an empty list rather than erroring.
+The script creates it with the same owner-scoped policies.
 
 `user_id` has no default, so whatever creates a project must set it to
 `auth.uid()`.
