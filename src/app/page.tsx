@@ -869,43 +869,44 @@ export default function LandingPage() {
               </p>
             </Reveal>
 
+            {/* Open list rather than a panel: the questions sit straight on the section
+                background, separated only by hairlines, so the row a visitor opens reads as
+                part of the page instead of a card stacked on top of it. */}
             <Reveal className="mx-auto w-full max-w-4xl">
-              <div className="glass-card rounded-premium px-6 sm:px-8">
-                <ul className="flex flex-col">
-                  {FAQS.map((faq, index) => {
-                    const isOpen = index === openFaq;
-                    const panelId = `faq-panel-${index}`;
+              <ul className="flex flex-col">
+                {FAQS.map((faq, index) => {
+                  const isOpen = index === openFaq;
+                  const panelId = `faq-panel-${index}`;
 
-                    return (
-                      // The hairline separates rows, so the last one never carries it.
-                      <li key={faq.question} className={index < FAQS.length - 1 ? "border-b border-brandBorder" : ""}>
-                        <h3>
-                          <button
-                            type="button"
-                            onClick={() => setOpenFaq(isOpen ? null : index)}
-                            aria-expanded={isOpen}
-                            aria-controls={panelId}
-                            className="flex w-full items-center justify-between gap-6 py-6 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen"
-                          >
-                            <span className={`text-base font-semibold tracking-tight sm:text-lg ${isOpen ? "text-brandGreen" : "text-white/85"}`}>
-                              {faq.question}
-                            </span>
-                            <ChevronDown
-                              className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-white/50"}`}
-                            />
-                          </button>
-                        </h3>
+                  return (
+                    // The hairline separates rows, so the last one never carries it.
+                    <li key={faq.question} className={index < FAQS.length - 1 ? "border-b border-brandBorder" : ""}>
+                      <h3>
+                        <button
+                          type="button"
+                          onClick={() => setOpenFaq(isOpen ? null : index)}
+                          aria-expanded={isOpen}
+                          aria-controls={panelId}
+                          className="flex w-full items-center justify-between gap-8 py-7 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen sm:py-8"
+                        >
+                          <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isOpen ? "text-brandGreen" : "text-white"}`}>
+                            {faq.question}
+                          </span>
+                          <ChevronDown
+                            className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-white/60"}`}
+                          />
+                        </button>
+                      </h3>
 
-                        {isOpen && (
-                          <div id={panelId} className="pb-6 sm:pr-12">
-                            <p className="text-sm leading-relaxed text-brandTextSec sm:text-base">{faq.answer}</p>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+                      {isOpen && (
+                        <div id={panelId} className="pb-7 sm:pb-8 sm:pr-12">
+                          <p className="text-[15px] leading-[1.75] text-brandTextSec sm:text-base">{faq.answer}</p>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </Reveal>
           </div>
         </section>
