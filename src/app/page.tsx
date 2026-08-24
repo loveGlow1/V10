@@ -195,7 +195,7 @@ const PRICING_TIERS = [
     ],
   },
   {
-    name: "Pro",
+    name: "Standard",
     description: "The most balanced plan for serious builders shipping polished web and mobile experiences.",
     price: "$15",
     ctaLabel: "Try QuickStart.Ai",
@@ -208,14 +208,14 @@ const PRICING_TIERS = [
     ],
   },
   {
-    name: "Premium",
+    name: "Pro",
     description: "A high-touch tier for advanced teams orchestrating larger systems and more complex launches.",
     price: "$150",
     ctaLabel: "Get Started",
     icon: Cpu,
     highlight: false,
     features: [
-      "Everything in Pro, plus:",
+      "Everything in Standard, plus:",
       "Advanced platform access for larger delivery needs",
       "Priority-ready infrastructure and workflow coverage",
     ],
@@ -254,7 +254,7 @@ const FAQS = [
   {
     question: "How does pricing work?",
     answer:
-      "Free lets you start building at no cost. Pro is $15 a month for people shipping real products, and Premium is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
+      "Free lets you start building at no cost. Standard is $15 a month for people shipping real products, and Pro is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
   },
 ] as const;
 
@@ -312,6 +312,19 @@ export default function LandingPage() {
     return () => subscription.unsubscribe();
   }, [router]);
 
+  // The auth callback cannot render anything itself, so it hands failures back
+  // on the URL. Show them once, then clear the parameter so a refresh is clean.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    if (!authError) return;
+
+    alert(authError);
+    params.delete("auth_error");
+    const query = params.toString();
+    router.replace(`${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [router]);
+
   useEffect(() => {
     const heroAuthButtonsRow = heroAuthButtonsRowRef.current;
     if (!heroAuthButtonsRow) return;
@@ -364,7 +377,7 @@ export default function LandingPage() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider.toLowerCase() as Provider,
-        options: { redirectTo: `${window.location.origin}/dashboard` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
       });
       if (error) {
         // eslint-disable-next-line no-console
@@ -384,15 +397,23 @@ export default function LandingPage() {
     const supabase = getSupabaseOrWarn();
     if (!supabase) return;
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: payload.email,
         password: payload.password,
-        options: { data: { full_name: payload.name } },
+        options: {
+          data: { full_name: payload.name },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        },
       });
       if (error) {
         // eslint-disable-next-line no-console
         console.error("Supabase sign-up error:", error);
         alert(error.message);
+      } else if (!data.session) {
+        // No session means the project requires email confirmation. Sending
+        // them to the dashboard here would only bounce them back.
+        alert(`Almost there — confirm your email. We sent a link to ${payload.email}; opening it signs you in.`);
+        closeAuthModal();
       } else {
         router.push("/dashboard");
       }

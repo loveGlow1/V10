@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import { SignOutButton } from './sign-out-button';
+
 const links = [
   { href: '/dashboard', label: 'Projects' },
   { href: '/dashboard/analytics', label: 'Analytics' },
@@ -20,8 +22,11 @@ export function SidebarNav() {
           </Link>
         ))}
       </nav>
-      <div className="mt-auto rounded-3xl border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
-        TODO: insert workspace switcher, account controls, and usage snapshot.
+      <div className="mt-auto space-y-3">
+        <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-4 text-sm text-slate-400">
+          TODO: insert workspace switcher and usage snapshot.
+        </div>
+        <SignOutButton />
       </div>
     </div>
   );
