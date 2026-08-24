@@ -3,10 +3,27 @@
 Everything in the app is written against Supabase already. This is what has to
 exist on the Supabase side, and in which order, for sign-in to work end to end.
 
-## 1. Environment variables
+## 1. Environment variables — done
 
-Copy `.env.local.example` to `.env.local` and fill in the two public values from
-**Project Settings → API**:
+The project's public values are committed in `.env`, so any build picks them up
+with no further setup:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://kobyrxmpphilhistcotg.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi…   (anon role, valid to 2036)
+```
+
+Both are public by design — they are compiled into the browser bundle on every
+build, so they are already visible to anyone who loads the site. Row Level
+Security on each table is what protects the data, not the secrecy of this key.
+Anything set in **Vercel → Project Settings → Environment Variables** overrides
+the file, which is the better home for them if you would rather they not sit in
+the repository.
+
+The `service_role` key must never go in `.env`: it bypasses RLS and that file is
+committed. Keep it in the hosting platform's environment only.
+
+For reference, the values come from **Project Settings → API**:
 
 | Variable | Where it comes from | Exposed to the browser |
 | --- | --- | --- |
@@ -29,9 +46,12 @@ banner explains why in development.
 
 ```
 http://localhost:3000/auth/callback
-https://<your-vercel-domain>/auth/callback
-https://<your-custom-domain>/auth/callback
+https://v10-eight-jet.vercel.app/auth/callback
+https://<any-custom-domain>/auth/callback
 ```
+
+Vercel also gives every deployment its own preview URL. If you want sign-in to
+work on previews as well, add the wildcard `https://*.vercel.app/auth/callback`.
 
 Set **Site URL** to the production origin.
 
