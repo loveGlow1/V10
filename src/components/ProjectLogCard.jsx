@@ -78,10 +78,12 @@ export default function ProjectLogCard({ project, onSelect, isActive }) {
                 ) : (
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 )}
-                {project.latest_activity.type.replace(/_/g, ' ').toUpperCase()}
+                {(project.latest_activity.type || 'activity').replace(/_/g, ' ').toUpperCase()}
               </span>
               <span className="text-[9px] text-gray-400">
-                {new Date(project.latest_activity.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                {project.latest_activity.timestamp
+                  ? new Date(project.latest_activity.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                  : ''}
               </span>
             </div>
             <div className="space-y-1">
