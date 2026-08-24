@@ -756,7 +756,7 @@ export default function LandingPage() {
                 const yearlyTotal = perMonthPrice * 12;
 
                 return (
-                  <Reveal key={tier.name} className="h-full">
+                  <Reveal key={tier.name} className="h-full min-w-0">
                     <article
                       className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
                     >
@@ -775,7 +775,7 @@ export default function LandingPage() {
                           sit beside it. In the 1024-1279px band the cards are too narrow even for
                           that, so there the switch drops onto its own line — on every card, the
                           hidden one on Free included, so the rows stay the same height. */}
-                      <div className="flex min-h-[2.75rem] items-center justify-between gap-3 lg:flex-col lg:items-start lg:gap-3 xl:flex-row xl:items-center">
+                      <div className="flex min-h-[2.75rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 lg:flex-col lg:items-start lg:gap-3 xl:flex-row xl:items-center">
                         <div className="flex min-w-0 items-center gap-2.5">
                           <h3 className="text-2xl font-semibold text-white">{tier.name}</h3>
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brandBorder bg-brandSurface text-brandGreen">
@@ -794,7 +794,9 @@ export default function LandingPage() {
                           disabled={!canBillAnnually}
                           aria-label={`Bill the ${tier.name} plan annually`}
                           onClick={() => toggleAnnualTier(tier.name)}
-                          className={`group inline-flex shrink-0 items-center gap-2 rounded-pill focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${canBillAnnually ? "" : "invisible"}`}
+                          /* -my-2.5/py-2.5 grows the touch target to ~40px tall while the row
+                             keeps measuring the switch at its drawn height. */
+                          className={`group -my-2.5 inline-flex shrink-0 items-center gap-2 rounded-pill py-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${canBillAnnually ? "" : "invisible"}`}
                         >
                           <span
                             className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandGreen" : "text-brandTextSec group-hover:text-white/80"}`}
@@ -811,11 +813,11 @@ export default function LandingPage() {
                         </button>
                       </div>
 
-                      {/* In the 1024-1279px band the three descriptions wrap to different line
-                          counts, which pushed each card's price row to a different height.
-                          Reserving the tallest (5 lines x 1.625 leading = 8.125em) keeps the
+                      {/* The three descriptions wrap to different line counts, which pushes each
+                          card's price row to a different height. Reserving the tallest at each
+                          band — 5 lines where the cards are narrowest, 3 from xl up — keeps the
                           prices, feature lists and CTAs on a shared baseline across the row. */}
-                      <p className="mt-3 text-sm leading-relaxed text-brandTextSec lg:min-h-[8.125em] xl:min-h-0">{tier.description}</p>
+                      <p className="mt-3 text-sm leading-relaxed text-brandTextSec lg:min-h-[8.125em] xl:min-h-[4.875em]">{tier.description}</p>
 
                       <div className="mt-8">
                         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
