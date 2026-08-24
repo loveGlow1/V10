@@ -102,15 +102,18 @@ fail silently:
 The dashboard reads `full_name` from this table for the sidebar, falling back to
 the session's own metadata and then the email address.
 
-### `projects`
+### `project_logs`
 
-The dashboard reads `id, name, updated_at, status` from `projects`, newest
-first. This table does not exist yet, which is why the dashboard lists nothing —
-the query fails and the page falls back to an empty list rather than erroring.
-The script creates it with the same owner-scoped policies.
+The dashboard reads and writes this table. Its columns match the shape the
+dashboard components already expected — `project_name`, `repository`, `branch`,
+`status`, `tech_stack`, `latest_activity` — so neither side had to be renamed.
 
-`user_id` has no default, so whatever creates a project must set it to
-`auth.uid()`.
+It does not exist yet, which is why the dashboard opens empty. The page treats a
+failed query as an empty workspace rather than an error, so it stays usable
+until the script is run.
+
+`user_id` has no default; the dashboard sets it to the signed-in user on insert,
+and the policies refuse anything else.
 
 ## 6. Checking it worked
 
