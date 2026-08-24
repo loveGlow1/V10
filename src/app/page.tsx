@@ -450,29 +450,75 @@ export default function LandingPage() {
     }
   }
 
+  /** Normalises a dial code and local number into the E.164 form Supabase expects. */
+  function toE164(dialCode: string, localNumber: string) {
+    const code = dialCode.trim();
+    const digits = localNumber.replace(/\D/g, "");
+    if (!code || !digits) return null;
+    return `${code}${digits}`;
+  }
+
+  /** Resolves true when the code was sent, which is what advances the modal. */
   async function handlePhoneContinue(payload: { name: string; dialCode: string; phone: string }) {
     const supabase = getSupabaseOrWarn();
-    if (!supabase) return;
-    const dialCode = payload.dialCode.trim();
-    const localNumber = payload.phone.replace(/\D/g, "");
-    if (!dialCode || !localNumber) {
+    if (!supabase) return false;
+    const phone = toE164(payload.dialCode, payload.phone);
+    if (!phone) {
       alert("Please enter a valid dial code and phone number.");
-      return;
+      return false;
     }
-    const phone = `${dialCode}${localNumber}`;
     try {
-      const { error } = await supabase.auth.signInWithOtp({ phone });
+      const { error } = await supabase.auth.signInWithOtp({
+        phone,
+        options: { data: { full_name: payload.name } },
+      });
       if (error) {
         // eslint-disable-next-line no-console
         console.error("Supabase phone sign-in error:", error);
         alert(error.message);
+        return false;
       }
+      return true;
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error("Unexpected error during phone sign-in:", error);
       alert(
         "Authentication is currently unavailable. Please verify Supabase environment configuration and try again later or contact support.",
       );
+      return false;
+    }
+  }
+
+  /** Exchanges the SMS code for a session. Without this the code sent above goes nowhere. */
+  async function handlePhoneVerify(payload: { dialCode: string; phone: string; token: string }) {
+    const supabase = getSupabaseOrWarn();
+    if (!supabase) return false;
+    const phone = toE164(payload.dialCode, payload.phone);
+    if (!phone) {
+      alert("Please enter a valid dial code and phone number.");
+      return false;
+    }
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        phone,
+        token: payload.token,
+        type: "sms",
+      });
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("Supabase phone verification error:", error);
+        alert(error.message);
+        return false;
+      }
+      router.push("/dashboard");
+      return true;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Unexpected error during phone verification:", error);
+      alert(
+        "Authentication is currently unavailable. Please verify Supabase environment configuration and try again later or contact support.",
+      );
+      return false;
     }
   }
 
@@ -904,6 +950,7 @@ export default function LandingPage() {
         onEmailSignUp={handleEmailSignUp}
         onEmailSignIn={handleEmailSignIn}
         onPhoneContinue={handlePhoneContinue}
+        onPhoneVerify={handlePhoneVerify}
         initialStep={authModalInitialStep}
       />
 

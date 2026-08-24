@@ -68,7 +68,9 @@ provider needs its client ID and secret from that provider's own console, and
 the Supabase callback URL shown on the provider's panel registered there.
 
 Phone additionally needs an SMS provider (Twilio, MessageBird, Vonage) with
-credentials, or every phone sign-in fails at the send step.
+credentials, or every phone sign-in fails at the send step. The flow itself is
+complete: the number screen sends the code, and the screen after it verifies the
+code and signs the visitor in.
 
 ## 4. Email confirmation
 
@@ -133,10 +135,3 @@ The script creates it with the same owner-scoped policies.
 | `src/middleware.ts` | Refreshes the access token and writes the new cookies |
 | `src/app/auth/callback/route.ts` | Exchanges the OAuth/confirmation code for a session |
 | `src/app/dashboard/layout.tsx` | Redirects anyone without a session to `/` |
-
-## Known gap: phone sign-in
-
-Phone sign-in sends the code (`signInWithOtp`) but there is no screen to enter
-it, so the flow cannot complete even with an SMS provider configured. It needs a
-verification step calling `verifyOtp`. Everything else on this page works
-without it.

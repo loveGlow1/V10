@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import countries from "world-countries";
 import Q3DCanvas from "./Q3DCanvas";
 
-type AuthStep = "options" | "email" | "phone" | "signin";
+type AuthStep = "options" | "email" | "phone" | "signin" | "otp";
 
 type LoginModalProps = {
   isOpen: boolean;
@@ -13,7 +13,9 @@ type LoginModalProps = {
   onProviderAuth: (provider: string) => Promise<void> | void;
   onEmailSignUp: (payload: { name: string; email: string; password: string }) => Promise<void> | void;
   onEmailSignIn: (payload: { email: string; password: string }) => Promise<void> | void;
-  onPhoneContinue: (payload: { name: string; dialCode: string; phone: string }) => Promise<void> | void;
+  /** Resolves true when the code was sent, which is what advances the modal to the otp step. */
+  onPhoneContinue: (payload: { name: string; dialCode: string; phone: string }) => Promise<boolean>;
+  onPhoneVerify: (payload: { dialCode: string; phone: string; token: string }) => Promise<boolean>;
   initialStep?: AuthStep;
 };
 
@@ -122,7 +124,7 @@ const COUNTRY_OPTIONS: CountryOption[] = countries
   .filter((country): country is CountryOption => Boolean(country))
   .sort((a, b) => a.name.localeCompare(b.name));
 
-export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSignUp, onEmailSignIn, onPhoneContinue, initialStep }: LoginModalProps) {
+export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSignUp, onEmailSignIn, onPhoneContinue, onPhoneVerify, initialStep }: LoginModalProps) {
   const [authStep, setAuthStep] = useState<AuthStep>("email");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -135,6 +137,8 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
   const [countryQuery, setCountryQuery] = useState("");
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [selectedCountryCode, setSelectedCountryCode] = useState("IN");
+  const [otpCode, setOtpCode] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -164,6 +168,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
     setSigninEmail("");
     setSigninPassword("");
     setShowSigninPassword(false);
+    setOtpCode("");
     onClose();
   }
 
@@ -488,11 +493,23 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault();
-                    await onPhoneContinue({
-                      name,
-                      dialCode: selectedCountry?.dialCode || "",
-                      phone,
-                    });
+                    setSendingCode(true);
+                    try {
+                      const sent = await onPhoneContinue({
+                        name,
+                        dialCode: selectedCountry?.dialCode || "",
+                        phone,
+                      });
+                      // Only move on once the code is actually on its way; a
+                      // failed send leaves the number on screen to correct.
+                      if (sent) {
+                        setOtpCode("");
+                        setAuthStep("otp");
+                        setCountryDropdownOpen(false);
+                      }
+                    } finally {
+                      setSendingCode(false);
+                    }
                   }}
                   className="space-y-3"
                 >
@@ -567,8 +584,8 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className="space-y-3 pt-1">
-                    <button type="submit" className={primaryActionButtonClass}>
-                      Get code <ArrowRight className="h-4 w-4" />
+                    <button type="submit" disabled={sendingCode} className={primaryActionButtonClass}>
+                      {sendingCode ? "Sending code..." : <>Get code <ArrowRight className="h-4 w-4" /></>}
                     </button>
                     <button
                       type="button"
@@ -579,6 +596,89 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                       className={goBackButtonClass}
                     >
                       <ArrowLeft className="h-4 w-4" /> Go Back
+                    </button>
+                  </div>
+                </form>
+
+                {footerLinks}
+              </div>
+            )}
+
+            {authStep === "otp" && (
+              <div>
+                {brandingBlock}
+
+                <p className="mb-4 text-center text-sm text-white/60">
+                  Enter the 6-digit code sent to{" "}
+                  <span className="font-semibold text-white">
+                    {selectedCountry?.dialCode}
+                    {phone}
+                  </span>
+                </p>
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    await onPhoneVerify({
+                      dialCode: selectedCountry?.dialCode || "",
+                      phone,
+                      token: otpCode.replace(/\D/g, ""),
+                    });
+                  }}
+                  className="space-y-3"
+                >
+                  <div className={inputWrapperClass}>
+                    <KeyRound className="h-5 w-5 shrink-0 text-white/45" />
+                    <input
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="Enter the 6-digit code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      // The code is the only thing on this screen, so it takes focus.
+                      autoFocus
+                      className={`${inputFieldClass} tracking-[0.35em]`}
+                    />
+                  </div>
+
+                  <div className="space-y-3 pt-1">
+                    <button
+                      type="submit"
+                      disabled={otpCode.replace(/\D/g, "").length < 6}
+                      className={primaryActionButtonClass}
+                    >
+                      Verify and continue <ArrowRight className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={sendingCode}
+                      onClick={async () => {
+                        setSendingCode(true);
+                        try {
+                          await onPhoneContinue({
+                            name,
+                            dialCode: selectedCountry?.dialCode || "",
+                            phone,
+                          });
+                        } finally {
+                          setSendingCode(false);
+                        }
+                      }}
+                      className={goBackButtonClass}
+                    >
+                      {sendingCode ? "Sending..." : "Resend code"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpCode("");
+                        setAuthStep("phone");
+                      }}
+                      className={goBackButtonClass}
+                    >
+                      <ArrowLeft className="h-4 w-4" /> Use a different number
                     </button>
                   </div>
                 </form>
