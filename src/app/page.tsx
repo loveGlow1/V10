@@ -236,6 +236,14 @@ const PRICING_TIERS = [
    below — so the FAQ never becomes the only place a claim is made. */
 const FAQS = [
   {
+    // Opens the section, and is the row that starts expanded. It answers what a visitor is
+    // left holding rather than what the platform is — that subject has its own entry below,
+    // so the two do not restate each other.
+    question: "What do I actually end up with?",
+    answer:
+      "A product that runs, not a mockup or a pile of screens to hand off. You get the pages people use, the database behind them, sign-in already wired up and real code underneath — live on a URL you can share the same day, and still yours to keep changing.",
+  },
+  {
     question: "What is QuickStart.Ai and how does it work?",
     answer:
       "Describe the product you want in plain language and QuickStart.Ai builds it — the screens people see, the backend behind them, the database underneath and the sign-in flow, ready to go live. Web and mobile come out of the same description.",
