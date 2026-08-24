@@ -857,7 +857,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="faq" className="px-6 py-24">
+        <section id="faq" className="font-display px-6 py-24">
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">FAQ</p>
@@ -889,7 +889,7 @@ export default function LandingPage() {
                           aria-controls={panelId}
                           className="flex w-full items-center justify-between gap-8 py-7 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen sm:py-8"
                         >
-                          <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isOpen ? "text-brandGreen" : "text-white"}`}>
+                          <span className={`text-lg font-medium tracking-normal sm:text-xl ${isOpen ? "text-brandGreen" : "text-white"}`}>
                             {faq.question}
                           </span>
                           <ChevronDown
@@ -900,7 +900,7 @@ export default function LandingPage() {
 
                       {isOpen && (
                         <div id={panelId} className="pb-7 sm:pb-8 sm:pr-12">
-                          <p className="text-[15px] leading-[1.75] text-brandTextSec sm:text-base">{faq.answer}</p>
+                          <p className="text-[15px] font-normal leading-[1.75] tracking-normal text-brandTextSec sm:text-base">{faq.answer}</p>
                         </div>
                       )}
                     </li>

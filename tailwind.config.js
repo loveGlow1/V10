@@ -31,6 +31,9 @@ module.exports = {
       },
       fontFamily: {
         mono: ['Fira Code', 'Courier New', 'monospace'],
+        // Loaded in src/app/layout.tsx via next/font and applied where a section opts in
+        // with `font-display`; the system stack behind it covers the swap window.
+        display: ['var(--font-display)', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
       },
     },
   },
