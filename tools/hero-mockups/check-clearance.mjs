@@ -32,6 +32,25 @@ for (const [w, h] of sizes) {
   await page.waitForTimeout(2500);
 
   const report = await page.evaluate((margin) => {
+    /* Each surface drifts along the ring, so measuring a live frame only samples wherever
+       the animation happens to be. Every surface is pinned at the far end of its drift
+       *toward* the middle first — the worst case for the clear zone. */
+    const layer = document.querySelector('.hero-apps');
+    if (layer) {
+      const lb = layer.getBoundingClientRect();
+      const cx = lb.left + lb.width / 2;
+      const cy = lb.top + lb.height / 2;
+      document.querySelectorAll('.hero-app').forEach((el) => {
+        const cs = getComputedStyle(el);
+        const dx = Math.abs(parseFloat(cs.getPropertyValue('--drift-x')) || 0);
+        const dy = Math.abs(parseFloat(cs.getPropertyValue('--drift-y')) || 0);
+        const b = el.getBoundingClientRect();
+        const towardX = cx - (b.left + b.width / 2) >= 0 ? 1 : -1;
+        const towardY = cy - (b.top + b.height / 2) >= 0 ? 1 : -1;
+        el.style.animation = 'none';
+        el.style.transform = `translate3d(${dx * towardX}px, ${dy * towardY}px, 0)`;
+      });
+    }
     const rect = (el) => el.getBoundingClientRect();
     const grow = (r, m) => ({ left: r.left - m, right: r.right + m, top: r.top - m, bottom: r.bottom + m });
     const hits = (a, b) =>
