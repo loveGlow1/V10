@@ -7,7 +7,6 @@ import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import ProjectList from "./components/ProjectList";
-import GithubMark from "./components/GithubMark";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
@@ -30,6 +29,7 @@ import {
   Lock,
   Sparkles,
   Cpu,
+  Github,
   ChevronRight,
   ArrowRight,
   Image as ImageIcon,
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                     aria-label="Connect a repository"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
                   >
-                    <GithubMark className="h-[18px] w-[18px]" />
+                    <Github className="h-4 w-4" />
                   </button>
 
                   {/* Model selector, as in the reference toolbar */}
@@ -661,7 +661,7 @@ export default function DashboardPage() {
                   </span>
                   <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] hover:border-white/[0.1] cursor-pointer flex items-center justify-between transition-all">
                     <div className="flex items-center gap-3">
-                      <GithubMark className="h-[18px] w-[18px] text-white" />
+                      <Github className="w-4 h-4 text-[#8F939A]" />
                       <span className="text-sm font-semibold text-white">Connect to GitHub</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-[#8F939A]" />
