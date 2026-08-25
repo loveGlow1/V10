@@ -356,7 +356,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
-                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-[#8F939A] hover:text-white"
+                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
                     }`}
                   >
                     <Paperclip className="w-4 h-4" />
@@ -366,7 +366,7 @@ export default function DashboardPage() {
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
@@ -374,18 +374,18 @@ export default function DashboardPage() {
                   {/* Model selector, as in the reference toolbar */}
                   <button
                     onClick={() => setIsAdvancedModalOpen(true)}
-                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-1.5 text-[12px] text-white/90 transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-1.5 text-[12px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Sparkles className="h-4 w-4 text-[#9BA0A8]" />
+                    <Sparkles className="h-4 w-4 text-white" />
                     <span className="font-medium tracking-tight">{selectedModel}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-[#8F939A]" />
+                    <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
@@ -394,7 +394,7 @@ export default function DashboardPage() {
                     onClick={() => setIsAgentModalOpen(true)}
                     title={`Agent: ${selectedAgent}`}
                     aria-label="Choose an agent"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-[#8F939A] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -406,7 +406,7 @@ export default function DashboardPage() {
                     className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-[0.98] ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-[#8F939A] hover:text-white"
+                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
                     }`}
                   >
                     {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -420,7 +420,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                        : "border-transparent bg-[#35343B] text-[#7C818A]"
+                        : "border-transparent bg-[#35343B] text-white"
                     }`}
                   >
                     <ArrowUp className="h-4 w-4 stroke-[2.5]" />
