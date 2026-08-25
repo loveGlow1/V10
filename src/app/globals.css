@@ -322,13 +322,6 @@ body {
   }
 }
 
-/* Panels sit closer to the text on a phone than they ever do on a desktop, so the whole
-   layer is taken down a step there — the headline and the auth buttons stay the brightest
-   things on the screen. */
-@media (max-width: 1023px) {
-  .hero-app { opacity: 0.72; }
-}
-
 .hero-app {
   --float-lift: 8px;
   animation-name: hero-app-float;
@@ -355,10 +348,3 @@ body {
   .hero-app { animation: none; }
 }
 
-/* On a handset only the two phones are drawn, and they sit close to the headline because
-   there is nowhere else for them to go. Fading the whole surface — rather than raising
-   each image's own opacity, which is set per app for the desktop composition — keeps the
-   text the brightest thing on the screen. */
-@media (max-width: 767px) {
-  .hero-app { opacity: 0.5; }
-}
