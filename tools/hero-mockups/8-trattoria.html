@@ -1,0 +1,94 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --ink:#f7f1e8; --muted:#c2b3a1; --faint:#93857a; --line:rgba(255,255,255,.11); --line-strong:rgba(255,255,255,.2);
+  --panel:#17110d; --panel-2:#1e1712; --accent:#e0a844; --accent-ink:#1a1108; }
+body { font-family:'DM Sans',sans-serif; background:#100b08; color:var(--ink); }
+.app { width:1240px; height:790px; background:radial-gradient(120% 90% at 78% 12%,#3a2213 0%,#1c120c 46%,#0d0906 100%); position:relative; overflow:hidden; }
+.nav { display:flex; align-items:center; justify-content:space-between; padding:20px 44px; }
+.mark { font-family:'Instrument Serif',serif; font-size:26px; letter-spacing:.02em; }
+.nav a { font-size:13px; font-weight:500; color:#cbbdab; letter-spacing:.02em; }
+.hero { display:grid; grid-template-columns:1fr 470px; gap:30px; padding:26px 44px 0; align-items:center; }
+.serif { font-family:'Instrument Serif',serif; }
+.stars { color:var(--accent); font-size:12px; letter-spacing:.16em; }
+.res { border:1px solid var(--line); border-radius:16px; padding:14px; background:rgba(255,255,255,.04); display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:10px; align-items:end; margin-top:24px; max-width:560px; }
+.fld { border-bottom:1px solid var(--line-strong); padding-bottom:7px; }
+.dish { position:relative; width:470px; height:470px; }
+.menu { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; padding:22px 44px 0; }
+.mi { border-top:1px solid var(--line); padding-top:13px; }
+.price { color:var(--accent); font-family:'Instrument Serif',serif; font-size:17px; }
+</style></head><body><div class="app">
+  <div class="nav">
+    <div class="row g24"><div class="mark">Osteria&nbsp;Nove</div>
+      <a>Menu</a><a>Cellar</a><a>Private dining</a><a>Our pasta</a></div>
+    <div class="row g14"><a>+1 (212) 555 0148</a><div class="btn">Reserve a table</div></div>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="row g10"><span class="stars">★★★★★</span><span class="t-sm muted">One Michelin star · Since 1974</span></div>
+      <div class="serif" style="font-size:56px;line-height:1.02;margin-top:14px">Hand-rolled<br><span style="font-style:italic;color:var(--accent)">twice</span> every day.</div>
+      <div class="t-md muted" style="margin-top:16px;max-width:430px;line-height:1.65">Semolina from Gragnano, tomatoes from the slopes of Vesuvius, and a copper pan that has not left the pass in forty years.</div>
+      <div class="res">
+        <div class="fld"><div class="t-xs faint">Date</div><div class="t-md w6" style="margin-top:4px">Fri, 12 Sep</div></div>
+        <div class="fld"><div class="t-xs faint">Time</div><div class="t-md w6" style="margin-top:4px">8:15 PM</div></div>
+        <div class="fld"><div class="t-xs faint">Guests</div><div class="t-md w6" style="margin-top:4px">2 people</div></div>
+        <div class="btn">Check availability</div>
+      </div>
+      <div class="t-xs faint" style="margin-top:10px">3 tables left this evening · free cancellation until 6 PM</div>
+    </div>
+
+    <div class="dish">
+      <svg viewBox="0 0 470 470" style="width:100%;height:100%">
+        <defs>
+          <radialGradient id="plate" cx="42%" cy="34%"><stop offset="0" stop-color="#fdfaf4"/><stop offset="72%" stop-color="#eee6d8"/><stop offset="100%" stop-color="#cabfae"/></radialGradient>
+          <radialGradient id="sauce" cx="45%" cy="38%"><stop offset="0" stop-color="#c8452c"/><stop offset="100%" stop-color="#8d2718"/></radialGradient>
+          <linearGradient id="strand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4d98f"/><stop offset="100%" stop-color="#d8ab4f"/></linearGradient>
+          <filter id="soft"><feGaussianBlur stdDeviation="9"/></filter>
+        </defs>
+        <ellipse cx="243" cy="268" rx="188" ry="176" fill="#000" opacity=".55" filter="url(#soft)"/>
+        <circle cx="235" cy="235" r="186" fill="url(#plate)"/>
+        <circle cx="235" cy="235" r="186" fill="none" stroke="rgba(0,0,0,.09)" stroke-width="2"/>
+        <circle cx="235" cy="235" r="150" fill="none" stroke="rgba(0,0,0,.07)" stroke-width="1.5"/>
+        <ellipse cx="235" cy="240" rx="126" ry="112" fill="url(#sauce)" opacity=".92"/>
+        <g stroke="url(#strand)" fill="none" stroke-linecap="round" opacity=".97">
+          <ellipse cx="235" cy="236" rx="112" ry="52" stroke-width="7" transform="rotate(-14 235 236)"/>
+          <ellipse cx="231" cy="242" rx="98" ry="66" stroke-width="7" transform="rotate(26 231 242)"/>
+          <ellipse cx="240" cy="230" rx="86" ry="74" stroke-width="7" transform="rotate(-52 240 230)"/>
+          <ellipse cx="228" cy="248" rx="104" ry="44" stroke-width="6.5" transform="rotate(62 228 248)"/>
+          <ellipse cx="244" cy="244" rx="74" ry="86" stroke-width="6.5" transform="rotate(9 244 244)"/>
+          <ellipse cx="222" cy="228" rx="66" ry="58" stroke-width="6" transform="rotate(-32 222 228)"/>
+          <ellipse cx="250" cy="252" rx="58" ry="70" stroke-width="6" transform="rotate(44 250 252)"/>
+          <ellipse cx="235" cy="236" rx="46" ry="40" stroke-width="5.5" transform="rotate(-8 235 236)"/>
+          <path d="M120 250c22 34 66 52 104 40" stroke-width="6"/>
+          <path d="M340 216c-14-32-52-52-92-48" stroke-width="6"/>
+          <path d="M168 168c26-14 62-16 92-4" stroke-width="5.5"/>
+        </g>
+        <g fill="#a8241a">
+          <circle cx="188" cy="204" r="13"/><circle cx="286" cy="266" r="11"/><circle cx="236" cy="176" r="9"/>
+        </g>
+        <g fill="#4e7f36">
+          <path d="M262 196c14-20 38-24 46-16s-6 30-26 34-24-6-20-18Z"/>
+          <path d="M186 286c-16-14-14-34-4-38s26 10 28 26-14 20-24 12Z"/>
+        </g>
+        <g fill="#fffaf0" opacity=".9">
+          <circle cx="214" cy="256" r="3.4"/><circle cx="268" cy="222" r="3"/><circle cx="248" cy="292" r="3.2"/>
+          <circle cx="196" cy="236" r="2.6"/><circle cx="292" cy="238" r="2.6"/><circle cx="230" cy="206" r="2.4"/>
+        </g>
+      </svg>
+      <div style="position:absolute;right:2px;bottom:18px;background:rgba(20,13,9,.82);border:1px solid var(--line);border-radius:14px;padding:11px 14px;backdrop-filter:blur(6px)">
+        <div class="t-xs faint">Tonight's primo</div>
+        <div class="t-md w6" style="margin-top:3px">Spaghetti alla Nerano</div>
+        <div class="row g8" style="margin-top:4px"><span class="price">$34</span><span class="t-xs faint">· 24 portions left</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="menu">
+    <div class="mi"><div class="between"><div class="t-md w6">Tagliolini al tartufo</div><div class="price">$52</div></div>
+      <div class="t-sm muted" style="margin-top:5px">Alba white truffle, aged parmesan, brown butter</div></div>
+    <div class="mi"><div class="between"><div class="t-md w6">Bucatini all'amatriciana</div><div class="price">$28</div></div>
+      <div class="t-sm muted" style="margin-top:5px">Guanciale, San Marzano, pecorino romano</div></div>
+    <div class="mi"><div class="between"><div class="t-md w6">Cacio e pepe</div><div class="price">$26</div></div>
+      <div class="t-sm muted" style="margin-top:5px">Tonnarelli rolled at four, black pepper, nothing else</div></div>
+  </div>
+</div></body></html>

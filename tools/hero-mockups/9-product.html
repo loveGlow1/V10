@@ -1,0 +1,94 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --ink:#16181c; --muted:#6b7280; --faint:#9aa1ab; --line:rgba(15,18,22,.1); --line-strong:rgba(15,18,22,.2);
+  --panel:#fff; --panel-2:#f5f4f1; --accent:#16181c; --accent-ink:#fff; }
+body { background:#fbfaf8; color:var(--ink); font-family:'DM Sans',sans-serif; }
+.app { width:1240px; height:780px; background:#fbfaf8; }
+.nav { display:flex; align-items:center; justify-content:space-between; padding:16px 40px; border-bottom:1px solid var(--line); }
+.mark { font-weight:700; font-size:17px; letter-spacing:.14em; }
+.nav a { font-size:13px; font-weight:500; color:#4b525c; }
+.crumb { padding:14px 40px 0; font-size:12px; color:#9aa1ab; }
+.wrap { display:grid; grid-template-columns:1fr 400px; gap:40px; padding:10px 40px 0; }
+.gallery { display:grid; grid-template-columns:74px 1fr; gap:12px; }
+.thumb { height:74px; border-radius:9px; border:1px solid var(--line); overflow:hidden; }
+.thumb.on { outline:1.5px solid #16181c; outline-offset:1px; }
+.stage { height:512px; border-radius:14px; background:linear-gradient(168deg,#efe9df,#dcd3c5); position:relative; overflow:hidden; }
+.swatch { width:26px; height:26px; border-radius:999px; border:1px solid rgba(0,0,0,.12); }
+.swatch.on { outline:1.5px solid #16181c; outline-offset:2px; }
+.size { border:1px solid var(--line-strong); border-radius:8px; padding:8px 0; text-align:center; font-size:12.5px; font-weight:600; }
+.size.on { background:#16181c; color:#fff; border-color:#16181c; }
+.size.off { color:#c3c8ce; border-color:var(--line); text-decoration:line-through; }
+.acc { border-top:1px solid var(--line); padding:12px 0; display:flex; justify-content:space-between; font-size:13px; font-weight:500; }
+.rev { border:1px solid var(--line); border-radius:12px; padding:13px; background:#fff; }
+</style></head><body><div class="app">
+  <div class="nav">
+    <div class="row g24"><div class="mark">AUBRIE</div><a>New</a><a>Bags</a><a>Small leather</a><a>Travel</a><a>Care</a></div>
+    <div class="row g16"><svg class="icon" style="width:18px;height:18px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+      <svg class="icon" style="width:18px;height:18px" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+      <div style="position:relative"><svg class="icon" style="width:18px;height:18px" viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>
+        <span style="position:absolute;top:-6px;right:-8px;background:#16181c;color:#fff;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:999px;display:grid;place-items:center">2</span></div></div>
+  </div>
+
+  <div class="crumb">Home · Bags · Structured totes · <span style="color:#16181c">Marlow Tote</span></div>
+
+  <div class="wrap">
+    <div class="gallery">
+      <div class="col g10">
+        <div class="thumb on" style="background:linear-gradient(160deg,#e8e0d4,#cfc4b3)"></div>
+        <div class="thumb" style="background:linear-gradient(160deg,#3a3630,#22201c)"></div>
+        <div class="thumb" style="background:linear-gradient(160deg,#c9a882,#9c7b55)"></div>
+        <div class="thumb" style="background:linear-gradient(160deg,#e4ddd2,#b9ad9c)"></div>
+        <div class="thumb" style="background:linear-gradient(160deg,#7d5c3c,#4c3722)"></div>
+      </div>
+      <div class="stage">
+        <svg viewBox="0 0 480 512" style="position:absolute;inset:0;width:100%;height:100%">
+          <defs><linearGradient id="lth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b78c5c"/><stop offset="55%" stop-color="#96693c"/><stop offset="100%" stop-color="#6f4a27"/></linearGradient></defs>
+          <ellipse cx="244" cy="432" rx="150" ry="20" fill="rgba(0,0,0,.16)"/>
+          <path d="M132 176h216l16 250a14 14 0 0 1-14 15H130a14 14 0 0 1-14-15Z" fill="url(#lth)"/>
+          <path d="M132 176h216l4 62H128Z" fill="rgba(255,255,255,.09)"/>
+          <path d="M168 178c0-46 32-74 72-74s72 28 72 74" fill="none" stroke="#7c5330" stroke-width="13" stroke-linecap="round"/>
+          <path d="M186 178c0-36 24-58 54-58s54 22 54 58" fill="none" stroke="#a5764a" stroke-width="6" stroke-linecap="round"/>
+          <rect x="212" y="300" width="60" height="44" rx="9" fill="#5f4024" opacity=".55"/>
+          <rect x="228" y="316" width="28" height="12" rx="6" fill="#d8c39a"/>
+          <path d="M116 300h256" stroke="rgba(0,0,0,.12)" stroke-width="2"/>
+        </svg>
+        <div style="position:absolute;left:14px;top:14px;background:rgba(255,255,255,.94);border-radius:999px;padding:5px 11px;font-size:10.5px;font-weight:700;letter-spacing:.07em">MADE IN FLORENCE</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="t-sm faint">Structured tote · Full-grain calf</div>
+      <div style="font-size:30px;font-weight:600;letter-spacing:-.02em;margin-top:6px">Marlow Tote</div>
+      <div class="row g10" style="margin-top:8px"><span style="color:#c08a2e;font-size:13px">★★★★★</span><span class="t-sm muted">4.9 · 318 reviews</span></div>
+      <div class="row g10" style="margin-top:14px;align-items:baseline"><div style="font-size:26px;font-weight:700">$680</div>
+        <div class="t-sm muted" style="text-decoration:line-through">$850</div>
+        <span class="pill" style="background:#f1efe9;color:#7a6a4f;border-color:transparent">20% off · ends Sunday</span></div>
+
+      <div class="t-sm w6" style="margin-top:20px">Colour · <span class="muted w5">Cognac</span></div>
+      <div class="row g10" style="margin-top:9px">
+        <div class="swatch on" style="background:#96693c"></div><div class="swatch" style="background:#2a2724"></div>
+        <div class="swatch" style="background:#d8cdbb"></div><div class="swatch" style="background:#5c6a58"></div>
+      </div>
+
+      <div class="between" style="margin-top:18px"><div class="t-sm w6">Size</div><div class="t-sm muted">Size guide</div></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:9px">
+        <div class="size">Mini</div><div class="size on">Small</div><div class="size">Medium</div><div class="size off">Large</div>
+      </div>
+
+      <div class="btn" style="width:100%;margin-top:18px;padding:13px">Add to bag</div>
+      <div class="btn btn-ghost" style="width:100%;margin-top:9px;padding:13px">Book a fitting appointment</div>
+      <div class="t-xs muted" style="margin-top:10px;text-align:center">Free next-day delivery · 30-day returns · Lifetime repairs</div>
+
+      <div style="margin-top:16px">
+        <div class="acc">Materials &amp; dimensions <span class="faint">+</span></div>
+        <div class="acc">Delivery &amp; returns <span class="faint">+</span></div>
+      </div>
+
+      <div class="rev" style="margin-top:6px">
+        <div class="row g8"><span style="color:#c08a2e;font-size:11px">★★★★★</span><span class="t-sm w6">Worth every penny</span></div>
+        <div class="t-sm muted" style="margin-top:5px;line-height:1.55">“Third year carrying it daily and the leather has only got better. The small fits a 13-inch laptop.”</div>
+        <div class="t-xs faint" style="margin-top:6px">Imogen R. · Verified buyer</div>
+      </div>
+    </div>
+  </div>
+</div></body></html>

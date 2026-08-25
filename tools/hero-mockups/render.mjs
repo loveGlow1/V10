@@ -16,11 +16,10 @@ fs.mkdirSync(out, { recursive: true });
 const shots = [
   { file: '1-banking.html', name: 'banking', w: 390, h: 844 },
   { file: '2-store.html', name: 'store', w: 1240, h: 790 },
-  { file: '3-crm.html', name: 'crm', w: 1320, h: 730 },
-  { file: '4-analytics.html', name: 'analytics', w: 1320, h: 840 },
+  { file: '8-trattoria.html', name: 'trattoria', w: 1240, h: 790 },
+  { file: '9-product.html', name: 'product', w: 1240, h: 780 },
+  { file: '10-pantry.html', name: 'pantry', w: 1240, h: 800 },
   { file: '5-food.html', name: 'food', w: 430, h: 960 },
-  { file: '6-projects.html', name: 'projects', w: 1320, h: 760 },
-  { file: '7-studio.html', name: 'studio', w: 1240, h: 720 },
 ];
 
 const browser = await chromium.launch({
