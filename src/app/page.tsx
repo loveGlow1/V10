@@ -456,6 +456,21 @@ export default function LandingPage() {
   const [showGetStartedButton, setShowGetStartedButton] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  /* The floating surfaces are a desktop composition: on a handset they crowd
+     the mark and the auth stack, so the ring is not drawn there at all. Gating
+     on a media query rather than a CSS class keeps the six screenshots off a
+     phone's connection entirely — a hidden <img> is still downloaded.
+     Starting false and flipping in an effect means the server and the first
+     client render agree. */
+  const [wideEnoughForHeroApps, setWideEnoughForHeroApps] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setWideEnoughForHeroApps(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
   /* Billing period is tracked per tier rather than for the section as a whole: each paid
      card carries its own Annual switch, so a visitor can price one plan yearly while
      leaving the others on the monthly rate they are comparing against. */
@@ -755,6 +770,7 @@ export default function LandingPage() {
               ring, the middle one drifts, and the image carries the ring's perspective —
               one element cannot hold both the drift and the rotation, since animating a
               transform would wipe the other out. See HERO_APPS for the ring itself. */}
+          {wideEnoughForHeroApps && (
           <div className="hero-apps pointer-events-none absolute inset-0" aria-hidden="true">
             {HERO_APPS.map((app) => {
               const place = heroRingPosition(app.angle, app.radius);
@@ -792,6 +808,7 @@ export default function LandingPage() {
               );
             })}
           </div>
+          )}
 
           {/* 3D logo with oval spotlight backdrop */}
           <div className="q-logo-block relative flex items-center justify-center overflow-visible">
