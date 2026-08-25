@@ -6,6 +6,8 @@ import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import ProjectList from "./components/ProjectList";
+import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -167,6 +169,7 @@ export default function DashboardPage() {
   };
 
   return (
+    <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
@@ -438,6 +441,8 @@ export default function DashboardPage() {
             </span>
           </button>
         </div>
+
+        <ProjectList />
       </main>
 
       {/* Select Agent Modal Sheet */}
@@ -693,5 +698,6 @@ export default function DashboardPage() {
         }
       `}</style>
     </div>
+    </ProjectsProvider>
   );
 }
