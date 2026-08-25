@@ -11,9 +11,10 @@ import {
   MoreHorizontal,
   Paperclip,
   Smile,
-  Sparkles,
   X,
 } from "lucide-react";
+
+import BotMark from "./BotMark";
 
 type Message = { id: number; from: "support" | "user"; text: string };
 
@@ -25,30 +26,6 @@ const QUICK_REPLIES = [
   "Help me build a great app!!",
   "Help in adding features to my current app",
 ];
-
-/* The launcher's mark: a solid bot face, with the eyes knocked out to the
-   colour of the button behind it rather than painted white, so it stays right
-   if the button ever stops being white. */
-function BotMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className={className}>
-      <mask id="support-bot-eyes">
-        <rect x="0" y="0" width="24" height="24" fill="#fff" />
-        <rect x="8.1" y="10.3" width="2.7" height="3.4" rx="1.15" fill="#000" />
-        <rect x="13.2" y="10.3" width="2.7" height="3.4" rx="1.15" fill="#000" />
-      </mask>
-      <rect
-        x="2"
-        y="5"
-        width="20"
-        height="14"
-        rx="5"
-        fill="currentColor"
-        mask="url(#support-bot-eyes)"
-      />
-    </svg>
-  );
-}
 
 export default function SupportChat() {
   const [open, setOpen] = useState(false);
@@ -97,8 +74,8 @@ export default function SupportChat() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#34F5A0]/15">
-                <Sparkles className="h-4 w-4 text-[#34F5A0]" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white">
+                <BotMark className="h-[18px] w-[18px] text-black" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold leading-tight text-white">

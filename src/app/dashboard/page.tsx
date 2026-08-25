@@ -17,7 +17,7 @@ import {
   MicOff,
   ArrowUp,
   Smartphone,
-  MonitorSmartphone,
+  Layers,
   FileText,
   AppWindow,
   Bot,
@@ -40,8 +40,17 @@ import {
 const CREDITS = "0.00";
 const PROJECT_NAME = "QuickStart Project";
 
+/* The bar suggests what to ask for by cycling its placeholder rather than
+   sitting on one example. */
+const PROMPTS = [
+  "Build me an e-commerce platform with...",
+  "Build me a SaaS app for...",
+  "Build me a CRM system with...",
+  "Build me a dashboard for...",
+];
+
 const projectTypes = [
-  { id: "web", label: "Web App", icon: MonitorSmartphone },
+  { id: "web", label: "Web App", icon: Layers },
   { id: "mobile", label: "Mobile App", icon: Smartphone },
   { id: "landing", label: "Website", icon: AppWindow },
 ];
@@ -51,6 +60,7 @@ export default function DashboardPage() {
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
 
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
@@ -92,6 +102,17 @@ export default function DashboardPage() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isUploadPopoverOpen]);
+
+  /* Stop once there is something in the box: the placeholder is hidden then,
+     and a timer nobody can see is just work. */
+  useEffect(() => {
+    if (transcript) return;
+    const id = window.setInterval(
+      () => setPromptIndex((current) => (current + 1) % PROMPTS.length),
+      3200,
+    );
+    return () => window.clearInterval(id);
+  }, [transcript]);
 
   // Handle Voice Recording Logic
   const toggleRecording = async () => {
@@ -169,25 +190,6 @@ export default function DashboardPage() {
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-10">
-        {/* Announcement */}
-        <div className="flex w-full max-w-[680px] items-center gap-3 rounded-full border border-white/[0.07] bg-white/[0.03] px-3 py-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#34F5A0]/15">
-            <Sparkles className="h-3.5 w-3.5 text-[#34F5A0]" />
-          </span>
-          <p className="min-w-0 flex-1 truncate text-[13px] text-[#C7CAD0]">
-            Start on Standard free for a month, with credits to build.
-          </p>
-          <button
-            onClick={() => setBillingOpen(true)}
-            className="h-7 shrink-0 rounded-full bg-white px-3 text-xs font-semibold text-black transition-all hover:brightness-95"
-          >
-            Claim now
-          </button>
-          <button className="hidden h-7 shrink-0 rounded-full px-3 text-xs font-medium text-[#8F939A] transition-colors hover:text-white sm:block">
-            No thanks
-          </button>
-        </div>
-
         {/* Project selector */}
         <button className="mt-9 flex h-[42px] w-[210px] items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-4 text-sm text-white transition-colors hover:bg-white/[0.07]">
           <span className="h-4 w-4 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
@@ -289,7 +291,7 @@ export default function DashboardPage() {
               <textarea
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
-                placeholder="Build me an e-commerce platform with..."
+                placeholder={PROMPTS[promptIndex]}
                 rows={3}
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
