@@ -25,12 +25,13 @@ import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabas
 
 interface TopNavProps {
   onUpgradeClick: () => void;
+  onAccountSettingsClick: () => void;
   projectName: string;
   /** No credits service exists yet; the value the app already displayed is passed in. */
   credits: string;
 }
 
-export default function TopNav({ onUpgradeClick, projectName, credits }: TopNavProps) {
+export default function TopNav({ onUpgradeClick, onAccountSettingsClick, projectName, credits }: TopNavProps) {
   const router = useRouter();
   const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
   const [panelOpen, setPanelOpen] = useState(false);
@@ -102,7 +103,7 @@ export default function TopNav({ onUpgradeClick, projectName, credits }: TopNavP
     { icon: Gift, label: "Refer and Earn" },
     { icon: CreditCard, label: "Manage Plan", onClick: () => { setPanelOpen(false); onUpgradeClick(); } },
     { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
-    { icon: Settings, label: "Account Settings", onClick: () => { setPanelOpen(false); router.push("/dashboard/settings"); } },
+    { icon: Settings, label: "Account Settings", onClick: () => { setPanelOpen(false); onAccountSettingsClick(); } },
     { icon: Globe, label: "Language", trailing: "chevron" },
     { icon: Github, label: "Connect to GitHub", trailing: "external" },
     { icon: Users, label: "Community", trailing: "external" },
