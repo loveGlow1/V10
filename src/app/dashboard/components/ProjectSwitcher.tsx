@@ -1,74 +1,23 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronDown, Plus } from "lucide-react";
 
-import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
-
-type Project = { id: string; name: string };
-
-/* Each project keeps its own colour, picked from its id so it is the same on
-   every device and after every reload. */
-const AVATARS = [
-  "from-[#F06FC0] to-[#34F5A0]",
-  "from-[#34F5A0] to-[#2FD3D3]",
-  "from-[#6C8BFF] to-[#B06CFF]",
-  "from-[#FFB86C] to-[#F06FC0]",
-  "from-[#2FD3D3] to-[#6C8BFF]",
-];
-
-function avatarFor(id: string | undefined) {
-  if (!id) return AVATARS[0];
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATARS[hash % AVATARS.length];
-}
+import { avatarFor } from "../projectColours";
+import { useProjects } from "../ProjectsContext";
 
 export default function ProjectSwitcher({
   onSelectedChange,
 }: {
   onSelectedChange?: (name: string | null) => void;
 }) {
+  const { projects, loading, error, selectedId, selected, select, create } = useProjects();
   const [open, setOpen] = useState(false);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  const load = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-    const { data, error: queryError } = await createSupabaseBrowserClient()
-      .from("projects")
-      .select("id, name")
-      .order("updated_at", { ascending: false });
-
-    setLoading(false);
-    if (queryError) {
-      setError(
-        queryError.code === "42P01"
-          ? "The projects table does not exist yet — run supabase/schema.sql in the SQL editor."
-          : queryError.message,
-      );
-      return;
-    }
-    setError(null);
-    setProjects(data ?? []);
-    setSelectedId((current) => current ?? data?.[0]?.id ?? null);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const selected = projects.find((project) => project.id === selectedId) ?? null;
 
   useEffect(() => {
     onSelectedChange?.(selected?.name ?? null);
@@ -93,43 +42,15 @@ export default function ProjectSwitcher({
   async function createProject(event: React.FormEvent) {
     event.preventDefault();
     const name = draft.trim();
-    if (!name || !isSupabaseConfigured) return;
-
-    const supabase = createSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Your session is still loading — try again in a moment.");
-      return;
-    }
+    if (!name) return;
 
     setSaving(true);
-    const { data, error: insertError } = await supabase
-      .from("projects")
-      .insert({ user_id: user.id, name })
-      .select("id, name")
-      .single();
-
+    const created = await create(name);
     setSaving(false);
-    if (insertError) {
-      setError(
-        insertError.code === "42P01"
-          ? "The projects table does not exist yet — run supabase/schema.sql in the SQL editor."
-          : insertError.message,
-      );
-      return;
-    }
-    setError(null);
+    if (!created) return;
+
     setDraft("");
     setCreating(false);
-    if (data?.id) {
-      setProjects((current) => [data, ...current]);
-      setSelectedId(data.id);
-    } else {
-      // The row was written but not returned; re-read rather than guess.
-      await load();
-    }
     setOpen(false);
   }
 
@@ -171,7 +92,7 @@ export default function ProjectSwitcher({
                 key={project.id}
                 role="menuitem"
                 onClick={() => {
-                  setSelectedId(project.id);
+                  select(project.id);
                   setOpen(false);
                 }}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
