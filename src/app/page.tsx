@@ -301,6 +301,109 @@ const FOOTER_LINK_COLUMNS = [
   },
 ] as const;
 
+/* Seven applications float around the hero at different depths — a fintech app, a
+   storefront, a CRM, an analytics dashboard, a food-ordering app, a project board and an
+   AI workspace — so the first thing a visitor sees is the range of things QuickStart.Ai
+   builds. Each entry is a screenshot of a real UI, rendered from the mockups in
+   tools/hero-mockups (re-run `node tools/hero-mockups/render.mjs` after editing one).
+
+   `position` places the surface and `transform` gives it its depth; the two live on
+   separate elements because the wrapper animates its own transform to float, which would
+   otherwise overwrite the perspective. Sizes are in vw so the whole arrangement scales
+   with the viewport, and the outer ones sit partly past the edge on purpose.
+
+   Every surface hugs an edge: the middle of the hero — the mark, the headline and the
+   auth stack — is a clear zone that nothing may cross, which is what keeps the
+   composition readable rather than busy. Surfaces may overlap each other, which is how
+   the stack at the lower left reads as depth rather than as a row.
+   tools/hero-mockups/check-clearance.mjs measures both rules across viewport sizes: it
+   fails if anything enters the clear zone, or if a surface is cropped down to almost
+   nothing. How many are drawn depends on the room: all seven from lg up, four from md,
+   and none on a handset, where the column is the full width of the screen and no edge is
+   free. The two light-ground apps carry their own `filter`, since the shared one is tuned
+   for dark UIs and leaves a white page glaring against the hero. */
+const HERO_APPS = [
+  {
+    src: "/hero-apps/studio.png",
+    width: 2480,
+    height: 1440,
+    alt: "AI creative workspace drafting a customer story",
+    position: "left-[-12vw] 2xl:left-[-150px] top-[-10%] w-[26vw] max-w-[520px]",
+    transform: "rotateY(16deg) rotateX(7deg) rotateZ(-2deg)",
+    opacity: 0.4,
+    float: { duration: "17s", delay: "-2s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/banking.png",
+    width: 780,
+    height: 1688,
+    alt: "Mobile banking app showing balance, spending and recent transactions",
+    position: "left-[1.5vw] top-[24%] w-[8vw] min-w-[92px] max-w-[118px]",
+    transform: "rotateY(19deg) rotateX(5deg) rotateZ(-3deg)",
+    opacity: 0.72,
+    float: { duration: "13s", delay: "-1s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/analytics.png",
+    width: 2640,
+    height: 1680,
+    alt: "Analytics dashboard with revenue chart, KPIs and AI insights",
+    position: "right-[-9vw] 2xl:right-[-130px] top-[1%] w-[29vw] max-w-[540px]",
+    transform: "rotateY(-17deg) rotateX(6deg) rotateZ(1.5deg)",
+    opacity: 0.58,
+    float: { duration: "15s", delay: "-6s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/store.png",
+    width: 2480,
+    height: 1580,
+    alt: "Fashion storefront with a product grid and promotional banner",
+    position: "left-[-12vw] 2xl:left-[-120px] top-[55%] w-[22vw] max-w-[410px]",
+    transform: "rotateY(20deg) rotateX(-4deg) rotateZ(2deg)",
+    opacity: 0.3,
+    filter: "brightness(0.48) saturate(0.78) contrast(1.03)",
+    float: { duration: "19s", delay: "-9s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/food.png",
+    width: 860,
+    height: 1792,
+    alt: "Food ordering app with featured restaurant and nearby listings",
+    position: "right-[2vw] top-[42%] w-[8vw] min-w-[92px] max-w-[132px]",
+    transform: "rotateY(-20deg) rotateX(5deg) rotateZ(2.5deg)",
+    opacity: 0.5,
+    filter: "brightness(0.62) saturate(0.86) contrast(1.02)",
+    float: { duration: "12s", delay: "-4s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/crm.png",
+    width: 2640,
+    height: 1460,
+    alt: "Sales CRM with pipeline stages, deal cards and an activity feed",
+    position: "left-[2vw] bottom-[1%] w-[20vw] max-w-[370px]",
+    transform: "rotateY(15deg) rotateX(-7deg) rotateZ(-3deg)",
+    opacity: 0.46,
+    float: { duration: "21s", delay: "-13s" },
+    show: "hidden lg:block",
+  },
+  {
+    src: "/hero-apps/projects.png",
+    width: 2640,
+    height: 1520,
+    alt: "Project management board with kanban columns and sprint statistics",
+    position: "right-[-10vw] 2xl:right-[-120px] bottom-[-11%] w-[26vw] max-w-[470px]",
+    transform: "rotateY(-19deg) rotateX(-6deg) rotateZ(2deg)",
+    opacity: 0.5,
+    float: { duration: "16s", delay: "-7s" },
+    show: "hidden lg:block",
+  },
+] as const;
+
 const HERO_SECONDARY_ACTION_BUTTON_CLASS =
   "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
 
@@ -601,6 +704,29 @@ export default function LandingPage() {
             the mark's halo reaches well above the mark itself, and the previous overflow-hidden
             sliced it off flat against the header, so only the inline axis may be clipped. */}
         <section className="hero-shell min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center px-6 relative pb-12 sm:pb-16">
+          {/* The floating application surfaces sit behind everything else in the hero and
+              take no pointer events, so they never intercept a click meant for the auth
+              buttons. See HERO_APPS for what each one is and where it sits. */}
+          <div className="hero-apps pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+            {HERO_APPS.map((app) => (
+              <div
+                key={app.src}
+                className={`hero-app absolute ${app.show} ${app.position}`}
+                style={{ animationDuration: app.float.duration, animationDelay: app.float.delay }}
+              >
+                <Image
+                  src={app.src}
+                  alt=""
+                  width={app.width}
+                  height={app.height}
+                  sizes="(min-width: 1536px) 34vw, (min-width: 1024px) 30vw, 20vw"
+                  className="hero-app-surface h-auto w-full"
+                  style={{ transform: app.transform, opacity: app.opacity, ...("filter" in app ? { filter: app.filter } : {}) }}
+                />
+              </div>
+            ))}
+          </div>
+
           {/* 3D logo with oval spotlight backdrop */}
           <div className="q-logo-block relative flex items-center justify-center overflow-visible">
             <div

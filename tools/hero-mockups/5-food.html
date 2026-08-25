@@ -1,0 +1,98 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --ink:#1b1512; --muted:#786b62; --faint:#9b8e84; --line:rgba(27,21,18,.1);
+  --panel:#fff; --panel-2:#f6f1ea; --accent:#e2603a; --accent-ink:#fff; }
+body { background:#fdf9f4; color:var(--ink); font-family:'DM Sans',sans-serif; }
+.app { width:430px; min-height:840px; padding:52px 18px 104px; background:#fdf9f4; position:relative; }
+.loc { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; }
+.search { display:flex; align-items:center; gap:9px; padding:12px 14px; border-radius:14px; background:#fff; border:1px solid var(--line); color:#9b8e84; font-size:13.5px; margin:14px 0 16px; }
+.cats { display:flex; gap:9px; overflow:hidden; }
+.cat { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:11px; font-weight:600; width:62px; }
+.cat .b { width:54px; height:54px; border-radius:16px; display:grid; place-items:center; font-size:23px; }
+.cat.on .b { outline:2px solid var(--accent); outline-offset:2px; }
+.feat { position:relative; height:172px; border-radius:18px; overflow:hidden; margin:16px 0 6px; color:#fff;
+  background:linear-gradient(200deg,#7a3f22 0%,#3d1f14 62%,#241310 100%); }
+.feat .glow { position:absolute; inset:-30% -20% auto auto; width:260px; height:260px; border-radius:999px; background:radial-gradient(circle,rgba(226,150,58,.55),transparent 62%); }
+.feat .body { position:absolute; inset:auto 0 0 0; padding:14px 16px; background:linear-gradient(to top,rgba(20,10,6,.85),transparent); }
+.rcard { display:flex; gap:12px; padding:12px 0; }
+.thumb { width:88px; height:88px; border-radius:14px; flex:none; position:relative; overflow:hidden; }
+.thumb i { position:absolute; border-radius:999px; }
+.badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; color:#5f5449; }
+.tag { font-size:10px; font-weight:700; letter-spacing:.05em; padding:3px 7px; border-radius:6px; background:rgba(226,96,58,.12); color:#c14e2c; }
+.cartbar { position:absolute; left:18px; right:18px; bottom:22px; border-radius:16px; padding:13px 16px; display:flex; align-items:center; justify-content:space-between;
+  background:#1b1512; color:#fff; box-shadow:0 18px 30px -18px rgba(27,21,18,.7); }
+</style></head><body><div class="app">
+  <div class="between">
+    <div><div class="t-xs faint">Deliver to</div><div class="loc"><svg class="icon" style="width:14px;height:14px;color:#e2603a" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.6"/></svg>Bushwick · 214 Troutman St</div></div>
+    <div class="row g8"><div class="sq" style="width:34px;height:34px;background:#fff;border-color:var(--line)"><svg class="icon" style="color:#1b1512" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg></div>
+      <div style="width:34px;height:34px;border-radius:999px;background:linear-gradient(140deg,#e2603a,#a83c1f);display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700">NB</div></div>
+  </div>
+
+  <div class="search"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>Search “ramen”, “tacos”, “late night”…</div>
+
+  <div class="cats">
+    <div class="cat on"><div class="b" style="background:#fbe3d5">🍜</div>Ramen</div>
+    <div class="cat"><div class="b" style="background:#eef0da">🥗</div>Salads</div>
+    <div class="cat"><div class="b" style="background:#fbeecb">🌮</div>Tacos</div>
+    <div class="cat"><div class="b" style="background:#e6e9f5">🍣</div>Sushi</div>
+    <div class="cat"><div class="b" style="background:#f7e2e2">🍕</div>Pizza</div>
+    <div class="cat"><div class="b" style="background:#e5efe6">🍰</div>Sweets</div>
+  </div>
+
+  <div class="feat">
+    <div class="glow"></div>
+    <div style="position:absolute;top:12px;left:14px" class="tag">FEATURED · 25 MIN</div>
+    <svg viewBox="0 0 120 120" style="position:absolute;right:14px;top:8px;width:132px;height:132px;opacity:.95">
+      <path d="M18 52h84c0 24-19 43-42 43S18 76 18 52Z" fill="#e8ded0"/>
+      <path d="M18 52h84c0 6-1 11-3 16H21c-2-5-3-10-3-16Z" fill="#cbbda9"/>
+      <path d="M24 52c6-13 20-21 36-21s30 8 36 21" fill="#7d4a2b"/>
+      <circle cx="48" cy="41" r="9" fill="#f6efe2"/><circle cx="48" cy="41" r="4.4" fill="#f0b23c"/>
+      <path d="M66 33c8 1 14 5 17 10" stroke="#f6efe2" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M30 44c6-4 13-6 20-6" stroke="#f6efe2" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M70 20 96 8" stroke="#3a2b21" stroke-width="3.6" stroke-linecap="round"/>
+      <path d="M74 26 100 14" stroke="#3a2b21" stroke-width="3.6" stroke-linecap="round"/>
+      <path d="M84 46h16" stroke="#4f7f43" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+    <div class="body">
+      <div class="t-xl w7">Kaya Ramen House</div>
+      <div class="row g10 t-sm" style="opacity:.85;margin-top:4px"><span>★ 4.9 (1,204)</span><span>·</span><span>Japanese · Noodles</span><span>·</span><span>$$</span></div>
+      <div class="row between" style="margin-top:10px"><div class="t-sm" style="opacity:.8">Free delivery over $25</div><div class="btn" style="padding:7px 13px">Order now</div></div>
+    </div>
+  </div>
+
+  <div class="between" style="margin-top:14px"><div class="t-lg w6">Near you</div><div class="t-sm w6" style="color:#c14e2c">See all 128</div></div>
+
+  <div class="rcard">
+    <div class="thumb" style="background:linear-gradient(150deg,#f3e2c8,#d9b787)">
+      <svg viewBox="0 0 88 88" style="position:absolute;inset:0"><circle cx="44" cy="46" r="26" fill="#c8873f"/><circle cx="44" cy="46" r="26" fill="none" stroke="#a9692a" stroke-width="2"/>
+      <circle cx="44" cy="46" r="9" fill="#f3e2c8"/><circle cx="34" cy="34" r="1.7" fill="#f6efe2"/><circle cx="55" cy="37" r="1.7" fill="#f6efe2"/><circle cx="52" cy="58" r="1.7" fill="#f6efe2"/><circle cx="33" cy="53" r="1.7" fill="#f6efe2"/>
+      <path d="M18 62h52" stroke="#b98a4e" stroke-width="3" stroke-linecap="round" opacity=".5"/></svg></div>
+    <div class="grow"><div class="between"><div class="t-md w6">Marlowe Bagel Bar</div><div class="badge">★ 4.8</div></div>
+      <div class="t-sm muted" style="margin-top:3px">Bakery · Breakfast · 0.6 mi</div>
+      <div class="row g10" style="margin-top:8px"><span class="badge">⏱ 15–25 min</span><span class="badge">🛵 $1.99</span><span class="tag">20% OFF</span></div></div>
+  </div>
+  <div class="sep"></div>
+  <div class="rcard">
+    <div class="thumb" style="background:linear-gradient(150deg,#e7efd9,#b9cfa4)">
+      <svg viewBox="0 0 88 88" style="position:absolute;inset:0"><path d="M14 44h60c0 15-13 27-30 27S14 59 14 44Z" fill="#f4f6ee"/><path d="M14 44h60c0 4-1 8-3 11H17c-2-3-3-7-3-11Z" fill="#d7dfcb"/>
+      <circle cx="32" cy="38" r="10" fill="#6f9c4f"/><circle cx="50" cy="35" r="8" fill="#87b45f"/><circle cx="62" cy="41" r="7" fill="#5d8a43"/><circle cx="41" cy="30" r="5.5" fill="#d94f3d"/><circle cx="57" cy="46" r="4" fill="#e8b64a"/></svg></div>
+    <div class="grow"><div class="between"><div class="t-md w6">Verde &amp; Vine</div><div class="badge">★ 4.7</div></div>
+      <div class="t-sm muted" style="margin-top:3px">Salads · Grain bowls · 1.1 mi</div>
+      <div class="row g10" style="margin-top:8px"><span class="badge">⏱ 20–30 min</span><span class="badge">🛵 Free</span></div></div>
+  </div>
+  <div class="sep"></div>
+  <div class="rcard">
+    <div class="thumb" style="background:linear-gradient(150deg,#fae3cd,#e8b183)">
+      <svg viewBox="0 0 88 88" style="position:absolute;inset:0"><path d="M12 62c0-20 14-34 32-34s32 14 32 34Z" fill="#f0c26a"/><path d="M12 62c0-20 14-34 32-34" fill="none" stroke="#d99f3f" stroke-width="2.4"/>
+      <path d="M20 58c4-14 13-22 24-22s20 8 24 22Z" fill="#8b4a2f"/><circle cx="34" cy="49" r="3.4" fill="#7fae55"/><circle cx="46" cy="45" r="3.4" fill="#d94f3d"/><circle cx="56" cy="52" r="3.4" fill="#f6efe2"/><circle cx="42" cy="55" r="3" fill="#7fae55"/></svg></div>
+    <div class="grow"><div class="between"><div class="t-md w6">El Farolito Taquería</div><div class="badge">★ 4.9</div></div>
+      <div class="t-sm muted" style="margin-top:3px">Mexican · Tacos · 0.9 mi</div>
+      <div class="row g10" style="margin-top:8px"><span class="badge">⏱ 10–20 min</span><span class="badge">🛵 $0.99</span><span class="tag">POPULAR</span></div></div>
+  </div>
+
+  <div class="cartbar">
+    <div class="row g10"><div style="width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.12);display:grid;place-items:center;font-size:13px">🛒</div>
+      <div><div class="t-sm w6">2 items · Kaya Ramen</div><div class="t-xs" style="opacity:.6">Arrives 7:35 – 7:50 PM</div></div></div>
+    <div class="t-md w7">$38.40</div>
+  </div>
+</div></body></html>
