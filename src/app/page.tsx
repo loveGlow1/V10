@@ -310,21 +310,27 @@ const FOOTER_LINK_COLUMNS = [
    `position` places the surface and `transform` gives it its depth; the two live on
    separate elements because the wrapper animates its own transform to float, which would
    otherwise overwrite the perspective. Sizes are in vw so the whole arrangement scales
-   with the viewport, and the outer ones sit partly past the edge on purpose. How many are
-   drawn depends on the room: all seven from lg up, the dashboards drop away below that,
-   and a phone in each top corner is all that is left on a handset, where the hero is one
-   narrow column and anything behind the middle of it is clutter. The two light-ground
-   apps carry their own `filter`, since the shared one is tuned for dark UIs and leaves a
-   white page glaring against the hero. */
+   with the viewport, and the outer ones sit partly past the edge on purpose.
+
+   Every surface hugs an edge: the middle of the hero — the mark, the headline and the
+   auth stack — is a clear zone that nothing may cross, which is what keeps the
+   composition readable rather than busy. Surfaces may overlap each other, which is how
+   the stack at the lower left reads as depth rather than as a row.
+   tools/hero-mockups/check-clearance.mjs measures both rules across viewport sizes: it
+   fails if anything enters the clear zone, or if a surface is cropped down to almost
+   nothing. How many are drawn depends on the room: all seven from lg up, four from md,
+   and none on a handset, where the column is the full width of the screen and no edge is
+   free. The two light-ground apps carry their own `filter`, since the shared one is tuned
+   for dark UIs and leaves a white page glaring against the hero. */
 const HERO_APPS = [
   {
     src: "/hero-apps/studio.png",
     width: 2480,
     height: 1440,
     alt: "AI creative workspace drafting a customer story",
-    position: "left-[calc(50%-17vw)] top-[-19%] w-[34vw]",
-    transform: "rotateX(9deg) rotateY(-2deg) rotateZ(0.5deg)",
-    opacity: 0.34,
+    position: "left-[-12vw] 2xl:left-[-150px] top-[-10%] w-[26vw] max-w-[520px]",
+    transform: "rotateY(16deg) rotateX(7deg) rotateZ(-2deg)",
+    opacity: 0.4,
     float: { duration: "17s", delay: "-2s" },
     show: "hidden lg:block",
   },
@@ -333,30 +339,30 @@ const HERO_APPS = [
     width: 780,
     height: 1688,
     alt: "Mobile banking app showing balance, spending and recent transactions",
-    position: "left-[-15vw] top-[6%] w-[33vw] sm:left-[-8vw] sm:w-[26vw] md:left-[3vw] md:top-[9%] md:w-[10vw] md:min-w-[104px]",
+    position: "left-[1.5vw] top-[24%] w-[8vw] min-w-[92px] max-w-[118px]",
     transform: "rotateY(19deg) rotateX(5deg) rotateZ(-3deg)",
     opacity: 0.72,
     float: { duration: "13s", delay: "-1s" },
-    show: "block",
+    show: "hidden lg:block",
   },
   {
     src: "/hero-apps/analytics.png",
     width: 2640,
     height: 1680,
     alt: "Analytics dashboard with revenue chart, KPIs and AI insights",
-    position: "right-[-9vw] top-[4%] w-[30vw]",
+    position: "right-[-9vw] 2xl:right-[-130px] top-[1%] w-[29vw] max-w-[540px]",
     transform: "rotateY(-17deg) rotateX(6deg) rotateZ(1.5deg)",
     opacity: 0.58,
     float: { duration: "15s", delay: "-6s" },
-    show: "hidden md:block",
+    show: "hidden lg:block",
   },
   {
     src: "/hero-apps/store.png",
     width: 2480,
     height: 1580,
     alt: "Fashion storefront with a product grid and promotional banner",
-    position: "left-[-13vw] top-[38%] w-[28vw]",
-    transform: "rotateY(21deg) rotateX(4deg) rotateZ(2deg)",
+    position: "left-[-12vw] 2xl:left-[-120px] top-[55%] w-[22vw] max-w-[410px]",
+    transform: "rotateY(20deg) rotateX(-4deg) rotateZ(2deg)",
     opacity: 0.3,
     filter: "brightness(0.48) saturate(0.78) contrast(1.03)",
     float: { duration: "19s", delay: "-9s" },
@@ -367,20 +373,20 @@ const HERO_APPS = [
     width: 860,
     height: 1792,
     alt: "Food ordering app with featured restaurant and nearby listings",
-    position: "right-[-16vw] top-[3%] w-[31vw] sm:right-[-9vw] sm:w-[24vw] md:right-[4vw] md:top-[41%] md:w-[9.5vw] md:min-w-[100px]",
+    position: "right-[2vw] top-[42%] w-[8vw] min-w-[92px] max-w-[132px]",
     transform: "rotateY(-20deg) rotateX(5deg) rotateZ(2.5deg)",
     opacity: 0.5,
     filter: "brightness(0.62) saturate(0.86) contrast(1.02)",
     float: { duration: "12s", delay: "-4s" },
-    show: "block",
+    show: "hidden lg:block",
   },
   {
     src: "/hero-apps/crm.png",
     width: 2640,
     height: 1460,
     alt: "Sales CRM with pipeline stages, deal cards and an activity feed",
-    position: "left-[-8vw] bottom-[-10%] w-[26vw]",
-    transform: "rotateY(17deg) rotateX(-5deg) rotateZ(-2deg)",
+    position: "left-[2vw] bottom-[1%] w-[20vw] max-w-[370px]",
+    transform: "rotateY(15deg) rotateX(-7deg) rotateZ(-3deg)",
     opacity: 0.46,
     float: { duration: "21s", delay: "-13s" },
     show: "hidden lg:block",
@@ -390,7 +396,7 @@ const HERO_APPS = [
     width: 2640,
     height: 1520,
     alt: "Project management board with kanban columns and sprint statistics",
-    position: "right-[-11vw] bottom-[-8%] w-[27vw]",
+    position: "right-[-10vw] 2xl:right-[-120px] bottom-[-11%] w-[26vw] max-w-[470px]",
     transform: "rotateY(-19deg) rotateX(-6deg) rotateZ(2deg)",
     opacity: 0.5,
     float: { duration: "16s", delay: "-7s" },
