@@ -296,8 +296,10 @@ body {
    makes each screenshot read as a surface in space. Depth comes from opacity, brightness
    and shadow rather than blur, so the UI in each shot stays legible. */
 .hero-apps {
-  perspective: 1900px;
-  perspective-origin: 50% 42%;
+  /* No perspective here: each panel carries its own perspective() inside its transform,
+     which is what gives one edge of a screenshot a different distance from the viewer
+     than the other. A shared perspective on the layer would flatten those differences
+     into one camera. */
   /* The hero itself only clips horizontally (the logo halo needs the vertical room), so
      the layer masks its own edges instead — the surfaces fade out rather than ending on a
      hard line where they cross the fold. */
@@ -306,6 +308,7 @@ body {
 }
 
 .hero-app {
+  --float-lift: 8px;
   animation-name: hero-app-float;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
@@ -319,9 +322,11 @@ body {
   filter: brightness(0.78) saturate(0.9) contrast(1.02);
 }
 
+/* Position only, and barely: the panels lift a few pixels and settle. Their orientation
+   is fixed — a rotation here would undo the attitude each one was given. */
 @keyframes hero-app-float {
   0%, 100% { transform: translate3d(0, 0, 0); }
-  50% { transform: translate3d(var(--drift-x, 0px), var(--drift-y, -20px), 0); }
+  50% { transform: translate3d(0, calc(-1 * var(--float-lift, 8px)), 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {

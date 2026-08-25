@@ -301,125 +301,129 @@ const FOOTER_LINK_COLUMNS = [
   },
 ] as const;
 
-/* Six applications orbit the hero — a restaurant landing page, two storefronts, a
-   product page, a banking app and a food-ordering app — so the first thing a visitor
-   sees is the range of things QuickStart.Ai builds. Each entry is a
-   screenshot of a real UI, rendered from the mockups in tools/hero-mockups (re-run
+/* Six applications float around the hero — a restaurant landing page, two storefronts, a
+   product page, a banking app and a food-ordering app — so the first thing a visitor sees
+   is the range of things QuickStart.Ai builds. Each entry is a screenshot of a real UI,
+   rendered from the mockups in tools/hero-mockups (re-run
    `node tools/hero-mockups/render.mjs` after editing one).
 
-   They sit on one ellipse rather than at hand-picked offsets: an app declares the angle
-   it occupies on the ring and everything else — where it lands, which way it faces, how
-   far it leans — is derived from that angle, so the arrangement reads as a circle turning
-   around the hero instead of a scatter. Angles run clockwise from three o'clock.
+   WHERE each one sits comes from one ellipse: an app declares the angle it occupies and
+   the position falls out of that, so the set reads as a circle around the hero rather
+   than a scatter. The ring is broken in two places on purpose — nothing near 270deg where
+   the mark is, nothing near 90deg where the auth stack is. Angles run clockwise from
+   three o'clock.
 
-   The ring is deliberately broken in two places. Nothing sits near 270deg, where the mark
-   is, and nothing sits near 90deg, where the auth stack is: the middle of the hero is a
-   clear zone that no surface may cross. The two phones take the lowest occupied angles,
-   which in a ring seen from slightly above is the near side — so they are the largest,
-   the brightest and the ones drawn in front. */
+   HOW each one is turned is written out per app instead of derived, because a formula
+   gives a symmetry that reads as decoration. Every surface carries its own
+   perspective() + rotateZ + rotateY + rotateX + scale: the perspective is what makes it a
+   panel in space rather than a sticker rotated on the page, and the rotateY is what puts
+   one edge nearer the viewer than the other. Left-hand surfaces lean left, right-hand
+   ones lean right, but never by mirrored amounts, and not every right-hand one turns the
+   same way. Scale and opacity carry depth — foreground panels are near full size and
+   brightest, background ones smaller and faintest — and the two light-ground pages carry
+   their own filter, since the shared one is tuned for dark UIs. */
 const HERO_RING = { cx: 50, cy: 45, rx: 46, ry: 54 };
-const HERO_DRIFT = 14;
 
-/* Position and attitude both fall out of the angle. `radius` nudges an app in or out of
-   the ring to separate it from its neighbours; the rotations are strongest at the sides
-   and ease off toward the top and bottom, which is what makes the surfaces look like they
-   are facing the middle of the circle. */
-function heroRingPlacement(angle: number, radius = 1) {
+/* Position only. The attitude of each panel lives with the panel. */
+function heroRingPosition(angle: number, radius = 1) {
   const rad = (angle * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
 
   return {
-    left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * radius * cos).toFixed(2)}%)`,
-    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * radius * sin).toFixed(2)}%)`,
-    transform: [
-      `rotateY(${(-25 * cos).toFixed(1)}deg)`,
-      `rotateX(${(-9 * sin).toFixed(1)}deg)`,
-      `rotateZ(${(-4.5 * cos).toFixed(1)}deg)`,
-    ].join(" "),
-    // The drift runs along the tangent at this angle, so each surface eases the way the
-    // ring turns rather than bobbing straight up. The distance is capped by the clear
-    // zone: check-clearance.mjs measures every surface pushed this far toward the middle.
-    drift: { x: `${(-HERO_DRIFT * sin).toFixed(1)}px`, y: `${(HERO_DRIFT * cos).toFixed(1)}px` },
+    left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * radius * Math.cos(rad)).toFixed(2)}%)`,
+    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * radius * Math.sin(rad)).toFixed(2)}%)`,
   };
 }
 
 const HERO_APPS = [
   {
+    // Upper left, furthest back: flatter and smaller, so it reads as distant.
     src: "/hero-apps/trattoria.png",
     width: 2480,
     height: 1580,
     alt: "Restaurant landing page with a plated spaghetti and a reservation form",
     angle: 232,
     radius: 1,
-    size: "w-[24vw] max-w-[450px]",
-    opacity: 0.52,
+    size: "w-[26vw] max-w-[480px]",
+    transform: "perspective(1400px) rotateZ(-12deg) rotateY(12deg) rotateX(3deg) scale(0.82)",
+    opacity: 0.38,
     layer: "z-0",
-    float: { duration: "6s", delay: "-2s" },
+    float: { duration: "11s", delay: "-2s" },
   },
   {
+    // Far left, mid depth — the strongest rotateY of the set, which is what makes its
+    // outer edge fall away into the screen.
     src: "/hero-apps/store.png",
     width: 2480,
     height: 1580,
     alt: "Fashion storefront with a product grid and promotional banner",
     angle: 185,
     radius: 1.04,
-    size: "w-[24vw] max-w-[430px]",
-    opacity: 0.32,
+    size: "w-[26vw] max-w-[470px]",
+    transform: "perspective(1200px) rotateZ(-6deg) rotateY(15deg) rotateX(-2deg) scale(0.9)",
+    opacity: 0.5,
     filter: "brightness(0.5) saturate(0.8) contrast(1.03)",
     layer: "z-0",
-    float: { duration: "6.8s", delay: "-9s" },
+    float: { duration: "10s", delay: "-6s" },
   },
   {
+    // Lower left, nearest the viewer: full scale, brightest, least dimmed.
     src: "/hero-apps/banking.png",
     width: 780,
     height: 1688,
     alt: "Mobile banking app showing balance, spending and recent transactions",
     angle: 131,
     radius: 1.22,
-    size: "w-[11.5vw] min-w-[128px] max-w-[186px]",
-    opacity: 0.86,
+    size: "w-[12vw] min-w-[132px] max-w-[196px]",
+    transform: "perspective(1200px) rotateZ(-9deg) rotateY(13deg) rotateX(2deg) scale(1)",
+    opacity: 0.74,
     layer: "z-10",
-    float: { duration: "4.6s", delay: "-1s" },
+    float: { duration: "8s", delay: "-1s" },
   },
   {
+    // Lower right, also foreground — but rolled the other way, so the two front panels
+    // are not a mirrored pair.
     src: "/hero-apps/food.png",
     width: 860,
     height: 1792,
     alt: "Food ordering app with featured restaurant and nearby listings",
     angle: 49,
     radius: 1.22,
-    size: "w-[11.5vw] min-w-[128px] max-w-[186px]",
-    opacity: 0.66,
+    size: "w-[12vw] min-w-[132px] max-w-[196px]",
+    transform: "perspective(1200px) rotateZ(-7deg) rotateY(-10deg) rotateX(-2deg) scale(0.97)",
+    opacity: 0.68,
     filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
     layer: "z-10",
-    float: { duration: "4.2s", delay: "-4s" },
+    float: { duration: "9s", delay: "-4s" },
   },
   {
+    // Right, mid depth.
     src: "/hero-apps/pantry.png",
     width: 2480,
     height: 1600,
     alt: "Gourmet food store with a pasta subscription banner and product grid",
     angle: 355,
-    radius: 1.04,
-    size: "w-[25vw] max-w-[450px]",
-    opacity: 0.34,
+    radius: 0.99,
+    size: "w-[26vw] max-w-[470px]",
+    transform: "perspective(1200px) rotateZ(9deg) rotateY(-12deg) rotateX(2deg) scale(0.92)",
+    opacity: 0.52,
     filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
     layer: "z-[5]",
-    float: { duration: "5.6s", delay: "-7s" },
+    float: { duration: "9.5s", delay: "-7s" },
   },
   {
+    // Upper right, furthest back on this side.
     src: "/hero-apps/product.png",
     width: 2480,
     height: 1560,
     alt: "Product page for a leather tote with colours, sizes and reviews",
     angle: 308,
     radius: 1.05,
-    size: "w-[25vw] max-w-[460px]",
-    opacity: 0.3,
+    size: "w-[26vw] max-w-[480px]",
+    transform: "perspective(1400px) rotateZ(11deg) rotateY(-13deg) rotateX(3deg) scale(0.84)",
+    opacity: 0.34,
     filter: "brightness(0.48) saturate(0.8) contrast(1.03)",
     layer: "z-[5]",
-    float: { duration: "5.2s", delay: "-6s" },
+    float: { duration: "10.5s", delay: "-9s" },
   },
 ] as const;
 
@@ -734,7 +738,7 @@ export default function LandingPage() {
               transform would wipe the other out. See HERO_APPS for the ring itself. */}
           <div className="hero-apps pointer-events-none absolute inset-0 hidden lg:block" aria-hidden="true">
             {HERO_APPS.map((app) => {
-              const place = heroRingPlacement(app.angle, app.radius);
+              const place = heroRingPosition(app.angle, app.radius);
 
               return (
                 <div
@@ -744,12 +748,7 @@ export default function LandingPage() {
                 >
                   <div
                     className="hero-app"
-                    style={{
-                      animationDuration: app.float.duration,
-                      animationDelay: app.float.delay,
-                      ["--drift-x" as string]: place.drift.x,
-                      ["--drift-y" as string]: place.drift.y,
-                    }}
+                    style={{ animationDuration: app.float.duration, animationDelay: app.float.delay }}
                   >
                     <Image
                       src={app.src}
@@ -759,7 +758,7 @@ export default function LandingPage() {
                       sizes="(min-width: 1536px) 27vw, 25vw"
                       className="hero-app-surface h-auto w-full"
                       style={{
-                        transform: place.transform,
+                        transform: app.transform,
                         opacity: app.opacity,
                         ...("filter" in app ? { filter: app.filter } : {}),
                       }}
