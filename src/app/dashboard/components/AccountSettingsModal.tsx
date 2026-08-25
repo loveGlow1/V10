@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Coins, CreditCard, KeyRound, Pencil, Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -14,6 +14,28 @@ interface AccountSettingsModalProps {
 }
 
 type SectionId = "account" | "key" | "agents" | "preferences" | "plans" | "credits";
+
+const SECTION_META: Record<SectionId, { title: string; subtitle?: string }> = {
+  account: { title: "Account settings" },
+  key: { title: "Universal Key", subtitle: "Bring your own model key" },
+  agents: { title: "Manage Agents", subtitle: "Choose which agents build for you" },
+  preferences: { title: "Preferences", subtitle: "Defaults applied to every prompt" },
+  plans: { title: "Plans & Invoices", subtitle: "Manage your plan and view transaction history" },
+  credits: { title: "Credit Usage", subtitle: "Track your credit usage and history" },
+};
+
+type Transaction = {
+  id: string;
+  plan: string;
+  cadence: string;
+  date: string;
+  amount: string;
+  credits: number;
+};
+
+/* Billing is not connected, so there are no transactions to list. Rows render
+   from this the moment a billing service fills it. */
+const TRANSACTIONS: Transaction[] = [];
 
 export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits }: AccountSettingsModalProps) {
   const [section, setSection] = useState<SectionId>("account");
@@ -147,8 +169,13 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
             {/* Right pane */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex items-center justify-between border-b border-white/[0.07] px-6 py-4">
-                <h2 className="text-[17px] font-semibold text-white">Account settings</h2>
+              <header className="flex items-start justify-between gap-4 border-b border-white/[0.07] px-6 py-4">
+                <div className="min-w-0">
+                  <h2 className="text-[17px] font-semibold text-white">{SECTION_META[section].title}</h2>
+                  {SECTION_META[section].subtitle && (
+                    <p className="mt-0.5 text-[13px] text-[#8F939A]">{SECTION_META[section].subtitle}</p>
+                  )}
+                </div>
                 <button
                   onClick={onClose}
                   aria-label="Close account settings"
@@ -244,30 +271,108 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                 )}
 
                 {section === "plans" && (
-                  <div className="py-6">
-                    <p className="text-[15px] font-medium text-white">Plans & Invoices</p>
-                    <p className="mt-1 text-[13px] text-[#8F939A]">
-                      You are on Free. Invoices appear here once billing is connected.
-                    </p>
-                    <button
-                      onClick={onUpgradeClick}
-                      className="mt-4 h-10 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
-                    >
-                      See plans
-                    </button>
+                  <div className="py-5">
+                    {/* No subscription record exists yet, so everyone is on Free. */}
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.03] px-6 py-5">
+                      <span className="text-[28px] font-bold leading-none text-white">Free</span>
+                      <button
+                        onClick={onUpgradeClick}
+                        className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                      >
+                        Upgrade Plan <Sparkles className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-6 flex items-center justify-between">
+                      <p className="text-[15px] font-medium text-white">Transactions</p>
+                      <span className="flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-[#8F939A]">
+                        All <ChevronDown className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+
+                    <div className="mt-3 min-h-[220px] rounded-xl border border-white/[0.07] bg-white/[0.02]">
+                      {TRANSACTIONS.length === 0 ? (
+                        <div className="flex h-[220px] flex-col items-center justify-center px-6 text-center">
+                          <CalendarDays className="h-5 w-5 text-[#5B5F66]" />
+                          <p className="mt-3 text-sm text-[#C7CAD0]">No transactions yet</p>
+                          <p className="mt-1 text-[13px] text-[#8F939A]">
+                            Charges and invoices appear here once billing is connected.
+                          </p>
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-white/[0.06]">
+                          {TRANSACTIONS.map((transaction) => (
+                            <li key={transaction.id} className="flex items-center gap-4 px-4 py-3.5">
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
+                                <CalendarDays className="h-4 w-4 text-[#8F939A]" />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm text-white">
+                                  {transaction.plan} · {transaction.cadence}
+                                </p>
+                                <p className="truncate text-[13px] text-[#8F939A]">{transaction.date}</p>
+                              </div>
+                              <span className="shrink-0 text-sm text-white">{transaction.amount}</span>
+                              <span className="flex shrink-0 items-center gap-1.5 text-sm text-[#F4D96B]">
+                                <Coins className="h-3.5 w-3.5" />
+                                {transaction.credits}
+                              </span>
+                              <button className="flex shrink-0 items-center gap-1.5 text-[13px] text-[#8F939A] transition-colors hover:text-white">
+                                Download <Download className="h-3.5 w-3.5" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {section === "credits" && (
-                  <div className="py-6">
-                    <p className="text-[15px] font-medium text-white">Credit Usage</p>
-                    <div className="mt-3 flex items-center justify-between rounded-xl border border-white/[0.07] bg-white/[0.03] px-5 py-4">
-                      <span className="text-sm text-[#8F939A]">Balance</span>
-                      <span className="text-lg font-semibold text-white">{credits}</span>
+                  <div className="py-5">
+                    <p className="text-[15px] font-medium text-white">Available credits</p>
+
+                    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-5 rounded-xl border border-white/[0.07] bg-white/[0.03] px-5 py-4 sm:grid-cols-[1.6fr_1fr_1fr_1fr]">
+                      {/* The total gets its own column and a rule, so its label cannot
+                          collide with the first metric beside it. */}
+                      <div className="sm:border-r sm:border-white/[0.07] sm:pr-6">
+                        <p className="text-[13px] text-[#8F939A]">Total available credits</p>
+                        <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-white">
+                          <Coins className="h-5 w-5 text-[#F4D96B]" />
+                          {credits}
+                        </p>
+                      </div>
+                      {/* The breakdown needs a credits service to come from; the total is
+                          the figure the app already displayed. */}
+                      {["Plan credits", "Top-up credits", "Free credits"].map((label) => (
+                        <div key={label}>
+                          <p className="flex items-center gap-1 text-[13px] text-[#8F939A]">
+                            {label} <Info className="h-3 w-3" />
+                          </p>
+                          <p className="mt-2 text-lg text-[#5B5F66]">—</p>
+                        </div>
+                      ))}
                     </div>
-                    <p className="mt-3 text-[13px] text-[#8F939A]">
-                      Usage history appears here once a credits service is connected.
-                    </p>
+
+                    <p className="mt-6 text-[15px] font-medium text-white">Usage history</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {["Last week", "All projects", "All types"].map((filter) => (
+                        <span
+                          key={filter}
+                          className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-[#8F939A]"
+                        >
+                          {filter} <ChevronDown className="h-3.5 w-3.5" />
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 flex h-[180px] flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
+                      <Coins className="h-5 w-5 text-[#5B5F66]" />
+                      <p className="mt-3 text-sm text-[#C7CAD0]">No usage yet</p>
+                      <p className="mt-1 text-[13px] text-[#8F939A]">
+                        Daily refreshes and spend appear here once a credits service is connected.
+                      </p>
+                    </div>
                   </div>
                 )}
 
