@@ -318,7 +318,7 @@ const FOOTER_LINK_COLUMNS = [
    which in a ring seen from slightly above is the near side — so they are the largest,
    the brightest and the ones drawn in front. */
 const HERO_RING = { cx: 50, cy: 45, rx: 46, ry: 54 };
-const HERO_DRIFT = 10;
+const HERO_DRIFT = 14;
 
 /* Position and attitude both fall out of the angle. `radius` nudges an app in or out of
    the ring to separate it from its neighbours; the rotations are strongest at the sides
@@ -338,7 +338,8 @@ function heroRingPlacement(angle: number, radius = 1) {
       `rotateZ(${(-4.5 * cos).toFixed(1)}deg)`,
     ].join(" "),
     // The drift runs along the tangent at this angle, so each surface eases the way the
-    // ring turns rather than bobbing straight up; at 10px it never eats the clear zone.
+    // ring turns rather than bobbing straight up. The distance is capped by the clear
+    // zone: check-clearance.mjs measures every surface pushed this far toward the middle.
     drift: { x: `${(-HERO_DRIFT * sin).toFixed(1)}px`, y: `${(HERO_DRIFT * cos).toFixed(1)}px` },
   };
 }
@@ -354,7 +355,7 @@ const HERO_APPS = [
     size: "w-[22vw] max-w-[420px]",
     opacity: 0.38,
     layer: "z-0",
-    float: { duration: "17s", delay: "-2s" },
+    float: { duration: "6s", delay: "-2s" },
   },
   {
     src: "/hero-apps/store.png",
@@ -367,7 +368,7 @@ const HERO_APPS = [
     opacity: 0.32,
     filter: "brightness(0.5) saturate(0.8) contrast(1.03)",
     layer: "z-0",
-    float: { duration: "19s", delay: "-9s" },
+    float: { duration: "6.8s", delay: "-9s" },
   },
   {
     src: "/hero-apps/banking.png",
@@ -375,11 +376,11 @@ const HERO_APPS = [
     height: 1688,
     alt: "Mobile banking app showing balance, spending and recent transactions",
     angle: 131,
-    radius: 1.18,
+    radius: 1.22,
     size: "w-[11.5vw] min-w-[128px] max-w-[186px]",
     opacity: 0.86,
     layer: "z-10",
-    float: { duration: "13s", delay: "-1s" },
+    float: { duration: "4.6s", delay: "-1s" },
   },
   {
     src: "/hero-apps/food.png",
@@ -387,12 +388,12 @@ const HERO_APPS = [
     height: 1792,
     alt: "Food ordering app with featured restaurant and nearby listings",
     angle: 49,
-    radius: 1.18,
+    radius: 1.22,
     size: "w-[11.5vw] min-w-[128px] max-w-[186px]",
     opacity: 0.66,
     filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
     layer: "z-10",
-    float: { duration: "12s", delay: "-4s" },
+    float: { duration: "4.2s", delay: "-4s" },
   },
   {
     src: "/hero-apps/projects.png",
@@ -404,7 +405,7 @@ const HERO_APPS = [
     size: "w-[25vw] max-w-[450px]",
     opacity: 0.5,
     layer: "z-[5]",
-    float: { duration: "16s", delay: "-7s" },
+    float: { duration: "5.6s", delay: "-7s" },
   },
   {
     src: "/hero-apps/analytics.png",
@@ -416,7 +417,7 @@ const HERO_APPS = [
     size: "w-[27vw] max-w-[500px]",
     opacity: 0.58,
     layer: "z-[5]",
-    float: { duration: "15s", delay: "-6s" },
+    float: { duration: "5.2s", delay: "-6s" },
   },
   {
     src: "/hero-apps/crm.png",
@@ -428,7 +429,7 @@ const HERO_APPS = [
     size: "w-[23vw] max-w-[420px]",
     opacity: 0.42,
     layer: "z-0",
-    float: { duration: "21s", delay: "-13s" },
+    float: { duration: "7.4s", delay: "-13s" },
   },
 ] as const;
 
