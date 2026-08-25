@@ -3,10 +3,11 @@
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.
 --
--- Covers two tables:
---   user_profiles — already created; this adds the policies and the trigger
---                   that fills it, without which it stays empty forever.
---   projects      — read by the dashboard, and not yet created.
+-- Covers three tables:
+--   user_profiles   — already created; this adds the policies and the trigger
+--                     that fills it, without which it stays empty forever.
+--   projects        — read by the dashboard, and not yet created.
+--   mcp_connections — the MCP servers configured in account settings.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Shared helper: keep updated_at honest without the client having to set it.
@@ -143,3 +144,68 @@ create trigger projects_set_updated_at
 
 create index if not exists projects_user_id_updated_at_idx
   on public.projects (user_id, updated_at desc);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- mcp_connections — one row per MCP server a user has configured.
+--
+-- server_id is the catalogue id ('stitch', 'memory', 'supabase', 'notion') or
+-- 'custom:<uuid>' for a server the user added by hand; name and url are filled
+-- for those only.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.mcp_connections (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  server_id   text not null,
+  name        text,
+  url         text,
+  api_key     text,
+  enabled     boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (user_id, server_id)
+);
+
+alter table public.mcp_connections enable row level security;
+
+drop policy if exists "Owners read their MCP connections" on public.mcp_connections;
+create policy "Owners read their MCP connections"
+  on public.mcp_connections for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners create their MCP connections" on public.mcp_connections;
+create policy "Owners create their MCP connections"
+  on public.mcp_connections for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners update their MCP connections" on public.mcp_connections;
+create policy "Owners update their MCP connections"
+  on public.mcp_connections for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners delete their MCP connections" on public.mcp_connections;
+create policy "Owners delete their MCP connections"
+  on public.mcp_connections for delete
+  using (auth.uid() = user_id);
+
+-- RLS keeps one user out of another's rows, but the owner's own browser could
+-- still read the key back — and anything that can run script in that page could
+-- read it too. Column privileges make api_key write-only: it can be set and
+-- replaced, never selected. The settings pane therefore shows "Connected"
+-- rather than the key itself, which is all it needs.
+revoke all on public.mcp_connections from anon, authenticated;
+grant select (id, user_id, server_id, name, url, enabled, created_at, updated_at)
+  on public.mcp_connections to authenticated;
+grant insert (user_id, server_id, name, url, api_key, enabled)
+  on public.mcp_connections to authenticated;
+grant update (server_id, name, url, api_key, enabled)
+  on public.mcp_connections to authenticated;
+grant delete on public.mcp_connections to authenticated;
+
+drop trigger if exists mcp_connections_set_updated_at on public.mcp_connections;
+create trigger mcp_connections_set_updated_at
+  before update on public.mcp_connections
+  for each row execute function public.set_updated_at();
+
+create index if not exists mcp_connections_user_id_idx
+  on public.mcp_connections (user_id);
