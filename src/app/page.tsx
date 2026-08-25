@@ -356,7 +356,7 @@ const HERO_APPS = [
     transform: "perspective(1400px) rotateZ(-12deg) rotateY(12deg) rotateX(3deg) scale(0.82)",
     opacity: 0.38,
     layer: "z-0",
-    float: { duration: "11s", delay: "-2s" },
+    float: { duration: "7.5s", delay: "-2s" },
   },
   {
     // Far left, mid depth — the strongest rotateY of the set, which is what makes its
@@ -374,7 +374,7 @@ const HERO_APPS = [
     opacity: 0.5,
     filter: "brightness(0.5) saturate(0.8) contrast(1.03)",
     layer: "z-0",
-    float: { duration: "10s", delay: "-6s" },
+    float: { duration: "7s", delay: "-6s" },
   },
   {
     // Lower left, nearest the viewer: full scale, brightest, least dimmed.
@@ -390,7 +390,7 @@ const HERO_APPS = [
     transform: "perspective(1200px) rotateZ(-9deg) rotateY(13deg) rotateX(2deg) scale(1)",
     opacity: 0.74,
     layer: "z-10",
-    float: { duration: "8s", delay: "-1s" },
+    float: { duration: "5.6s", delay: "-1s" },
   },
   {
     // Lower right, also foreground — but rolled the other way, so the two front panels
@@ -408,7 +408,7 @@ const HERO_APPS = [
     opacity: 0.68,
     filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
     layer: "z-10",
-    float: { duration: "9s", delay: "-4s" },
+    float: { duration: "6.3s", delay: "-4s" },
   },
   {
     // Right, mid depth.
@@ -425,7 +425,7 @@ const HERO_APPS = [
     opacity: 0.52,
     filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
     layer: "z-[5]",
-    float: { duration: "9.5s", delay: "-7s" },
+    float: { duration: "6.6s", delay: "-7s" },
   },
   {
     // Upper right, furthest back on this side.
@@ -442,7 +442,7 @@ const HERO_APPS = [
     opacity: 0.34,
     filter: "brightness(0.48) saturate(0.8) contrast(1.03)",
     layer: "z-[5]",
-    float: { duration: "10.5s", delay: "-9s" },
+    float: { duration: "7.3s", delay: "-9s" },
   },
 ] as const;
 

@@ -6,13 +6,20 @@ import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-const ROTATION_PERIOD_SECONDS = 3.4; // one full revolution every 3.4s, constant/linear
+const ROTATION_PERIOD_SECONDS = 16; // one full revolution every 16s, constant/linear
 
 /* The mark turns on a desktop and holds still on a phone. A spinning WebGL object is the
    most expensive thing on the page for a handset to keep painting, and at the size the
    hero gives it there the motion reads as flicker rather than rotation. Matched to the
    same 1024px line the floating panels use. */
 const ROTATES_FROM = "(min-width: 1024px)";
+
+/* Where the mark rests. Face-on to this camera the key lights rake straight past the
+   bevels and the extruded side wall is hidden, so the shape renders as a flat black
+   silhouette — fine for a frame mid-spin, wrong for the pose a phone holds forever.
+   A three-quarter turn puts the side wall and the inner rim into the light. Desktop
+   starts here too and turns away from it. */
+const RESTING_ROTATION_Y = -0.45;
 
 function useRotationEnabled() {
   // Starts false so the server pass and the first client pass agree; a desktop turns it
@@ -210,7 +217,12 @@ function QLogo({ scale = 1 }: { scale?: number }) {
   });
 
   return (
-    <group ref={groupRef} position={[-0.12, 0.12, 0]} scale={[scale, scale, scale]}>
+    <group
+      ref={groupRef}
+      position={[-0.12, 0.12, 0]}
+      rotation={[0, RESTING_ROTATION_Y, 0]}
+      scale={[scale, scale, scale]}
+    >
       <mesh geometry={logoGeometry} material={obsidianMirrorMaterial} frustumCulled={false} />
     </group>
   );
