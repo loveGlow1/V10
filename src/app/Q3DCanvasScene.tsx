@@ -6,7 +6,7 @@ import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-const ROTATION_PERIOD_SECONDS = 7; // one full revolution every 7s, constant/linear
+const ROTATION_PERIOD_SECONDS = 3.4; // one full revolution every 3.4s, constant/linear
 
 // Obsidian black �� deep, near-mirror body color shared by the ring and the tail.
 const OBSIDIAN_BLACK = "#08080A";
