@@ -2,10 +2,10 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
-import BotMark from "./BotMark";
+
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -347,7 +347,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const navItems: { id: SectionId; label: string; icon?: React.ComponentType<{ className?: string }> }[] = [
     { id: "account", label: account.name || "Your account" },
     { id: "key", label: "Universal Key", icon: KeyRound },
-    { id: "agents", label: "Manage Agents", icon: BotMark },
+    { id: "agents", label: "Manage Agents", icon: Bot },
     { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
     { id: "plans", label: "Plans & Invoices", icon: CreditCard },
     { id: "credits", label: "Credit Usage", icon: Coins },
@@ -648,7 +648,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
-                              <BotMark className="h-[18px] w-[18px] text-[#C7CAD0]" />
+                              <Bot className="h-4 w-4 text-[#8F939A]" />
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm text-white">{agent.title}</p>
@@ -670,7 +670,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                     {agentTab === "sub" && (
                       <div className="flex h-[300px] flex-col items-center justify-center px-6 text-center">
                         <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.05]">
-                          <BotMark className="h-6 w-6 text-[#8F939A]" />
+                          <Bot className="h-5 w-5 text-[#8F939A]" />
                         </span>
                         <p className="mt-4 text-lg font-semibold text-white">Delegate work to sub-agents</p>
                         <p className="mt-2 max-w-[380px] text-sm text-[#8F939A]">

@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 
-import BotMark from "./BotMark";
+import ChatMark from "./ChatMark";
 
 type Message = { id: number; from: "support" | "user"; text: string };
 
@@ -75,7 +75,7 @@ export default function SupportChat() {
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white">
-                <BotMark className="h-[18px] w-[18px] text-black" />
+                <ChatMark className="h-[18px] w-[18px] text-black" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold leading-tight text-white">
@@ -192,7 +192,7 @@ export default function SupportChat() {
         aria-expanded={open}
         className="fixed bottom-[18px] right-[18px] z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.04] active:scale-[0.97]"
       >
-        {open ? <ChevronDown className="h-5 w-5" /> : <BotMark className="h-6 w-6" />}
+        {open ? <ChevronDown className="h-5 w-5" /> : <ChatMark className="h-6 w-6" />}
         {!open && unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#F45B5B] text-[11px] font-semibold text-white">
             {unread}

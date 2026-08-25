@@ -288,15 +288,36 @@ export default function DashboardPage() {
 
             {/* Inner Graphite Glass Box matching #26252A */}
             <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[14px] border-[3px] border-[#292b32] bg-[#171719] p-3.5 sm:p-[18px] ">
-              <textarea
-                onFocus={() => setComposerFocused(true)}
-                onBlur={() => setComposerFocused(false)}
-                placeholder={PROMPTS[promptIndex]}
-                rows={3}
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                className="w-full resize-none bg-transparent text-base text-white outline-none placeholder:text-[#85858a]"
-              />
+              {/* A real placeholder attribute cannot animate, so the prompt is drawn
+                  over the box instead and the whole line fades out and back in.
+                  It sits behind the caret and ignores the pointer, so typing and
+                  clicking still land in the textarea. */}
+              <div className="relative">
+                <textarea
+                  onFocus={() => setComposerFocused(true)}
+                  onBlur={() => setComposerFocused(false)}
+                  aria-label="Describe what you want to build"
+                  rows={3}
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  className="relative z-10 w-full resize-none bg-transparent text-base text-white outline-none"
+                />
+                <AnimatePresence mode="wait">
+                  {!transcript && (
+                    <motion.span
+                      key={promptIndex}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.45, ease: "easeInOut" }}
+                      aria-hidden
+                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#85858a]"
+                    >
+                      {PROMPTS[promptIndex]}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </div>
 
               <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
                 <div className="relative flex shrink-0 items-center gap-[3px] sm:gap-2">
