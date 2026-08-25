@@ -16,6 +16,9 @@ import { chromium } from 'playwright';
 const url = process.argv[2] || 'http://localhost:3000';
 const MARGIN = 24; // px of breathing room required around the centre column
 const sizes = [
+  // phones first: the panels move to their own placement below lg, so the clear zone has
+  // to hold there too
+  [320, 568], [375, 667], [390, 844], [430, 932],
   [768, 800], [1024, 700], [1024, 900], [1280, 800], [1440, 900],
   [1440, 1080], [1600, 900], [1920, 1080], [2560, 1440],
 ];

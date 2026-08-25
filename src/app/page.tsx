@@ -313,6 +313,13 @@ const FOOTER_LINK_COLUMNS = [
    the mark is, nothing near 90deg where the auth stack is. Angles run clockwise from
    three o'clock.
 
+   On a phone the ring cannot survive: the column is the full width of the screen, so the
+   only clear bands are above the mark, either side of it, and below the auth stack. Four
+   of the six move there instead — the two phones flanking the mark, the two food pages
+   entering from the bottom corners — and the remaining two wait for a wider screen. The
+   mobile point is a second pair of custom properties; globals.css picks which pair
+   applies at each breakpoint, since an inline style cannot carry a media query.
+
    HOW each one is turned is written out per app instead of derived, because a formula
    gives a symmetry that reads as decoration. Every surface carries its own
    perspective() + rotateZ + rotateY + rotateX + scale: the perspective is what makes it a
@@ -343,7 +350,9 @@ const HERO_APPS = [
     alt: "Restaurant landing page with a plated spaghetti and a reservation form",
     angle: 232,
     radius: 1,
-    size: "w-[26vw] max-w-[480px]",
+    size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[480px]",
+    mobile: { left: "20%", top: "calc(100% + 26px)" },
+    show: "hidden [@media(min-width:375px)_and_(min-height:720px)]:block lg:block",
     transform: "perspective(1400px) rotateZ(-12deg) rotateY(12deg) rotateX(3deg) scale(0.82)",
     opacity: 0.38,
     layer: "z-0",
@@ -359,6 +368,8 @@ const HERO_APPS = [
     angle: 185,
     radius: 1.04,
     size: "w-[26vw] max-w-[470px]",
+    mobile: null,
+    show: "hidden lg:block",
     transform: "perspective(1200px) rotateZ(-6deg) rotateY(15deg) rotateX(-2deg) scale(0.9)",
     opacity: 0.5,
     filter: "brightness(0.5) saturate(0.8) contrast(1.03)",
@@ -373,7 +384,9 @@ const HERO_APPS = [
     alt: "Mobile banking app showing balance, spending and recent transactions",
     angle: 131,
     radius: 1.22,
-    size: "w-[12vw] min-w-[132px] max-w-[196px]",
+    size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
+    mobile: { left: "12%", top: "40px" },
+    show: "hidden min-[375px]:block",
     transform: "perspective(1200px) rotateZ(-9deg) rotateY(13deg) rotateX(2deg) scale(1)",
     opacity: 0.74,
     layer: "z-10",
@@ -388,7 +401,9 @@ const HERO_APPS = [
     alt: "Food ordering app with featured restaurant and nearby listings",
     angle: 49,
     radius: 1.22,
-    size: "w-[12vw] min-w-[132px] max-w-[196px]",
+    size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
+    mobile: { left: "88%", top: "32px" },
+    show: "hidden min-[375px]:block",
     transform: "perspective(1200px) rotateZ(-7deg) rotateY(-10deg) rotateX(-2deg) scale(0.97)",
     opacity: 0.68,
     filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
@@ -403,7 +418,9 @@ const HERO_APPS = [
     alt: "Gourmet food store with a pasta subscription banner and product grid",
     angle: 355,
     radius: 0.99,
-    size: "w-[26vw] max-w-[470px]",
+    size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[470px]",
+    mobile: { left: "82%", top: "calc(100% + 30px)" },
+    show: "hidden [@media(min-width:375px)_and_(min-height:720px)]:block lg:block",
     transform: "perspective(1200px) rotateZ(9deg) rotateY(-12deg) rotateX(2deg) scale(0.92)",
     opacity: 0.52,
     filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
@@ -419,6 +436,8 @@ const HERO_APPS = [
     angle: 308,
     radius: 1.05,
     size: "w-[26vw] max-w-[480px]",
+    mobile: null,
+    show: "hidden lg:block",
     transform: "perspective(1400px) rotateZ(11deg) rotateY(-13deg) rotateX(3deg) scale(0.84)",
     opacity: 0.34,
     filter: "brightness(0.48) saturate(0.8) contrast(1.03)",
@@ -736,15 +755,20 @@ export default function LandingPage() {
               ring, the middle one drifts, and the image carries the ring's perspective —
               one element cannot hold both the drift and the rotation, since animating a
               transform would wipe the other out. See HERO_APPS for the ring itself. */}
-          <div className="hero-apps pointer-events-none absolute inset-0 hidden lg:block" aria-hidden="true">
+          <div className="hero-apps pointer-events-none absolute inset-0" aria-hidden="true">
             {HERO_APPS.map((app) => {
               const place = heroRingPosition(app.angle, app.radius);
 
               return (
                 <div
                   key={app.src}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 ${app.layer} ${app.size}`}
-                  style={{ left: place.left, top: place.top }}
+                  className={`hero-app-anchor absolute -translate-x-1/2 -translate-y-1/2 ${app.show} ${app.layer} ${app.size}`}
+                  style={{
+                    ["--m-left" as string]: app.mobile?.left ?? place.left,
+                    ["--m-top" as string]: app.mobile?.top ?? place.top,
+                    ["--d-left" as string]: place.left,
+                    ["--d-top" as string]: place.top,
+                  }}
                 >
                   <div
                     className="hero-app"

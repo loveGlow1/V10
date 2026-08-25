@@ -307,6 +307,28 @@ body {
   mask-image: radial-gradient(125% 105% at 50% 45%, #000 55%, transparent 100%);
 }
 
+/* Two placements per panel: the phone one until lg, the ring one from lg up. An inline
+   style cannot hold a media query, so the component hands over both points and the choice
+   is made here. */
+.hero-app-anchor {
+  left: var(--m-left);
+  top: var(--m-top);
+}
+
+@media (min-width: 1024px) {
+  .hero-app-anchor {
+    left: var(--d-left);
+    top: var(--d-top);
+  }
+}
+
+/* Panels sit closer to the text on a phone than they ever do on a desktop, so the whole
+   layer is taken down a step there — the headline and the auth buttons stay the brightest
+   things on the screen. */
+@media (max-width: 1023px) {
+  .hero-app { opacity: 0.72; }
+}
+
 .hero-app {
   --float-lift: 8px;
   animation-name: hero-app-float;
