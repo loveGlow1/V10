@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import TopNav from "./components/TopNav";
 import BillingModal from "./components/billing/BillingModal";
+import AccountSettingsModal from "./components/AccountSettingsModal";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -46,6 +47,7 @@ const projectTypes = [
 
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
+  const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
 
@@ -152,11 +154,21 @@ export default function DashboardPage() {
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
+        onAccountSettingsClick={() => setAccountSettingsOpen(true)}
         projectName={PROJECT_NAME}
         credits={CREDITS}
       />
 
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
+      <AccountSettingsModal
+        open={accountSettingsOpen}
+        onClose={() => setAccountSettingsOpen(false)}
+        onUpgradeClick={() => {
+          setAccountSettingsOpen(false);
+          setBillingOpen(true);
+        }}
+        credits={CREDITS}
+      />
       <SupportChat />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
