@@ -301,9 +301,9 @@ const FOOTER_LINK_COLUMNS = [
   },
 ] as const;
 
-/* Seven applications orbit the hero — a fintech app, a storefront, a CRM, an analytics
-   dashboard, a food-ordering app, a project board and an AI workspace — so the first
-   thing a visitor sees is the range of things QuickStart.Ai builds. Each entry is a
+/* Six applications orbit the hero — a restaurant landing page, two storefronts, a
+   product page, a banking app and a food-ordering app — so the first thing a visitor
+   sees is the range of things QuickStart.Ai builds. Each entry is a
    screenshot of a real UI, rendered from the mockups in tools/hero-mockups (re-run
    `node tools/hero-mockups/render.mjs` after editing one).
 
@@ -346,14 +346,14 @@ function heroRingPlacement(angle: number, radius = 1) {
 
 const HERO_APPS = [
   {
-    src: "/hero-apps/studio.png",
+    src: "/hero-apps/trattoria.png",
     width: 2480,
-    height: 1440,
-    alt: "AI creative workspace drafting a customer story",
-    angle: 226,
+    height: 1580,
+    alt: "Restaurant landing page with a plated spaghetti and a reservation form",
+    angle: 232,
     radius: 1,
-    size: "w-[22vw] max-w-[420px]",
-    opacity: 0.38,
+    size: "w-[24vw] max-w-[450px]",
+    opacity: 0.52,
     layer: "z-0",
     float: { duration: "6s", delay: "-2s" },
   },
@@ -362,7 +362,7 @@ const HERO_APPS = [
     width: 2480,
     height: 1580,
     alt: "Fashion storefront with a product grid and promotional banner",
-    angle: 180,
+    angle: 185,
     radius: 1.04,
     size: "w-[24vw] max-w-[430px]",
     opacity: 0.32,
@@ -396,40 +396,30 @@ const HERO_APPS = [
     float: { duration: "4.2s", delay: "-4s" },
   },
   {
-    src: "/hero-apps/projects.png",
-    width: 2640,
-    height: 1520,
-    alt: "Project management board with kanban columns and sprint statistics",
-    angle: 2,
+    src: "/hero-apps/pantry.png",
+    width: 2480,
+    height: 1600,
+    alt: "Gourmet food store with a pasta subscription banner and product grid",
+    angle: 355,
     radius: 1.04,
     size: "w-[25vw] max-w-[450px]",
-    opacity: 0.5,
+    opacity: 0.34,
+    filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
     layer: "z-[5]",
     float: { duration: "5.6s", delay: "-7s" },
   },
   {
-    src: "/hero-apps/analytics.png",
-    width: 2640,
-    height: 1680,
-    alt: "Analytics dashboard with revenue chart, KPIs and AI insights",
-    angle: 320,
+    src: "/hero-apps/product.png",
+    width: 2480,
+    height: 1560,
+    alt: "Product page for a leather tote with colours, sizes and reviews",
+    angle: 308,
     radius: 1.05,
-    size: "w-[27vw] max-w-[500px]",
-    opacity: 0.58,
+    size: "w-[25vw] max-w-[460px]",
+    opacity: 0.3,
+    filter: "brightness(0.48) saturate(0.8) contrast(1.03)",
     layer: "z-[5]",
     float: { duration: "5.2s", delay: "-6s" },
-  },
-  {
-    src: "/hero-apps/crm.png",
-    width: 2640,
-    height: 1460,
-    alt: "Sales CRM with pipeline stages, deal cards and an activity feed",
-    angle: 288,
-    radius: 1.08,
-    size: "w-[23vw] max-w-[420px]",
-    opacity: 0.42,
-    layer: "z-0",
-    float: { duration: "7.4s", delay: "-13s" },
   },
 ] as const;
 

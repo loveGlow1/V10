@@ -1,0 +1,94 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --ink:#231a13; --muted:#7b6a5b; --faint:#a1907f; --line:rgba(35,26,19,.12); --line-strong:rgba(35,26,19,.22);
+  --panel:#fff; --panel-2:#f6f0e6; --accent:#8a3f22; --accent-ink:#fff; }
+body { background:#fdf8f0; color:var(--ink); font-family:'DM Sans',sans-serif; }
+.app { width:1240px; height:800px; background:#fdf8f0; }
+.top { background:#231a13; color:#f3e9db; font-size:11.5px; text-align:center; padding:9px; letter-spacing:.05em; }
+.nav { display:flex; align-items:center; justify-content:space-between; padding:16px 40px; }
+.mark { font-family:'Instrument Serif',serif; font-size:25px; }
+.nav a { font-size:13.5px; font-weight:500; color:#5d4e42; }
+.hero { margin:8px 40px 0; border-radius:20px; overflow:hidden; position:relative; height:250px;
+  background:linear-gradient(100deg,#2c1d13 0%,#4a2c19 52%,#7a4522 100%); color:#fdf3e6; display:flex; align-items:center; }
+.hero .copy { padding:0 40px; max-width:520px; }
+.cat { display:flex; gap:10px; padding:20px 40px 12px; }
+.chip { padding:7px 15px; border-radius:999px; border:1px solid var(--line); font-size:12.5px; font-weight:500; background:#fff; color:#5d4e42; }
+.chip.on { background:#231a13; color:#fff; border-color:#231a13; }
+.grid { display:grid; grid-template-columns:repeat(4,1fr); gap:18px; padding:0 40px; }
+.card { background:#fff; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.shot { height:158px; position:relative; }
+.tag { position:absolute; top:9px; left:9px; background:rgba(255,255,255,.94); font-size:9.5px; font-weight:700; letter-spacing:.06em; padding:4px 8px; border-radius:999px; }
+.body { padding:11px 12px 13px; }
+.add { border:1px solid var(--line-strong); border-radius:999px; width:26px; height:26px; display:grid; place-items:center; font-size:14px; }
+</style></head><body><div class="app">
+  <div class="top">Free shipping over $60 · Fresh pasta cut this morning in Brooklyn, delivered tomorrow</div>
+  <div class="nav">
+    <div class="row g24"><div class="mark">Casa&nbsp;Fiore</div><a>Pasta</a><a>Oils &amp; vinegar</a><a>Truffle</a><a>Cheese</a><a>Cellar</a><a style="color:#8a3f22">Gift boxes</a></div>
+    <div class="row g16">
+      <div class="row g8 t-sm muted" style="border:1px solid var(--line);border-radius:999px;padding:7px 13px;background:#fff;width:200px">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>Search the pantry</div>
+      <div style="position:relative"><svg class="icon" style="width:19px;height:19px" viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>
+        <span style="position:absolute;top:-6px;right:-8px;background:#8a3f22;color:#fff;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:999px;display:grid;place-items:center">4</span></div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="copy">
+      <div class="up" style="opacity:.65">The pasta box · September</div>
+      <div style="font-family:'Instrument Serif',serif;font-size:40px;line-height:1.04;margin-top:8px">Six bronze-cut<br>shapes, one box.</div>
+      <div class="t-md" style="opacity:.78;margin-top:10px">Spaghetti alla chitarra, paccheri, trofie — with a jar of Vesuvian tomatoes.</div>
+      <div class="row g10" style="margin-top:16px"><div class="btn" style="background:#fdf3e6;color:#2c1d13">Shop the box · $58</div>
+        <div class="t-sm" style="opacity:.7">Cancel any month</div></div>
+    </div>
+    <svg viewBox="0 0 340 250" style="position:absolute;right:24px;top:0;height:100%;opacity:.98">
+      <defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2d795"/><stop offset="100%" stop-color="#cf9f4a"/></linearGradient></defs>
+      <ellipse cx="176" cy="196" rx="118" ry="16" fill="rgba(0,0,0,.35)"/>
+      <g stroke="url(#pg)" fill="none" stroke-linecap="round">
+        <ellipse cx="176" cy="150" rx="92" ry="42" stroke-width="6" transform="rotate(-12 176 150)"/>
+        <ellipse cx="172" cy="156" rx="78" ry="56" stroke-width="6" transform="rotate(28 172 156)"/>
+        <ellipse cx="182" cy="144" rx="66" ry="60" stroke-width="6" transform="rotate(-48 182 144)"/>
+        <ellipse cx="176" cy="150" rx="46" ry="34" stroke-width="5.5" transform="rotate(64 176 150)"/>
+        <path d="M96 132c16-26 48-40 80-36" stroke-width="5"/>
+        <path d="M258 176c-10-30-40-50-74-52" stroke-width="5"/>
+      </g>
+      <g fill="#4e7f36"><path d="M204 112c12-16 32-20 38-13s-5 25-22 28-19-5-16-15Z"/></g>
+      <g fill="#b0331f"><circle cx="146" cy="126" r="10"/><circle cx="212" cy="166" r="8"/></g>
+    </svg>
+  </div>
+
+  <div class="cat"><div class="chip on">All</div><div class="chip">Fresh pasta</div><div class="chip">Dried pasta</div><div class="chip">Sauces</div><div class="chip">Olive oil</div><div class="chip">Truffle</div><div class="chip">Gift</div></div>
+
+  <div class="grid">
+    <div class="card"><div class="shot" style="background:linear-gradient(155deg,#f6e6c4,#e0c184)"><div class="tag">CUT TODAY</div>
+      <svg viewBox="0 0 260 158" style="position:absolute;inset:0;width:100%;height:100%"><g stroke="#c99a45" fill="none" stroke-width="5" stroke-linecap="round">
+        <path d="M64 116c0-34 26-58 66-58s66 24 66 58"/><path d="M78 120c0-28 20-46 52-46s52 18 52 46"/><path d="M94 124c0-20 14-34 36-34s36 14 36 34"/></g>
+        <ellipse cx="130" cy="126" rx="76" ry="12" fill="rgba(0,0,0,.08)"/></svg></div>
+      <div class="body"><div class="between"><div class="t-md w6">Spaghetti alla chitarra</div><div class="add">+</div></div>
+        <div class="t-sm muted" style="margin-top:3px">500g · bronze die</div><div class="t-md w7" style="margin-top:7px">$9.50</div></div></div>
+
+    <div class="card"><div class="shot" style="background:linear-gradient(155deg,#e7efd6,#c2d3a4)">
+      <svg viewBox="0 0 260 158" style="position:absolute;inset:0;width:100%;height:100%">
+        <rect x="106" y="30" width="48" height="102" rx="12" fill="#4e6b2f"/><rect x="118" y="14" width="24" height="22" rx="6" fill="#3b5324"/>
+        <rect x="112" y="56" width="36" height="44" rx="5" fill="#f6f2e4"/><rect x="118" y="66" width="24" height="4" rx="2" fill="#4e6b2f"/><rect x="118" y="76" width="18" height="3" rx="1.5" fill="#8fa274"/>
+        <ellipse cx="130" cy="136" rx="52" ry="9" fill="rgba(0,0,0,.1)"/></svg></div>
+      <div class="body"><div class="between"><div class="t-md w6">Frantoio olive oil</div><div class="add">+</div></div>
+        <div class="t-sm muted" style="margin-top:3px">750ml · first cold press</div><div class="t-md w7" style="margin-top:7px">$32.00</div></div></div>
+
+    <div class="card"><div class="shot" style="background:linear-gradient(155deg,#f3ddd2,#dda990)"><div class="tag">LAST 12</div>
+      <svg viewBox="0 0 260 158" style="position:absolute;inset:0;width:100%;height:100%">
+        <rect x="98" y="44" width="64" height="82" rx="10" fill="#fdf6ea"/><rect x="98" y="44" width="64" height="26" rx="10" fill="#b0331f"/>
+        <circle cx="130" cy="96" r="20" fill="#c0402a"/><circle cx="124" cy="90" r="5" fill="#e07a5f"/>
+        <ellipse cx="130" cy="130" rx="54" ry="9" fill="rgba(0,0,0,.1)"/></svg></div>
+      <div class="body"><div class="between"><div class="t-md w6">San Marzano DOP</div><div class="add">+</div></div>
+        <div class="t-sm muted" style="margin-top:3px">680g · Vesuvian slopes</div><div class="t-md w7" style="margin-top:7px">$11.00</div></div></div>
+
+    <div class="card"><div class="shot" style="background:linear-gradient(155deg,#efe6da,#cbb79c)">
+      <svg viewBox="0 0 260 158" style="position:absolute;inset:0;width:100%;height:100%">
+        <path d="M92 108c-6-26 16-52 42-52s46 18 44 44-20 30-42 32-40-6-44-24Z" fill="#6b5334"/>
+        <path d="M110 84c8-10 22-14 30-8" stroke="#8a6d46" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <circle cx="150" cy="96" r="4" fill="#3f2f1c"/><circle cx="122" cy="104" r="3" fill="#3f2f1c"/>
+        <ellipse cx="130" cy="132" rx="52" ry="9" fill="rgba(0,0,0,.1)"/></svg></div>
+      <div class="body"><div class="between"><div class="t-md w6">Black winter truffle</div><div class="add">+</div></div>
+        <div class="t-sm muted" style="margin-top:3px">30g · Norcia</div><div class="t-md w7" style="margin-top:7px">$64.00</div></div></div>
+  </div>
+</div></body></html>
