@@ -2,7 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
+
+import { MCP_SERVERS, type McpServer } from "../mcpServers";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -40,6 +42,90 @@ type Transaction = {
    from this the moment a billing service fills it. */
 const TRANSACTIONS: Transaction[] = [];
 
+type McpDraft = { serverId: string; name: string; url: string; apiKey: string };
+
+type McpFormProps = {
+  custom: boolean;
+  draft: McpDraft;
+  onChange: (draft: McpDraft) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  onDisconnect?: () => void;
+  busy: boolean;
+};
+
+const FIELD =
+  "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus:border-white/25";
+
+function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy }: McpFormProps) {
+  return (
+    <div className="mb-1 rounded-xl border border-white/[0.09] bg-white/[0.03] p-4">
+      {custom && (
+        <>
+          <label className="block text-[13px] text-[#C7CAD0]">
+            Name
+            <input
+              value={draft.name}
+              onChange={(e) => onChange({ ...draft, name: e.target.value })}
+              placeholder="My MCP server"
+              className={FIELD}
+            />
+          </label>
+          <label className="mt-3 block text-[13px] text-[#C7CAD0]">
+            Server URL
+            <input
+              value={draft.url}
+              onChange={(e) => onChange({ ...draft, url: e.target.value })}
+              placeholder="https://example.com/mcp"
+              className={FIELD}
+            />
+          </label>
+        </>
+      )}
+      <label className="mt-3 block text-[13px] text-[#C7CAD0]">
+        API key{custom && <span className="text-[#6F737A]"> (optional)</span>}
+        <input
+          type="password"
+          value={draft.apiKey}
+          onChange={(e) => onChange({ ...draft, apiKey: e.target.value })}
+          placeholder="Paste the key"
+          autoComplete="off"
+          className={FIELD}
+        />
+      </label>
+      {/* The key is write-only in the database, so it cannot be shown back here
+          once saved — replacing it means pasting a new one. */}
+      <p className="mt-2 text-[12px] text-[#6F737A]">
+        Stored against your account and never read back into the browser.
+      </p>
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={onSave}
+          disabled={busy}
+          className="rounded-lg bg-white px-3.5 py-1.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={onCancel}
+          className="rounded-lg border border-white/[0.09] px-3.5 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
+        >
+          Cancel
+        </button>
+        {onDisconnect && (
+          <button
+            onClick={onDisconnect}
+            disabled={busy}
+            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10 disabled:opacity-50"
+          >
+            Disconnect
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, agents, selectedAgent }: AccountSettingsModalProps) {
   const [section, setSection] = useState<SectionId>("account");
   const [account, setAccount] = useState<{ id: string; name: string; email: string }>({ id: "", name: "", email: "" });
@@ -49,6 +135,11 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const [nameError, setNameError] = useState<string | null>(null);
   const [supportCode, setSupportCode] = useState<string | null>(null);
   const [agentTab, setAgentTab] = useState<"main" | "sub" | "mcp">("main");
+  const [mcpEnabled, setMcpEnabled] = useState<string[]>([]);
+  const [mcpCustom, setMcpCustom] = useState<{ server_id: string; name: string; url: string }[]>([]);
+  const [configuring, setConfiguring] = useState<McpDraft | null>(null);
+  const [mcpBusy, setMcpBusy] = useState<string | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !isSupabaseConfigured) return;
@@ -102,6 +193,152 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
     } finally {
       setSavingName(false);
     }
+  }
+
+  /* One place to turn a Postgres error into something the pane can show, since
+     the most likely one by far is the schema not having been run yet. */
+  function describeMcpError(error: { code?: string; message: string }) {
+    if (error.code === "42P01") {
+      return "The mcp_connections table does not exist yet — run supabase/schema.sql in the SQL editor.";
+    }
+    return error.message;
+  }
+
+  const loadMcpConnections = React.useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const { data, error } = await createSupabaseBrowserClient()
+      .from("mcp_connections")
+      .select("server_id, name, url, enabled");
+
+    if (error) {
+      setMcpError(describeMcpError(error));
+      return;
+    }
+    const rows = data ?? [];
+    setMcpError(null);
+    setMcpEnabled(rows.filter((row) => row.enabled).map((row) => row.server_id as string));
+    setMcpCustom(
+      rows
+        .filter((row) => String(row.server_id).startsWith("custom:"))
+        .map((row) => ({
+          server_id: row.server_id as string,
+          name: (row.name as string) || "Custom MCP server",
+          url: (row.url as string) || "",
+        })),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open || section !== "agents" || agentTab !== "mcp") return;
+    void loadMcpConnections();
+  }, [open, section, agentTab, loadMcpConnections]);
+
+  /* Catalogue first, then whatever the user added by hand, so both render
+     through the same row. */
+  const mcpRows: { server: McpServer; connected: boolean }[] = [
+    ...MCP_SERVERS,
+    ...mcpCustom.map((row) => ({
+      id: row.server_id,
+      name: row.name,
+      description: row.url || "Custom MCP server",
+      needsKey: true,
+      path: null,
+      tint: "bg-white/[0.06]",
+      color: "text-[#C7CAD0]",
+    })),
+  ].map((server) => ({ server, connected: mcpEnabled.includes(server.id) }));
+
+  async function saveMcpConnection() {
+    if (!configuring || !isSupabaseConfigured) return;
+    const isCustom = configuring.serverId === "";
+
+    if (isCustom && (!configuring.name.trim() || !configuring.url.trim())) {
+      setMcpError("A custom server needs a name and a URL.");
+      return;
+    }
+    if (!isCustom && !configuring.apiKey.trim()) {
+      setMcpError("Paste the key for this server first.");
+      return;
+    }
+    if (!account.id) {
+      setMcpError("Your session is still loading — try again in a moment.");
+      return;
+    }
+
+    const serverId = isCustom ? `custom:${crypto.randomUUID()}` : configuring.serverId;
+    setMcpBusy(isCustom ? "new" : serverId);
+    setMcpError(null);
+
+    const { error } = await createSupabaseBrowserClient()
+      .from("mcp_connections")
+      .upsert(
+        {
+          user_id: account.id,
+          server_id: serverId,
+          name: isCustom ? configuring.name.trim() : null,
+          url: isCustom ? configuring.url.trim() : null,
+          api_key: configuring.apiKey.trim() || null,
+          enabled: true,
+        },
+        { onConflict: "user_id,server_id" },
+      );
+
+    setMcpBusy(null);
+    if (error) {
+      setMcpError(describeMcpError(error));
+      return;
+    }
+    setConfiguring(null);
+    await loadMcpConnections();
+  }
+
+  async function removeMcpConnection(serverId: string) {
+    if (!isSupabaseConfigured) return;
+    setMcpBusy(serverId);
+    setMcpError(null);
+
+    const { error } = await createSupabaseBrowserClient()
+      .from("mcp_connections")
+      .delete()
+      .eq("server_id", serverId);
+
+    setMcpBusy(null);
+    if (error) {
+      setMcpError(describeMcpError(error));
+      return;
+    }
+    setConfiguring(null);
+    await loadMcpConnections();
+  }
+
+  /* Servers that need no key are a straight on/off, so enabling one is the
+     whole configuration. */
+  async function toggleMcpServer(serverId: string, enable: boolean) {
+    if (!enable) {
+      await removeMcpConnection(serverId);
+      return;
+    }
+    if (!isSupabaseConfigured) return;
+    if (!account.id) {
+      setMcpError("Your session is still loading — try again in a moment.");
+      return;
+    }
+    setMcpBusy(serverId);
+    setMcpError(null);
+
+    const { error } = await createSupabaseBrowserClient()
+      .from("mcp_connections")
+      .upsert(
+        { user_id: account.id, server_id: serverId, enabled: true },
+        { onConflict: "user_id,server_id" },
+      );
+
+    setMcpBusy(null);
+    if (error) {
+      setMcpError(describeMcpError(error));
+      return;
+    }
+    await loadMcpConnections();
   }
 
   const initial = (account.name || account.email || "?").charAt(0).toUpperCase();
@@ -442,8 +679,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                     )}
 
                     {agentTab === "mcp" && (
-                      <div className="mt-4">
-                        <button className="flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-white/[0.06]">
+                      <div className="mt-4 space-y-2">
+                        <button
+                          onClick={() => {
+                            setMcpError(null);
+                            setConfiguring({ serverId: "", name: "", url: "", apiKey: "" });
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-white/[0.06]"
+                        >
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
                             <Plus className="h-4 w-4 text-[#C7CAD0]" />
                           </span>
@@ -453,15 +696,104 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           </span>
                         </button>
 
-                        {/* Listing connectable servers would imply integrations this
-                            application has not built. */}
-                        <div className="mt-3 flex h-[240px] flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
-                          <Server className="h-5 w-5 text-[#5B5F66]" />
-                          <p className="mt-3 text-sm text-[#C7CAD0]">No MCP servers connected</p>
-                          <p className="mt-1 text-[13px] text-[#8F939A]">
-                            Servers you add appear here, each with its own key and configuration.
-                          </p>
-                        </div>
+                        {configuring?.serverId === "" && (
+                          <McpForm
+                            custom
+                            draft={configuring}
+                            onChange={setConfiguring}
+                            onCancel={() => setConfiguring(null)}
+                            onSave={saveMcpConnection}
+                            busy={mcpBusy === "new"}
+                          />
+                        )}
+
+                        {mcpRows.map(({ server, connected }) => (
+                          <div key={server.id}>
+                            <div className="flex items-center gap-3 px-1 py-2.5">
+                              <span
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${server.tint}`}
+                              >
+                                {server.path ? (
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                    aria-hidden
+                                    className={`h-[18px] w-[18px] ${server.color}`}
+                                  >
+                                    <path d={server.path} />
+                                  </svg>
+                                ) : (
+                                  <Server className={`h-4 w-4 ${server.color}`} />
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="truncate text-sm text-white">{server.name}</p>
+                                  {server.needsKey && !connected && (
+                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[11px] text-[#C7CAD0]">
+                                      <KeyRound className="h-3 w-3" />
+                                      Key needed
+                                    </span>
+                                  )}
+                                  {connected && (
+                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-[#34F5A0]/10 px-1.5 py-0.5 text-[11px] text-[#34F5A0]">
+                                      <Check className="h-3 w-3" />
+                                      Connected
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="truncate text-[13px] text-[#8F939A]">{server.description}</p>
+                              </div>
+
+                              {server.needsKey ? (
+                                <button
+                                  onClick={() => {
+                                    setMcpError(null);
+                                    setConfiguring({ serverId: server.id, name: "", url: "", apiKey: "" });
+                                  }}
+                                  className="flex shrink-0 items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.05] px-3 py-1.5 text-[13px] text-[#E6E7EA] transition-colors hover:bg-white/[0.09]"
+                                >
+                                  <Settings className="h-3.5 w-3.5" />
+                                  Configure
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => toggleMcpServer(server.id, !connected)}
+                                  disabled={mcpBusy === server.id}
+                                  aria-pressed={connected}
+                                  className={`shrink-0 rounded-lg border px-3 py-1.5 text-[13px] transition-colors disabled:opacity-50 ${
+                                    connected
+                                      ? "border-white/[0.09] bg-white/[0.05] text-[#E6E7EA] hover:bg-white/[0.09]"
+                                      : "border-transparent bg-white text-[#0d0d0f] hover:bg-white/90"
+                                  }`}
+                                >
+                                  {connected ? "Disable" : "Enable"}
+                                </button>
+                              )}
+                            </div>
+
+                            {configuring?.serverId === server.id && (
+                              <McpForm
+                                custom={false}
+                                draft={configuring}
+                                onChange={setConfiguring}
+                                onCancel={() => setConfiguring(null)}
+                                onSave={saveMcpConnection}
+                                onDisconnect={connected ? () => removeMcpConnection(server.id) : undefined}
+                                busy={mcpBusy === server.id}
+                              />
+                            )}
+                          </div>
+                        ))}
+
+                        {mcpError && <p className="px-1 pt-1 text-[13px] text-[#FF6B6B]">{mcpError}</p>}
+
+                        {/* Saying so beats letting a "Connected" badge imply a build
+                            step that has not been written. */}
+                        <p className="px-1 pt-2 text-[13px] text-[#6F737A]">
+                          Connections are saved to your account. Nothing calls these servers during a
+                          build yet.
+                        </p>
                       </div>
                     )}
                   </div>
