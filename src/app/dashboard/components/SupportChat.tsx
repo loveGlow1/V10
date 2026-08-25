@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronLeft,
   Image as ImageIcon,
-  MessageSquare,
   Mic,
   MoreHorizontal,
   Paperclip,
@@ -26,6 +25,30 @@ const QUICK_REPLIES = [
   "Help me build a great app!!",
   "Help in adding features to my current app",
 ];
+
+/* The launcher's mark: a solid bot face, with the eyes knocked out to the
+   colour of the button behind it rather than painted white, so it stays right
+   if the button ever stops being white. */
+function BotMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className={className}>
+      <mask id="support-bot-eyes">
+        <rect x="0" y="0" width="24" height="24" fill="#fff" />
+        <rect x="8.1" y="10.3" width="2.7" height="3.4" rx="1.15" fill="#000" />
+        <rect x="13.2" y="10.3" width="2.7" height="3.4" rx="1.15" fill="#000" />
+      </mask>
+      <rect
+        x="2"
+        y="5"
+        width="20"
+        height="14"
+        rx="5"
+        fill="currentColor"
+        mask="url(#support-bot-eyes)"
+      />
+    </svg>
+  );
+}
 
 export default function SupportChat() {
   const [open, setOpen] = useState(false);
@@ -192,7 +215,7 @@ export default function SupportChat() {
         aria-expanded={open}
         className="fixed bottom-[18px] right-[18px] z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.04] active:scale-[0.97]"
       >
-        {open ? <ChevronDown className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+        {open ? <ChevronDown className="h-5 w-5" /> : <BotMark className="h-6 w-6" />}
         {!open && unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#F45B5B] text-[11px] font-semibold text-white">
             {unread}
