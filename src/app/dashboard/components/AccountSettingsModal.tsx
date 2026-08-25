@@ -242,7 +242,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
       name: row.name,
       description: row.url || "Custom MCP server",
       needsKey: true,
-      Icon: Server,
+      path: null,
       tint: "bg-white/[0.06]",
       color: "text-[#C7CAD0]",
     })),
@@ -713,7 +713,18 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               <span
                                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${server.tint}`}
                               >
-                                <server.Icon className={`h-4 w-4 ${server.color}`} />
+                                {server.path ? (
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="currentColor"
+                                    aria-hidden
+                                    className={`h-[18px] w-[18px] ${server.color}`}
+                                  >
+                                    <path d={server.path} />
+                                  </svg>
+                                ) : (
+                                  <Server className={`h-4 w-4 ${server.color}`} />
+                                )}
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
