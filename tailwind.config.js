@@ -1,5 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  /* Tailwind 3 compiles `hover:` to a plain :hover, which a touchscreen synthesises on
+     tap and then holds until you tap elsewhere — every hover:scale and hover:bg in the
+     app sticks after a tap. This wraps them all in @media (hover: hover), which is what
+     v4 does by default. Capability, not width: a narrow laptop window still has a mouse
+     and keeps its hovers. */
+  future: { hoverOnlyWhenSupported: true },
   content: [
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",

@@ -12,6 +12,7 @@ import {
   getMissingSupabaseEnvVars,
   isSupabaseConfigured,
 } from "@/lib/supabase";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import {
   Gift,
   Layout,
@@ -447,7 +448,7 @@ const HERO_APPS = [
 ] as const;
 
 const HERO_SECONDARY_ACTION_BUTTON_CLASS =
-  "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus:ring-1 focus:ring-brandGreen/40";
+  "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-brandGreen/40";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -457,20 +458,10 @@ export default function LandingPage() {
   const [activeFeature, setActiveFeature] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   /* The floating surfaces are a desktop composition: on a handset they crowd
-     the mark and the auth stack, so the ring is not drawn there at all. Gating
-     on a media query rather than a CSS class keeps the six screenshots off a
-     phone's connection entirely — a hidden <img> is still downloaded.
-     Starting false and flipping in an effect means the server and the first
-     client render agree. */
-  const [wideEnoughForHeroApps, setWideEnoughForHeroApps] = useState(false);
-
-  useEffect(() => {
-    const query = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setWideEnoughForHeroApps(query.matches);
-    sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
+     the mark and the auth stack, so the ring is not drawn there at all. Not
+     mounting rather than hiding keeps the six screenshots off a phone's
+     connection entirely — a hidden <img> is still downloaded. */
+  const wideEnoughForHeroApps = useMediaQuery("(min-width: 1024px)");
   /* Billing period is tracked per tier rather than for the section as a whole: each paid
      card carries its own Annual switch, so a visitor can price one plan yearly while
      leaving the others on the monthly rate they are comparing against. */
@@ -707,7 +698,7 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="bg-brandBg text-white antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-black min-h-screen relative">
+    <div className="bg-brandBg text-white antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-black min-h-[100dvh] relative">
       <div className="noise-bg" />
       <div className="radial-vignette" />
       <div className="ambient-glow-1" />
@@ -723,7 +714,7 @@ export default function LandingPage() {
               the CTA are, and the always-present third column reserves the CTA's space so
               the nav does not jump sideways when the button mounts on scroll. */}
           <div className="page-shell h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStart.Ai Homepage">
+            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStart.Ai Homepage">
               <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
               <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStart</span><span className="wordmark-ai">.Ai</span></span>
             </a>
@@ -735,7 +726,7 @@ export default function LandingPage() {
             </nav>
             <div className="justify-self-end">
               {showGetStartedButton && (
-                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-white text-black px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-brandGreen/40 shadow-sm">Get Started</button>
+                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-white text-black px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 shadow-sm">Get Started</button>
               )}
             </div>
           </div>
@@ -760,7 +751,7 @@ export default function LandingPage() {
         {/* .hero-shell carries the centring and the horizontal-only clip (see globals.css):
             the mark's halo reaches well above the mark itself, and the previous overflow-hidden
             sliced it off flat against the header, so only the inline axis may be clipped. */}
-        <section className="hero-shell min-h-[calc(100vh-5rem)] supports-[height:100svh]:min-h-[calc(100svh-5rem)] flex flex-col items-center px-6 relative pb-12 sm:pb-16">
+        <section className="hero-shell min-h-[calc(100dvh-5rem)] flex flex-col items-center px-6 relative pb-12 sm:pb-16">
           {/* The floating application surfaces sit behind everything else in the hero and
               take no pointer events, so they never intercept a click meant for the auth
               buttons. See HERO_APPS for what each one is and where it sits. */}
@@ -841,9 +832,9 @@ export default function LandingPage() {
                 <span>Continue with Google</span>
               </ProviderButton>
               <div className="grid grid-cols-3 gap-3">
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-1 focus:ring-white/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-1 focus:ring-white/20"><Apple className={`${PROVIDER_ICON_CLASS} text-white`} /><span>Apple</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus:ring-1 focus:ring-white/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><Apple className={`${PROVIDER_ICON_CLASS} text-white`} /><span>Apple</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
               </div>
               <div className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px bg-white/15" />
@@ -1064,7 +1055,7 @@ export default function LandingPage() {
                       <button
                         type="button"
                         onClick={() => openAuthModal()}
-                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brandGreen/40 ${tier.highlight ? "bg-brandGreen text-black hover:bg-white" : "border border-brandBorder bg-brandSurface text-white hover:border-brandGreen/40 hover:bg-brandSurfaceAccent"}`}
+                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${tier.highlight ? "bg-brandGreen text-black hover:bg-white" : "border border-brandBorder bg-brandSurface text-white hover:border-brandGreen/40 hover:bg-brandSurfaceAccent"}`}
                       >
                         {tier.ctaLabel}
                       </button>
@@ -1168,7 +1159,7 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
         <div className="page-shell flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
           <Reveal className="max-w-sm xl:max-w-xs">
-            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus:ring-2 focus:ring-brandGreen/40" aria-label="QuickStart.Ai Homepage">
+            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40" aria-label="QuickStart.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
                 <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" />
               </div>

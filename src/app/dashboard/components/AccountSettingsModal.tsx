@@ -56,7 +56,7 @@ type McpFormProps = {
 };
 
 const FIELD =
-  "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus:border-white/25";
+  "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus-visible:border-white/25";
 
 function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy }: McpFormProps) {
   return (
@@ -376,7 +376,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
             role="dialog"
             aria-modal="true"
             aria-label="Account settings"
-            className="flex h-[590px] max-h-[calc(100vh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f11] shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
+            className="flex h-[590px] max-h-[calc(100dvh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f11] shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
           >
             {/* Left rail */}
             <aside className="hidden w-[220px] shrink-0 flex-col border-r border-white/[0.07] p-3 sm:flex">
@@ -427,7 +427,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                 </button>
               </header>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-2">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
                 {section === "account" && (
                   <>
                     <div className="divide-y divide-white/[0.06]">

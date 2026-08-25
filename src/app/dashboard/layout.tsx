@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0d0d0f] text-white">
+    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#0d0d0f] text-white">
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop. */}
       <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f]" />
