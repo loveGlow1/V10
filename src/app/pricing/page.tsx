@@ -10,7 +10,7 @@ export default function PricingPage() {
   ];
 
   return (
-    <div className="bg-brandBg min-h-screen text-white py-32 px-6 relative">
+    <div className="bg-brandBg min-h-[100dvh] text-white py-32 px-6 relative">
       <div className="noise-bg" />
       <div className="max-w-5xl mx-auto relative z-10">
         <div className="text-center max-w-3xl mx-auto mb-20">

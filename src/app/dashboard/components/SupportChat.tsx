@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import ChatMark from "./ChatMark";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
 type Message = { id: number; from: "support" | "user"; text: string };
 
@@ -28,6 +29,7 @@ const QUICK_REPLIES = [
 ];
 
 export default function SupportChat() {
+  useKeyboardInset();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(1);
   const [draft, setDraft] = useState("");
@@ -61,7 +63,7 @@ export default function SupportChat() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="fixed bottom-[86px] right-[18px] z-[60] flex h-[540px] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#111114] shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+            className="fixed bottom-[calc(86px+env(safe-area-inset-bottom)+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60] flex h-[540px] max-h-[calc(100dvh-120px)] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#111114] shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
             role="dialog"
             aria-label="Support chat"
           >
@@ -98,7 +100,7 @@ export default function SupportChat() {
             </div>
 
             {/* Thread */}
-            <div ref={threadRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            <div ref={threadRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4">
               {messages.map((message) =>
                 message.from === "support" ? (
                   <div key={message.id}>
@@ -190,7 +192,7 @@ export default function SupportChat() {
         }}
         aria-label={open ? "Close support chat" : "Open support chat"}
         aria-expanded={open}
-        className="fixed bottom-[18px] right-[18px] z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.04] active:scale-[0.97]"
+        className="fixed bottom-[calc(max(18px,env(safe-area-inset-bottom))+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.04] active:scale-[0.97]"
       >
         {open ? <ChevronDown className="h-5 w-5" /> : <ChatMark className="h-6 w-6" />}
         {!open && unread > 0 && (

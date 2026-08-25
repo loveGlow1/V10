@@ -86,7 +86,7 @@ function RowMenu({ project }: { project: Project }) {
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 aria-label="Project name"
-                className="h-9 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 text-sm text-white outline-none focus:border-white/25"
+                className="h-9 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 text-sm text-white outline-none focus-visible:border-white/25"
               />
               <button
                 type="submit"

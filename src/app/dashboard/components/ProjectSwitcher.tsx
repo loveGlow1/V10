@@ -128,7 +128,7 @@ export default function ProjectSwitcher({
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Project name"
                   aria-label="Project name"
-                  className="h-10 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-[#6F737A] focus:border-white/25"
+                  className="h-10 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-[#6F737A] focus-visible:border-white/25"
                 />
                 <div className="mt-2 flex items-center gap-2">
                   <button

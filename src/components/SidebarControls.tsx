@@ -105,7 +105,7 @@ export default function SidebarControls({
                 starType: e.target.value as any,
                 starColor: e.target.value === 'yellow_dwarf' ? '#ffd700' : e.target.value === 'blue_giant' ? '#00f0ff' : e.target.value === 'red_dwarf' ? '#ff3c00' : '#ffffff'
               })}
-              className="w-full mt-1 bg-space-900 border border-gray-700 rounded text-xs px-2 py-1.5 text-white font-mono outline-none focus:border-space-accent"
+              className="w-full mt-1 bg-space-900 border border-gray-700 rounded text-xs px-2 py-1.5 text-white font-mono outline-none focus-visible:border-space-accent"
             >
               <option value="yellow_dwarf">Yellow Dwarf G-Type</option>
               <option value="blue_giant">Blue Giant O-Type</option>
@@ -152,7 +152,7 @@ export default function SidebarControls({
               placeholder="e.g. Cygnus-Prime"
               value={planetName}
               onChange={(e) => setPlanetName(e.target.value)}
-              className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none focus:border-space-accent font-mono"
+              className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none focus-visible:border-space-accent font-mono"
             />
           </div>
 
@@ -250,7 +250,7 @@ export default function SidebarControls({
               id="hasRings"
               checked={hasRings}
               onChange={(e) => setHasRings(e.target.checked)}
-              className="rounded text-space-accent bg-space-800 border-gray-700 focus:ring-0 w-3.5 h-3.5"
+              className="rounded text-space-accent bg-space-800 border-gray-700 focus-visible:ring-0 w-3.5 h-3.5"
             />
             <label htmlFor="hasRings" className="text-[10px] font-mono text-gray-400 cursor-pointer">
               GENERATE SATURN-LIKE DEBRIS RINGS
