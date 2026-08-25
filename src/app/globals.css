@@ -289,3 +289,49 @@ body {
   color: transparent;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--brandGreen) 45%, transparent));
 }
+
+/* Floating application screenshots behind the hero (see HERO_APPS in page.tsx). The
+   wrapper owns the drift and the image owns the perspective, because one element cannot
+   hold two transforms: animating the wrapper would otherwise wipe out the rotation that
+   makes each screenshot read as a surface in space. Depth comes from opacity, brightness
+   and shadow rather than blur, so the UI in each shot stays legible. */
+.hero-apps {
+  perspective: 1900px;
+  perspective-origin: 50% 42%;
+  /* The hero itself only clips horizontally (the logo halo needs the vertical room), so
+     the layer masks its own edges instead — the surfaces fade out rather than ending on a
+     hard line where they cross the fold. */
+  -webkit-mask-image: radial-gradient(125% 105% at 50% 45%, #000 55%, transparent 100%);
+  mask-image: radial-gradient(125% 105% at 50% 45%, #000 55%, transparent 100%);
+}
+
+.hero-app {
+  animation-name: hero-app-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.hero-app-surface {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 50px 90px -40px rgba(0, 0, 0, 0.95), 0 18px 40px -30px rgba(0, 0, 0, 0.8);
+  filter: brightness(0.78) saturate(0.9) contrast(1.02);
+}
+
+@keyframes hero-app-float {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -20px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-app { animation: none; }
+}
+
+/* On a handset only the two phones are drawn, and they sit close to the headline because
+   there is nowhere else for them to go. Fading the whole surface — rather than raising
+   each image's own opacity, which is set per app for the desktop composition — keeps the
+   text the brightest thing on the screen. */
+@media (max-width: 767px) {
+  .hero-app { opacity: 0.5; }
+}

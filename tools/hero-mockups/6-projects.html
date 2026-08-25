@@ -1,0 +1,118 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --accent:#c8b4ff; --accent-ink:#160f2b; --bg:#0a0a0e; --panel:#121218; --panel-2:#17171f; }
+.app { width:1320px; height:760px; display:flex; }
+.side { width:220px; border-right:1px solid var(--line); padding:18px 14px; background:#0c0c11; display:flex; flex-direction:column; }
+.nav-i { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:9px; font-size:13px; color:#9aa1ab; font-weight:500; }
+.nav-i.on { background:rgba(200,180,255,.13); color:#e3d9ff; }
+.proj { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:8px; font-size:12.5px; color:#b6bcc5; }
+.main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.head { padding:15px 22px; border-bottom:1px solid var(--line); }
+.tabs { display:flex; gap:18px; font-size:13px; color:var(--muted); margin-top:12px; }
+.tabs span.on { color:var(--ink); font-weight:600; border-bottom:2px solid var(--accent); padding-bottom:7px; }
+.board { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; padding:16px 22px; flex:1; min-height:0; }
+.col-h { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.task { border:1px solid var(--line); background:var(--panel); border-radius:11px; padding:12px; margin-bottom:10px; }
+.lbl { font-size:9.5px; font-weight:700; letter-spacing:.05em; padding:3px 7px; border-radius:5px; }
+.meta { display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+.chk { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--faint); }
+.foot { border-top:1px solid var(--line); padding:12px 22px; display:flex; gap:26px; align-items:center; }
+.avs { display:flex; } .avs .av { margin-left:-7px; width:24px; height:24px; }
+</style></head><body><div class="app">
+  <div class="side">
+    <div class="row g8" style="padding:4px 8px 16px"><div style="width:24px;height:24px;border-radius:7px;background:linear-gradient(140deg,#c8b4ff,#7b5be0);display:grid;place-items:center;font-size:11px;font-weight:700;color:#160f2b">C</div><div class="t-md w6">Cadence</div></div>
+    <div class="nav-i"><svg class="icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</div>
+    <div class="nav-i on"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="8" rx="1.5"/></svg>Board</div>
+    <div class="nav-i"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Timeline</div>
+    <div class="nav-i"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V9M10 19V4M16 19v-7M22 19H2"/></svg>Reports</div>
+    <div class="sep" style="margin:12px 6px"></div>
+    <div class="up faint" style="padding:2px 10px 6px">Projects</div>
+    <div class="proj"><span class="dot" style="background:#c8b4ff"></span>Mobile app v3<span class="grow"></span><span class="t-xs faint">18</span></div>
+    <div class="proj" style="background:rgba(255,255,255,.04);color:#e6e8ec;font-weight:600"><span class="dot" style="background:#8ef08a"></span>Checkout rebuild<span class="grow"></span><span class="t-xs faint">24</span></div>
+    <div class="proj"><span class="dot" style="background:#6aa8ff"></span>Design system<span class="grow"></span><span class="t-xs faint">11</span></div>
+    <div class="proj"><span class="dot" style="background:#f2c56b"></span>Q4 marketing site<span class="grow"></span><span class="t-xs faint">7</span></div>
+    <div class="grow"></div>
+    <div class="card pad"><div class="between"><div class="t-sm w6">Sprint 24</div><div class="t-xs faint">4d left</div></div>
+      <div class="bar" style="margin:9px 0 7px"><i style="width:62%;background:#c8b4ff"></i></div>
+      <div class="t-xs muted">31 of 50 points done</div></div>
+  </div>
+
+  <div class="main">
+    <div class="head">
+      <div class="between">
+        <div class="row g12"><div class="t-lg w6">Checkout rebuild</div><span class="pill"><span class="dot" style="background:#8ef08a"></span>On track</span>
+          <span class="pill">Sprint 24 · ends Fri</span></div>
+        <div class="row g10">
+          <div class="avs"><div class="av" style="background:#c8b4ff">RK</div><div class="av" style="background:#8ef08a">JW</div><div class="av" style="background:#6aa8ff">AN</div><div class="av" style="background:#f2c56b">SB</div><div class="av" style="background:#232830;color:#9aa1ab">+3</div></div>
+          <div class="pill"><svg class="icon" style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>Filter</div>
+          <div class="btn">New task</div>
+        </div>
+      </div>
+      <div class="tabs"><span class="on">Board</span><span>List</span><span>Timeline</span><span>Files</span><span>Activity</span></div>
+    </div>
+
+    <div class="board">
+      <div>
+        <div class="col-h"><div class="t-sm w6">Backlog <span class="faint">· 7</span></div><svg class="icon faint" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(106,168,255,.14);color:#6aa8ff">API</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Idempotency keys for retried payments</div>
+          <div class="meta"><span class="chk"><svg class="icon" style="width:12px;height:12px" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 3v4M16 3v4"/></svg>Sep 2</span><div class="av" style="background:#6aa8ff;width:22px;height:22px">AN</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(255,143,122,.14);color:#ff8f7a">BUG</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Address autocomplete drops unit numbers</div>
+          <div class="meta"><span class="chk">◍ 3 comments</span><div class="av" style="background:#f2c56b;width:22px;height:22px">SB</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(200,180,255,.16);color:#c8b4ff">DESIGN</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Empty-cart illustration set</div>
+          <div class="meta"><span class="chk">Unscheduled</span><div class="av" style="background:#f2c56b;width:22px;height:22px">SB</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(106,168,255,.14);color:#6aa8ff">API</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Split payments across two cards</div>
+          <div class="meta"><span class="chk">Sep 9</span><div class="av" style="background:#6aa8ff;width:22px;height:22px">AN</div></div></div>
+      </div>
+      <div>
+        <div class="col-h"><div class="t-sm w6">In progress <span class="faint">· 5</span></div><svg class="icon faint" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+        <div class="task" style="border-color:rgba(200,180,255,.35)"><div class="row g6"><span class="lbl" style="background:rgba(200,180,255,.16);color:#c8b4ff">CHECKOUT</span><span class="lbl" style="background:rgba(242,197,107,.14);color:#f2c56b">HIGH</span></div>
+          <div class="t-sm w5" style="margin-top:8px">One-tap Apple Pay on the review step</div>
+          <div class="bar" style="margin-top:10px"><i style="width:72%;background:#c8b4ff"></i></div>
+          <div class="meta"><span class="chk">7 of 10 subtasks</span><div class="av" style="background:#c8b4ff;width:22px;height:22px">RK</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(142,240,138,.14);color:#8ef08a">WEB</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Guest checkout without account creation</div>
+          <div class="meta"><span class="chk"><svg class="icon" style="width:12px;height:12px" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 3v4M16 3v4"/></svg>Aug 28</span><div class="av" style="background:#8ef08a;width:22px;height:22px">JW</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(106,168,255,.14);color:#6aa8ff">API</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Retry queue for failed 3-D Secure challenges</div>
+          <div class="bar" style="margin-top:10px"><i style="width:35%;background:#6aa8ff"></i></div>
+          <div class="meta"><span class="chk">3 of 9 subtasks</span><div class="av" style="background:#6aa8ff;width:22px;height:22px">AN</div></div></div>
+      </div>
+      <div>
+        <div class="col-h"><div class="t-sm w6">In review <span class="faint">· 4</span></div><svg class="icon faint" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(106,168,255,.14);color:#6aa8ff">API</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Stripe webhook replay protection</div>
+          <div class="meta"><span class="chk">PR #482 · 2 approvals</span><div class="av" style="background:#6aa8ff;width:22px;height:22px">AN</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(200,180,255,.16);color:#c8b4ff">DESIGN</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Error states for declined cards</div>
+          <div class="meta"><span class="chk">◍ 6 comments</span><div class="av" style="background:#f2c56b;width:22px;height:22px">SB</div></div></div>
+        <div class="task"><div class="row g6"><span class="lbl" style="background:rgba(142,240,138,.14);color:#8ef08a">WEB</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Order confirmation email template</div>
+          <div class="meta"><span class="chk">PR #479 · 1 approval</span><div class="av" style="background:#8ef08a;width:22px;height:22px">JW</div></div></div>
+      </div>
+      <div>
+        <div class="col-h"><div class="t-sm w6">Done <span class="faint">· 8</span></div><svg class="icon faint" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+        <div class="task" style="background:rgba(142,240,138,.05);border-color:rgba(142,240,138,.18)">
+          <div class="row g6"><span class="lbl" style="background:rgba(142,240,138,.14);color:#8ef08a">SHIPPED</span></div>
+          <div class="t-sm w5" style="margin-top:8px">Saved cards on the payment sheet</div>
+          <div class="meta"><span class="chk">Merged Aug 21</span><div class="av" style="background:#c8b4ff;width:22px;height:22px">RK</div></div></div>
+        <div class="task"><div class="t-sm w5">Tax lines for EU orders</div>
+          <div class="meta"><span class="chk">Merged Aug 19</span><div class="av" style="background:#8ef08a;width:22px;height:22px">JW</div></div></div>
+        <div class="task"><div class="t-sm w5">Cart persistence across devices</div>
+          <div class="meta"><span class="chk">Merged Aug 15</span><div class="av" style="background:#6aa8ff;width:22px;height:22px">AN</div></div></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div><div class="t-xs faint">Velocity</div><div class="t-md w6">31 pts / week</div></div>
+      <div><div class="t-xs faint">Cycle time</div><div class="t-md w6">2.4 days</div></div>
+      <div><div class="t-xs faint">Review queue</div><div class="t-md w6">4 open PRs</div></div>
+      <div class="grow"></div>
+      <div class="row g8"><div class="av" style="background:#8ef08a;width:22px;height:22px">JW</div>
+        <div class="t-sm muted">Jo Walsh moved <b style="color:var(--ink);font-weight:600">Guest checkout</b> to In progress · 6m ago</div></div>
+    </div>
+  </div>
+</div></body></html>

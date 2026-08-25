@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --ink:#14161a; --muted:#6d7480; --faint:#9aa1ab; --line:rgba(15,18,22,.1); --line-strong:rgba(15,18,22,.18);
+  --panel:#ffffff; --panel-2:#f4f4f2; --accent:#14161a; --accent-ink:#fff; }
+body { background:#faf9f7; color:var(--ink); font-family:'DM Sans',sans-serif; }
+.app { width:1240px; height:790px; background:#faf9f7; }
+.top { padding:11px 40px; background:#14161a; color:#fff; font-size:11.5px; letter-spacing:.06em; text-align:center; }
+.nav { display:flex; align-items:center; justify-content:space-between; padding:18px 40px; border-bottom:1px solid var(--line); }
+.mark { font-family:'Instrument Serif',serif; font-size:25px; }
+.nav a { font-size:13.5px; font-weight:500; color:#3d434c; }
+.search { display:flex; align-items:center; gap:8px; padding:8px 14px; border:1px solid var(--line); border-radius:999px; width:220px; color:#8a919b; font-size:13px; background:#fff; }
+.hero { margin:22px 40px 0; border-radius:18px; padding:32px 36px; display:flex; align-items:center; justify-content:space-between;
+  background:linear-gradient(103deg,#1d2a24 0%,#2f3b33 48%,#5c5348 100%); color:#fff; }
+.chips { display:flex; gap:8px; padding:20px 40px 14px; }
+.chip { padding:7px 15px; border-radius:999px; border:1px solid var(--line); font-size:12.5px; font-weight:500; color:#4b525c; background:#fff; }
+.chip.on { background:#14161a; color:#fff; border-color:#14161a; }
+.grid { display:grid; grid-template-columns:repeat(4,1fr); gap:20px; padding:6px 40px 0; }
+.ph { height:232px; border-radius:14px; position:relative; overflow:hidden; }
+.ph span { position:absolute; top:10px; left:10px; background:rgba(255,255,255,.92); color:#14161a; font-size:9.5px; font-weight:700; letter-spacing:.08em; padding:4px 8px; border-radius:999px; }
+.ph b { position:absolute; right:10px; bottom:10px; width:30px; height:30px; border-radius:999px; background:rgba(255,255,255,.92); display:grid; place-items:center; color:#14161a; }
+.p1 { background:radial-gradient(120% 90% at 30% 20%,#d9cfc0,#b7a894 70%,#8f8271); }
+.p2 { background:radial-gradient(110% 80% at 65% 25%,#26323a,#131a20 75%); }
+.p3 { background:radial-gradient(110% 90% at 40% 30%,#e8ded2,#cbbca9 72%); }
+.p4 { background:radial-gradient(120% 85% at 55% 25%,#4c5b52,#28322c 78%); }
+.garment { position:absolute; inset:14% 16% 6%; }
+.garment svg { width:100%; height:100%; }
+.garment .fill { fill:rgba(255,255,255,.26); }
+.garment .shade { fill:rgba(0,0,0,.16); }
+.garment .line { fill:none; stroke:rgba(0,0,0,.22); stroke-width:2.2; }
+.garment.dark .fill { fill:rgba(255,255,255,.14); }
+.garment.dark .shade { fill:rgba(0,0,0,.3); }
+.garment.dark .line { stroke:rgba(255,255,255,.18); }
+.rating { font-size:11px; color:#8a919b; }
+</style></head><body><div class="app">
+  <div class="top">Complimentary shipping on orders over $150 · Autumn edit now live</div>
+  <div class="nav">
+    <div class="row g24"><div class="mark">Marlowe&nbsp;&amp;&nbsp;Co.</div>
+      <a>New in</a><a>Women</a><a>Men</a><a>Objects</a><a style="color:#8a6b3d">Sale</a></div>
+    <div class="row g16">
+      <div class="search"><svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>Search the edit</div>
+      <svg class="icon" style="width:19px;height:19px" viewBox="0 0 24 24"><path d="M20.8 8.6 12 21 3.2 8.6A5.2 5.2 0 0 1 12 4a5.2 5.2 0 0 1 8.8 4.6Z"/></svg>
+      <div style="position:relative"><svg class="icon" style="width:19px;height:19px" viewBox="0 0 24 24"><path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>
+        <span style="position:absolute;top:-6px;right:-8px;background:#14161a;color:#fff;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:999px;display:grid;place-items:center">3</span></div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="up" style="opacity:.7">Autumn / Winter 25</div>
+      <div style="font-family:'Instrument Serif',serif;font-size:38px;margin-top:8px;line-height:1.05">Quiet layers,<br>made to last.</div>
+      <div class="t-md" style="opacity:.72;margin-top:10px">Merino, boiled wool and heavy cotton — 42 new pieces.</div>
+      <div class="btn" style="background:#fff;color:#14161a;margin-top:18px">Shop the edit</div>
+    </div>
+    <div class="row g10">
+      <div style="width:92px;height:124px;border-radius:12px;background:linear-gradient(150deg,#c9bda9,#8e8271)"></div>
+      <div style="width:92px;height:152px;border-radius:12px;background:linear-gradient(150deg,#38443c,#1c2420)"></div>
+      <div style="width:92px;height:124px;border-radius:12px;background:linear-gradient(150deg,#e3d8c8,#b3a795)"></div>
+    </div>
+  </div>
+
+  <div class="chips"><div class="chip on">All</div><div class="chip">Knitwear</div><div class="chip">Outerwear</div><div class="chip">Trousers</div><div class="chip">Shirting</div><div class="chip">Footwear</div><div class="chip">Home</div></div>
+
+  <div class="grid">
+    <div><div class="ph p1"><span>NEW</span><div class="garment"><svg viewBox="0 0 200 220" preserveAspectRatio="xMidYMax meet">
+  <path class="fill" d="M74 26h52l38 20c8 4 11 13 8 21l-12 33-22-9v103c0 4-3 7-7 7H63c-4 0-7-3-7-7V91l-22 9-12-33c-3-8 0-17 8-21z"/>
+  <path class="shade" d="M126 26 100 46 74 26l14-6a40 40 0 0 0 24 0z"/>
+  <path class="line" d="M56 91v113M144 91v113M42 100l-8-22M158 100l8-22"/>
+</svg></div><b><svg class="icon" viewBox="0 0 24 24"><path d="M20.8 8.6 12 21 3.2 8.6A5.2 5.2 0 0 1 12 4a5.2 5.2 0 0 1 8.8 4.6Z"/></svg></b></div>
+      <div class="between" style="margin-top:11px"><div class="t-md w6">Halden Merino Sweater</div><div class="t-md w6">$180</div></div>
+      <div class="rating" style="margin-top:3px">Oat · 4 colours · ★ 4.8 (212)</div></div>
+    <div><div class="ph p2"><div class="garment dark"><svg viewBox="0 0 200 220" preserveAspectRatio="xMidYMax meet">
+  <path class="fill" d="M70 24h60l40 22c7 4 10 12 8 19l-14 38-20-8v106c0 4-3 7-7 7H63c-4 0-7-3-7-7V95l-20 8-14-38c-2-7 1-15 8-19z"/>
+  <path class="shade" d="M100 44 70 24h12l18 12 18-12h12z"/>
+  <path class="line" d="M100 44v164M78 30 62 74l38-30M122 30l16 44-38-30"/>
+  <circle class="line" cx="112" cy="112" r="3.4"/><circle class="line" cx="112" cy="146" r="3.4"/>
+</svg></div><b><svg class="icon" viewBox="0 0 24 24"><path d="M20.8 8.6 12 21 3.2 8.6A5.2 5.2 0 0 1 12 4a5.2 5.2 0 0 1 8.8 4.6Z"/></svg></b></div>
+      <div class="between" style="margin-top:11px"><div class="t-md w6">Ashcroft Wool Coat</div><div class="t-md w6">$465</div></div>
+      <div class="rating" style="margin-top:3px">Ink · 2 colours · ★ 4.9 (86)</div></div>
+    <div><div class="ph p3"><span>LOW STOCK</span><div class="garment"><svg viewBox="0 0 200 220" preserveAspectRatio="xMidYMax meet">
+  <path class="fill" d="M76 26h48l40 21c7 4 10 12 8 19l-13 35-19-8v103c0 4-3 7-7 7H67c-4 0-7-3-7-7V93l-19 8-13-35c-2-7 1-15 8-19z"/>
+  <path class="shade" d="M100 52 76 26h48z"/>
+  <path class="line" d="M100 52v152M86 26l14 18 14-18"/>
+  <circle class="line" cx="100" cy="92" r="2.8"/><circle class="line" cx="100" cy="126" r="2.8"/><circle class="line" cx="100" cy="160" r="2.8"/>
+</svg></div><b><svg class="icon" viewBox="0 0 24 24"><path d="M20.8 8.6 12 21 3.2 8.6A5.2 5.2 0 0 1 12 4a5.2 5.2 0 0 1 8.8 4.6Z"/></svg></b></div>
+      <div class="between" style="margin-top:11px"><div class="t-md w6">Perry Oxford Shirt</div><div class="t-md w6">$120</div></div>
+      <div class="rating" style="margin-top:3px">Ecru · 3 colours · ★ 4.7 (341)</div></div>
+    <div><div class="ph p4"><div class="garment dark"><svg viewBox="0 0 200 220" preserveAspectRatio="xMidYMax meet">
+  <path class="fill" d="M56 20h88v26l-6 158c0 4-3 6-7 6h-22c-4 0-7-3-7-7l-4-96-4 96c0 4-3 7-7 7H65c-4 0-7-2-7-6L52 46z"/>
+  <path class="shade" d="M56 20h88v14H56z"/>
+  <path class="line" d="M100 40v67M56 34h88"/>
+</svg></div><b><svg class="icon" viewBox="0 0 24 24"><path d="M20.8 8.6 12 21 3.2 8.6A5.2 5.2 0 0 1 12 4a5.2 5.2 0 0 1 8.8 4.6Z"/></svg></b></div>
+      <div class="between" style="margin-top:11px"><div class="t-md w6">Ridge Pleated Trouser</div><div class="t-md w6">$210</div></div>
+      <div class="rating" style="margin-top:3px">Moss · 5 colours · ★ 4.6 (129)</div></div>
+  </div>
+</div></body></html>

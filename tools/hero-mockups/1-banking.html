@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+:root { --accent:#5ce1a6; --bg:#07090c; --panel:#101419; --panel-2:#151a20; }
+.app { width: 390px; height: 844px; padding: 54px 20px 0; font-family:'DM Sans',sans-serif;
+  background: radial-gradient(120% 60% at 50% -10%, #12331f 0%, #0a1014 42%, #07090c 100%); }
+.status { display:flex; justify-content:space-between; font-size:12px; font-weight:600; opacity:.85; margin-bottom:18px; }
+.card-art { position:relative; border-radius:18px; padding:16px; height:104px; overflow:hidden;
+  background: linear-gradient(115deg,#123a2c 0%, #0f2c3d 55%, #101a24 100%); border:1px solid rgba(255,255,255,.1); }
+.card-art::after { content:''; position:absolute; inset:-40% -10% auto auto; width:180px; height:180px; border-radius:999px; background:radial-gradient(circle,rgba(92,225,166,.35),transparent 65%); }
+.chip { width:26px; height:19px; border-radius:5px; background:linear-gradient(140deg,#e5c877,#a97f2e); }
+.txn { display:flex; align-items:center; gap:11px; padding:9px 0; }
+.tico { width:34px; height:34px; border-radius:11px; display:grid; place-items:center; font-size:14px; }
+.spark { display:flex; align-items:flex-end; gap:5px; height:52px; }
+.spark i { flex:1; border-radius:3px 3px 1px 1px; background:rgba(92,225,166,.28); }
+.spark i.on { background:var(--accent); }
+.nav { position:absolute; left:0; right:0; bottom:0; padding:12px 26px 26px; display:flex; justify-content:space-between;
+  background:linear-gradient(to top,#07090c 62%,transparent); }
+.nav div { display:flex; flex-direction:column; align-items:center; gap:5px; font-size:9.5px; color:#6b7280; font-weight:600; }
+.nav div.on { color:var(--accent); }
+.act { flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; font-size:11px; font-weight:600; }
+.act .sq { width:44px; height:44px; }
+</style></head><body><div class="app">
+  <div class="status"><span>9:41</span><span>▮▮▮ ▾ 100%</span></div>
+
+  <div class="between" style="margin-bottom:18px">
+    <div class="row g10">
+      <div style="width:34px;height:34px;border-radius:999px;background:linear-gradient(140deg,#5ce1a6,#2f8f77);display:grid;place-items:center;font-weight:700;color:#06231a;font-size:13px">AR</div>
+      <div><div class="t-sm muted">Good morning</div><div class="t-md w6">Amara Reyes</div></div>
+    </div>
+    <div class="sq" style="width:34px;height:34px"><svg class="icon" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+  </div>
+
+  <div class="t-sm muted">Total balance</div>
+  <div class="row" style="align-items:flex-end;gap:10px;margin-top:4px">
+    <div class="t-3xl w7">$12,480<span style="font-size:24px" class="muted">.55</span></div>
+    <div class="pill" style="color:var(--accent);border-color:rgba(92,225,166,.3);background:rgba(92,225,166,.1);margin-bottom:6px">+2.4%</div>
+  </div>
+
+  <div class="row g10" style="margin:16px 0 18px">
+    <div class="act"><div class="sq"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div>Send</div>
+    <div class="act"><div class="sq"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>Request</div>
+    <div class="act"><div class="sq"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>Top up</div>
+    <div class="act"><div class="sq"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></div>Cards</div>
+  </div>
+
+  <div class="card-art">
+    <div class="between" style="position:relative;z-index:1"><div class="chip"></div><div class="t-sm w6" style="opacity:.85">Vantage&nbsp;Metal</div></div>
+    <div class="t-md w6" style="position:relative;z-index:1;margin-top:22px;letter-spacing:.14em">4218&nbsp;&nbsp;••••&nbsp;&nbsp;••••&nbsp;&nbsp;7734</div>
+    <div class="between t-xs" style="position:relative;z-index:1;margin-top:8px;opacity:.72"><span>A. REYES</span><span>09/29</span></div>
+  </div>
+
+  <div class="card pad" style="margin-top:16px">
+    <div class="between"><div class="t-sm w6">Spending this month</div><div class="t-sm muted">$2,914</div></div>
+    <div class="spark" style="margin-top:12px">
+      <i style="height:38%"></i><i style="height:56%"></i><i style="height:31%"></i><i style="height:72%"></i>
+      <i class="on" style="height:88%"></i><i style="height:47%"></i><i style="height:62%"></i>
+    </div>
+    <div class="row between t-xs faint" style="margin-top:7px"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+  </div>
+
+  <div class="between" style="margin:18px 0 4px"><div class="t-md w6">Recent activity</div><div class="t-sm accent w6">See all</div></div>
+  <div class="txn"><div class="tico" style="background:rgba(92,225,166,.14);color:#5ce1a6">↑</div>
+    <div class="grow"><div class="t-md w5">Marisol Vega</div><div class="t-xs faint">Sent · 2:14 PM</div></div><div class="t-md w6">−$180.00</div></div>
+  <div class="txn"><div class="tico" style="background:rgba(255,255,255,.07)">🛒</div>
+    <div class="grow"><div class="t-md w5">Whole Foods Market</div><div class="t-xs faint">Groceries · Today</div></div><div class="t-md w6">−$86.42</div></div>
+  <div class="txn"><div class="tico" style="background:rgba(92,225,166,.14);color:#5ce1a6">↓</div>
+    <div class="grow"><div class="t-md w5">Payroll · Northwind</div><div class="t-xs faint">Deposit · Fri</div></div><div class="t-md w6" style="color:#5ce1a6">+$4,120.00</div></div>
+  <div class="txn"><div class="tico" style="background:rgba(255,255,255,.07)">◎</div>
+    <div class="grow"><div class="t-md w5">Spotify Premium</div><div class="t-xs faint">Subscription · Yesterday</div></div><div class="t-md w6">−$11.99</div></div>
+
+  <div class="nav">
+    <div class="on"><svg class="icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg>Home</div>
+    <div><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/></svg>Cards</div>
+    <div><svg class="icon" viewBox="0 0 24 24"><path d="M4 18V9M10 18V4M16 18v-6M22 18h-20"/></svg>Insights</div>
+    <div><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>Profile</div>
+  </div>
+</div></body></html>
