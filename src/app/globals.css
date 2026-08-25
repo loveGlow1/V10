@@ -52,6 +52,27 @@ button,
   user-select: none;
 }
 
+/* Hover tells a mouse user "this is interactive" before the click. A finger has no
+   before, so the equivalent signal is feedback during the press. Declared on the
+   element rather than added to each button — 17 of the app's 119 buttons had it —
+   so anything added later gets it without someone remembering. A utility class is
+   more specific, so buttons that already set their own active: scale keep it. */
+button,
+[role="button"] {
+  transition: transform 0.12s ease-out;
+}
+
+button:active,
+[role="button"]:active {
+  transform: scale(0.96);
+}
+
+button:disabled:active,
+[role="button"][aria-disabled="true"]:active {
+  /* Nothing happened, so nothing should look like it did. */
+  transform: none;
+}
+
 /* Safari zooms the page in on any focused field under 16px and never zooms back out.
    Scoped to coarse pointers so the desktop type scale is untouched, and !important
    because it has to beat the utility class on the element. */
