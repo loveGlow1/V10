@@ -16,6 +16,9 @@ import { chromium } from 'playwright';
 const url = process.argv[2] || 'http://localhost:3000';
 const MARGIN = 24; // px of breathing room required around the centre column
 const sizes = [
+  // phones first: the panels move to their own placement below lg, so the clear zone has
+  // to hold there too
+  [320, 568], [375, 667], [390, 844], [430, 932],
   [768, 800], [1024, 700], [1024, 900], [1280, 800], [1440, 900],
   [1440, 1080], [1600, 900], [1920, 1080], [2560, 1440],
 ];
@@ -32,9 +35,9 @@ for (const [w, h] of sizes) {
   await page.waitForTimeout(2500);
 
   const report = await page.evaluate((margin) => {
-    /* Each surface drifts along the ring, so measuring a live frame only samples wherever
-       the animation happens to be. Every surface is pinned at the far end of its drift
-       *toward* the middle first — the worst case for the clear zone. */
+    /* Each surface floats, so measuring a live frame only samples wherever the animation
+       happens to be. Every surface is pinned at the far end of its lift *toward* the
+       middle first — the worst case for the clear zone. */
     const layer = document.querySelector('.hero-apps');
     if (layer) {
       const lb = layer.getBoundingClientRect();
@@ -42,8 +45,8 @@ for (const [w, h] of sizes) {
       const cy = lb.top + lb.height / 2;
       document.querySelectorAll('.hero-app').forEach((el) => {
         const cs = getComputedStyle(el);
-        const dx = Math.abs(parseFloat(cs.getPropertyValue('--drift-x')) || 0);
-        const dy = Math.abs(parseFloat(cs.getPropertyValue('--drift-y')) || 0);
+        const dx = 0;
+        const dy = Math.abs(parseFloat(cs.getPropertyValue('--float-lift')) || 0);
         const b = el.getBoundingClientRect();
         const towardX = cx - (b.left + b.width / 2) >= 0 ? 1 : -1;
         const towardY = cy - (b.top + b.height / 2) >= 0 ? 1 : -1;

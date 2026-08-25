@@ -31,7 +31,6 @@ import {
   Cpu,
   Github,
   ChevronRight,
-  ArrowRight,
   Image as ImageIcon,
   Camera,
   FolderOpen,
@@ -41,6 +40,34 @@ import {
 /* No credits service exists yet, so the panel shows the figure the app already
    displayed rather than a number invented for the design. */
 const CREDITS = "0.00";
+
+/* The row under the composer. Each chip is a way into a build rather than a
+   label: tapping one drops its prompt into the bar and puts the caret at the
+   end, so the next thing a visitor does is edit a real sentence instead of
+   facing an empty box. */
+const STARTERS = [
+  {
+    label: "Mobile App",
+    beta: true,
+    icon: Smartphone,
+    prompt: "Build a mobile app for iOS and Android with sign-in, a home feed and push notifications.",
+  },
+  {
+    label: "Storefront",
+    icon: Layers,
+    prompt: "Build an online store with a product catalogue, cart and Stripe checkout.",
+  },
+  {
+    label: "Client Dashboard",
+    icon: AppWindow,
+    prompt: "Build a dashboard with sign-in, a customer table and charts for revenue and usage.",
+  },
+  {
+    label: "AI Agent",
+    icon: Bot,
+    prompt: "Build an AI agent that answers questions from my documents and emails me a daily summary.",
+  },
+] as const;
 
 /* The bar suggests what to ask for by cycling its placeholder rather than
    sitting on one example. */
@@ -88,6 +115,7 @@ export default function DashboardPage() {
   // Voice Recording State & Refs
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -293,6 +321,7 @@ export default function DashboardPage() {
                   clicking still land in the textarea. */}
               <div className="relative">
                 <textarea
+                  ref={composerRef}
                   onFocus={() => setComposerFocused(true)}
                   onBlur={() => setComposerFocused(false)}
                   aria-label="Describe what you want to build"
@@ -430,16 +459,41 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Announcement card, the same width as the composer above it */}
-          <button className="mt-3 flex w-full items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-left transition-colors hover:bg-white/[0.05]">
-            <Sparkles className="h-4 w-4 shrink-0 text-[#8F939A]" />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-[#C7CAD0]">
-              New in QuickStart.Ai: build mobile and web from one prompt
-            </span>
-            <span className="flex shrink-0 items-center gap-1 text-[13px] text-[#8F939A]">
-              View <ArrowRight className="h-3.5 w-3.5" />
-            </span>
-          </button>
+          {/* Starters, aligned to the composer above them. The row scrolls sideways
+              rather than wrapping, so it stays one line on a phone and the chips keep
+              the size they have on a desktop. */}
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {STARTERS.map((starter) => {
+              const Icon = starter.icon;
+
+              return (
+                <button
+                  key={starter.label}
+                  type="button"
+                  onClick={() => {
+                    setTranscript(starter.prompt);
+                    const composer = composerRef.current;
+                    if (!composer) return;
+                    composer.focus();
+                    // Runs after React has written the new value, so the caret lands at
+                    // the end of the prompt rather than wherever it last sat.
+                    requestAnimationFrame(() => {
+                      composer.setSelectionRange(starter.prompt.length, starter.prompt.length);
+                    });
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[13px] text-[#C7CAD0] transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                  {starter.label}
+                  {"beta" in starter && starter.beta ? (
+                    <span className="rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                      Beta
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <ProjectList />
