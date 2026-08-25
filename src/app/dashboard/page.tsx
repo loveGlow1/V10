@@ -456,10 +456,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Starters, aligned to the composer above them. The row scrolls sideways
+          {/* Starters, centred under the composer. The row scrolls sideways
               rather than wrapping, so it stays one line on a phone and the chips keep
               the size they have on a desktop. */}
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mt-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* w-max + mx-auto centres the row under the composer while it fits, and lets
+                it start at the left edge once it is wider than the column — centring the
+                flex line itself would push the first chip out of reach when it scrolls. */}
+            <div className="mx-auto flex w-max gap-2">
             {STARTERS.map((starter) => {
               const Icon = starter.icon;
 
@@ -490,6 +494,7 @@ export default function DashboardPage() {
                 </button>
               );
             })}
+            </div>
           </div>
         </div>
       </main>

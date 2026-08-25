@@ -1,12 +1,34 @@
 "use client";
 
-import { Component, Suspense, useRef, useState, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const ROTATION_PERIOD_SECONDS = 3.4; // one full revolution every 3.4s, constant/linear
+
+/* The mark turns on a desktop and holds still on a phone. A spinning WebGL object is the
+   most expensive thing on the page for a handset to keep painting, and at the size the
+   hero gives it there the motion reads as flicker rather than rotation. Matched to the
+   same 1024px line the floating panels use. */
+const ROTATES_FROM = "(min-width: 1024px)";
+
+function useRotationEnabled() {
+  // Starts false so the server pass and the first client pass agree; a desktop turns it
+  // on as soon as the effect runs.
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia(ROTATES_FROM);
+    const apply = () => setEnabled(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+
+  return enabled;
+}
 
 // Obsidian black �� deep, near-mirror body color shared by the ring and the tail.
 const OBSIDIAN_BLACK = "#08080A";
@@ -176,12 +198,13 @@ function getLogoGeometry(): THREE.BufferGeometry {
 
 function QLogo({ scale = 1 }: { scale?: number }) {
   const groupRef = useRef<THREE.Group>(null);
+  const rotates = useRotationEnabled();
 
   const obsidianMirrorMaterial = getObsidianMirrorMaterial();
   const logoGeometry = getLogoGeometry();
 
   useFrame((_, delta) => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || !rotates) return;
     // Continuous linear Y-axis rotation only — no easing, no acceleration.
     groupRef.current.rotation.y += (delta * (Math.PI * 2)) / ROTATION_PERIOD_SECONDS;
   });
