@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import TopNav from "./components/TopNav";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
+import { AGENTS } from "./agents";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -143,13 +144,6 @@ export default function DashboardPage() {
     }
   };
 
-  const agents = [
-    { id: "E-1", title: "E-1", subtitle: "Stable & thorough" },
-    { id: "E-2", title: "E-2", subtitle: "Thorough & Relentless" },
-    { id: "Prototype", title: "Prototype", subtitle: "Experimental Agent" },
-    { id: "Mobile", title: "Mobile", subtitle: "Agent for mobile apps" },
-  ];
-
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
       <TopNav
@@ -168,6 +162,8 @@ export default function DashboardPage() {
           setBillingOpen(true);
         }}
         credits={CREDITS}
+        agents={AGENTS}
+        selectedAgent={selectedAgent}
       />
       <SupportChat />
 
@@ -447,7 +443,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-2.5">
-                {agents.map((agent) => {
+                {AGENTS.map((agent) => {
                   const isSelected = selectedAgent === agent.id;
                   return (
                     <div

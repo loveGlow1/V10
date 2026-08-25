@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, CalendarDays, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Check, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -11,6 +11,9 @@ interface AccountSettingsModalProps {
   onClose: () => void;
   onUpgradeClick: () => void;
   credits: string;
+  /** The same list the composer's picker uses, so the two cannot drift apart. */
+  agents: { id: string; title: string; subtitle: string }[];
+  selectedAgent: string;
 }
 
 type SectionId = "account" | "key" | "agents" | "preferences" | "plans" | "credits";
@@ -18,8 +21,8 @@ type SectionId = "account" | "key" | "agents" | "preferences" | "plans" | "credi
 const SECTION_META: Record<SectionId, { title: string; subtitle?: string }> = {
   account: { title: "Account settings" },
   key: { title: "Universal Key", subtitle: "Bring your own model key" },
-  agents: { title: "Manage Agents", subtitle: "Choose which agents build for you" },
-  preferences: { title: "Preferences", subtitle: "Defaults applied to every prompt" },
+  agents: { title: "Manage Agents", subtitle: "Create, edit and manage your custom agents" },
+  preferences: { title: "Preferences", subtitle: "Customize how QuickStart.Ai works for you" },
   plans: { title: "Plans & Invoices", subtitle: "Manage your plan and view transaction history" },
   credits: { title: "Credit Usage", subtitle: "Track your credit usage and history" },
 };
@@ -37,7 +40,7 @@ type Transaction = {
    from this the moment a billing service fills it. */
 const TRANSACTIONS: Transaction[] = [];
 
-export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits }: AccountSettingsModalProps) {
+export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, agents, selectedAgent }: AccountSettingsModalProps) {
   const [section, setSection] = useState<SectionId>("account");
   const [account, setAccount] = useState<{ id: string; name: string; email: string }>({ id: "", name: "", email: "" });
   const [editingName, setEditingName] = useState(false);
@@ -45,6 +48,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [supportCode, setSupportCode] = useState<string | null>(null);
+  const [agentTab, setAgentTab] = useState<"main" | "sub" | "mcp">("main");
 
   useEffect(() => {
     if (!open || !isSupabaseConfigured) return;
@@ -376,17 +380,156 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                   </div>
                 )}
 
-                {(section === "key" || section === "agents" || section === "preferences") && (
-                  <div className="py-6">
-                    <p className="text-[15px] font-medium text-white">
-                      {section === "key" ? "Universal Key" : section === "agents" ? "Manage Agents" : "Preferences"}
+                {section === "agents" && (
+                  <div className="pb-6">
+                    <div className="flex gap-6 border-b border-white/[0.07]">
+                      {([["main", "Main agents"], ["sub", "Sub-agents"], ["mcp", "MCP Tools"]] as const).map(
+                        ([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => setAgentTab(id)}
+                            className={`-mb-px border-b-2 pb-3 pt-4 text-sm transition-colors ${
+                              agentTab === id
+                                ? "border-white text-white"
+                                : "border-transparent text-[#8F939A] hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ),
+                      )}
+                    </div>
+
+                    {agentTab === "main" && (
+                      <ul className="mt-4 space-y-2">
+                        {/* The agents the composer actually offers, rather than an upsell
+                            for agents this application does not have. */}
+                        {agents.map((agent) => (
+                          <li
+                            key={agent.id}
+                            className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3"
+                          >
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
+                              <Bot className="h-4 w-4 text-[#8F939A]" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm text-white">{agent.title}</p>
+                              <p className="truncate text-[13px] text-[#8F939A]">{agent.subtitle}</p>
+                            </div>
+                            {agent.id === selectedAgent && (
+                              <span className="shrink-0 rounded-full border border-[#34F5A0]/30 bg-[#34F5A0]/10 px-2.5 py-1 text-[11px] font-medium text-[#34F5A0]">
+                                In use
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                        <li className="pt-1 text-[13px] text-[#8F939A]">
+                          Custom agents need somewhere to save them before they can be created here.
+                        </li>
+                      </ul>
+                    )}
+
+                    {agentTab === "sub" && (
+                      <div className="flex h-[300px] flex-col items-center justify-center px-6 text-center">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.05]">
+                          <Bot className="h-5 w-5 text-[#8F939A]" />
+                        </span>
+                        <p className="mt-4 text-lg font-semibold text-white">Delegate work to sub-agents</p>
+                        <p className="mt-2 max-w-[380px] text-sm text-[#8F939A]">
+                          Sub-agents let a main agent hand off parts of a build. Nothing runs them yet.
+                        </p>
+                      </div>
+                    )}
+
+                    {agentTab === "mcp" && (
+                      <div className="mt-4">
+                        <button className="flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-white/[0.06]">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
+                            <Plus className="h-4 w-4 text-[#C7CAD0]" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-white">New MCP Server</span>
+                            <span className="block truncate text-[13px] text-[#8F939A]">Add a custom MCP server</span>
+                          </span>
+                        </button>
+
+                        {/* Listing connectable servers would imply integrations this
+                            application has not built. */}
+                        <div className="mt-3 flex h-[240px] flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
+                          <Server className="h-5 w-5 text-[#5B5F66]" />
+                          <p className="mt-3 text-sm text-[#C7CAD0]">No MCP servers connected</p>
+                          <p className="mt-1 text-[13px] text-[#8F939A]">
+                            Servers you add appear here, each with its own key and configuration.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {section === "preferences" && (
+                  <div className="py-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8F939A]">General</p>
+                    <label className="mt-3 block text-sm text-white" htmlFor="language">
+                      Language
+                    </label>
+                    <select
+                      id="language"
+                      defaultValue="en"
+                      className="mt-2 h-10 w-[280px] max-w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none"
+                    >
+                      {/* Only English exists until the app is translated. */}
+                      <option value="en">English</option>
+                    </select>
+
+                    <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8F939A]">
+                      Appearance
                     </p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      {([["light", "Light"], ["dark", "Dark"], ["system", "Follow System"]] as const).map(
+                        ([id, label]) => {
+                          const active = id === "dark";
+                          return (
+                            <div key={id} className="w-[104px]">
+                              <button
+                                disabled={!active}
+                                aria-pressed={active}
+                                title={active ? undefined : "QuickStart.Ai is dark-only for now"}
+                                className={`flex h-[74px] w-full items-center justify-center rounded-lg border-2 transition-colors ${
+                                  active
+                                    ? "border-[#4A90E2] bg-[#141417]"
+                                    : "cursor-not-allowed border-white/[0.08] bg-white/[0.03] opacity-45"
+                                }`}
+                              >
+                                <span
+                                  className={`flex h-[46px] w-[76px] flex-col gap-1 rounded p-2 ${
+                                    id === "light" ? "bg-white" : id === "dark" ? "bg-[#0d0d0f]" : "bg-gradient-to-r from-white to-[#0d0d0f]"
+                                  }`}
+                                >
+                                  <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-white/40"}`} />
+                                  <span className={`h-1 w-12 rounded-full ${id === "light" ? "bg-black/15" : "bg-white/20"}`} />
+                                  <span className={`h-1 w-10 rounded-full ${id === "light" ? "bg-black/15" : "bg-white/20"}`} />
+                                </span>
+                              </button>
+                              <p className={`mt-2 text-center text-[13px] ${active ? "text-white" : "text-[#8F939A]"}`}>
+                                {label}
+                              </p>
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+                    <p className="mt-3 text-[13px] text-[#8F939A]">
+                      QuickStart.Ai is dark-only for now, so the other themes are not selectable yet.
+                    </p>
+                  </div>
+                )}
+
+                {section === "key" && (
+                  <div className="py-6">
+                    <p className="text-[15px] font-medium text-white">Universal Key</p>
                     <p className="mt-1 text-[13px] text-[#8F939A]">
-                      {section === "key"
-                        ? "Bring your own model key. Nothing is connected to store one yet."
-                        : section === "agents"
-                          ? "Agents are chosen per prompt from the composer. Managing them here needs a place to save them first."
-                          : "Model and visibility are set per prompt from the composer for now."}
+                      Bring your own model key. Nothing is connected to store one yet.
                     </p>
                   </div>
                 )}
