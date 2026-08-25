@@ -5,6 +5,7 @@ import TopNav from "./components/TopNav";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
+import ProjectSwitcher from "./components/ProjectSwitcher";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,7 +39,6 @@ import {
 /* No credits service exists yet, so the panel shows the figure the app already
    displayed rather than a number invented for the design. */
 const CREDITS = "0.00";
-const PROJECT_NAME = "QuickStart Project";
 
 /* The bar suggests what to ask for by cycling its placeholder rather than
    sitting on one example. */
@@ -61,6 +61,7 @@ export default function DashboardPage() {
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
+  const [projectName, setProjectName] = useState<string | null>(null);
 
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
@@ -170,7 +171,7 @@ export default function DashboardPage() {
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
-        projectName={PROJECT_NAME}
+        projectName={projectName ?? "No project yet"}
         credits={CREDITS}
       />
 
@@ -190,12 +191,7 @@ export default function DashboardPage() {
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-10">
-        {/* Project selector */}
-        <button className="mt-9 flex h-[42px] w-[210px] items-center justify-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-4 text-sm text-white transition-colors hover:bg-white/[0.07]">
-          <span className="h-4 w-4 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
-          <span className="truncate">{PROJECT_NAME}</span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[#8F939A]" />
-        </button>
+        <ProjectSwitcher onSelectedChange={setProjectName} />
 
         <h1 className="mt-7 text-center text-[28px] font-semibold leading-tight tracking-tight text-[#f0f0f2] sm:text-[32px]">
           What will you build today?
