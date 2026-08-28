@@ -7,7 +7,7 @@ import PlanSelector from "./PlanSelector";
 import PricingCard from "./PricingCard";
 import FeatureList from "./FeatureList";
 import UpgradeButton from "./UpgradeButton";
-import { PLANS } from "../../credits";
+import { PLANS, type PlanId } from "../../credits";
 
 interface BillingModalProps {
   open: boolean;
@@ -15,7 +15,9 @@ interface BillingModalProps {
 }
 
 export default function BillingModal({ open, onClose }: BillingModalProps) {
-  const [selectedPlan, setSelectedPlan] = useState<"standard" | "pro">("standard");
+  /* Standard is preselected: it is the plan most people are choosing between the
+     other two, not the one they are already on. */
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>("standard");
 
   return (
     <AnimatePresence>
@@ -52,7 +54,9 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
             </button>
 
             <div className="px-5 pt-6">
-              <h1 className="text-[28px] sm:text-[30px] font-bold text-white leading-[1.1]">
+              {/* pr-14 keeps the headline clear of the close button, which it ran
+                  underneath once the title wrapped to a second line. */}
+              <h1 className="text-[28px] sm:text-[30px] font-bold text-white leading-[1.1] pr-14">
                 Try QuickStart.Ai for free
               </h1>
               <p className="text-[#9CA3AF] text-sm font-medium mt-2">
@@ -72,11 +76,15 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
               </div>
 
               <div className="mt-5">
-                <UpgradeButton />
+                <UpgradeButton plan={selectedPlan} />
               </div>
 
+              {/* The footnote states the same figure as the card, rather than a
+                  promotional one that disagreed with it. */}
               <p className="text-[#8F939A] text-xs font-medium text-center mt-3">
-                Free for the first month, ${PLANS[selectedPlan].monthlyPriceUsd} after that. Cancel anytime.
+                {PLANS[selectedPlan].monthlyPriceUsd === 0
+                  ? "No card required. Upgrade whenever you need more."
+                  : `$${PLANS[selectedPlan].monthlyPriceUsd} per month. Cancel anytime.`}
               </p>
             </div>
           </motion.div>

@@ -2,49 +2,40 @@
 
 import React from "react";
 
-import { PLANS } from "../../credits";
+import { PLANS, type PlanId } from "../../credits";
 
 interface PricingCardProps {
-  plan: "standard" | "pro";
+  plan: PlanId;
 }
 
 export default function PricingCard({ plan }: PricingCardProps) {
-  /* Standard leads with the free first month; Pro is quoted at its own price. */
-  const price = plan === "standard" ? "$0" : `$${PLANS.pro.monthlyPriceUsd}`;
-  const oldPrice = plan === "standard" ? `$${PLANS.standard.monthlyPriceUsd}` : null;
-  const label = `${PLANS[plan].name} ⚡`;
+  const { name, monthlyPriceUsd } = PLANS[plan];
 
   return (
-    <div className="relative rounded-[22px] p-5 overflow-hidden bg-gradient-to-br from-[#F6E7A8] via-[#F4D48C] to-[#F1C38A]">
+    <div className="relative overflow-hidden rounded-[22px] bg-gradient-to-br from-[#F6E7A8] via-[#F4D48C] to-[#F1C38A] p-5">
       {/* Dotted decorative pattern */}
       <div
-        className="pointer-events-none absolute top-0 right-0 w-24 h-24 opacity-30"
+        className="pointer-events-none absolute top-0 right-0 h-24 w-24 opacity-30"
         style={{
-          backgroundImage:
-            "radial-gradient(circle, rgba(0,0,0,0.25) 1.5px, transparent 1.5px)",
+          backgroundImage: "radial-gradient(circle, rgba(0,0,0,0.25) 1.5px, transparent 1.5px)",
           backgroundSize: "8px 8px",
         }}
       />
 
-      <div className="flex items-center justify-between mb-4 relative z-10">
-        <span className="text-black font-bold text-base">{label}</span>
-        {plan === "standard" && (
-          <span className="bg-[#22C55E] text-white text-[11px] font-medium px-2.5 py-1 rounded-full">
-            100% Off
-          </span>
-        )}
+      <div className="relative z-10 mb-4 flex items-center justify-between">
+        <span className="text-base font-bold text-black">{name} ⚡</span>
       </div>
 
-      <div className="flex items-end gap-2 relative z-10 flex-wrap">
-        {oldPrice && (
-          <span className="text-black/40 text-lg line-through font-medium mb-1">
-            {oldPrice}
-          </span>
-        )}
-        <span className="text-black font-extrabold text-[44px] sm:text-[48px] leading-none">
-          {price}
+      {/* One figure: what the plan costs. It previously led with a promotional $0
+          for the middle tier, which read as the price and disagreed with every
+          other pricing surface in the product. */}
+      <div className="relative z-10 flex flex-wrap items-end gap-2">
+        <span className="text-[44px] font-extrabold leading-none text-black sm:text-[48px]">
+          ${monthlyPriceUsd}
         </span>
-        <span className="text-black text-xs font-medium mb-1.5">/ for the 1st month</span>
+        <span className="mb-1.5 text-xs font-medium text-black">
+          {monthlyPriceUsd === 0 ? "/ free forever" : "/ month"}
+        </span>
       </div>
     </div>
   );
