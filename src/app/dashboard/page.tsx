@@ -83,8 +83,8 @@ const PROMPTS = [
 
 const projectTypes = [
   { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
-  { id: "mobile", label: "Mobile App", icon: Smartphone, phoneIcon: Smartphone },
-  { id: "landing", label: "Website", icon: AppWindow, phoneIcon: AppWindow },
+  { id: "mobile", label: "Blog Post", icon: Smartphone, phoneIcon: Smartphone },
+  { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
 ];
 
 export default function DashboardPage() {
