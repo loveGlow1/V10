@@ -157,7 +157,7 @@ export default function ProjectList() {
   ];
 
   return (
-    <section className="mt-10 w-full max-w-[720px] md:mt-16">
+    <section className="mt-10 hidden w-full max-w-[720px] md:mt-16 md:block">
       {/* From md up. A phone shows the list itself and skips the filter, which is
           why `filter` stays on "all" there: three pills of chrome above a list
           this short costs more room than it saves. */}

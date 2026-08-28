@@ -360,11 +360,11 @@ export default function DashboardPage() {
           <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
-              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_300deg,rgba(190,205,235,0.14)_336deg,rgba(226,234,250,0.42)_355deg,transparent_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
+              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border border-white/[0.10] bg-[#15181D]/80 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:shadow-none md:backdrop-blur-none">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#15181D]/80 bg-clip-padding p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:bg-clip-border md:shadow-none md:backdrop-blur-none">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
