@@ -2,11 +2,16 @@
 
 import { Check } from "lucide-react";
 
+import { PLANS } from "../dashboard/credits";
+
 export default function PricingPage() {
+  /* Three tiers, priced from the credit economy rather than written out here —
+     this page quoted $16 for the middle plan while the dashboard sold it at a
+     different figure again. */
   const tiers = [
-    { name: "Hobbyist", price: "$0", desc: "Excellent tier to experiment with natural language architectures." },
-    { name: "Professional", price: "$16", desc: "Best for builders, production systems, and fast scaling tools.", highlight: true },
-    { name: "Enterprise", price: "$150", desc: "Engineered for corporations demanding strict isolated setups." }
+    { name: "Hobbyist", price: `$${PLANS.free.monthlyPriceUsd}`, desc: "Excellent tier to experiment with natural language architectures." },
+    { name: "Professional", price: `$${PLANS.standard.monthlyPriceUsd}`, desc: "Best for builders, production systems, and fast scaling tools.", highlight: true },
+    { name: "Enterprise", price: `$${PLANS.pro.monthlyPriceUsd}`, desc: "Engineered for corporations demanding strict isolated setups." }
   ];
 
   return (

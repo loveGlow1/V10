@@ -21,7 +21,7 @@
    balance, which is what lets the same functions run in the composer to
    preview a cost and on the server to enforce one. */
 
-export type PlanId = "free" | "pro";
+export type PlanId = "free" | "standard" | "pro";
 
 /* Both plans get the same daily grant — the spec gives Free "5 daily build
    credits" and Pro "100 monthly credits + daily allowances", so the daily
@@ -72,9 +72,9 @@ export const PLANS: Record<PlanId, Plan> = {
       "Standard community support",
     ],
   },
-  pro: {
-    id: "pro",
-    name: "Pro",
+  standard: {
+    id: "standard",
+    name: "Standard",
     monthlyPriceUsd: 25,
     dailyCredits: DAILY_ALLOWANCE,
     monthlyCredits: 100,
@@ -92,7 +92,34 @@ export const PLANS: Record<PlanId, Plan> = {
       "GitHub integration",
     ],
   },
+  pro: {
+    id: "pro",
+    name: "Pro",
+    monthlyPriceUsd: 150,
+    dailyCredits: DAILY_ALLOWANCE,
+    /* The one allowance the specification does not state. Held at Standard's
+       rate of four credits per dollar, so the step up in price is a step up in
+       capacity rather than a change of deal. Change this line, not the UI, if
+       the intended figure is different. */
+    monthlyCredits: 600,
+    rolloverCycles: 1,
+    publishing: {
+      subdomain: ".quickstart.ai",
+      customDomains: true,
+      privateRepos: true,
+    },
+    support: "Priority support",
+    features: [
+      "600 credits/month, plus daily allowances",
+      "Private repositories and custom domains",
+      "Unused credits roll over one cycle",
+      "Priority support",
+    ],
+  },
 };
+
+/* The order the plans are offered in, cheapest first. */
+export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
 
 /* Bought mid-cycle when the pool runs dry. Top-ups are the only credits with
    no expiry, which is why they are spent last. */

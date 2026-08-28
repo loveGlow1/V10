@@ -3,11 +3,14 @@
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.
 --
--- Covers three tables:
+-- Covers six tables:
 --   user_profiles   — already created; this adds the policies and the trigger
 --                     that fills it, without which it stays empty forever.
 --   projects        — read by the dashboard, and not yet created.
 --   mcp_connections — the MCP servers configured in account settings.
+--   credit_plans    — what each plan grants (mirrors PLANS in credits.ts).
+--   credit_balances — one row per account: daily, rollover, monthly, top-up.
+--   credit_ledger   — append-only record of every credit movement.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Shared helper: keep updated_at honest without the client having to set it.
@@ -209,3 +212,328 @@ create trigger mcp_connections_set_updated_at
 
 create index if not exists mcp_connections_user_id_idx
   on public.mcp_connections (user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The credit economy — credit_plans, credit_balances, credit_ledger.
+--
+-- The rules these tables enforce are written out in src/app/dashboard/credits.ts;
+-- what lives here is everything that must not be decided in a browser. A balance
+-- the client could write is not a balance, so no policy below grants insert or
+-- update on it to anyone: the only way credits move is public.spend_credits(),
+-- which locks the row, drains the buckets in the right order and writes the
+-- ledger in one transaction.
+--
+-- Division of labour with the application:
+--   * what an ACTION COSTS is decided in TypeScript (creditCostOf) and passed in,
+--     so the composer can preview a charge with the same arithmetic that takes it;
+--   * what a PLAN GRANTS is decided here, because daily and cycle renewal have to
+--     happen for accounts that are not currently making a request.
+-- credit_plans is therefore the mirror of PLANS in credits.ts — change both.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.credit_plans (
+  id                text primary key,
+  name              text not null,
+  monthly_price_usd numeric(10,2) not null,
+  -- Refilled every day; whatever is left over is discarded.
+  daily_credits     numeric(10,2) not null,
+  -- Granted at the top of each billing cycle.
+  monthly_credits   numeric(10,2) not null,
+  -- Cycles an unused monthly credit survives. 0 = expires with the cycle.
+  rollover_cycles   integer not null default 0
+);
+
+insert into public.credit_plans (id, name, monthly_price_usd, daily_credits, monthly_credits, rollover_cycles)
+values
+  ('free',     'Free',       0,   5, 0,   0),
+  ('standard', 'Standard',  25,   5, 100, 1),
+  ('pro',      'Pro',      150,   5, 600, 1)
+on conflict (id) do update set
+  name              = excluded.name,
+  monthly_price_usd = excluded.monthly_price_usd,
+  daily_credits     = excluded.daily_credits,
+  monthly_credits   = excluded.monthly_credits,
+  rollover_cycles   = excluded.rollover_cycles;
+
+alter table public.credit_plans enable row level security;
+
+-- Plans are public knowledge — they are on the pricing page — so any signed-in
+-- account may read them. Nobody may write them from the client.
+drop policy if exists "Signed-in users read plans" on public.credit_plans;
+create policy "Signed-in users read plans"
+  on public.credit_plans for select
+  to authenticated
+  using (true);
+
+-- Table privileges as well as policies, so the tables do not depend on whatever
+-- default grants a project happens to have. RLS decides which rows; these decide
+-- which verbs — and no verb but select is granted anywhere below.
+revoke all on public.credit_plans from anon, authenticated;
+grant select on public.credit_plans to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- credit_balances — one row per account, four buckets.
+--
+-- Four columns rather than one number because they expire at different times,
+-- and the order they are spent in is the difference between a user losing
+-- credits and not: daily first (gone tonight), then rollover (gone this cycle),
+-- then this cycle's grant, then top-ups, which were paid for outright and never
+-- expire.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.credit_balances (
+  user_id            uuid primary key references auth.users (id) on delete cascade,
+  plan_id            text not null default 'free' references public.credit_plans (id),
+  daily              numeric(10,2) not null default 0 check (daily >= 0),
+  monthly            numeric(10,2) not null default 0 check (monthly >= 0),
+  rollover           numeric(10,2) not null default 0 check (rollover >= 0),
+  top_up             numeric(10,2) not null default 0 check (top_up >= 0),
+  -- The day the daily bucket was last refilled, and the day the current billing
+  -- cycle opened. Both are dates in UTC so a renewal cannot be triggered twice
+  -- by a user changing time zone.
+  daily_refreshed_on date not null default (now() at time zone 'utc')::date,
+  cycle_started_on   date not null default (now() at time zone 'utc')::date,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+alter table public.credit_balances enable row level security;
+
+-- Read-only from the client, deliberately. There is no insert, update or delete
+-- policy: a browser that could write this table could grant itself credits.
+drop policy if exists "Owners read their balance" on public.credit_balances;
+create policy "Owners read their balance"
+  on public.credit_balances for select
+  using (auth.uid() = user_id);
+
+-- Belt and braces: with no insert/update/delete privilege, a client cannot write
+-- this table even if a policy were ever added by mistake.
+revoke all on public.credit_balances from anon, authenticated;
+grant select on public.credit_balances to authenticated;
+
+drop trigger if exists credit_balances_set_updated_at on public.credit_balances;
+create trigger credit_balances_set_updated_at
+  before update on public.credit_balances
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- credit_ledger — append-only, one row per credit movement.
+--
+-- Every charge, grant and top-up lands here, including the zero-credit ones:
+-- a publish costs nothing and is still recorded, because "was I charged for
+-- deploying?" has to be answerable from the data rather than from trust.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.credit_ledger (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  -- The four billable categories, plus the two ways credits arrive.
+  action        text not null check (action in ('chat', 'generate', 'publish', 'runtime', 'grant', 'topup')),
+  -- Negative for a charge, positive for a grant or a purchase.
+  credits       numeric(10,2) not null,
+  -- What the charge was for, in the user's language ("Added checkout page").
+  description   text,
+  project_id    uuid references public.projects (id) on delete set null,
+  -- The usage the charge was priced from, kept so a disputed charge can be
+  -- recomputed rather than argued about.
+  output_tokens integer,
+  files_touched integer,
+  created_at    timestamptz not null default now()
+);
+
+alter table public.credit_ledger enable row level security;
+
+-- Same shape as the balance: readable by its owner, written only by the
+-- security-definer function below.
+drop policy if exists "Owners read their ledger" on public.credit_ledger;
+create policy "Owners read their ledger"
+  on public.credit_ledger for select
+  using (auth.uid() = user_id);
+
+-- Append-only from the application's point of view: only spend_credits and
+-- grant_credits write here, and they run as the definer.
+revoke all on public.credit_ledger from anon, authenticated;
+grant select on public.credit_ledger to authenticated;
+
+create index if not exists credit_ledger_user_id_created_at_idx
+  on public.credit_ledger (user_id, created_at desc);
+
+-- Every account needs a balance the first time it is looked at. Rather than a
+-- second signup trigger that could fall out of step with the first, the balance
+-- is created on demand by the function below.
+create or replace function public.ensure_credit_balance(p_user_id uuid)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance public.credit_balances;
+  v_plan    public.credit_plans;
+  v_today   date := (now() at time zone 'utc')::date;
+begin
+  -- The lock is what makes two concurrent charges safe: the second waits here
+  -- rather than reading a balance the first is about to change.
+  select * into v_balance from public.credit_balances
+    where user_id = p_user_id
+    for update;
+
+  if not found then
+    select * into v_plan from public.credit_plans where id = 'free';
+    insert into public.credit_balances (user_id, plan_id, daily, monthly)
+      values (p_user_id, 'free', v_plan.daily_credits, v_plan.monthly_credits)
+      returning * into v_balance;
+    return v_balance;
+  end if;
+
+  select * into v_plan from public.credit_plans where id = v_balance.plan_id;
+
+  -- A new day: refill the daily grant and drop yesterday's remainder.
+  if v_balance.daily_refreshed_on < v_today then
+    v_balance.daily := v_plan.daily_credits;
+    v_balance.daily_refreshed_on := v_today;
+  end if;
+
+  -- A new cycle: this cycle's unused grant becomes the rollover on a plan that
+  -- allows one, the previous rollover expires, and top-ups survive untouched.
+  if v_balance.cycle_started_on + interval '1 month' <= v_today then
+    v_balance.rollover := case when v_plan.rollover_cycles > 0 then v_balance.monthly else 0 end;
+    v_balance.monthly := v_plan.monthly_credits;
+    v_balance.cycle_started_on := v_today;
+  end if;
+
+  update public.credit_balances set
+    daily = v_balance.daily,
+    monthly = v_balance.monthly,
+    rollover = v_balance.rollover,
+    daily_refreshed_on = v_balance.daily_refreshed_on,
+    cycle_started_on = v_balance.cycle_started_on
+  where user_id = p_user_id
+  returning * into v_balance;
+
+  return v_balance;
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- spend_credits — the only way credits leave an account.
+--
+-- Takes a cost that the application has already priced (see creditCostOf), so
+-- the estimate a user is shown and the charge they receive are the same number.
+-- Refuses rather than partially charging: half a generation is not something
+-- the platform can deliver.
+--
+-- Publishing passes 0 and is recorded at 0. It is the caller's job not to price
+-- a deploy, and creditCostOf returns 0 for one before it reads any signal.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.spend_credits(
+  p_action        text,
+  p_cost          numeric,
+  p_description   text default null,
+  p_project_id    uuid default null,
+  p_output_tokens integer default null,
+  p_files_touched integer default null
+)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance     public.credit_balances;
+  v_user_id     uuid := auth.uid();
+  v_outstanding numeric(10,2);
+  v_taken       numeric(10,2);
+begin
+  if v_user_id is null then
+    raise exception 'spend_credits requires an authenticated session'
+      using errcode = '28000';
+  end if;
+
+  if p_cost < 0 then
+    raise exception 'a charge cannot be negative' using errcode = '22023';
+  end if;
+
+  v_balance := public.ensure_credit_balance(v_user_id);
+
+  if p_cost > v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up then
+    raise exception 'insufficient credits: % required, % available',
+      p_cost, v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up
+      using errcode = '53400';
+  end if;
+
+  -- Soonest to expire first.
+  v_outstanding := p_cost;
+
+  v_taken := least(v_balance.daily, v_outstanding);
+  v_balance.daily := v_balance.daily - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.rollover, v_outstanding);
+  v_balance.rollover := v_balance.rollover - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.monthly, v_outstanding);
+  v_balance.monthly := v_balance.monthly - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_balance.top_up := v_balance.top_up - v_outstanding;
+
+  update public.credit_balances set
+    daily = v_balance.daily,
+    rollover = v_balance.rollover,
+    monthly = v_balance.monthly,
+    top_up = v_balance.top_up
+  where user_id = v_user_id
+  returning * into v_balance;
+
+  insert into public.credit_ledger
+    (user_id, action, credits, description, project_id, output_tokens, files_touched)
+  values
+    (v_user_id, p_action, -p_cost, p_description, p_project_id, p_output_tokens, p_files_touched);
+
+  return v_balance;
+end;
+$$;
+
+-- Adds bought credits to the pool. Called by a payment webhook once a charge
+-- has settled — never from the browser, which is why it takes the account as an
+-- argument instead of reading auth.uid(), and why execute is not granted below.
+create or replace function public.grant_credits(
+  p_user_id     uuid,
+  p_credits     numeric,
+  p_action      text default 'topup',
+  p_description text default null
+)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance public.credit_balances;
+begin
+  if p_credits <= 0 then
+    raise exception 'a grant must be positive' using errcode = '22023';
+  end if;
+
+  perform public.ensure_credit_balance(p_user_id);
+
+  update public.credit_balances
+    set top_up = top_up + p_credits
+    where user_id = p_user_id
+    returning * into v_balance;
+
+  insert into public.credit_ledger (user_id, action, credits, description)
+    values (p_user_id, p_action, p_credits, p_description);
+
+  return v_balance;
+end;
+$$;
+
+-- A signed-in account may spend its own credits and read its own balance. It
+-- may not grant itself any: grant_credits is left executable only by the
+-- service role, which is what the payment webhook runs as.
+revoke all on function public.spend_credits(text, numeric, text, uuid, integer, integer) from public, anon;
+grant execute on function public.spend_credits(text, numeric, text, uuid, integer, integer) to authenticated;
+
+revoke all on function public.ensure_credit_balance(uuid) from public, anon, authenticated;
+revoke all on function public.grant_credits(uuid, numeric, text, text) from public, anon, authenticated;

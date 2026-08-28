@@ -2,14 +2,17 @@
 
 import React from "react";
 
+import { PLANS } from "../../credits";
+
 interface PricingCardProps {
   plan: "standard" | "pro";
 }
 
 export default function PricingCard({ plan }: PricingCardProps) {
-  const price = plan === "standard" ? "$0" : "$200";
-  const oldPrice = plan === "standard" ? "$20" : null;
-  const label = plan === "standard" ? "Standard ⚡" : "Pro ⚡";
+  /* Standard leads with the free first month; Pro is quoted at its own price. */
+  const price = plan === "standard" ? "$0" : `$${PLANS.pro.monthlyPriceUsd}`;
+  const oldPrice = plan === "standard" ? `$${PLANS.standard.monthlyPriceUsd}` : null;
+  const label = `${PLANS[plan].name} ⚡`;
 
   return (
     <div className="relative rounded-[22px] p-5 overflow-hidden bg-gradient-to-br from-[#F6E7A8] via-[#F4D48C] to-[#F1C38A]">

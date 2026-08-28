@@ -7,6 +7,7 @@ import PlanSelector from "./PlanSelector";
 import PricingCard from "./PricingCard";
 import FeatureList from "./FeatureList";
 import UpgradeButton from "./UpgradeButton";
+import { PLANS } from "../../credits";
 
 interface BillingModalProps {
   open: boolean;
@@ -67,7 +68,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
               </div>
 
               <div className="mt-5">
-                <FeatureList />
+                <FeatureList plan={selectedPlan} />
               </div>
 
               <div className="mt-5">
@@ -75,7 +76,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
               </div>
 
               <p className="text-[#8F939A] text-xs font-medium text-center mt-3">
-                Free for the first month, $20 after that. Cancel anytime.
+                Free for the first month, ${PLANS[selectedPlan].monthlyPriceUsd} after that. Cancel anytime.
               </p>
             </div>
           </motion.div>

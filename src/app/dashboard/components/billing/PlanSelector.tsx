@@ -3,6 +3,8 @@
 import React from "react";
 import { motion } from "framer-motion";
 
+import { PLANS } from "../../credits";
+
 interface PlanSelectorProps {
   selected: "standard" | "pro";
   onSelect: (plan: "standard" | "pro") => void;
@@ -33,9 +35,11 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
             )}
           </span>
         </div>
-        <p className="text-white font-bold text-lg mb-1">Standard</p>
+        <p className="text-white font-bold text-lg mb-1">{PLANS.standard.name}</p>
+        {/* The first month is free, so the plan's own price is struck through
+            rather than replaced — what it becomes afterwards stays legible. */}
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[#9CA3AF] text-sm line-through">$20</span>
+          <span className="text-[#9CA3AF] text-sm line-through">${PLANS.standard.monthlyPriceUsd}</span>
           <span className="text-[#22C55E] font-bold text-sm">$0</span>
         </div>
       </motion.button>
@@ -60,9 +64,9 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
             {selected === "pro" && <span className="w-2 h-2 rounded-full bg-[#22C55E]" />}
           </span>
         </div>
-        <p className="text-white font-bold text-lg mb-1">Pro</p>
+        <p className="text-white font-bold text-lg mb-1">{PLANS.pro.name}</p>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[#22C55E] font-bold text-sm">$200</span>
+          <span className="text-[#22C55E] font-bold text-sm">${PLANS.pro.monthlyPriceUsd}</span>
         </div>
       </motion.button>
     </div>
