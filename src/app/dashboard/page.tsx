@@ -302,62 +302,63 @@ export default function DashboardPage() {
             })}
           </div>
 
-          {/* Floating Dropdown Overlay Menu - Unclipped & Positioned Above Chat Box */}
-          <AnimatePresence>
-            {isUploadPopoverOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="absolute left-0 bottom-full mb-3 z-[1000] w-72 bg-[#141416] border border-[#3A3A42] rounded-[20px] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl space-y-1.5"
-              >
-                <button
-                  onClick={() => {
-                    photoLibraryInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Photo Library</span>
-                  <ImageIcon className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    cameraInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Take Photo or Video</span>
-                  <Camera className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    chooseFilesInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Choose Files</span>
-                  <FolderOpen className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    alert("Google Drive integration triggered");
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Google Drive</span>
-                  <Triangle className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
           <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+            {/* The upload menu, anchored to the composer it belongs to. It used
+                to hang off the whole column, which put it above the tabs and
+                behind the phone header — its first row was unreadable there. */}
+            <AnimatePresence>
+              {isUploadPopoverOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-[#3A3A42] bg-[#141416] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
+                >
+                  <button
+                    onClick={() => {
+                      photoLibraryInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Photo Library</span>
+                    <ImageIcon className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      cameraInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Take Photo or Video</span>
+                    <Camera className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      chooseFilesInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Choose Files</span>
+                    <FolderOpen className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      alert("Google Drive integration triggered");
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Google Drive</span>
+                    <Triangle className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
