@@ -272,7 +272,7 @@ export default function DashboardPage() {
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-7 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-[66px] text-center text-[clamp(20px,5.6vw,26px)] md:mt-7 font-semibold leading-tight tracking-tight text-[#F5F5F5] sm:text-[32px]">
+        <h1 className="mt-[66px] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
           What will you build today?
         </h1>
 
@@ -288,9 +288,9 @@ export default function DashboardPage() {
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-2 text-[13px] font-medium transition-all sm:gap-2 md:-mb-px md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-2 text-[13px] font-normal transition-all sm:gap-2 md:-mb-px md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
-                      ? "border-white/[0.16] bg-white/[0.07] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
+                      ? "border-white/[0.16] bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
                       : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
                   }`}
                 >
