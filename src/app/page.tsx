@@ -13,6 +13,9 @@ import {
   isSupabaseConfigured,
 } from "@/lib/supabase";
 import { useMediaQuery } from "@/hooks/use-media-query";
+/* Prices come from the credit economy, so the page and the billing modal cannot
+   quote different figures for the same plan. */
+import { PLANS } from "./dashboard/credits";
 import {
   Gift,
   Layout,
@@ -194,7 +197,7 @@ const PRICING_TIERS = [
   {
     name: "Free",
     description: "A simple starting point to explore QuickStart.Ai and validate your first product ideas.",
-    monthlyPrice: 0,
+    monthlyPrice: PLANS.free.monthlyPriceUsd,
     ctaLabel: "Get Started",
     icon: Gift,
     highlight: false,
@@ -207,7 +210,7 @@ const PRICING_TIERS = [
   {
     name: "Standard",
     description: "The most balanced plan for serious builders shipping polished web and mobile experiences.",
-    monthlyPrice: 15,
+    monthlyPrice: PLANS.standard.monthlyPriceUsd,
     ctaLabel: "Try QuickStart.Ai",
     icon: Layout,
     highlight: true,
@@ -220,7 +223,7 @@ const PRICING_TIERS = [
   {
     name: "Pro",
     description: "A high-touch tier for advanced teams orchestrating larger systems and more complex launches.",
-    monthlyPrice: 150,
+    monthlyPrice: PLANS.pro.monthlyPriceUsd,
     ctaLabel: "Get Started",
     icon: Cpu,
     highlight: false,
