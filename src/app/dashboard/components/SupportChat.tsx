@@ -31,16 +31,38 @@ const QUICK_REPLIES = [
 export default function SupportChat() {
   useKeyboardInset();
   const [open, setOpen] = useState(false);
-  const [unread, setUnread] = useState(1);
+  /* Starts at nothing. This was seeded at 1, so every visitor arrived to a badge
+     announcing a message that did not exist — and once dismissed it could never
+     come back, since nothing else set it. It now counts what it claims to count:
+     support messages that arrived while the panel was shut. */
+  const [unread, setUnread] = useState(0);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([
     { id: 0, from: "support", text: GREETING },
   ]);
   const threadRef = useRef<HTMLDivElement>(null);
+  /* How much of the thread the visitor has already been shown. Seeded with the
+     opening greeting, which is on screen the moment the panel opens and is not
+     something that "arrived". */
+  const seenCount = useRef(1);
 
   // Keep the newest message in view as the thread grows.
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, open]);
+
+  /* Opening the panel is reading it; while it is shut, each support message that
+     lands adds to the count. A message the visitor sent themselves never does. */
+  useEffect(() => {
+    if (open) {
+      setUnread(0);
+      seenCount.current = messages.length;
+      return;
+    }
+
+    const arrived = messages.slice(seenCount.current).filter((message) => message.from === "support").length;
+    seenCount.current = messages.length;
+    if (arrived > 0) setUnread((count) => count + arrived);
   }, [messages, open]);
 
   function send(text: string) {
