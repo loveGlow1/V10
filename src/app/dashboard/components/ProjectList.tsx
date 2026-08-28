@@ -157,9 +157,12 @@ export default function ProjectList() {
   ];
 
   return (
-    <section className="mt-16 w-full max-w-[720px]">
-      <div className="flex justify-center">
-        <div className="flex items-center gap-1 rounded-full border border-white/[0.07] bg-white/[0.02] p-1">
+    <section className="mt-10 w-full max-w-[720px] md:mt-16">
+      {/* From md up. A phone shows the list itself and skips the filter, which is
+          why `filter` stays on "all" there: three pills of chrome above a list
+          this short costs more room than it saves. */}
+      <div className="hidden justify-center md:flex">
+        <div className="flex items-center gap-1 rounded-full border border-white/[0.07] bg-white/[0.02] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = filter === tab.id;
@@ -182,7 +185,7 @@ export default function ProjectList() {
         </div>
       </div>
 
-      <div className="mt-8 space-y-1">
+      <div className="mt-2 space-y-1 md:mt-8">
         {loading && <p className="py-8 text-center text-sm text-[#8F939A]">Loading your projects…</p>}
 
         {error && <p className="py-8 text-center text-sm text-[#FF6B6B]">{error}</p>}

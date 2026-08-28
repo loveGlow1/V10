@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LayoutGrid, Sparkles, ChevronDown, Coins, LogOut } from "lucide-react";
+import { Plus, LayoutGrid, Sparkles, ChevronDown, Coins, LogOut, PanelLeftClose, Settings } from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -11,9 +11,20 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onUpgradeClick: () => void;
+  /** The same figure the rest of the app shows, rather than a second hardcoded one. */
+  credits?: string;
+  onNewTask?: () => void;
+  onAccountSettings?: () => void;
 }
 
-export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps) {
+export default function Sidebar({
+  open,
+  onClose,
+  onUpgradeClick,
+  credits = "0.00",
+  onNewTask,
+  onAccountSettings,
+}: SidebarProps) {
   const router = useRouter();
   const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -71,14 +82,17 @@ export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps)
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
           />
           <motion.aside
-            initial={{ x: -320 }}
+            initial={{ x: "-100%" }}
             animate={{ x: 0 }}
-            exit={{ x: -320 }}
+            exit={{ x: "-100%" }}
             transition={{ duration: 0.28, ease: "easeOut" }}
-            className="fixed top-0 left-0 h-full w-[320px] bg-[rgba(10,10,12,0.95)] backdrop-blur-2xl border-r border-white/[0.08] z-50 flex flex-col p-5"
+            /* The panel is lit rather than outlined: a hairline down its open edge,
+               a pixel of light along the top, and a wide soft shadow thrown onto the
+               page behind it. Nothing here reads as a border on its own. */
+            className="fixed top-0 left-0 z-50 flex h-full w-[min(320px,86vw)] flex-col border-r border-white/[0.09] bg-[rgba(10,10,12,0.95)] p-5 pt-[max(20px,env(safe-area-inset-top))] pb-[max(20px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl md:hidden"
           >
             {/* Header: 3D Canvas Logo & QuickStart.Ai Brand */}
             <div className="flex items-center justify-between mb-8">
@@ -93,15 +107,21 @@ export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps)
 
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/50 hover:text-white transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/[0.09] hover:text-white"
                 aria-label="Close menu"
               >
-                ✕
+                <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
 
             {/* New Task Button */}
-            <button className="flex items-center gap-3 mb-6 group text-left">
+            <button
+              onClick={() => {
+                onClose();
+                onNewTask?.();
+              }}
+              className="group mb-6 flex items-center gap-3 text-left"
+            >
               <span className="w-8 h-8 rounded-full bg-[#34F5A0] flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(52,245,160,0.2)]">
                 <Plus className="w-4 h-4 text-black stroke-[2.5]" />
               </span>
@@ -141,7 +161,7 @@ export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps)
                   <div className="w-7 h-7 rounded-full bg-[#F4D96B]/15 flex items-center justify-center">
                     <Coins className="w-4 h-4 text-[#F4D96B]" />
                   </div>
-                  <span className="text-white text-sm font-semibold tracking-wide">0.00</span>
+                  <span className="text-white text-sm font-semibold tracking-wide">{credits}</span>
                 </div>
                 <button
                   onClick={onUpgradeClick}
@@ -165,6 +185,20 @@ export default function Sidebar({ open, onClose, onUpgradeClick }: SidebarProps)
                       transition={{ duration: 0.15 }}
                       className="absolute bottom-full left-0 right-0 mb-2 rounded-[16px] border border-white/[0.08] bg-[rgba(18,18,22,0.98)] p-1.5 shadow-xl backdrop-blur-xl"
                     >
+                      {onAccountSettings && (
+                        <button
+                          onClick={() => {
+                            setAccountMenuOpen(false);
+                            onClose();
+                            onAccountSettings();
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white"
+                        >
+                          <Settings className="h-4 w-4" />
+                          <span className="text-sm font-medium">Account Settings</span>
+                        </button>
+                      )}
+
                       <button
                         onClick={handleSignOut}
                         disabled={signingOut}

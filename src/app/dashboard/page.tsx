@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import TopNav from "./components/TopNav";
+import TopBar from "./components/TopBar";
+import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
@@ -92,6 +94,9 @@ export default function DashboardPage() {
   const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
 
+  // The phone header opens this; from md up the drawer never mounts.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState("E-1");
@@ -144,6 +149,15 @@ export default function DashboardPage() {
     );
     return () => window.clearInterval(id);
   }, [transcript]);
+
+  /* The drawer's New Task is the phone's primary action, so it has to land
+     somewhere: it closes the drawer and puts the caret in the composer. */
+  const focusComposer = React.useCallback(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.scrollIntoView({ block: "center", behavior: "smooth" });
+    composer.focus({ preventScroll: true });
+  }, []);
 
   // Handle Voice Recording Logic
   const toggleRecording = async () => {
@@ -199,10 +213,38 @@ export default function DashboardPage() {
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
+      {/* Very subtle, and only on a phone: a wash of light off the top edge and a
+          hairline around the frame, so the black has an edge to it rather than
+          running flat to the bezel. */}
+      <div
+        aria-hidden
+        /* The layer is masked to nothing at its own bottom edge: the diagonal
+           sheen is a flat wash and would otherwise end on a visible seam. */
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[52vh] bg-[radial-gradient(120%_75%_at_50%_0%,rgba(104,152,255,0.11),transparent_72%),linear-gradient(115deg,transparent_18%,rgba(126,172,255,0.05)_36%,transparent_50%,rgba(126,172,255,0.035)_64%,transparent_82%)] [-webkit-mask-image:linear-gradient(to_bottom,#000_35%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_35%,transparent_100%)] md:hidden"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_1px_0_0_rgba(255,255,255,0.035),inset_-1px_0_0_rgba(255,255,255,0.035)] md:hidden"
+      />
+
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
         projectName={projectName ?? "No project yet"}
+        credits={CREDITS}
+      />
+
+      <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
+
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onUpgradeClick={() => {
+          setSidebarOpen(false);
+          setBillingOpen(true);
+        }}
+        onAccountSettings={() => setAccountSettingsOpen(true)}
+        onNewTask={focusComposer}
         credits={CREDITS}
       />
 
