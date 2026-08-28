@@ -218,10 +218,16 @@ export default function DashboardPage() {
           vignette that closes the edges. It is fixed, so the page scrolls
           through the light rather than dragging it along. */}
       <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden">
-        <div className="absolute inset-x-0 top-0 h-[66%] bg-[radial-gradient(120%_100%_at_50%_-14%,#2a7ac9_0%,#17559a_24%,#103b71_44%,rgba(11,22,40,0.72)_70%,transparent_100%)]" />
-        <div className="absolute -inset-x-[25%] -top-[8%] h-[80%] rotate-[-17deg] bg-[linear-gradient(90deg,transparent_2%,rgba(150,205,255,0.26)_15%,transparent_30%,rgba(150,205,255,0.17)_46%,transparent_60%,rgba(150,205,255,0.10)_73%,transparent_88%)] blur-2xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(125%_80%_at_50%_116%,#000_20%,rgba(0,0,0,0.55)_54%,transparent_80%)]" />
-        <div className="absolute inset-0 shadow-[inset_0_0_120px_45px_rgba(0,0,0,0.72)]" />
+        {/* The floor the field sits on — the reference's lower half is this flat,
+            with no vignette closing it. */}
+        <div className="absolute inset-0 bg-[#040507]" />
+        {/* The field: sampled down the reference's own centre, bright blue under
+            the status bar and gone by a third of the way down the screen. */}
+        <div className="absolute inset-x-0 top-0 h-[45%] bg-[linear-gradient(180deg,#073e80_0%,#073c7a_3%,#072c58_14%,#082243_26%,#071b30_37%,#04111f_49%,#030910_63%,#030407_78%,transparent_100%)]" />
+        {/* The streaks: 45 degrees on a 118px pitch, the pitch the reference
+            carries, at a little under its contrast. They fade with the field
+            rather than crossing into the black. */}
+        <div className="absolute inset-x-0 top-0 h-[45%] bg-[repeating-linear-gradient(135deg,rgba(128,192,255,0.17)_0px,rgba(128,192,255,0)_59px,rgba(128,192,255,0.17)_118px)] [-webkit-mask-image:linear-gradient(180deg,#000_0%,#000_30%,transparent_68%)] [mask-image:linear-gradient(180deg,#000_0%,#000_30%,transparent_68%)]" />
       </div>
 
       <TopNav
@@ -266,12 +272,12 @@ export default function DashboardPage() {
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-7 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-7 text-center text-[clamp(20px,5.6vw,26px)] font-semibold leading-tight tracking-tight text-[#F5F5F5] sm:text-[32px]">
+        <h1 className="mt-[66px] text-center text-[clamp(20px,5.6vw,26px)] md:mt-7 font-semibold leading-tight tracking-tight text-[#F5F5F5] sm:text-[32px]">
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
-        <div className="relative mt-7 w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
+        <div className="relative mt-14 w-[min(750px,calc(100vw-40px))] md:mt-7" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
           <div className="relative z-40 mb-2.5 flex items-center gap-2 overflow-x-auto px-0 sm:gap-1 md:mb-0 md:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
