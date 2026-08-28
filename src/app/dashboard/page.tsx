@@ -263,7 +263,10 @@ export default function DashboardPage() {
       <SupportChat />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
-      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-10">
+      {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
+          header it replaced, and this is the 12px back, so the heading and
+          everything under it sit exactly where they did. */}
+      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-7 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
         <h1 className="mt-7 text-center text-[28px] font-semibold leading-tight tracking-tight text-[#f0f0f2] sm:text-[32px]">
