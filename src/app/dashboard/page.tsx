@@ -81,9 +81,9 @@ const PROMPTS = [
 ];
 
 const projectTypes = [
-  { id: "web", label: "Web App", icon: Layers },
-  { id: "mobile", label: "Mobile App", icon: Smartphone },
-  { id: "landing", label: "Website", icon: AppWindow },
+  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
+  { id: "mobile", label: "Mobile App", icon: Smartphone, phoneIcon: Smartphone },
+  { id: "landing", label: "Website", icon: AppWindow, phoneIcon: AppWindow },
 ];
 
 export default function DashboardPage() {
@@ -99,7 +99,7 @@ export default function DashboardPage() {
 
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState("E-1");
+  const [selectedAgent, setSelectedAgent] = useState("Q1");
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -213,19 +213,16 @@ export default function DashboardPage() {
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
-      {/* Very subtle, and only on a phone: a wash of light off the top edge and a
-          hairline around the frame, so the black has an edge to it rather than
-          running flat to the bezel. */}
-      <div
-        aria-hidden
-        /* The layer is masked to nothing at its own bottom edge: the diagonal
-           sheen is a flat wash and would otherwise end on a visible seam. */
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[52vh] bg-[radial-gradient(120%_75%_at_50%_0%,rgba(104,152,255,0.11),transparent_72%),linear-gradient(115deg,transparent_18%,rgba(126,172,255,0.05)_36%,transparent_50%,rgba(126,172,255,0.035)_64%,transparent_82%)] [-webkit-mask-image:linear-gradient(to_bottom,#000_35%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_35%,transparent_100%)] md:hidden"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.07),inset_1px_0_0_rgba(255,255,255,0.035),inset_-1px_0_0_rgba(255,255,255,0.035)] md:hidden"
-      />
+      {/* The phone backdrop: a deep blue field off the top of the screen, two
+          diagonal bands of light blurred into it, then a black floor and a
+          vignette that closes the edges. It is fixed, so the page scrolls
+          through the light rather than dragging it along. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden">
+        <div className="absolute inset-x-0 top-0 h-[66%] bg-[radial-gradient(120%_100%_at_50%_-14%,#2a7ac9_0%,#17559a_24%,#103b71_44%,rgba(11,22,40,0.72)_70%,transparent_100%)]" />
+        <div className="absolute -inset-x-[25%] -top-[8%] h-[80%] rotate-[-17deg] bg-[linear-gradient(90deg,transparent_2%,rgba(150,205,255,0.26)_15%,transparent_30%,rgba(150,205,255,0.17)_46%,transparent_60%,rgba(150,205,255,0.10)_73%,transparent_88%)] blur-2xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(125%_80%_at_50%_116%,#000_20%,rgba(0,0,0,0.55)_54%,transparent_80%)]" />
+        <div className="absolute inset-0 shadow-[inset_0_0_120px_45px_rgba(0,0,0,0.72)]" />
+      </div>
 
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
@@ -269,28 +266,30 @@ export default function DashboardPage() {
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-7 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-7 text-center text-[28px] font-semibold leading-tight tracking-tight text-[#f0f0f2] sm:text-[32px]">
+        <h1 className="mt-7 text-center text-[clamp(20px,5.6vw,26px)] font-semibold leading-tight tracking-tight text-[#F5F5F5] sm:text-[32px]">
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
         <div className="relative mt-7 w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 flex items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative z-40 mb-2.5 flex items-center gap-2 overflow-x-auto px-0 sm:gap-1 md:mb-0 md:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
               const Icon = type.icon;
+              const PhoneIcon = type.phoneIcon;
               const active = activeType === type.id;
               return (
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[18px] border px-3 py-2 text-[13px] font-medium transition-all sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm md:rounded-t-[14px] ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-2 text-[13px] font-medium transition-all sm:gap-2 md:-mb-px md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
-                      ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#171719] text-white"
-                      : "border-transparent bg-white/[0.03] text-[#8F939A] hover:bg-white/[0.06] hover:text-white"
+                      ? "border-white/[0.16] bg-white/[0.07] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
+                      : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${active ? "text-white" : "text-[#8F939A]"}`} />
+                  <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-white" : "text-[#9A9A9F]"}`} />
+                  <Icon className={`hidden h-4 w-4 md:block ${active ? "text-white" : "text-[#8F939A]"}`} />
                   {type.label}
                 </button>
               );
@@ -352,14 +351,14 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="group relative w-full overflow-visible rounded-[18px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
-            <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[18px] md:rounded-[14px]">
+            <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_300deg,rgba(190,205,235,0.14)_336deg,rgba(226,234,250,0.42)_355deg,transparent_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-hidden rounded-[18px] border-[1.5px] border-white/[0.07] bg-[#171719] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:shadow-none">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border border-white/[0.10] bg-[#15181D]/80 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:shadow-none md:backdrop-blur-none">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -373,7 +372,7 @@ export default function DashboardPage() {
                   rows={3}
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
-                  className="relative z-10 h-[52px] w-full resize-none bg-transparent text-base text-white outline-none md:h-auto"
+                  className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-white outline-none md:h-auto"
                 />
                 <AnimatePresence mode="wait">
                   {!transcript && (
@@ -384,7 +383,7 @@ export default function DashboardPage() {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.45, ease: "easeInOut" }}
                       aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#85858a]"
+                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#9A9A9F] md:text-[#85858a]"
                     >
                       {PROMPTS[promptIndex]}
                     </motion.span>
@@ -427,7 +426,7 @@ export default function DashboardPage() {
                   {/* Attachment Clip Button */}
                   <button
                     onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
@@ -440,18 +439,19 @@ export default function DashboardPage() {
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
 
                   {/* Model selector, as in the reference toolbar */}
                   <button
-                    onClick={() => setIsAdvancedModalOpen(true)}
-                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-1.5 text-[12px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    onClick={() => setIsAgentModalOpen(true)}
+                    aria-label="Choose an agent"
+                    className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Sparkles className="h-4 w-4 text-white" />
-                    <span className="font-medium tracking-tight">{selectedModel}</span>
+                    <Bot className="h-4 w-4 text-white" />
+                    <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
                 </div>
@@ -459,16 +459,16 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
                   </button>
                   <button
-                    onClick={() => setIsAgentModalOpen(true)}
-                    title={`Agent: ${selectedAgent}`}
-                    aria-label="Choose an agent"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    onClick={() => setIsAdvancedModalOpen(true)}
+                    title="Advanced controls"
+                    aria-label="Advanced controls"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -477,7 +477,7 @@ export default function DashboardPage() {
                   <button
                     onClick={toggleRecording}
                     title={isRecording ? "Stop Recording" : "Start Recording"}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
@@ -491,7 +491,7 @@ export default function DashboardPage() {
                   <button
                     disabled={!transcript.trim()}
                     aria-label="Send"
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
                         : "border-transparent bg-[#35343B] text-white"

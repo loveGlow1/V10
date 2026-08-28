@@ -1,34 +1,72 @@
 "use client";
 
-import React from "react";
-import { Menu } from "lucide-react";
+import React, { useState } from "react";
+import { Menu, AppWindow, MessageSquare } from "lucide-react";
 
 interface TopBarProps {
   onMenuClick: () => void;
   onUpgradeClick: () => void;
 }
 
-/* The phone bar. It carries only the two things a handset has room for — the way
-   into the drawer and the way onto a plan — and leaves the brand, the project
-   switcher and the account menu to the drawer and the desktop header.
+/* The phone bar: the way into the drawer, the preview/chat pair, and the way
+   onto a plan. The brand, the project switcher and the account menu live in the
+   drawer and in the desktop header, which is what leaves room for these three
+   at 360px.
 
-   Every control here is lit the same way: a hairline rim, a single pixel of
-   light along the top edge and none along the bottom, so the piece reads as a
-   raised surface catching the light from above rather than a flat chip. */
+   Everything here is glass over the blue: a translucent fill, a hairline rim and
+   one pixel of light along the top edge, so each control reads as a raised
+   surface catching the light rather than a flat chip. */
 export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
+  /* The pair the reference carries beside the hamburger. It holds its position,
+     but there is no second view on this screen for it to switch to yet — the
+     project workspace is where it will point once that view exists. */
+  const [view, setView] = useState<"preview" | "chat">("preview");
+
+  const segment = (active: boolean) =>
+    `flex h-8 w-[46px] items-center justify-center rounded-full transition-all ${
+      active
+        ? "bg-[#19E7E8] text-[#06232b] shadow-[0_0_18px_rgba(25,231,232,0.35)]"
+        : "text-white/60"
+    }`;
+
   return (
-    <header className="relative z-30 flex min-h-[68px] w-full items-center justify-between px-4 pt-[env(safe-area-inset-top)] md:hidden">
-      <button
-        onClick={onMenuClick}
-        className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.10] bg-white/[0.06] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:bg-white/[0.10] active:scale-[0.98]"
-        aria-label="Open menu"
-      >
-        <Menu className="h-5 w-5 stroke-[2]" />
-      </button>
+    <header className="relative z-30 flex w-full items-center justify-between px-4 pb-2 pt-[max(10px,env(safe-area-inset-top))] md:hidden">
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={onMenuClick}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-xl transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
+          aria-label="Open menu"
+        >
+          <Menu className="h-[18px] w-[18px] stroke-[2]" />
+        </button>
+
+        <div
+          role="group"
+          aria-label="View"
+          className="flex h-10 items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl"
+        >
+          <button
+            onClick={() => setView("preview")}
+            aria-pressed={view === "preview"}
+            aria-label="Preview"
+            className={segment(view === "preview")}
+          >
+            <AppWindow className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            onClick={() => setView("chat")}
+            aria-pressed={view === "chat"}
+            aria-label="Chat"
+            className={segment(view === "chat")}
+          >
+            <MessageSquare className="h-[18px] w-[18px]" />
+          </button>
+        </div>
+      </div>
 
       <button
         onClick={onUpgradeClick}
-        className="h-11 rounded-full bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-5 text-sm font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(244,217,107,0.12)] transition-all hover:brightness-105 active:scale-[0.98]"
+        className="h-9 shrink-0 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-4 text-[13px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all hover:brightness-105 active:scale-[0.98]"
       >
         Upgrade Plan
       </button>
