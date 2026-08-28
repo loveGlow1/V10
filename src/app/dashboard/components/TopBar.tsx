@@ -23,7 +23,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
   const [view, setView] = useState<"preview" | "chat">("preview");
 
   const segment = (active: boolean) =>
-    `flex h-8 w-[46px] items-center justify-center rounded-full transition-all ${
+    `flex h-7 w-[42px] items-center justify-center rounded-full transition-all ${
       active
         ? "bg-[#19E7E8] text-[#06232b] shadow-[0_0_18px_rgba(25,231,232,0.35)]"
         : "text-white/60"
@@ -34,16 +34,16 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
       <div className="flex items-center gap-2.5">
         <button
           onClick={onMenuClick}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-xl transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-xl transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
           aria-label="Open menu"
         >
-          <Menu className="h-[18px] w-[18px] stroke-[2]" />
+          <Menu className="h-4 w-4 stroke-[2]" />
         </button>
 
         <div
           role="group"
           aria-label="View"
-          className="flex h-10 items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl"
+          className="flex h-[34px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl"
         >
           <button
             onClick={() => setView("preview")}
@@ -51,7 +51,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
             aria-label="Preview"
             className={segment(view === "preview")}
           >
-            <AppWindow className="h-[18px] w-[18px]" />
+            <AppWindow className="h-4 w-4" />
           </button>
           <button
             onClick={() => setView("chat")}
@@ -59,14 +59,14 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
             aria-label="Chat"
             className={segment(view === "chat")}
           >
-            <MessageSquare className="h-[18px] w-[18px]" />
+            <MessageSquare className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       <button
         onClick={onUpgradeClick}
-        className="h-9 shrink-0 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-4 text-[13px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all hover:brightness-105 active:scale-[0.98]"
+        className="h-[30px] shrink-0 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all hover:brightness-105 active:scale-[0.98]"
       >
         Upgrade Plan
       </button>

@@ -269,17 +269,17 @@ export default function DashboardPage() {
       {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
           header it replaced, and this is the 12px back, so the heading and
           everything under it sit exactly where they did. */}
-      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-7 md:pt-10">
+      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-[66px] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
+        <h1 className="mt-[72px] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
-        <div className="relative mt-14 w-[min(750px,calc(100vw-40px))] md:mt-7" ref={popoverRef}>
+        <div className="relative mt-14 w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 mb-2.5 flex items-center gap-2 overflow-x-auto px-0 sm:gap-1 md:mb-0 md:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative z-40 mb-[14px] flex items-center gap-2 overflow-x-auto px-0 sm:gap-1 md:mb-0 md:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
               const Icon = type.icon;
               const PhoneIcon = type.phoneIcon;
@@ -288,7 +288,7 @@ export default function DashboardPage() {
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-2 text-[13px] font-normal transition-all sm:gap-2 md:-mb-px md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal transition-all sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
                       ? "border-white/[0.16] bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
                       : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
@@ -432,13 +432,13 @@ export default function DashboardPage() {
                   {/* Attachment Clip Button */}
                   <button
                     onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
                     }`}
                   >
-                    <Paperclip className="w-4 h-4" />
+                    <Paperclip className="h-4 w-4 -rotate-45 md:rotate-0" />
                   </button>
 
                   {/* Source control, as in the reference toolbar */}
@@ -454,7 +454,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => setIsAgentModalOpen(true)}
                     aria-label="Choose an agent"
-                    className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
                     <Bot className="h-4 w-4 text-white" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
@@ -465,7 +465,7 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
@@ -474,7 +474,7 @@ export default function DashboardPage() {
                     onClick={() => setIsAdvancedModalOpen(true)}
                     title="Advanced controls"
                     aria-label="Advanced controls"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -483,7 +483,7 @@ export default function DashboardPage() {
                   <button
                     onClick={toggleRecording}
                     title={isRecording ? "Stop Recording" : "Start Recording"}
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
@@ -497,7 +497,7 @@ export default function DashboardPage() {
                   <button
                     disabled={!transcript.trim()}
                     aria-label="Send"
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
                         : "border-transparent bg-[#35343B] text-white"
