@@ -8,7 +8,7 @@ import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import ProjectSwitcher from "./components/ProjectSwitcher";
-import AgentMark from "./components/AgentMark";
+import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
@@ -474,7 +474,7 @@ export default function DashboardPage() {
                     aria-label="Choose an agent"
                     className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white md:bg-white/[0.03] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <AgentMark className="h-4 w-4 text-white" />
+                    <AgentMark className="h-[17px] w-[17px] text-white" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
@@ -507,7 +507,14 @@ export default function DashboardPage() {
                         : "bg-white/[0.06] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white md:bg-white/[0.03]"
                     }`}
                   >
-                    {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {isRecording ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <>
+                        <MicMark className="h-4 w-4 md:hidden" />
+                        <Mic className="hidden h-4 w-4 md:block" />
+                      </>
+                    )}
                   </button>
 
                   {/* Send sits in the bar's own material rather than shouting over it,
@@ -515,13 +522,14 @@ export default function DashboardPage() {
                   <button
                     disabled={!transcript.trim()}
                     aria-label="Send"
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] sm:h-10 sm:w-10 sm:rounded-full ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                        : "border-transparent bg-[#1f2023] text-white/45 md:bg-[#35343B] md:text-white"
+                        : "border-transparent bg-[#28292a] text-white/40 md:bg-[#35343B] md:text-white"
                     }`}
                   >
-                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+                    <SendArrow className="h-[15px] w-[15px] md:hidden" />
+                    <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
                   </button>
                 </div>
               </div>

@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { Menu, AppWindow, MessageSquare } from "lucide-react";
+import { AppWindow, MessageSquare } from "lucide-react";
+
+import { MenuMark } from "./marks";
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -37,7 +39,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
           className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-xl transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
           aria-label="Open menu"
         >
-          <Menu className="h-4 w-4 stroke-[2]" />
+          <MenuMark className="h-[15px] w-[15px]" />
         </button>
 
         <div
