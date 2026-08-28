@@ -268,12 +268,19 @@ export default function DashboardPage() {
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
-          header it replaced, and this is the 12px back, so the heading and
-          everything under it sit exactly where they did. */}
+          header it replaced, and this is the 12px back.
+
+          The heading's own offset below is a share of the screen rather than a
+          fixed 72px. The reference puts it at 152 of a 668-tall page — 22.75% —
+          and a fixed offset holds that on a 668-tall screen only: on a taller
+          phone the whole block rides up toward the top instead of sitting where
+          the reference sits. 22.75vh less the 80px of header and padding above
+          it keeps the proportion at any height, and still resolves to 72px at
+          668. */}
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-[72px] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
+        <h1 className="mt-[clamp(56px,calc(22.75vh-80px),150px)] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
           What will you build today?
         </h1>
 
