@@ -306,10 +306,10 @@ grant select on public.credit_plans to authenticated;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The welcome credit every new account arrives with.
 --
--- Stated in dollars, because that is how the offer is made, and converted at
--- the platform's own rate — the top-up pack, $10 for 50 credits — so there is
--- no second exchange rate to keep in step. Mirrors SIGNUP_BONUS_USD and
--- CREDITS_PER_USD in src/app/dashboard/credits.ts.
+-- Counted in credits, which is what the account holds and what every screen
+-- shows; at the top-up pack's rate of fifty credits for ten dollars, this is
+-- two dollars' worth. Mirrors SIGNUP_BONUS_CREDITS in
+-- src/app/dashboard/credits.ts.
 --
 -- Read by handle_new_user() above, which runs after this file has been applied
 -- in full, so the definition order here does not matter at runtime.
@@ -319,7 +319,7 @@ returns numeric
 language sql
 immutable
 as $$
-  select round(5::numeric * (50::numeric / 10::numeric), 2);
+  select 10::numeric(10,2);
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────

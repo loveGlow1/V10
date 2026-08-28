@@ -125,20 +125,11 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
    no expiry, which is why they are spent last. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
 
-/* What a credit is worth in money, taken from the only place the platform puts
-   a price on one. Everything that needs to convert between dollars and credits
-   goes through this rather than carrying its own rate. */
-export const CREDITS_PER_USD = TOP_UP_PACK.credits / TOP_UP_PACK.priceUsd;
-
-export function creditsForUsd(usd: number): number {
-  return roundCredits(usd * CREDITS_PER_USD);
-}
-
-/* Every new account opens with this much credit, on the house. Held in dollars
-   because that is how the offer is made — "$5 of credit to get started" — and
-   converted at the rate above, so raising the top-up rate does not silently
-   change what a new account is worth. */
-export const SIGNUP_BONUS_USD = 5;
+/* Every new account opens with this much credit, on the house. Written in
+   credits rather than dollars because credits are what the account actually
+   holds and what every screen counts in — at the top-up pack's rate of fifty
+   credits for ten dollars, ten credits is two dollars' worth. */
+export const SIGNUP_BONUS_CREDITS = 10;
 
 /* ── The consumption matrix ────────────────────────────────────────────────
    Every billable thing the platform does is one of these four. `min`/`max`
@@ -294,7 +285,7 @@ export function startingBalance(planId: PlanId): CreditBalance {
  * the day's free allowance is gone.
  */
 export function signupBalance(): CreditBalance {
-  return { ...startingBalance("free"), topUp: creditsForUsd(SIGNUP_BONUS_USD) };
+  return { ...startingBalance("free"), topUp: SIGNUP_BONUS_CREDITS };
 }
 
 export function totalCredits(balance: CreditBalance): number {
