@@ -111,7 +111,10 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
   ];
 
   return (
-    <header className="sticky top-0 z-50 h-14 w-full border-b border-white/[0.06] bg-[#0c0c0e]">
+    // From md up. A phone gets TopBar instead: the brand, the home button and the
+    // account menu do not fit beside an upgrade pill at 390px, and the drawer
+    // already carries them.
+    <header className="sticky top-0 z-50 hidden h-14 w-full border-b border-white/[0.06] bg-[#0c0c0e] md:block">
       <div className="mx-auto flex h-full w-full items-center justify-between px-4 sm:px-6">
         {/* Brand */}
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">

@@ -57,7 +57,7 @@ export default function ProjectSwitcher({
   const label = loading ? "Loading…" : selected?.name ?? "No project yet";
 
   return (
-    <div ref={rootRef} className="relative mt-9">
+    <div ref={rootRef} className="relative mt-9 hidden md:block">
       <button
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"

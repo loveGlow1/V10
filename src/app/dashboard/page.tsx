@@ -2,10 +2,13 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import TopNav from "./components/TopNav";
+import TopBar from "./components/TopBar";
+import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
@@ -79,9 +82,9 @@ const PROMPTS = [
 ];
 
 const projectTypes = [
-  { id: "web", label: "Web App", icon: Layers },
-  { id: "mobile", label: "Mobile App", icon: Smartphone },
-  { id: "landing", label: "Website", icon: AppWindow },
+  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
+  { id: "mobile", label: "Mobile App", icon: Smartphone, phoneIcon: Smartphone },
+  { id: "landing", label: "Website", icon: AppWindow, phoneIcon: AppWindow },
 ];
 
 export default function DashboardPage() {
@@ -92,9 +95,12 @@ export default function DashboardPage() {
   const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
 
+  // The phone header opens this; from md up the drawer never mounts.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState("E-1");
+  const [selectedAgent, setSelectedAgent] = useState("Q1");
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -144,6 +150,15 @@ export default function DashboardPage() {
     );
     return () => window.clearInterval(id);
   }, [transcript]);
+
+  /* The drawer's New Task is the phone's primary action, so it has to land
+     somewhere: it closes the drawer and puts the caret in the composer. */
+  const focusComposer = React.useCallback(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.scrollIntoView({ block: "center", behavior: "smooth" });
+    composer.focus({ preventScroll: true });
+  }, []);
 
   // Handle Voice Recording Logic
   const toggleRecording = async () => {
@@ -199,10 +214,41 @@ export default function DashboardPage() {
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
+      {/* The phone backdrop: a deep blue field off the top of the screen, two
+          diagonal bands of light blurred into it, then a black floor and a
+          vignette that closes the edges. It is fixed, so the page scrolls
+          through the light rather than dragging it along. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden">
+        {/* The floor the field sits on — the reference's lower half is this flat,
+            with no vignette closing it. */}
+        <div className="absolute inset-0 bg-[#020206]" />
+        {/* The field: sampled down the reference's own centre, bright blue under
+            the status bar and gone by a third of the way down the screen. */}
+        <div className="absolute inset-x-0 top-0 h-[45%] bg-[linear-gradient(180deg,#073e80_0%,#073c7a_3%,#072c58_14%,#082243_26%,#071b30_37%,#04111f_49%,#03080e_63%,#020206_78%,transparent_100%)]" />
+        {/* The streaks: 45 degrees on a 118px pitch, the pitch the reference
+            carries, at a little under its contrast. They fade with the field
+            rather than crossing into the black. */}
+        <div className="absolute inset-x-0 top-0 h-[45%] bg-[repeating-linear-gradient(135deg,rgba(128,192,255,0.17)_0px,rgba(128,192,255,0)_59px,rgba(128,192,255,0.17)_118px)] [-webkit-mask-image:linear-gradient(180deg,#000_0%,#000_30%,transparent_68%)] [mask-image:linear-gradient(180deg,#000_0%,#000_30%,transparent_68%)]" />
+      </div>
+
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
         projectName={projectName ?? "No project yet"}
+        credits={CREDITS}
+      />
+
+      <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
+
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onUpgradeClick={() => {
+          setSidebarOpen(false);
+          setBillingOpen(true);
+        }}
+        onAccountSettings={() => setAccountSettingsOpen(true)}
+        onNewTask={focusComposer}
         credits={CREDITS}
       />
 
@@ -221,100 +267,113 @@ export default function DashboardPage() {
       <SupportChat />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
-      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-5 pb-16 pt-10">
+      {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
+          header it replaced, and this is the 12px back.
+
+          The heading's own offset below is a share of the screen rather than a
+          fixed 72px. The reference puts it at 152 of a 668-tall page — 22.75% —
+          and a fixed offset holds that on a 668-tall screen only: on a taller
+          phone the whole block rides up toward the top instead of sitting where
+          the reference sits. 22.75vh less the 80px of header and padding above
+          it keeps the proportion at any height, and still resolves to 72px at
+          668. */}
+      <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-7 text-center text-[28px] font-semibold leading-tight tracking-tight text-[#f0f0f2] sm:text-[32px]">
+        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
-        <div className="relative mt-7 w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
+        <div className="relative mt-14 w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 flex items-center gap-0.5 overflow-x-auto px-2 sm:gap-1 sm:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative z-40 mb-[14px] flex items-center gap-2 overflow-x-auto px-0 sm:gap-1 md:mb-0 md:px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {projectTypes.map((type) => {
               const Icon = type.icon;
+              const PhoneIcon = type.phoneIcon;
               const active = activeType === type.id;
               return (
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[14px] border px-3 py-2 text-[13px] font-medium transition-all sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal leading-[20px] transition-all md:leading-normal sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
-                      ? "border-[rgba(255,255,255,0.08)] border-b-transparent bg-[#171719] text-white"
-                      : "border-transparent bg-white/[0.03] text-[#8F939A] hover:bg-white/[0.06] hover:text-white"
+                      ? "border-white/[0.16] bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
+                      : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${active ? "text-white" : "text-[#8F939A]"}`} />
+                  <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-white" : "text-[#9A9A9F]"}`} />
+                  <Icon className={`hidden h-4 w-4 md:block ${active ? "text-white" : "text-[#8F939A]"}`} />
                   {type.label}
                 </button>
               );
             })}
           </div>
 
-          {/* Floating Dropdown Overlay Menu - Unclipped & Positioned Above Chat Box */}
-          <AnimatePresence>
-            {isUploadPopoverOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="absolute left-0 bottom-full mb-3 z-[1000] w-72 bg-[#141416] border border-[#3A3A42] rounded-[20px] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl space-y-1.5"
-              >
-                <button
-                  onClick={() => {
-                    photoLibraryInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Photo Library</span>
-                  <ImageIcon className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    cameraInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Take Photo or Video</span>
-                  <Camera className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    chooseFilesInputRef.current?.click();
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Choose Files</span>
-                  <FolderOpen className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-                <button
-                  onClick={() => {
-                    alert("Google Drive integration triggered");
-                    setIsUploadPopoverOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
-                >
-                  <span className="font-medium">Google Drive</span>
-                  <Triangle className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="relative w-full rounded-[14px] p-0 overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35)] min-h-[159px]">
+          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+            {/* The upload menu, anchored to the composer it belongs to. It used
+                to hang off the whole column, which put it above the tabs and
+                behind the phone header — its first row was unreadable there. */}
+            <AnimatePresence>
+              {isUploadPopoverOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-[#3A3A42] bg-[#141416] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
+                >
+                  <button
+                    onClick={() => {
+                      photoLibraryInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Photo Library</span>
+                    <ImageIcon className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      cameraInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Take Photo or Video</span>
+                    <Camera className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      chooseFilesInputRef.current?.click();
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Choose Files</span>
+                    <FolderOpen className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      alert("Google Drive integration triggered");
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                  >
+                    <span className="font-medium">Google Drive</span>
+                    <Triangle className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
             {/* Continuously moving 360-degree white highlight orbiter */}
-            <div className="absolute inset-0 rounded-[14px] pointer-events-none overflow-hidden z-25">
-              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
+            <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
+              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[14px] border-[3px] border-[#292b32] bg-[#171719] p-3.5 sm:p-[18px] ">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -328,7 +387,7 @@ export default function DashboardPage() {
                   rows={3}
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
-                  className="relative z-10 w-full resize-none bg-transparent text-base text-white outline-none"
+                  className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-white outline-none md:h-auto"
                 />
                 <AnimatePresence mode="wait">
                   {!transcript && (
@@ -339,7 +398,7 @@ export default function DashboardPage() {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.45, ease: "easeInOut" }}
                       aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#85858a]"
+                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#9A9A9F] md:text-[#85858a]"
                     >
                       {PROMPTS[promptIndex]}
                     </motion.span>
@@ -354,7 +413,7 @@ export default function DashboardPage() {
                     type="file"
                     ref={photoLibraryInputRef}
                     accept="image/*"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -364,7 +423,7 @@ export default function DashboardPage() {
                     ref={cameraInputRef}
                     accept="image/*"
                     capture="environment"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -373,7 +432,7 @@ export default function DashboardPage() {
                     type="file"
                     ref={chooseFilesInputRef}
                     multiple
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -381,32 +440,42 @@ export default function DashboardPage() {
 
                   {/* Attachment Clip Button */}
                   <button
+                    onClick={() => chooseFilesInputRef.current?.click()}
+                    aria-label="Add photos or files"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all active:scale-[0.98] md:hidden"
+                  >
+                    <Paperclip className="h-4 w-4 -rotate-45" />
+                  </button>
+                  <button
                     onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    aria-label="Add photos or files"
+                    aria-expanded={isUploadPopoverOpen}
+                    className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
                     }`}
                   >
-                    <Paperclip className="w-4 h-4" />
+                    <Paperclip className="h-4 w-4" />
                   </button>
 
                   {/* Source control, as in the reference toolbar */}
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
 
                   {/* Model selector, as in the reference toolbar */}
                   <button
-                    onClick={() => setIsAdvancedModalOpen(true)}
-                    className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-1.5 text-[12px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    onClick={() => setIsAgentModalOpen(true)}
+                    aria-label="Choose an agent"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white md:bg-white/[0.03] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Sparkles className="h-4 w-4 text-white" />
-                    <span className="font-medium tracking-tight">{selectedModel}</span>
+                    <AgentMark className="h-4 w-4 text-white" />
+                    <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
                 </div>
@@ -414,16 +483,16 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] md:bg-white/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
                   </button>
                   <button
-                    onClick={() => setIsAgentModalOpen(true)}
-                    title={`Agent: ${selectedAgent}`}
-                    aria-label="Choose an agent"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    onClick={() => setIsAdvancedModalOpen(true)}
+                    title="Advanced controls"
+                    aria-label="Advanced controls"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-white/[0.03]"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -432,13 +501,20 @@ export default function DashboardPage() {
                   <button
                     onClick={toggleRecording}
                     title={isRecording ? "Stop Recording" : "Start Recording"}
-                    className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-[0.98] ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
+                        : "bg-white/[0.06] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white md:bg-white/[0.03]"
                     }`}
                   >
-                    {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {isRecording ? (
+                      <MicOff className="h-4 w-4" />
+                    ) : (
+                      <>
+                        <MicMark className="h-4 w-4 md:hidden" />
+                        <Mic className="hidden h-4 w-4 md:block" />
+                      </>
+                    )}
                   </button>
 
                   {/* Send sits in the bar's own material rather than shouting over it,
@@ -446,13 +522,14 @@ export default function DashboardPage() {
                   <button
                     disabled={!transcript.trim()}
                     aria-label="Send"
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] sm:h-10 sm:w-10 sm:rounded-full ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                        : "border-transparent bg-[#35343B] text-white"
+                        : "border-transparent bg-[#28292a] text-white/40 md:bg-[#35343B] md:text-white"
                     }`}
                   >
-                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+                    <SendArrow className="h-4 w-4 md:hidden" />
+                    <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
                   </button>
                 </div>
               </div>
@@ -754,6 +831,11 @@ export default function DashboardPage() {
         }
         .animate-orbit-border {
           animation: borderOrbit 2s linear infinite;
+        }
+        @media (max-width: 767px) {
+          .animate-orbit-border {
+            animation-duration: 7s;
+          }
         }
       `}</style>
     </div>

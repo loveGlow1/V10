@@ -87,6 +87,7 @@ button:disabled:active,
 body {
   background-color: var(--brandBg);
   color: #ffffff;
+
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   margin: 0;
   padding: 0;
@@ -419,3 +420,37 @@ body {
   }
 }
 
+
+/* Light text on a near-black ground is what subpixel smoothing handles worst:
+   it fattens the stems and leaves a coloured fringe. Grayscale smoothing is what
+   keeps the phone's labels sharp — left to the phone, so the desktop renders
+   exactly as it did. */
+@media (max-width: 767px) {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ── Whole-pixel hero ─────────────────────────────────────────────────────────
+   The heading's offset is a share of the screen height, which almost never
+   divides into whole pixels: at 375x668 it resolves to 71.97, and everything
+   below inherits that fraction, so each icon and label straddles two device
+   rows instead of sitting on them. Rounded to the pixel wherever the browser
+   can do it (iOS 15.4+, Chrome 116+), with the unrounded value as the floor
+   for anything older. */
+.hero-offset {
+  margin-top: clamp(56px, calc(22.75vh - 80px), 150px);
+}
+
+@supports (margin-top: round(1px, 1px)) {
+  .hero-offset {
+    margin-top: clamp(56px, round(calc(22.75vh - 80px), 1px), 150px);
+  }
+}
+
+@media (min-width: 768px) {
+  .hero-offset {
+    margin-top: 1.75rem;
+  }
+}
