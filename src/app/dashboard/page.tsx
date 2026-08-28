@@ -7,7 +7,7 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
-import { formatCredits, startingBalance, totalCredits } from "./credits";
+import { formatCredits, signupBalance, totalCredits } from "./credits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
@@ -41,11 +41,12 @@ import {
   Triangle,
 } from "lucide-react";
 
-/* The Free tier's opening allowance, read from the credit economy rather than
-   written out here, so this figure and the one the plan grants cannot differ.
-   No credits service exists yet to say what a given account has actually spent
-   today; until one does, every session shows a full day's allowance. */
-const CREDITS = formatCredits(totalCredits(startingBalance("free")));
+/* What a new account holds — the Free tier's daily allowance plus the signup
+   bonus — read from the credit economy rather than written out here, so this
+   figure and the one signup actually grants cannot differ. The panel does not
+   yet fetch the account's real balance, so until it does every session shows a
+   fresh account's. */
+const CREDITS = formatCredits(totalCredits(signupBalance()));
 
 /* The row under the composer. Each chip is a way into a build rather than a
    label: tapping one drops its prompt into the bar and puts the caret at the

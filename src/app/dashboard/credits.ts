@@ -125,6 +125,21 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
    no expiry, which is why they are spent last. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
 
+/* What a credit is worth in money, taken from the only place the platform puts
+   a price on one. Everything that needs to convert between dollars and credits
+   goes through this rather than carrying its own rate. */
+export const CREDITS_PER_USD = TOP_UP_PACK.credits / TOP_UP_PACK.priceUsd;
+
+export function creditsForUsd(usd: number): number {
+  return roundCredits(usd * CREDITS_PER_USD);
+}
+
+/* Every new account opens with this much credit, on the house. Held in dollars
+   because that is how the offer is made — "$5 of credit to get started" — and
+   converted at the rate above, so raising the top-up rate does not silently
+   change what a new account is worth. */
+export const SIGNUP_BONUS_USD = 5;
+
 /* ── The consumption matrix ────────────────────────────────────────────────
    Every billable thing the platform does is one of these four. `min`/`max`
    bound what an action may ever cost, so a runaway estimate cannot produce a
@@ -268,6 +283,18 @@ export function startingBalance(planId: PlanId): CreditBalance {
     rollover: 0,
     topUp: 0,
   };
+}
+
+/**
+ * What a brand-new account holds the moment it is created: the Free plan's
+ * opening allowance plus the signup bonus.
+ *
+ * The bonus lands in the top-up bucket rather than the daily one, so it behaves
+ * the way a gift should — it does not expire tonight, and it is spent only once
+ * the day's free allowance is gone.
+ */
+export function signupBalance(): CreditBalance {
+  return { ...startingBalance("free"), topUp: creditsForUsd(SIGNUP_BONUS_USD) };
 }
 
 export function totalCredits(balance: CreditBalance): number {

@@ -64,12 +64,25 @@ create trigger user_profiles_set_updated_at
 -- Nothing in the app writes this table, so without this trigger it stays at
 -- zero rows no matter how many people sign up. security definer lets it insert
 -- past the owner-only policies above, since at this moment there is no session.
+--
+-- It also opens the new account's credit balance, carrying the signup bonus.
+-- That belongs here rather than in the application because an account can be
+-- created by an OAuth callback, an email confirmation or a hand-made row in the
+-- Supabase dashboard, and every one of those must arrive with the same credit.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  -- Scalars rather than a credit_plans%rowtype: a composite type is resolved
+  -- when the function is created, and the credit tables are defined further
+  -- down this file. The queries below resolve at call time, which is after the
+  -- whole file has been applied.
+  v_daily   numeric(10,2);
+  v_monthly numeric(10,2);
+  v_bonus   numeric(10,2);
 begin
   insert into public.user_profiles (user_id, full_name, avatar_url)
   values (
@@ -82,6 +95,25 @@ begin
     new.raw_user_meta_data ->> 'avatar_url'
   )
   on conflict (user_id) do nothing;
+
+  select daily_credits, monthly_credits into v_daily, v_monthly
+    from public.credit_plans where id = 'free';
+  v_bonus := public.signup_bonus_credits();
+
+  -- The bonus goes to the top-up bucket, which is the one that never expires
+  -- and is spent last: a gift should still be there tomorrow, and the day's
+  -- free allowance should be used before it.
+  insert into public.credit_balances (user_id, plan_id, daily, monthly, top_up)
+  values (new.id, 'free', v_daily, v_monthly, v_bonus)
+  on conflict (user_id) do nothing;
+
+  -- Recorded like any other movement, so a balance is always explainable from
+  -- the ledger rather than appearing from nowhere.
+  if v_bonus > 0 then
+    insert into public.credit_ledger (user_id, action, credits, description)
+    values (new.id, 'grant', v_bonus, 'Welcome credit');
+  end if;
+
   return new;
 end;
 $$;
@@ -270,6 +302,25 @@ create policy "Signed-in users read plans"
 -- which verbs — and no verb but select is granted anywhere below.
 revoke all on public.credit_plans from anon, authenticated;
 grant select on public.credit_plans to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The welcome credit every new account arrives with.
+--
+-- Stated in dollars, because that is how the offer is made, and converted at
+-- the platform's own rate — the top-up pack, $10 for 50 credits — so there is
+-- no second exchange rate to keep in step. Mirrors SIGNUP_BONUS_USD and
+-- CREDITS_PER_USD in src/app/dashboard/credits.ts.
+--
+-- Read by handle_new_user() above, which runs after this file has been applied
+-- in full, so the definition order here does not matter at runtime.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.signup_bonus_credits()
+returns numeric
+language sql
+immutable
+as $$
+  select round(5::numeric * (50::numeric / 10::numeric), 2);
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- credit_balances — one row per account, four buckets.
