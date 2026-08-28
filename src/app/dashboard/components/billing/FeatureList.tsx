@@ -3,12 +3,11 @@
 import React from "react";
 import { Check } from "lucide-react";
 
-const features = [
-  "100 credits/month",
-  "Mobile app development",
-  "Private project hosting",
-  "GitHub integration",
-];
+import { PLANS } from "../../credits";
+
+/* What the paid plan actually entitles you to, taken from the plan itself so
+   the modal cannot promise something the credit economy does not grant. */
+const features = PLANS.pro.features;
 
 export default function FeatureList() {
   return (
