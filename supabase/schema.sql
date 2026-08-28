@@ -18,6 +18,9 @@
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+-- Pinned, so the function cannot be pointed at a shadowed now() by whatever
+-- schema list the caller happens to carry. Flagged by the database linter.
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -318,6 +321,7 @@ create or replace function public.signup_bonus_credits()
 returns numeric
 language sql
 immutable
+set search_path = ''
 as $$
   select 10::numeric(10,2);
 $$;
@@ -588,3 +592,10 @@ grant execute on function public.spend_credits(text, numeric, text, uuid, intege
 
 revoke all on function public.ensure_credit_balance(uuid) from public, anon, authenticated;
 revoke all on function public.grant_credits(uuid, numeric, text, text) from public, anon, authenticated;
+
+-- Trigger functions have no business being callable over the REST API. Postgres
+-- checks EXECUTE when a trigger is created rather than when it fires, so this
+-- leaves on_auth_user_created and the updated_at triggers working while taking
+-- /rest/v1/rpc/handle_new_user off the API surface.
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function public.set_updated_at() from public, anon, authenticated;
