@@ -36,16 +36,16 @@ export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
       <div className="flex items-center gap-2.5">
         <button
           onClick={onMenuClick}
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-xl transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
           aria-label="Open menu"
         >
-          <MenuMark className="h-[15px] w-[15px]" />
+          <MenuMark className="h-4 w-4" />
         </button>
 
         <div
           role="group"
           aria-label="View"
-          className="flex h-[34px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl"
+          className="flex h-[34px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
         >
           <button
             onClick={() => setView("preview")}

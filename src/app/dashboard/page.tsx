@@ -280,7 +280,7 @@ export default function DashboardPage() {
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
         <ProjectSwitcher onSelectedChange={setProjectName} />
 
-        <h1 className="mt-[clamp(56px,calc(22.75vh-80px),150px)] text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-snug tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight md:mt-7">
+        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
         </h1>
 
@@ -296,7 +296,7 @@ export default function DashboardPage() {
                 <button
                   key={type.id}
                   onClick={() => setActiveType(type.id)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal transition-all sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal leading-[20px] transition-all md:leading-normal sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
                       ? "border-white/[0.16] bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
                       : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
@@ -474,7 +474,7 @@ export default function DashboardPage() {
                     aria-label="Choose an agent"
                     className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white md:bg-white/[0.03] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <AgentMark className="h-[17px] w-[17px] text-white" />
+                    <AgentMark className="h-4 w-4 text-white" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
@@ -528,7 +528,7 @@ export default function DashboardPage() {
                         : "border-transparent bg-[#28292a] text-white/40 md:bg-[#35343B] md:text-white"
                     }`}
                   >
-                    <SendArrow className="h-[15px] w-[15px] md:hidden" />
+                    <SendArrow className="h-4 w-4 md:hidden" />
                     <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
                   </button>
                 </div>
