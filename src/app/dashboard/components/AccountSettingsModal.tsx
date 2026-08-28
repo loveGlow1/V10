@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
 
@@ -54,6 +54,15 @@ type McpFormProps = {
   onDisconnect?: () => void;
   busy: boolean;
 };
+
+/* Masks an address for display: the first character and the domain, which is
+   enough for the owner to recognise their own account, with a fixed run of dots
+   in between so the length of the local part is not published either. */
+function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return "•••";
+  return `${email[0]}•••${email.slice(at)}`;
+}
 
 const FIELD =
   "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus-visible:border-white/25";
@@ -135,12 +144,18 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [supportCode, setSupportCode] = useState<string | null>(null);
+  /* Hidden until asked for, and hidden again whenever the panel is reopened. */
+  const [emailRevealed, setEmailRevealed] = useState(false);
   const [agentTab, setAgentTab] = useState<"main" | "sub" | "mcp">("main");
   const [mcpEnabled, setMcpEnabled] = useState<string[]>([]);
   const [mcpCustom, setMcpCustom] = useState<{ server_id: string; name: string; url: string }[]>([]);
   const [configuring, setConfiguring] = useState<McpDraft | null>(null);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) setEmailRevealed(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !isSupabaseConfigured) return;
@@ -432,7 +447,23 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                   <>
                     <div className="divide-y divide-white/[0.06]">
                       <Row title="Email" description="The email address linked to your current account">
-                        <span className="text-sm text-white">{account.email || "—"}</span>
+                        {account.email ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-sm text-white">
+                              {emailRevealed ? account.email : maskEmail(account.email)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setEmailRevealed((shown) => !shown)}
+                              aria-label={emailRevealed ? "Hide email address" : "Show email address"}
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[#8F939A] transition-colors hover:text-white"
+                            >
+                              {emailRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="text-sm text-white">—</span>
+                        )}
                       </Row>
 
                       <Row title="Profile picture" description="This image will be displayed publicly">
