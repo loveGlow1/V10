@@ -269,13 +269,16 @@ export default function Sidebar({
                     <div className="w-9 h-9 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-inner">
                       {(account.name || account.email || "?").charAt(0).toUpperCase()}
                     </div>
+                    {/* The name identifies the account; the address itself is not
+                        something to leave on screen over someone's shoulder. It stays
+                        in Account Settings, where it is the subject rather than a
+                        caption. An account with no name falls back to the address —
+                        an unlabelled card identifies nobody. */}
                     <div className="overflow-hidden">
-                      <p className="text-white text-sm font-medium leading-tight truncate">
-                        {account.name || "Your account"}
+                      <p className="truncate text-sm font-medium leading-tight text-white">
+                        {account.name || account.email || "Your account"}
                       </p>
-                      <p className="text-[#8F939A] text-xs leading-tight underline underline-offset-2 truncate">
-                        {account.email || "Signed in"}
-                      </p>
+                      <p className="truncate text-xs leading-tight text-[#8F939A]">Signed in</p>
                     </div>
                   </div>
                   <button

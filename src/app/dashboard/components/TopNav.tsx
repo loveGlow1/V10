@@ -162,8 +162,10 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                 // Right-anchored to the avatar, and never wider than the viewport.
                 className="absolute right-0 top-[calc(100%+10px)] z-[70] w-[270px] max-w-[calc(100vw-24px)] overflow-hidden rounded-b-2xl rounded-t-lg border border-white/[0.08] bg-[#141417] shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
               >
+                {/* Names the account without printing the address. Settings keeps
+                    the address, where showing it is the point. */}
                 <p className="truncate px-4 pb-3 pt-3.5 text-sm text-[#8F939A]">
-                  {account.email || "Signed in"}
+                  {account.name || account.email || "Signed in"}
                 </p>
 
                 {/* Project */}
