@@ -8,13 +8,13 @@ import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import AgentMark from "./components/AgentMark";
 import ProjectList from "./components/ProjectList";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
-  Zap,
   ChevronDown,
   Globe,
   Settings,
@@ -474,7 +474,7 @@ export default function DashboardPage() {
                     aria-label="Choose an agent"
                     className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Zap className="h-4 w-4 text-white stroke-[2.25]" />
+                    <AgentMark className="h-4 w-4 text-white" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
