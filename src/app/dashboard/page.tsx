@@ -349,14 +349,14 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="relative w-full rounded-[14px] p-0 overflow-visible group shadow-[0_12px_40px_rgba(0,0,0,0.35)] min-h-[159px]">
+          <div className="group relative w-full overflow-visible rounded-[14px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="absolute inset-0 rounded-[14px] pointer-events-none overflow-hidden z-25">
-              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
+              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_300deg,rgba(190,205,235,0.14)_336deg,rgba(226,234,250,0.42)_355deg,transparent_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex h-full w-full flex-col justify-between overflow-hidden rounded-[14px] border-[3px] border-[#292b32] bg-[#171719] p-3.5 sm:p-[18px] ">
+            <div className="relative z-30 flex min-h-[159px] w-full flex-col justify-between overflow-hidden rounded-[14px] border-[1.5px] border-white/[0.07] bg-[#171719] p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-[18px] md:border-[3px] md:border-[#292b32] md:shadow-none">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -474,7 +474,7 @@ export default function DashboardPage() {
                   <button
                     onClick={toggleRecording}
                     title={isRecording ? "Stop Recording" : "Start Recording"}
-                    className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-[0.98] ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
@@ -796,6 +796,11 @@ export default function DashboardPage() {
         }
         .animate-orbit-border {
           animation: borderOrbit 2s linear infinite;
+        }
+        @media (max-width: 767px) {
+          .animate-orbit-border {
+            animation-duration: 7s;
+          }
         }
       `}</style>
     </div>
