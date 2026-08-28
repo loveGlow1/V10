@@ -14,6 +14,7 @@ import SupportChat from "./components/SupportChat";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
+  Zap,
   ChevronDown,
   Globe,
   Settings,
@@ -405,7 +406,7 @@ export default function DashboardPage() {
                     type="file"
                     ref={photoLibraryInputRef}
                     accept="image/*"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -415,7 +416,7 @@ export default function DashboardPage() {
                     ref={cameraInputRef}
                     accept="image/*"
                     capture="environment"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -424,7 +425,7 @@ export default function DashboardPage() {
                     type="file"
                     ref={chooseFilesInputRef}
                     multiple
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
                     }}
@@ -432,14 +433,23 @@ export default function DashboardPage() {
 
                   {/* Attachment Clip Button */}
                   <button
+                    onClick={() => chooseFilesInputRef.current?.click()}
+                    aria-label="Add photos or files"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all active:scale-[0.98] md:hidden"
+                  >
+                    <Paperclip className="h-4 w-4 -rotate-45" />
+                  </button>
+                  <button
                     onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
+                    aria-label="Add photos or files"
+                    aria-expanded={isUploadPopoverOpen}
+                    className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
                         ? "bg-white/[0.08] border-white/[0.2] text-white"
                         : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
                     }`}
                   >
-                    <Paperclip className="h-4 w-4 -rotate-45 md:rotate-0" />
+                    <Paperclip className="h-4 w-4" />
                   </button>
 
                   {/* Source control, as in the reference toolbar */}
@@ -457,7 +467,7 @@ export default function DashboardPage() {
                     aria-label="Choose an agent"
                     className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
-                    <Bot className="h-4 w-4 text-white" />
+                    <Zap className="h-4 w-4 text-white stroke-[2.25]" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-white" />
                   </button>
