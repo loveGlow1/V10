@@ -221,10 +221,10 @@ export default function DashboardPage() {
       <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden">
         {/* The floor the field sits on — the reference's lower half is this flat,
             with no vignette closing it. */}
-        <div className="absolute inset-0 bg-[#040507]" />
+        <div className="absolute inset-0 bg-[#020206]" />
         {/* The field: sampled down the reference's own centre, bright blue under
             the status bar and gone by a third of the way down the screen. */}
-        <div className="absolute inset-x-0 top-0 h-[45%] bg-[linear-gradient(180deg,#073e80_0%,#073c7a_3%,#072c58_14%,#082243_26%,#071b30_37%,#04111f_49%,#030910_63%,#030407_78%,transparent_100%)]" />
+        <div className="absolute inset-x-0 top-0 h-[45%] bg-[linear-gradient(180deg,#073e80_0%,#073c7a_3%,#072c58_14%,#082243_26%,#071b30_37%,#04111f_49%,#03080e_63%,#020206_78%,transparent_100%)]" />
         {/* The streaks: 45 degrees on a 118px pitch, the pitch the reference
             carries, at a little under its contrast. They fade with the field
             rather than crossing into the black. */}
@@ -373,7 +373,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#15181D]/80 bg-clip-padding p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:bg-clip-border md:shadow-none md:backdrop-blur-none">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -442,7 +442,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => chooseFilesInputRef.current?.click()}
                     aria-label="Add photos or files"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all active:scale-[0.98] md:hidden"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all active:scale-[0.98] md:hidden"
                   >
                     <Paperclip className="h-4 w-4 -rotate-45" />
                   </button>
@@ -472,7 +472,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => setIsAgentModalOpen(true)}
                     aria-label="Choose an agent"
-                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white md:bg-white/[0.03] transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
                   >
                     <AgentMark className="h-4 w-4 text-white" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
@@ -483,7 +483,7 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] md:bg-white/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
@@ -492,7 +492,7 @@ export default function DashboardPage() {
                     onClick={() => setIsAdvancedModalOpen(true)}
                     title="Advanced controls"
                     aria-label="Advanced controls"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-white/[0.03]"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -504,7 +504,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
+                        : "bg-white/[0.06] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white md:bg-white/[0.03]"
                     }`}
                   >
                     {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -518,7 +518,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       transcript.trim()
                         ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                        : "border-transparent bg-[#35343B] text-white"
+                        : "border-transparent bg-[#1f2023] text-white/45 md:bg-[#35343B] md:text-white"
                     }`}
                   >
                     <ArrowUp className="h-4 w-4 stroke-[2.5]" />
