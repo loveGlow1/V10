@@ -2,12 +2,24 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Link2, Monitor, Rocket, SlidersHorizontal } from "lucide-react";
+import {
+  Blocks,
+  Check,
+  CreditCard,
+  Link2,
+  Monitor,
+  Rocket,
+  SlidersHorizontal,
+} from "lucide-react";
 
 import { avatarFor } from "../../projectColours";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
+import type { IntegrationCategory } from "../../integrations";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import Integrations from "./Integrations";
 import { closeTab } from "./openTabs";
+
+type ManageSection = "settings" | "integrations" | "payments";
 
 /* The address a published project would answer on. Derived from the name so it
    is the same string the Manage tab shows and the publish panel promises. */
@@ -29,10 +41,29 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export default function PreviewPanel({ project }: { project: Project | null }) {
+/* A request from the other half of the workspace to show a particular drawer.
+   The counter is what makes a second, identical request register: pressing the
+   composer's GitHub button twice should bring the pane back both times. */
+export type ManageRequest = {
+  section: ManageSection;
+  category: IntegrationCategory;
+  n: number;
+};
+
+export default function PreviewPanel({
+  project,
+  onUpgradeClick,
+  request,
+}: {
+  project: Project | null;
+  onUpgradeClick: () => void;
+  request: ManageRequest | null;
+}) {
   const router = useRouter();
   const { rename, remove } = useProjects();
   const [view, setView] = useState<"preview" | "manage">("preview");
+  const [section, setSection] = useState<ManageSection>("settings");
+  const [integrationsCategory, setIntegrationsCategory] = useState<IntegrationCategory>("All");
   const [shared, setShared] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [draft, setDraft] = useState(project?.name ?? "");
@@ -40,6 +71,13 @@ export default function PreviewPanel({ project }: { project: Project | null }) {
   const publishRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
+
+  useEffect(() => {
+    if (!request) return;
+    setView("manage");
+    setSection(request.section);
+    setIntegrationsCategory(request.category);
+  }, [request]);
 
   useEffect(() => {
     if (!publishOpen) return;
@@ -70,6 +108,12 @@ export default function PreviewPanel({ project }: { project: Project | null }) {
       active ? "bg-white/[0.08] text-white" : "text-[#8F939A] hover:text-white"
     }`;
 
+  const sections: { id: ManageSection; label: string; icon: typeof Blocks }[] = [
+    { id: "settings", label: "App settings", icon: SlidersHorizontal },
+    { id: "integrations", label: "Integrations", icon: Blocks },
+    { id: "payments", label: "Payments", icon: CreditCard },
+  ];
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3">
@@ -78,11 +122,19 @@ export default function PreviewPanel({ project }: { project: Project | null }) {
           aria-label="Workspace view"
           className="flex items-center gap-0.5 rounded-full border border-white/[0.07] bg-white/[0.02] p-0.5"
         >
-          <button onClick={() => setView("preview")} aria-pressed={view === "preview"} className={segment(view === "preview")}>
+          <button
+            onClick={() => setView("preview")}
+            aria-pressed={view === "preview"}
+            className={segment(view === "preview")}
+          >
             <Monitor className="h-3.5 w-3.5" />
             Preview
           </button>
-          <button onClick={() => setView("manage")} aria-pressed={view === "manage"} className={segment(view === "manage")}>
+          <button
+            onClick={() => setView("manage")}
+            aria-pressed={view === "manage"}
+            className={segment(view === "manage")}
+          >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Manage
           </button>
@@ -93,7 +145,11 @@ export default function PreviewPanel({ project }: { project: Project | null }) {
             onClick={share}
             className="flex h-8 items-center gap-1.5 rounded-full border border-white/[0.09] px-3 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
           >
-            {shared ? <Check className="h-3.5 w-3.5 text-[#34F5A0]" /> : <Link2 className="h-3.5 w-3.5" />}
+            {shared ? (
+              <Check className="h-3.5 w-3.5 text-[#34F5A0]" />
+            ) : (
+              <Link2 className="h-3.5 w-3.5" />
+            )}
             <span className="hidden sm:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
 
@@ -139,81 +195,158 @@ export default function PreviewPanel({ project }: { project: Project | null }) {
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          <div className="mx-auto w-full max-w-[520px]">
-            <form
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!project || !draft.trim() || draft.trim() === project.name) return;
-                await rename(project.id, draft.trim());
-              }}
-            >
-              <label className="block text-[13px] text-[#8F939A]" htmlFor="workspace-name">
-                Name
-              </label>
-              <div className="mt-1.5 flex gap-2">
-                <input
-                  id="workspace-name"
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none focus-visible:border-white/25"
-                />
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          {/* A rail from lg up, where this pane is wide enough to give 190px to
+              navigation. Below that it is a scrolling row of pills: the chat
+              half takes 420px of the screen, so at md the pane itself is barely
+              wider than the rail would be. */}
+          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.06] p-2 [scrollbar-width:none] lg:w-[190px] lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:hidden">
+            <p className="hidden px-2.5 py-2 text-[13px] text-[#8F939A] lg:block">Manage your app</p>
+            {sections.map((item) => {
+              const Icon = item.icon;
+              const active = section === item.id;
+              return (
                 <button
-                  type="submit"
-                  disabled={!draft.trim() || draft.trim() === project?.name}
-                  className="h-9 shrink-0 rounded-lg bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-30"
+                  key={item.id}
+                  onClick={() => setSection(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-2.5 text-[13px] transition-colors ${
+                    active
+                      ? "bg-white/[0.08] text-white"
+                      : "text-[#8F939A] hover:bg-white/[0.04] hover:text-white"
+                  }`}
                 >
-                  Save
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="whitespace-nowrap">{item.label}</span>
                 </button>
+              );
+            })}
+          </nav>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {section === "settings" && (
+              <div className="w-full max-w-[520px] px-4 py-4 lg:pl-5">
+                <form
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (!project || !draft.trim() || draft.trim() === project.name) return;
+                    await rename(project.id, draft.trim());
+                  }}
+                >
+                  <label className="block text-[13px] text-[#8F939A]" htmlFor="workspace-name">
+                    Name
+                  </label>
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      id="workspace-name"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none focus-visible:border-white/25"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!draft.trim() || draft.trim() === project?.name}
+                      className="h-9 shrink-0 rounded-lg bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-30"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </form>
+
+                <div className="mt-5">
+                  <Row label="Status">{project ? project.status : "—"}</Row>
+                  <Row label="Address">
+                    <span className="break-all text-[#C7CAD0]">{subdomainFor(project)}</span>
+                  </Row>
+                  <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
+                  <Row label="Last updated">
+                    {project ? new Date(project.updated_at).toLocaleString() : "—"}
+                  </Row>
+                </div>
+
+                <div className="mt-6 rounded-xl border border-[#FF6B6B]/25 p-3.5">
+                  <p className="text-[13px] font-medium text-white">Delete this app</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+                    Removes the project and everything in it. This cannot be undone.
+                  </p>
+                  {confirming ? (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!project) return;
+                          if (await remove(project.id)) {
+                            closeTab(project.id);
+                            router.push("/dashboard");
+                          }
+                        }}
+                        className="flex-1 rounded-lg bg-[#FF6B6B] px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-[#ff5252]"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setConfirming(false)}
+                        className="flex-1 rounded-lg border border-white/[0.09] px-3 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirming(true)}
+                      className="mt-3 rounded-lg border border-[#FF6B6B]/40 px-3 py-1.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10"
+                    >
+                      Delete app
+                    </button>
+                  )}
+                </div>
               </div>
-            </form>
+            )}
 
-            <div className="mt-5">
-              <Row label="Status">{project ? project.status : "—"}</Row>
-              <Row label="Address">
-                <span className="break-all text-[#C7CAD0]">{subdomainFor(project)}</span>
-              </Row>
-              <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
-              <Row label="Last updated">
-                {project ? new Date(project.updated_at).toLocaleString() : "—"}
-              </Row>
-            </div>
+            {section === "integrations" && (
+              // Keyed on the category so arriving from Payments opens on that
+              // drawer rather than on whatever was last chosen.
+              <Integrations key={integrationsCategory} initialCategory={integrationsCategory} />
+            )}
 
-            <div className="mt-6 rounded-xl border border-[#FF6B6B]/25 p-3.5">
-              <p className="text-[13px] font-medium text-white">Delete this app</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
-                Removes the project and everything in it. This cannot be undone.
-              </p>
-              {confirming ? (
-                <div className="mt-3 flex gap-2">
+            {section === "payments" && (
+              <div className="w-full max-w-[520px] px-4 py-4 lg:pl-5">
+                <h2 className="text-[17px] font-semibold text-white">Payments</h2>
+                <p className="mt-1 text-[13px] text-[#8F939A]">
+                  What you pay to build here, and what your app charges for.
+                </p>
+
+                <div className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+                  <p className="text-[14px] font-medium text-white">Your plan and credits</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+                    Billing for building on QuickStark.Ai — the plan, the credit balance and
+                    top-ups.
+                  </p>
                   <button
-                    onClick={async () => {
-                      if (!project) return;
-                      if (await remove(project.id)) {
-                        closeTab(project.id);
-                        router.push("/dashboard");
-                      }
-                    }}
-                    className="flex-1 rounded-lg bg-[#FF6B6B] px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-[#ff5252]"
+                    onClick={onUpgradeClick}
+                    className="mt-3 h-8 rounded-lg bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90"
                   >
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => setConfirming(false)}
-                    className="flex-1 rounded-lg border border-white/[0.09] px-3 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
-                  >
-                    Cancel
+                    Manage plan
                   </button>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setConfirming(true)}
-                  className="mt-3 rounded-lg border border-[#FF6B6B]/40 px-3 py-1.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10"
-                >
-                  Delete app
-                </button>
-              )}
-            </div>
+
+                <div className="mt-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+                  <p className="text-[14px] font-medium text-white">Charging in this app</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+                    To take card payments from the people who use your app, add a payments
+                    provider.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setIntegrationsCategory("Payments");
+                      setSection("integrations");
+                    }}
+                    className="mt-3 h-8 rounded-lg border border-white/[0.09] px-3.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                  >
+                    Browse payment integrations
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

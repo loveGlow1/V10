@@ -1,30 +1,47 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Mic, MicOff, Paperclip } from "lucide-react";
+import { ArrowUp, ChevronDown, GitFork, Github, Mic, MicOff, Paperclip } from "lucide-react";
 
+import { AGENTS } from "../../agents";
 import { avatarFor } from "../../projectColours";
-import { MicMark, SendArrow } from "../marks";
-import type { Project } from "../../ProjectsContext";
+import { useProjects, type Project } from "../../ProjectsContext";
+import { AgentMark, MicMark, SendArrow } from "../marks";
+import { openTab } from "./openTabs";
 
 type Message = { id: number; from: "you" | "system"; text: string };
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
    The box is the composer Home already uses — the same orbiting highlight, the
-   same graphite glass, the same send button — at the width this column gives it.
-   Asking for a change should feel like asking for the app in the first place.
+   same graphite glass, the same send button — at the width this column gives
+   it, carrying the controls that belong to an app that already exists: its
+   repository, a fork of it, and the agent working on it.
 
    Nothing generates yet, so nothing here pretends to. A message you send is
    shown as sent, and the panel says plainly that the builder is not connected —
    an invented reply would read as a working product that is not there. */
-export default function ChatPanel({ project }: { project: Project | null }) {
+export default function ChatPanel({
+  project,
+  onOpenIntegrations,
+}: {
+  project: Project | null;
+  onOpenIntegrations: () => void;
+}) {
+  const router = useRouter();
+  const { create } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [agent, setAgent] = useState(AGENTS[0].id);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [forkOpen, setForkOpen] = useState(false);
+  const [forking, setForking] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
@@ -41,6 +58,20 @@ export default function ChatPanel({ project }: { project: Project | null }) {
     if (stream) stream.scrollTop = stream.scrollHeight;
   }, [messages]);
 
+  // One handler for both popovers in the toolbar: an outside press closes
+  // whichever is open, the way a menu behaves.
+  useEffect(() => {
+    if (!agentOpen && !forkOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
+        setAgentOpen(false);
+        setForkOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [agentOpen, forkOpen]);
+
   function send() {
     const text = draft.trim();
     if (!text) return;
@@ -54,6 +85,21 @@ export default function ChatPanel({ project }: { project: Project | null }) {
       },
     ]);
     setDraft("");
+  }
+
+  /* A fork is a second app you can change without touching this one. Until a
+     build exists there is nothing to copy but the name, which the panel says
+     before you press it rather than after. */
+  async function fork() {
+    if (!project || forking) return;
+    setForking(true);
+    const copy = await create(`${project.name} copy`);
+    setForking(false);
+    setForkOpen(false);
+    if (copy) {
+      openTab({ id: copy.id, name: copy.name });
+      router.push(`/dashboard/project/${copy.id}`);
+    }
   }
 
   // The same recorder Home uses: the audio is captured and the browser's own
@@ -99,6 +145,10 @@ export default function ChatPanel({ project }: { project: Project | null }) {
 
   const control =
     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
+  const chip =
+    "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
+  const popover =
+    "absolute bottom-[calc(100%+8px)] z-50 w-[220px] rounded-xl border border-white/[0.09] bg-[#141416] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]";
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-white/[0.06] md:border-r">
@@ -146,7 +196,7 @@ export default function ChatPanel({ project }: { project: Project | null }) {
             <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)]" />
           </div>
 
-          <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5">
+          <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5">
             <div className="relative">
               <textarea
                 value={draft}
@@ -179,7 +229,7 @@ export default function ChatPanel({ project }: { project: Project | null }) {
               </AnimatePresence>
             </div>
 
-            <div className="relative mt-3 flex items-center justify-between gap-2">
+            <div ref={toolbarRef} className="relative mt-3 flex items-center justify-between gap-2">
               <div className="flex shrink-0 items-center gap-[3px]">
                 <input
                   type="file"
@@ -197,9 +247,94 @@ export default function ChatPanel({ project }: { project: Project | null }) {
                 >
                   <Paperclip className="h-4 w-4 -rotate-45" />
                 </button>
+
+                {/* The repository this app pushes to. There is no connection to
+                    make yet, so it opens the drawer where that connection will
+                    be made rather than failing on its own. */}
+                <button
+                  onClick={onOpenIntegrations}
+                  title="Connect a repository"
+                  aria-label="Connect a repository"
+                  className={control}
+                >
+                  <Github className="h-4 w-4" />
+                </button>
+
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setForkOpen((open) => !open);
+                      setAgentOpen(false);
+                    }}
+                    aria-expanded={forkOpen}
+                    className={chip}
+                  >
+                    <GitFork className="h-4 w-4" />
+                    <span className="font-medium tracking-tight">Fork</span>
+                  </button>
+
+                  {forkOpen && (
+                    <div className={`${popover} left-0 p-3.5`}>
+                      <p className="text-[13px] font-medium text-white">Fork this app</p>
+                      <p className="mt-1.5 text-[12px] leading-relaxed text-[#8F939A]">
+                        Opens a copy you can change without touching{" "}
+                        {project?.name ?? "this one"}. Nothing is built yet, so the copy starts
+                        from the same place this one did.
+                      </p>
+                      <button
+                        onClick={fork}
+                        disabled={!project || forking}
+                        className="mt-3 h-8 w-full rounded-lg bg-white text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-40"
+                      >
+                        {forking ? "Forking…" : "Create the fork"}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex shrink-0 items-center gap-[3px]">
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setAgentOpen((open) => !open);
+                      setForkOpen(false);
+                    }}
+                    aria-expanded={agentOpen}
+                    aria-label="Choose an agent"
+                    className={chip}
+                  >
+                    <AgentMark className="h-4 w-4 text-white" />
+                    <span className="font-medium tracking-tight">{agent}</span>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+
+                  {agentOpen && (
+                    <div className={`${popover} right-0`} role="menu">
+                      {AGENTS.map((option) => (
+                        <button
+                          key={option.id}
+                          role="menuitem"
+                          onClick={() => {
+                            setAgent(option.id);
+                            setAgentOpen(false);
+                          }}
+                          className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.06] ${
+                            agent === option.id ? "bg-white/[0.06]" : ""
+                          }`}
+                        >
+                          <span className="block text-[13px] font-medium text-white">
+                            {option.title}
+                          </span>
+                          <span className="block text-[12px] text-[#8F939A]">
+                            {option.subtitle}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <button
                   onClick={toggleRecording}
                   title={isRecording ? "Stop Recording" : "Start Recording"}
