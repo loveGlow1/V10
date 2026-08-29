@@ -1,15 +1,4 @@
-import {
-  Bot,
-  CreditCard,
-  Github,
-  HardDrive,
-  KeyRound,
-  Mail,
-  MessageSquare,
-  Send,
-  Sparkles,
-  type LucideIcon,
-} from "lucide-react";
+import type { BrandId } from "./components/brandMarks";
 
 /** The services an app can be wired to, and the drawer they sit in. */
 export const INTEGRATION_CATEGORIES = [
@@ -29,10 +18,11 @@ export type Integration = {
   name: string;
   blurb: string;
   category: Exclude<IntegrationCategory, "All">;
-  icon: LucideIcon;
-  /* The service's own colour, used on the tile behind its icon so the row is
-     scannable by colour the way the reference is. */
-  tint: string;
+  /* Each row carries the service's own mark. A row named for a capability
+     rather than a company — storage, email, messages — names the provider that
+     would actually serve it, because a capability has no logo and a tile with a
+     letter in it tells nobody anything. Swapping a provider is this one line. */
+  brand: BrandId | "openai";
 };
 
 /* GitHub leads: it is the one people reach for first, and the only one that
@@ -43,79 +33,69 @@ export const INTEGRATIONS: Integration[] = [
     name: "GitHub",
     blurb: "Push your app's code to a repository you own",
     category: "Source",
-    icon: Github,
-    tint: "#8F939A",
+    brand: "github",
   },
   {
     id: "google-signin",
     name: "Google sign-in",
     blurb: "Let people sign in with Google",
     category: "Login",
-    icon: KeyRound,
-    tint: "#4285F4",
+    brand: "google",
   },
   {
     id: "email-login",
     name: "Email and password login",
     blurb: "Let people log in with an email and password",
     category: "Login",
-    icon: Mail,
-    tint: "#34F5A0",
+    brand: "supabase",
   },
   {
     id: "claude",
     name: "Claude AI models",
     blurb: "Enable AI in your application using Claude",
     category: "AI",
-    icon: Sparkles,
-    tint: "#D97757",
+    brand: "claude",
   },
   {
     id: "chatgpt",
     name: "ChatGPT AI models",
     blurb: "Enable AI in your application using ChatGPT",
     category: "AI",
-    icon: Bot,
-    tint: "#10A37F",
+    brand: "openai",
   },
   {
     id: "gemini",
     name: "Gemini AI models",
     blurb: "Enable AI in your application using Gemini",
     category: "AI",
-    icon: Sparkles,
-    tint: "#6C8BFF",
+    brand: "gemini",
   },
   {
     id: "stripe",
     name: "Stripe payments",
     blurb: "Take card payments inside your app",
     category: "Payments",
-    icon: CreditCard,
-    tint: "#B06CFF",
+    brand: "stripe",
   },
   {
     id: "storage",
-    name: "File storage",
+    name: "Supabase Storage",
     blurb: "Let people upload and download files",
     category: "Storage",
-    icon: HardDrive,
-    tint: "#2FD3D3",
+    brand: "supabase",
   },
   {
     id: "email",
-    name: "Transactional email",
+    name: "Resend",
     blurb: "Send sign-up, password reset and receipt emails",
     category: "Communications",
-    icon: Send,
-    tint: "#F4D96B",
+    brand: "resend",
   },
   {
     id: "sms",
-    name: "SMS",
+    name: "Vonage",
     blurb: "Send codes and alerts by text message",
     category: "Communications",
-    icon: MessageSquare,
-    tint: "#F06FC0",
+    brand: "vonage",
   },
 ];

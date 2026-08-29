@@ -14,6 +14,7 @@ import ProjectList from "./components/ProjectList";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
+import { ComingSoonBadge, ComingSoonModal } from "./components/ComingSoon";
 import WorkspaceTabs from "./components/workspace/WorkspaceTabs";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -57,7 +58,10 @@ const CREDITS = formatCredits(totalCredits(signupBalance()));
 const STARTERS = [
   {
     label: "Mobile App",
-    beta: true,
+    /* Not beta — beta means you can use it and it may break, and this is the
+       opposite claim. Pressing it explains rather than filling the composer
+       with a prompt nothing can build yet. */
+    soon: true,
     icon: Smartphone,
     prompt: "Build a mobile app for iOS and Android with sign-in, a home feed and push notifications.",
   },
@@ -103,6 +107,7 @@ export default function DashboardPage() {
 
   // The phone header opens this; from md up the drawer never mounts.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
   // Agent Selector State & Data
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
@@ -262,6 +267,7 @@ export default function DashboardPage() {
         selectedAgent={selectedAgent}
       />
       <SupportChat />
+      <ComingSoonModal open={comingSoonOpen} onClose={() => setComingSoonOpen(false)} />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
@@ -549,6 +555,10 @@ export default function DashboardPage() {
                   key={starter.label}
                   type="button"
                   onClick={() => {
+                    if ("soon" in starter && starter.soon) {
+                      setComingSoonOpen(true);
+                      return;
+                    }
                     setTranscript(starter.prompt);
                     const composer = composerRef.current;
                     if (!composer) return;
@@ -563,11 +573,7 @@ export default function DashboardPage() {
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
                   {starter.label}
-                  {"beta" in starter && starter.beta ? (
-                    <span className="rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
-                      Beta
-                    </span>
-                  ) : null}
+                  {"soon" in starter && starter.soon ? <ComingSoonBadge /> : null}
                 </button>
               );
             })}
@@ -606,23 +612,38 @@ export default function DashboardPage() {
                     <div
                       key={agent.id}
                       onClick={() => {
+                        // The one that is not here yet explains itself rather
+                        // than becoming the agent a build would be handed to.
+                        if (agent.soon) {
+                          setIsAgentModalOpen(false);
+                          setComingSoonOpen(true);
+                          return;
+                        }
                         setSelectedAgent(agent.id);
                         setIsAgentModalOpen(false);
                       }}
                       className={`p-4 rounded-[18px] cursor-pointer transition-all duration-200 flex items-center justify-between border ${
-                        isSelected
-                          ? "bg-[rgba(26,26,32,0.9)] border-[#34F5A0]/50 shadow-[0_0_15px_rgba(52,245,160,0.08)]"
-                          : "bg-[rgba(18,18,22,0.6)] border-white/[0.05] hover:bg-[rgba(24,24,28,0.8)] hover:border-white/[0.1]"
+                        agent.soon
+                          ? "bg-[rgba(18,18,22,0.35)] border-white/[0.04]"
+                          : isSelected
+                            ? "bg-[rgba(26,26,32,0.9)] border-[#34F5A0]/50 shadow-[0_0_15px_rgba(52,245,160,0.08)]"
+                            : "bg-[rgba(18,18,22,0.6)] border-white/[0.05] hover:bg-[rgba(24,24,28,0.8)] hover:border-white/[0.1]"
                       }`}
                     >
                       <div className="space-y-0.5">
-                        <h4 className="text-sm font-semibold text-white">{agent.title}</h4>
+                        <h4 className={`text-sm font-semibold ${agent.soon ? "text-white/55" : "text-white"}`}>
+                          {agent.title}
+                        </h4>
                         <p className="text-xs text-[#8F939A] font-normal">{agent.subtitle}</p>
                       </div>
-                      {isSelected && (
-                        <div className="w-5 h-5 rounded-full bg-[#34F5A0]/15 flex items-center justify-center text-[#34F5A0]">
-                          <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                        </div>
+                      {agent.soon ? (
+                        <ComingSoonBadge />
+                      ) : (
+                        isSelected && (
+                          <div className="w-5 h-5 rounded-full bg-[#34F5A0]/15 flex items-center justify-center text-[#34F5A0]">
+                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                          </div>
+                        )
                       )}
                     </div>
                   );

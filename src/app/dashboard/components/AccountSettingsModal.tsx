@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
 import { maskEmail } from "../account";
+import { ComingSoonBadge } from "./ComingSoon";
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -14,7 +15,7 @@ interface AccountSettingsModalProps {
   onUpgradeClick: () => void;
   credits: string;
   /** The same list the composer's picker uses, so the two cannot drift apart. */
-  agents: { id: string; title: string; subtitle: string }[];
+  agents: { id: string; title: string; subtitle: string; soon?: boolean }[];
   selectedAgent: string;
 }
 
@@ -666,7 +667,11 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                         {agents.map((agent) => (
                           <li
                             key={agent.id}
-                            className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3"
+                            className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
+                              agent.soon
+                                ? "border-white/[0.04] bg-white/[0.015]"
+                                : "border-white/[0.07] bg-white/[0.03]"
+                            }`}
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
                               <Bot className="h-4 w-4 text-[#8F939A]" />
@@ -675,10 +680,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               <p className="truncate text-sm text-white">{agent.title}</p>
                               <p className="truncate text-[13px] text-[#8F939A]">{agent.subtitle}</p>
                             </div>
-                            {agent.id === selectedAgent && (
-                              <span className="shrink-0 rounded-full border border-[#34F5A0]/30 bg-[#34F5A0]/10 px-2.5 py-1 text-[11px] font-medium text-[#34F5A0]">
-                                In use
-                              </span>
+                            {agent.soon ? (
+                              <ComingSoonBadge />
+                            ) : (
+                              agent.id === selectedAgent && (
+                                <span className="shrink-0 rounded-full border border-[#34F5A0]/30 bg-[#34F5A0]/10 px-2.5 py-1 text-[11px] font-medium text-[#34F5A0]">
+                                  In use
+                                </span>
+                              )
                             )}
                           </li>
                         ))}
