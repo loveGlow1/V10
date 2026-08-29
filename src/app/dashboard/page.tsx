@@ -12,6 +12,8 @@ import { formatCredits, signupBalance, totalCredits } from "./credits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
+import KeepBuilding from "./components/KeepBuilding";
+import DashboardFooter from "./components/DashboardFooter";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
@@ -746,6 +748,12 @@ export default function DashboardPage() {
 
         <ProjectList />
       </main>
+
+      {/* Below the list of what has been built: the way back to the composer at
+          the top of this page, and the footer under it. Outside main, so both
+          run the full width rather than the column the composer sits in. */}
+      <KeepBuilding onKeepBuilding={focusComposer} />
+      <DashboardFooter />
 
       {/* Select Agent Modal Sheet */}
       <AnimatePresence>
