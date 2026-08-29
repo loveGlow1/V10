@@ -1,12 +1,16 @@
-import { EditorWorkspace } from '@/components/editor/editor-workspace';
-import { EditorContextProvider } from '@/context/editor-context';
+import { ProjectsProvider } from "../../ProjectsContext";
+import Workspace from "../../components/workspace/Workspace";
 
-export default async function ProjectEditorPage({ params }: { params: Promise<{ projectId: string }> }) {
+export default async function ProjectWorkspacePage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
   const { projectId } = await params;
 
   return (
-    <EditorContextProvider projectId={projectId}>
-      <EditorWorkspace projectId={projectId} />
-    </EditorContextProvider>
+    <ProjectsProvider>
+      <Workspace projectId={projectId} />
+    </ProjectsProvider>
   );
 }

@@ -8,6 +8,10 @@ import { MenuMark } from "./marks";
 interface TopBarProps {
   onMenuClick: () => void;
   onUpgradeClick: () => void;
+  /* Supplied by the project workspace, where the pair has two real halves to
+     move between. Home leaves them out and the bar keeps its own state. */
+  view?: "preview" | "chat";
+  onViewChange?: (view: "preview" | "chat") => void;
 }
 
 /* The phone bar: the way into the drawer, the preview/chat pair, and the way
@@ -18,11 +22,13 @@ interface TopBarProps {
    Everything here is glass over the blue: a translucent fill, a hairline rim and
    one pixel of light along the top edge, so each control reads as a raised
    surface catching the light rather than a flat chip. */
-export default function TopBar({ onMenuClick, onUpgradeClick }: TopBarProps) {
-  /* The pair the reference carries beside the hamburger. It holds its position,
-     but there is no second view on this screen for it to switch to yet — the
-     project workspace is where it will point once that view exists. */
-  const [view, setView] = useState<"preview" | "chat">("preview");
+export default function TopBar({ onMenuClick, onUpgradeClick, view: controlledView, onViewChange }: TopBarProps) {
+  /* The pair the reference carries beside the hamburger. In a workspace the
+     owner of the two halves drives it; on Home there is still no second view to
+     switch to, so it holds its own position. */
+  const [ownView, setOwnView] = useState<"preview" | "chat">("preview");
+  const view = controlledView ?? ownView;
+  const setView = onViewChange ?? setOwnView;
 
   const segment = (active: boolean) =>
     `flex h-7 w-[42px] items-center justify-center rounded-full transition-all ${
