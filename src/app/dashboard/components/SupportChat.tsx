@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import ChatMark from "./ChatMark";
+import { useSupportChatRequests } from "../supportChat";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
 type Message = { id: number; from: "support" | "user"; text: string };
@@ -25,6 +26,9 @@ const GREETING =
 export default function SupportChat() {
   useKeyboardInset();
   const [open, setOpen] = useState(false);
+  /* Contact Support, wherever it is pressed, lands here. The count only ever
+     goes up, so the effect below runs once per request and never on mount. */
+  const supportRequests = useSupportChatRequests();
   /* Starts at nothing. This was seeded at 1, so every visitor arrived to a badge
      announcing a message that did not exist — and once dismissed it could never
      come back, since nothing else set it. It now counts what it claims to count:
@@ -46,6 +50,12 @@ export default function SupportChat() {
       current.length > 0 ? current : [{ id: 0, from: "support", text: GREETING }],
     );
   }, [open]);
+
+  useEffect(() => {
+    if (supportRequests === 0) return;
+    setOpen(true);
+    setUnread(0);
+  }, [supportRequests]);
 
   // Keep the newest message in view as the thread grows.
   useEffect(() => {
@@ -82,7 +92,7 @@ export default function SupportChat() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="fixed bottom-[calc(86px+env(safe-area-inset-bottom)+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60] flex h-[540px] max-h-[calc(100dvh-120px)] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[20px] border border-line/[0.08] bg-[#111114] shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+            className="fixed bottom-[calc(86px+env(safe-area-inset-bottom)+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60] flex h-[540px] max-h-[calc(100dvh-120px)] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-[20px] border border-line/[0.08] bg-panel shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
             role="dialog"
             aria-label="Support chat"
           >

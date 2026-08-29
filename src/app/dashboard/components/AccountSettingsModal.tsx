@@ -2,11 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { Activity, Bot, Building2, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
+import { useProjects } from "../ProjectsContext";
+import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 interface AccountSettingsModalProps {
@@ -17,11 +19,35 @@ interface AccountSettingsModalProps {
   /** The same list the composer's picker uses, so the two cannot drift apart. */
   agents: { id: string; title: string; subtitle: string; soon?: boolean }[];
   selectedAgent: string;
+  /** Which pane opens. The project switcher asks for its own; the account menu
+      takes the default. Read each time the panel is opened, so the pane you
+      asked for is the pane you get. */
+  initialSection?: SectionId;
 }
 
-type SectionId = "account" | "key" | "agents" | "preferences" | "plans" | "credits";
+/* The panel holds two settings that happen to share a window: the project you
+   are in, and the account that owns it. The rail keeps them apart under their
+   own headings; the ids are flat, since only one pane is ever open. */
+export type SectionId =
+  | "project"
+  | "members"
+  | "budget"
+  | "usage"
+  | "account"
+  | "key"
+  | "agents"
+  | "preferences"
+  | "plans"
+  | "credits";
 
 const SECTION_META: Record<SectionId, { title: string; subtitle?: string }> = {
+  project: {
+    title: "Project Settings",
+    subtitle: "Projects allow you to collaborate on tasks in real time.",
+  },
+  members: { title: "Members", subtitle: "Who can see and work on this project" },
+  budget: { title: "Project budget", subtitle: "Cap what this project is allowed to spend" },
+  usage: { title: "Usage & Billing", subtitle: "What this project has used, and what pays for it" },
   account: { title: "Account settings" },
   key: { title: "Universal Key", subtitle: "Bring your own model key" },
   agents: { title: "Manage Agents", subtitle: "Create, edit and manage your custom agents" },
@@ -127,8 +153,14 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
   );
 }
 
-export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, agents, selectedAgent }: AccountSettingsModalProps) {
-  const [section, setSection] = useState<SectionId>("account");
+export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, agents, selectedAgent, initialSection }: AccountSettingsModalProps) {
+  const [section, setSection] = useState<SectionId>(initialSection ?? "account");
+  const { selected: project, rename, remove } = useProjects();
+  const [projectDraft, setProjectDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [account, setAccount] = useState<{ id: string; name: string; email: string }>({ id: "", name: "", email: "" });
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -147,6 +179,22 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   useEffect(() => {
     if (!open) setEmailRevealed(false);
   }, [open]);
+
+  /* Each opening starts where the caller asked for and with the project pane
+     back at rest — a half-typed rename or an armed delete button left over from
+     last time is not what the next opening should inherit. */
+  useEffect(() => {
+    if (!open) return;
+    setSection(initialSection ?? "account");
+    setConfirmingDelete(false);
+    setProjectError(null);
+  }, [open, initialSection]);
+
+  // The field follows the project until it is being edited, so switching
+  // projects with the panel open cannot leave another one's name in the box.
+  useEffect(() => {
+    setProjectDraft(project?.name ?? "");
+  }, [project]);
 
   useEffect(() => {
     if (!open || !isSupabaseConfigured) return;
@@ -178,6 +226,33 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
+
+  async function saveProjectName() {
+    const next = projectDraft.trim();
+    if (!project || !next || next === project.name) return;
+    setRenaming(true);
+    setProjectError(null);
+    const ok = await rename(project.id, next);
+    setRenaming(false);
+    if (!ok) setProjectError("That name could not be saved. Try again.");
+  }
+
+  /* Two presses, because there is no undo behind this one: the first arms the
+     button and says what it will take with it, the second does it. */
+  async function deleteProject() {
+    if (!project) return;
+    setDeleting(true);
+    setProjectError(null);
+    const ok = await remove(project.id);
+    setDeleting(false);
+    if (!ok) {
+      setProjectError("That project could not be deleted. Try again.");
+      setConfirmingDelete(false);
+      return;
+    }
+    setConfirmingDelete(false);
+    onClose();
+  }
 
   async function saveName() {
     const next = nameDraft.trim();
@@ -350,13 +425,32 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
   const initial = (account.name || account.email || "?").charAt(0).toUpperCase();
 
-  const navItems: { id: SectionId; label: string; icon?: React.ComponentType<{ className?: string }> }[] = [
-    { id: "account", label: account.name || "Your account" },
-    { id: "key", label: "Universal Key", icon: KeyRound },
-    { id: "agents", label: "Manage Agents", icon: Bot },
-    { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
-    { id: "plans", label: "Plans & Invoices", icon: CreditCard },
-    { id: "credits", label: "Credit Usage", icon: Coins },
+  type NavItem = { id: SectionId; label: string; icon?: React.ComponentType<{ className?: string }> };
+
+  /* The project first, since it is what the switcher opens this on, then the
+     account that owns it. The key and the meter sit under the project because
+     that is what they apply to. */
+  const navGroups: { label: string; items: NavItem[] }[] = [
+    {
+      label: "Project settings",
+      items: [
+        { id: "project", label: project?.name || "Project", icon: Building2 },
+        { id: "members", label: "Members", icon: Users },
+        { id: "budget", label: "Project budget", icon: Activity },
+        { id: "key", label: "Universal Key", icon: KeyRound },
+        { id: "usage", label: "Usage & Billing", icon: CreditCard },
+      ],
+    },
+    {
+      label: "Account settings",
+      items: [
+        { id: "account", label: account.name || "Your account" },
+        { id: "agents", label: "Manage Agents", icon: Bot },
+        { id: "preferences", label: "Preferences", icon: SlidersHorizontal },
+        { id: "plans", label: "Plans & Invoices", icon: CreditCard },
+        { id: "credits", label: "Credit Usage", icon: Coins },
+      ],
+    },
   ];
 
   /** A labelled row: description on the left, control on the right. */
@@ -381,38 +475,49 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
             transition={{ duration: 0.18, ease: "easeOut" }}
             role="dialog"
             aria-modal="true"
-            aria-label="Account settings"
-            className="flex h-[590px] max-h-[calc(100dvh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-line/[0.08] bg-[#0f0f11] shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
+            aria-label="Settings"
+            className="flex h-[590px] max-h-[calc(100dvh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-line/[0.08] bg-panel shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
           >
             {/* Left rail */}
-            <aside className="hidden w-[220px] shrink-0 flex-col border-r border-line/[0.07] p-3 sm:flex">
-              <p className="px-3 pb-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-                Account settings
-              </p>
-              <nav className="space-y-0.5">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const active = section === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSection(item.id)}
-                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
-                        active ? "bg-layer/[0.07] text-ink" : "text-soft hover:bg-layer/[0.04] hover:text-ink"
-                      }`}
-                    >
-                      {Icon ? (
-                        <Icon className="h-4 w-4 shrink-0 text-muted" />
-                      ) : (
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-[10px] font-bold text-white">
-                          {initial}
-                        </span>
-                      )}
-                      <span className="truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
+            <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-line/[0.07] p-3 sm:flex">
+              {navGroups.map((group, index) => (
+                <nav
+                  key={group.label}
+                  aria-label={group.label}
+                  className={index > 0 ? "mt-4 border-t border-line/[0.07] pt-4" : ""}
+                >
+                  <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+                    {group.label}
+                  </p>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = section === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => setSection(item.id)}
+                          aria-current={active ? "page" : undefined}
+                          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+                            active
+                              ? "bg-layer/[0.07] text-ink"
+                              : "text-soft hover:bg-layer/[0.04] hover:text-ink"
+                          }`}
+                        >
+                          {Icon ? (
+                            <Icon className="h-4 w-4 shrink-0 text-muted" />
+                          ) : (
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-[10px] font-bold text-white">
+                              {initial}
+                            </span>
+                          )}
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </nav>
+              ))}
             </aside>
 
             {/* Right pane */}
@@ -426,7 +531,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                 </div>
                 <button
                   onClick={onClose}
-                  aria-label="Close account settings"
+                  aria-label="Close settings"
                   className="flex h-7 w-7 items-center justify-center rounded-full border border-line/[0.1] text-muted transition-colors hover:text-ink"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -434,6 +539,195 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
               </header>
 
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
+                {section === "project" && (
+                  <div className="py-6">
+                    <p className="text-[13px] text-soft">Icon</p>
+                    {/* A project has no picture of its own yet, so the mark is
+                        the same one the rail carries rather than an uploader
+                        pointing at nothing. */}
+                    <div className="mt-2 flex h-[52px] w-[52px] items-center justify-center rounded-xl border border-line/[0.08] bg-layer/[0.05]">
+                      <Building2 className="h-[22px] w-[22px] text-ink" />
+                    </div>
+
+                    <label htmlFor="project-name" className="mt-6 block text-[13px] text-soft">
+                      Project Name
+                    </label>
+                    <div className="mt-2 flex h-11 w-full items-center gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.03] px-3.5 focus-within:border-line/25">
+                      <input
+                        id="project-name"
+                        value={projectDraft}
+                        disabled={!project}
+                        onChange={(event) => setProjectDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") void saveProjectName();
+                          if (event.key === "Escape") setProjectDraft(project?.name ?? "");
+                        }}
+                        placeholder={project ? "Project name" : "No project yet"}
+                        className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+                      />
+                      <Pencil className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                    </div>
+                    {/* Only once it differs from what is stored: a Save that is
+                        always there says the name is unsaved when it is not. */}
+                    {project && projectDraft.trim() && projectDraft.trim() !== project.name && (
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <button
+                          onClick={() => void saveProjectName()}
+                          disabled={renaming}
+                          className="h-9 rounded-lg bg-solid px-4 text-[13px] font-semibold text-onSolid transition-all hover:brightness-95 disabled:opacity-50"
+                        >
+                          {renaming ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          onClick={() => setProjectDraft(project.name)}
+                          className="h-9 rounded-lg px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="mt-8 border-t border-line/[0.06] pt-6">
+                      <p className="text-[15px] font-medium text-ink">Danger Zone</p>
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                        Permanently delete {project ? `${project.name}` : "this project"} and all of
+                        its data.
+                        <br />
+                        This action is not reversible!
+                      </p>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        {confirmingDelete ? (
+                          <>
+                            <button
+                              onClick={() => void deleteProject()}
+                              disabled={deleting}
+                              className="flex h-10 items-center gap-2 rounded-lg border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-[#FF8A8A] transition-colors hover:bg-danger/25 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              {deleting ? "Deleting…" : "Yes, delete permanently"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmingDelete(false)}
+                              className="h-10 rounded-lg px-3 text-sm text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+                            >
+                              Keep it
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingDelete(true)}
+                            disabled={!project}
+                            className="flex h-10 items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-medium text-[#FF8A8A] transition-colors hover:bg-danger/20 disabled:opacity-40"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete Project
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            onClose();
+                            requestSupportChat();
+                          }}
+                          className="h-10 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
+                        >
+                          Contact Support
+                        </button>
+                      </div>
+
+                      {projectError && (
+                        <p className="mt-3 text-[13px] text-danger">{projectError}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {section === "members" && (
+                  <div className="py-6">
+                    <div className="flex items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-4 py-3.5">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
+                        {initial}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-ink">
+                          {account.name || account.email || "You"}
+                        </span>
+                        <span className="block truncate text-[13px] text-muted">
+                          {account.email ? maskEmail(account.email) : "Signed in"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full border border-line/[0.1] px-2.5 py-1 text-[12px] text-soft">
+                        Owner
+                      </span>
+                    </div>
+
+                    {/* Projects are owner-scoped in the database, so there is no
+                        second member to list and no invitation to send. Saying so
+                        beats an invite box that drops what is typed into it. */}
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <button
+                        disabled
+                        title="Sharing is not connected yet"
+                        className="flex h-10 cursor-not-allowed items-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-4 text-sm text-ink/55"
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        Invite members
+                      </button>
+                      <ComingSoonBadge />
+                    </div>
+                    <p className="mt-3 text-[13px] leading-relaxed text-muted">
+                      A project belongs to the account that made it. Once sharing is connected,
+                      the people you invite will appear here with the access you gave them.
+                    </p>
+                  </div>
+                )}
+
+                {section === "budget" && (
+                  <div className="py-6">
+                    <p className="text-[15px] font-medium text-ink">No budget set</p>
+                    <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-muted">
+                      A budget caps what a project may spend before it stops asking for more.
+                      Nothing meters a build yet, so there is no figure to cap — this is where the
+                      cap will be set once there is.
+                    </p>
+                    <div className="mt-4">
+                      <ComingSoonBadge />
+                    </div>
+                  </div>
+                )}
+
+                {section === "usage" && (
+                  <div className="py-5">
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
+                      <div className="min-w-0">
+                        <p className="text-[13px] text-muted">Credits on this account</p>
+                        <p className="mt-1 text-[28px] font-bold leading-none text-ink">{credits}</p>
+                      </div>
+                      <button
+                        onClick={onUpgradeClick}
+                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                      >
+                        Upgrade Plan <Sparkles className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {/* Credits are held against the account, not the project, and
+                        a per-project figure invented here would be fiction. */}
+                    <p className="mt-4 max-w-[560px] text-[13px] leading-relaxed text-muted">
+                      Credits are held against your account and shared by every project on it.
+                      When a build starts spending them, what {project?.name ?? "this project"} used
+                      will be broken out here.
+                    </p>
+                    <button
+                      onClick={() => setSection("plans")}
+                      className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
+                    >
+                      <CreditCard className="h-4 w-4 text-muted" />
+                      See plans and invoices
+                    </button>
+                  </div>
+                )}
+
                 {section === "account" && (
                   <>
                     <div className="divide-y divide-line/[0.06]">

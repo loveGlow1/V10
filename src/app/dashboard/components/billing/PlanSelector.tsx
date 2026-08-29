@@ -32,7 +32,7 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
                 : { boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }
             }
             transition={{ duration: 0.25 }}
-            className="rounded-2xl bg-[#18181B] p-3 text-left active:scale-[0.98]"
+            className="rounded-2xl bg-layer/[0.06] p-3 text-left active:scale-[0.98]"
           >
             <span
               className={`mb-2 flex h-4 w-4 items-center justify-center rounded-full border-2 ${

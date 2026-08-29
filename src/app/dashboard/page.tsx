@@ -5,17 +5,22 @@ import TopNav from "./components/TopNav";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
-import AccountSettingsModal from "./components/AccountSettingsModal";
+import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
+import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
 import { formatCredits, signupBalance, totalCredits } from "./credits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
+import KeepBuilding from "./components/KeepBuilding";
+import DashboardFooter from "./components/DashboardFooter";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
 import { ComingSoonBadge, ComingSoonModal } from "./components/ComingSoon";
 import WorkspaceTabs from "./components/workspace/WorkspaceTabs";
+import Popover from "./components/workspace/Popover";
+import { ProviderMark } from "./components/workspace/modelMarks";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
@@ -38,6 +43,7 @@ import {
   Cpu,
   Github,
   ChevronRight,
+  Shuffle,
   Image as ImageIcon,
   Camera,
   FolderOpen,
@@ -100,6 +106,9 @@ const projectTypes = [
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
+  /* Which pane the settings panel opens on. The account menu wants its own; the
+     project switcher wants the project's. */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
@@ -109,9 +118,18 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
-  // Agent Selector State & Data
+  // Agent Selector State & Data. The agent list is what a phone chooses from:
+  // the sheet has the room for it and the bar has not, so Q1 stays the mobile
+  // control while a pointer gets the model picker below.
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState("Q1");
+
+  /* Model Selector State — the workspace's picker, on Home's bar from md up.
+     Same list, same chip, so the model you pick before a build and the one you
+     switch to inside it are named the same way in both places. */
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [isModelPopoverOpen, setIsModelPopoverOpen] = useState(false);
+  const composerBoxRef = useRef<HTMLDivElement>(null);
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -150,6 +168,20 @@ export default function DashboardPage() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isUploadPopoverOpen]);
+
+  // The panel and the chip that opens it sit at opposite ends of the composer
+  // box, so that box is what a press has to land outside of to close it.
+  // Reaching for the box itself — the textarea below — closes it too, on focus.
+  useEffect(() => {
+    if (!isModelPopoverOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (composerBoxRef.current && !composerBoxRef.current.contains(event.target as Node)) {
+        setIsModelPopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isModelPopoverOpen]);
 
   /* Stop once there is something in the box: the placeholder is hidden then,
      and a timer nobody can see is just work. */
@@ -222,6 +254,8 @@ export default function DashboardPage() {
     }
   };
 
+  const chosenModel = modelById(model);
+
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-canvas">
@@ -231,7 +265,10 @@ export default function DashboardPage() {
 
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
-        onAccountSettingsClick={() => setAccountSettingsOpen(true)}
+        onAccountSettingsClick={() => {
+          setSettingsSection("account");
+          setAccountSettingsOpen(true);
+        }}
         projectName={projectName ?? "No project yet"}
         credits={CREDITS}
       />
@@ -249,7 +286,10 @@ export default function DashboardPage() {
           setSidebarOpen(false);
           setBillingOpen(true);
         }}
-        onAccountSettings={() => setAccountSettingsOpen(true)}
+        onAccountSettings={() => {
+          setSettingsSection("account");
+          setAccountSettingsOpen(true);
+        }}
         onNewTask={focusComposer}
         credits={CREDITS}
       />
@@ -265,6 +305,7 @@ export default function DashboardPage() {
         credits={CREDITS}
         agents={AGENTS}
         selectedAgent={selectedAgent}
+        initialSection={settingsSection}
       />
       <SupportChat />
       <ComingSoonModal open={comingSoonOpen} onClose={() => setComingSoonOpen(false)} />
@@ -281,7 +322,13 @@ export default function DashboardPage() {
           it keeps the proportion at any height, and still resolves to 72px at
           668. */}
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
-        <ProjectSwitcher onSelectedChange={setProjectName} />
+        <ProjectSwitcher
+          onSelectedChange={setProjectName}
+          onOpenSettings={(pane) => {
+            setSettingsSection(pane);
+            setAccountSettingsOpen(true);
+          }}
+        />
 
         <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-ink sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
@@ -314,7 +361,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+          <div ref={composerBoxRef} className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* The upload menu, anchored to the composer it belongs to. It used
                 to hang off the whole column, which put it above the tabs and
                 behind the phone header — its first row was unreadable there. */}
@@ -325,7 +372,7 @@ export default function DashboardPage() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.97 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-[#3A3A42] bg-panel p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
+                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-line/[0.14] bg-panel p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
                 >
                   <button
                     onClick={() => {
@@ -376,7 +423,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-panel md:bg-clip-border">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -384,7 +431,10 @@ export default function DashboardPage() {
               <div className="relative">
                 <textarea
                   ref={composerRef}
-                  onFocus={() => setComposerFocused(true)}
+                  onFocus={() => {
+                    setComposerFocused(true);
+                    setIsModelPopoverOpen(false);
+                  }}
                   onBlur={() => setComposerFocused(false)}
                   aria-label="Describe what you want to build"
                   rows={3}
@@ -450,7 +500,12 @@ export default function DashboardPage() {
                     <Paperclip className="h-4 w-4 -rotate-45" />
                   </button>
                   <button
-                    onClick={() => setIsUploadPopoverOpen(!isUploadPopoverOpen)}
+                    onClick={() => {
+                      // Both panels hang above the composer, so only one of
+                      // them can be up at a time.
+                      setIsUploadPopoverOpen(!isUploadPopoverOpen);
+                      setIsModelPopoverOpen(false);
+                    }}
                     aria-label="Add photos or files"
                     aria-expanded={isUploadPopoverOpen}
                     className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
@@ -471,15 +526,39 @@ export default function DashboardPage() {
                     <Github className="h-4 w-4" />
                   </button>
 
-                  {/* Model selector, as in the reference toolbar */}
+                  {/* Agent selector — the phone's control. The sheet it opens has
+                      the room to describe each agent; the bar under a thumb has not,
+                      so the phone keeps naming the agent and the desktop names the
+                      model instead. */}
                   <button
                     onClick={() => setIsAgentModalOpen(true)}
                     aria-label="Choose an agent"
-                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink md:bg-layer/[0.03] transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm md:hidden"
                   >
                     <AgentMark className="h-4 w-4 text-ink" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-ink" />
+                  </button>
+
+                  {/* Model selector — the workspace's chip, from md up: the maker's
+                      mark, the model's short name, and the list of Claude, ChatGPT
+                      and Gemini behind it. */}
+                  <button
+                    onClick={() => {
+                      setIsModelPopoverOpen((open) => !open);
+                      setIsUploadPopoverOpen(false);
+                    }}
+                    aria-expanded={isModelPopoverOpen}
+                    aria-label="Choose a model"
+                    className="hidden h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:gap-2 md:px-3.5 md:text-sm"
+                  >
+                    <ProviderMark provider={chosenModel.provider} />
+                    <span className="font-medium tracking-tight">{shortModelName(chosenModel)}</span>
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 text-ink transition-transform ${
+                        isModelPopoverOpen ? "rotate-180" : ""
+                      }`}
+                    />
                   </button>
                 </div>
 
@@ -507,7 +586,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-ink md:bg-layer/[0.03]"
+                        : "bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
                     }`}
                   >
                     {isRecording ? (
@@ -537,6 +616,92 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* Hung off the whole composer rather than off the chip, and for the
+                same reason the upload menu is: the graphite box clips what grows
+                out of it, and the tabs above it would paint over a panel drawn
+                inside. Opening upward keeps a list this tall on screen — the
+                composer sits low enough that the room is above it. Never a sheet:
+                the chip that opens it is desktop-only. */}
+            <Popover
+              open={isModelPopoverOpen}
+              onClose={() => setIsModelPopoverOpen(false)}
+              title="Select model"
+              align="left"
+              side="top"
+              width="w-[min(340px,100%)]"
+              sheetOnMobile={false}
+            >
+              <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
+                <Shuffle className="h-3.5 w-3.5 shrink-0" />
+                Model changes apply from your next message
+              </p>
+
+              <div
+                className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5"
+                role="menu"
+              >
+                {groupedModels().map((group) => (
+                  <div key={group.provider}>
+                    {group.label && (
+                      <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                        {group.label}
+                      </p>
+                    )}
+                    {group.models.map((option) => {
+                      const selected = model === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          role="menuitem"
+                          onClick={() => {
+                            setModel(option.id);
+                            setIsModelPopoverOpen(false);
+                          }}
+                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
+                            selected ? "bg-layer/[0.06]" : ""
+                          }`}
+                        >
+                          <span className="mt-0.5 shrink-0">
+                            <ProviderMark provider={option.provider} />
+                          </span>
+
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`truncate text-[13px] font-medium ${
+                                  selected ? "text-accent" : "text-ink"
+                                }`}
+                              >
+                                {option.name}
+                              </span>
+                              {option.badge && (
+                                <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
+                                  {option.badge}
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
+                              {option.blurb}
+                              {option.note && (
+                                <>
+                                  {" · "}
+                                  <span className="text-warn">{option.note}</span>
+                                </>
+                              )}
+                            </span>
+                          </span>
+
+                          {selected && (
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-accent" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </Popover>
           </div>
 
           {/* Starters, centred under the composer. The row scrolls sideways
@@ -583,6 +748,12 @@ export default function DashboardPage() {
 
         <ProjectList />
       </main>
+
+      {/* Below the list of what has been built: the way back to the composer at
+          the top of this page, and the footer under it. Outside main, so both
+          run the full width rather than the column the composer sits in. */}
+      <KeepBuilding onKeepBuilding={focusComposer} />
+      <DashboardFooter />
 
       {/* Select Agent Modal Sheet */}
       <AnimatePresence>

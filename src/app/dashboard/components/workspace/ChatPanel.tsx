@@ -298,7 +298,7 @@ export default function ChatPanel({
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] ${
                     isRecording
                       ? "animate-pulse border-red-500 bg-red-500/20 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                      : "border-line/[0.08] bg-layer/[0.06] text-ink hover:border-line/[0.12]"
+                      : "border-line/[0.08] bg-layer/[0.06] text-white hover:border-line/[0.12]"
                   }`}
                 >
                   {isRecording ? <MicOff className="h-4 w-4" /> : <MicMark className="h-4 w-4" />}
