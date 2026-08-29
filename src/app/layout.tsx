@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
+import { SITE_URL } from "@/lib/site";
 
 /* The FAQ is set in a geometric grotesque rather than the system stack the rest of the
    page uses. Exposed as a CSS variable and mapped to Tailwind's `font-display`, so it is
@@ -15,11 +16,8 @@ const dmSans = DM_Sans({
 /* The site's own origin. Next needs it to turn the relative image paths below
    into the absolute URLs that Open Graph and Twitter require — without it the
    build warns and falls back to localhost, which would make every shared link
-   preview blank. Set NEXT_PUBLIC_SITE_URL in the deployment to a custom domain;
-   Vercel supplies VERCEL_URL for previews. */
-const siteUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://v10-eight-jet.vercel.app");
+   preview blank. */
+const siteUrl = SITE_URL;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
