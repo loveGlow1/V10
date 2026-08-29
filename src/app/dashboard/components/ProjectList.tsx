@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, Laptop, MoreHorizontal, Radio } from "lucide-react";
+import { ChevronDown, LayoutGrid, Laptop, MoreHorizontal, Radio } from "lucide-react";
 
 import { avatarFor } from "../projectColours";
 import { isPublished, useProjects, type Project } from "../ProjectsContext";
@@ -143,6 +143,19 @@ export default function ProjectList() {
   const router = useRouter();
   const { projects, loading, error } = useProjects();
   const [filter, setFilter] = useState<Filter>("all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [filterOpen]);
 
   const shown = projects.filter((project) => {
     if (filter === "published") return isPublished(project);
@@ -155,37 +168,64 @@ export default function ProjectList() {
     { id: "apps", label: "Apps", icon: Laptop },
     { id: "published", label: "Published", icon: Radio },
   ];
+  const current = tabs.find((tab) => tab.id === filter) ?? tabs[0];
 
   return (
-    <section className="mt-10 hidden w-full max-w-[720px] md:mt-16 md:block">
-      {/* From md up. A phone shows the list itself and skips the filter, which is
-          why `filter` stays on "all" there: three pills of chrome above a list
-          this short costs more room than it saves. */}
-      <div className="hidden justify-center md:flex">
-        <div className="flex items-center gap-1 rounded-full border border-line/[0.07] bg-layer/[0.02] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = filter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setFilter(tab.id)}
-                aria-pressed={active}
-                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors ${
-                  active
-                    ? "border border-line/25 bg-layer/[0.06] text-ink"
-                    : "border border-transparent text-muted hover:text-ink"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+    /* Everything built so far, on both sizes. It used to be desktop-only: three
+       filter pills above a short list cost more room than they saved on a phone.
+       They are a menu now rather than a row, which is one control instead of
+       three, so the filter comes to the phone with the list. */
+    <section className="mt-10 w-full max-w-[720px] md:mt-16">
+      <div className="flex items-end justify-between gap-4 px-1">
+        <h2 className="text-[17px] font-semibold tracking-tight text-ink md:text-lg">
+          Continue working
+        </h2>
+
+        <div className="relative shrink-0" ref={filterRef}>
+          <button
+            onClick={() => setFilterOpen((open) => !open)}
+            aria-expanded={filterOpen}
+            aria-haspopup="menu"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+          >
+            <current.icon className="h-3.5 w-3.5" />
+            {current.label}
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${filterOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {filterOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-[calc(100%+6px)] z-50 w-[190px] overflow-hidden rounded-xl border border-line/[0.09] bg-panel p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
+            >
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const active = filter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    role="menuitem"
+                    onClick={() => {
+                      setFilter(tab.id);
+                      setFilterOpen(false);
+                    }}
+                    className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm transition-colors ${
+                      active ? "bg-layer/[0.06] text-ink" : "text-muted hover:bg-layer/[0.04] hover:text-ink"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="mt-2 space-y-1 md:mt-8">
+      <div className="mt-3 space-y-1 md:mt-4">
         {loading && <p className="py-8 text-center text-sm text-muted">Loading your projects…</p>}
 
         {error && <p className="py-8 text-center text-sm text-danger">{error}</p>}
@@ -229,13 +269,22 @@ export default function ProjectList() {
           ))}
 
         {!loading && !error && shown.length === 0 && (
-          <p className="py-10 text-center text-sm text-muted">
-            {projects.length === 0
-              ? "Nothing built yet. Describe an app above to start one."
-              : filter === "published"
-                ? "No project has been published yet."
-                : "Everything you have built is already published."}
-          </p>
+          <div className="py-10 text-center">
+            <p className="text-sm font-medium text-muted">
+              {projects.length === 0
+                ? "No apps yet"
+                : filter === "published"
+                  ? "Nothing published yet"
+                  : "Everything you have built is published"}
+            </p>
+            <p className="mx-auto mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-muted/70">
+              {projects.length === 0
+                ? "Describe what you want in the box above to start your first one."
+                : filter === "published"
+                  ? "An app appears here once you publish it."
+                  : "There is nothing left in progress."}
+            </p>
+          </div>
         )}
       </div>
     </section>

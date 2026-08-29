@@ -22,7 +22,7 @@ export type Integration = {
      rather than a company — storage, email, messages — names the provider that
      would actually serve it, because a capability has no logo and a tile with a
      letter in it tells nobody anything. Swapping a provider is this one line. */
-  brand: BrandId | "openai";
+  brand: BrandId;
 };
 
 /* GitHub leads: it is the one people reach for first, and the only one that
@@ -93,9 +93,9 @@ export const INTEGRATIONS: Integration[] = [
   },
   {
     id: "sms",
-    name: "Vonage",
+    name: "Twilio",
     blurb: "Send codes and alerts by text message",
     category: "Communications",
-    brand: "vonage",
+    brand: "twilio",
   },
 ];

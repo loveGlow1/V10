@@ -83,10 +83,17 @@ export default function Integrations({
               className="flex items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.02] p-3"
             >
               {/* The service's own mark on a tile of its own colour, so the list
-                  is scannable by logo before a word of it is read. */}
+                  is scannable by logo before a word of it is read. A brand that
+                  publishes a monochrome mark gets a neutral tile and follows the
+                  theme instead — white on the dark ground, black on the light
+                  one, which is what those brands ask for. */}
               <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: `${tint}1f`, color: tint }}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                  tint === "ink" ? "bg-layer/[0.07] text-ink" : ""
+                }`}
+                style={
+                  tint === "ink" ? undefined : { backgroundColor: `${tint}1f`, color: tint }
+                }
               >
                 <BrandMark brand={integration.brand} className="h-[18px] w-[18px]" />
               </span>
