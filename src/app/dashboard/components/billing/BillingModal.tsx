@@ -57,7 +57,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
               {/* pr-14 keeps the headline clear of the close button, which it ran
                   underneath once the title wrapped to a second line. */}
               <h1 className="text-[28px] sm:text-[30px] font-bold text-white leading-[1.1] pr-14">
-                Try Quickstark.Ai for free
+                Try QuickStark.Ai for free
               </h1>
               <p className="text-[#9CA3AF] text-sm font-medium mt-2">
                 Choose your plan. Cancel anytime.

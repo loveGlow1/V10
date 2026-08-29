@@ -24,12 +24,12 @@ const siteUrl =
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Quickstark.Ai | Build Full-Stack Applications Instantly",
-    template: "%s | Quickstark.Ai",
+    default: "QuickStark.Ai | Build Full-Stack Applications Instantly",
+    template: "%s | QuickStark.Ai",
   },
   description:
-    "Describe your product in plain language and Quickstark.Ai builds it — the interface, the backend, the database and sign-in, live on a URL the same day.",
-  applicationName: "Quickstark.Ai",
+    "Describe your product in plain language and QuickStark.Ai builds it — the interface, the backend, the database and sign-in, live on a URL the same day.",
+  applicationName: "QuickStark.Ai",
   keywords: [
     "AI app builder",
     "full-stack app generator",
@@ -56,17 +56,17 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   openGraph: {
     type: "website",
-    siteName: "Quickstark.Ai",
+    siteName: "QuickStark.Ai",
     url: siteUrl,
-    title: "Quickstark.Ai | Build Full-Stack Applications Instantly",
+    title: "QuickStark.Ai | Build Full-Stack Applications Instantly",
     description:
-      "Describe your product in plain language and Quickstark.Ai builds it — interface, backend, database and sign-in, live on a URL the same day.",
+      "Describe your product in plain language and QuickStark.Ai builds it — interface, backend, database and sign-in, live on a URL the same day.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Quickstark.Ai | Build Full-Stack Applications Instantly",
+    title: "QuickStark.Ai | Build Full-Stack Applications Instantly",
     description:
-      "Describe your product in plain language and Quickstark.Ai builds it — interface, backend, database and sign-in, live on a URL the same day.",
+      "Describe your product in plain language and QuickStark.Ai builds it — interface, backend, database and sign-in, live on a URL the same day.",
   },
   /* A favicon only reaches a search result once the page is indexed. */
   robots: {

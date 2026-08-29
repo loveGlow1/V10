@@ -103,7 +103,7 @@ export default function SupportChat() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold leading-tight text-white">
-                  Quickstark Support
+                  QuickStark Support
                 </p>
                 <p className="truncate text-xs leading-tight text-[#8F939A]">
                   The team can also help
@@ -129,7 +129,7 @@ export default function SupportChat() {
                     <div className="max-w-[85%] rounded-[16px] rounded-tl-[6px] bg-white/[0.06] px-3.5 py-2.5">
                       <p className="whitespace-pre-line text-sm leading-relaxed text-white">{message.text}</p>
                     </div>
-                    <p className="mt-1.5 text-[11px] text-[#8F939A]">Quickstark Support · Just now</p>
+                    <p className="mt-1.5 text-[11px] text-[#8F939A]">QuickStark Support · Just now</p>
                   </div>
                 ) : (
                   <div key={message.id} className="flex justify-end">
@@ -200,7 +200,7 @@ export default function SupportChat() {
                   </button>
                 </div>
               </form>
-              <p className="py-2 text-center text-[11px] text-[#8F939A]">Powered by Quickstark.Ai</p>
+              <p className="py-2 text-center text-[11px] text-[#8F939A]">Powered by QuickStark.Ai</p>
             </div>
           </motion.div>
         )}

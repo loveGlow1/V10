@@ -196,7 +196,7 @@ function formatPrice(value: number) {
 const PRICING_TIERS = [
   {
     name: "Free",
-    description: "A simple starting point to explore Quickstark.Ai and validate your first product ideas.",
+    description: "A simple starting point to explore QuickStark.Ai and validate your first product ideas.",
     monthlyPrice: PLANS.free.monthlyPriceUsd,
     ctaLabel: "Get Started",
     icon: Gift,
@@ -211,7 +211,7 @@ const PRICING_TIERS = [
     name: "Standard",
     description: "The most balanced plan for serious builders shipping polished web and mobile experiences.",
     monthlyPrice: PLANS.standard.monthlyPriceUsd,
-    ctaLabel: "Try Quickstark.Ai",
+    ctaLabel: "Try QuickStark.Ai",
     icon: Layout,
     highlight: true,
     features: [
@@ -248,9 +248,9 @@ const FAQS = [
       "A product that runs, not a mockup or a pile of screens to hand off. You get the pages people use, the database behind them, sign-in already wired up and real code underneath — live on a URL you can share the same day, and still yours to keep changing.",
   },
   {
-    question: "What is Quickstark.Ai and how does it work?",
+    question: "What is QuickStark.Ai and how does it work?",
     answer:
-      "Describe the product you want in plain language and Quickstark.Ai builds it — the screens people see, the backend behind them, the database underneath and the sign-in flow, ready to go live. Web and mobile come out of the same description.",
+      "Describe the product you want in plain language and QuickStark.Ai builds it — the screens people see, the backend behind them, the database underneath and the sign-in flow, ready to go live. Web and mobile come out of the same description.",
   },
   {
     question: "What can I build with it?",
@@ -258,9 +258,9 @@ const FAQS = [
       "Anything with a front end and something running behind it: customer-facing web and mobile apps, dashboards, marketplaces, booking and subscription products, internal tools. If it needs pages, accounts, data and payments, it is in range.",
   },
   {
-    question: "Do I need coding experience to use Quickstark.Ai?",
+    question: "Do I need coding experience to use QuickStark.Ai?",
     answer:
-      "No. You describe what you want in ordinary words and Quickstark.Ai does the building. What it writes underneath is real Next.js and React code, so if you bring in a developer later there is something familiar for them to pick up.",
+      "No. You describe what you want in ordinary words and QuickStark.Ai does the building. What it writes underneath is real Next.js and React code, so if you bring in a developer later there is something familiar for them to pick up.",
   },
   {
     question: "Where does my data live, and what does it connect to?",
@@ -307,7 +307,7 @@ const FOOTER_LINK_COLUMNS = [
 
 /* Six applications float around the hero — a restaurant landing page, two storefronts, a
    product page, a banking app and a food-ordering app — so the first thing a visitor sees
-   is the range of things Quickstark.Ai builds. Each entry is a screenshot of a real UI,
+   is the range of things QuickStark.Ai builds. Each entry is a screenshot of a real UI,
    rendered from the mockups in tools/hero-mockups (re-run
    `node tools/hero-mockups/render.mjs` after editing one).
 
@@ -717,9 +717,9 @@ export default function LandingPage() {
               the CTA are, and the always-present third column reserves the CTA's space so
               the nav does not jump sideways when the button mounts on scroll. */}
           <div className="page-shell h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 rounded-full px-2" aria-label="Quickstark.Ai Homepage">
+            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStark.Ai Homepage">
               <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
-              <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">Quickstark</span><span className="wordmark-ai">.Ai</span></span>
+              <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStark</span><span className="wordmark-ai">.Ai</span></span>
             </a>
             <nav className="hidden md:flex justify-self-center items-center gap-8 text-sm font-medium text-brandTextSec">
               <a href="#features" className="hover:text-white transition-colors duration-200">Features</a>
@@ -855,9 +855,9 @@ export default function LandingPage() {
         <section id="features" className="px-6 py-24">
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is Quickstark.Ai</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStark.Ai</p>
               <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
-                What can Quickstark.Ai do for you?
+                What can QuickStark.Ai do for you?
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
                 Instantly generate native mobile applications, progressive web apps, production APIs, schema-perfect databases, authentication architectures, AI agents, secure cloud storage, and fully automated deployment configurations using simple natural language.
@@ -937,7 +937,7 @@ export default function LandingPage() {
                   Choose the plan that fits your build velocity.
                 </h2>
                 <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
-                  Dark, cinematic, and built to scale with the same Quickstark.Ai product experience you see above.
+                  Dark, cinematic, and built to scale with the same QuickStark.Ai product experience you see above.
                 </p>
               </div>
 
@@ -1078,7 +1078,7 @@ export default function LandingPage() {
                 Questions people ask before they build.
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
-                What Quickstark.Ai builds for you, what it connects to, and what it costs — answered in plain words.
+                What QuickStark.Ai builds for you, what it connects to, and what it costs — answered in plain words.
               </p>
             </Reveal>
 
@@ -1139,7 +1139,7 @@ export default function LandingPage() {
             <div className="absolute left-1/2 top-1/2 h-full aspect-[1672/941] -translate-x-1/2 -translate-y-1/2">
               <Image
                 src="/page.png"
-                alt="Start building on Quickstark.Ai today — turn your ideas into fully functional apps, faster than ever."
+                alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
                 width={1672}
                 height={941}
                 sizes="(min-width: 640px) 100vw, 178vw"
@@ -1162,12 +1162,12 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
         <div className="page-shell flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
           <Reveal className="max-w-sm xl:max-w-xs">
-            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40" aria-label="Quickstark.Ai Homepage">
+            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40" aria-label="QuickStark.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
                 <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" />
               </div>
               <span className="text-xl font-bold tracking-tight">
-                <span className="wordmark-quickstart">Quickstark</span><span className="wordmark-ai">.Ai</span>
+                <span className="wordmark-quickstart">QuickStark</span><span className="wordmark-ai">.Ai</span>
               </span>
             </a>
             <p className="mt-5 text-sm leading-relaxed text-brandTextSec">

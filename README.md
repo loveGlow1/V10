@@ -1,4 +1,4 @@
-# Quickstark.Ai (V10)
+# QuickStark.Ai (V10)
 
 An automated, high-velocity AI SaaS application building platform.
 

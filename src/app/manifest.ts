@@ -4,8 +4,8 @@ import type { MetadataRoute } from "next";
    screen; without it the icon there falls back to a screenshot of the page. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Quickstark.Ai",
-    short_name: "Quickstark.Ai",
+    name: "QuickStark.Ai",
+    short_name: "QuickStark.Ai",
     description:
       "Build full-stack web and mobile apps in minutes — interface, backend, database and sign-in from one description.",
     start_url: "/",
