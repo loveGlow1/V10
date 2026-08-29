@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Plus, Search } from "lucide-react";
 
+import { BrandMark, tintFor } from "../brandMarks";
 import {
   INTEGRATIONS,
   INTEGRATION_CATEGORIES,
@@ -75,17 +76,19 @@ export default function Integrations({
 
       <div className="mt-3 space-y-2">
         {shown.map((integration) => {
-          const Icon = integration.icon;
+          const tint = tintFor(integration.brand);
           return (
             <div
               key={integration.id}
               className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3"
             >
+              {/* The service's own mark on a tile of its own colour, so the list
+                  is scannable by logo before a word of it is read. */}
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: `${integration.tint}1f`, color: integration.tint }}
+                style={{ backgroundColor: `${tint}1f`, color: tint }}
               >
-                <Icon className="h-4 w-4" />
+                <BrandMark brand={integration.brand} className="h-[18px] w-[18px]" />
               </span>
 
               <div className="min-w-0 flex-1">
