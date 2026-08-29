@@ -125,7 +125,8 @@ export default function TermsPage() {
         <p>
           You grant us a limited licence to store, process and display your inputs and outputs for the
           purpose of operating the service for you: running the generation, showing you the preview, and
-          publishing when you ask.
+          publishing when you ask. That licence goes no further — in particular, we do not use your
+          prompts or your generated code to train or improve any model.
         </p>
       </Clause>
 

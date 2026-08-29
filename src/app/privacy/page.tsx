@@ -73,6 +73,14 @@ export default function PrivacyPage() {
           They are visible to you, and to our staff only where necessary to operate the service, investigate
           a support request you have raised, or respond to a security or abuse issue.
         </p>
+        <p>
+          <strong className="text-white">
+            We do not use your prompts or your generated code to train or improve any model.
+          </strong>{" "}
+          We use our model provider under terms that exclude training on customer content, so your
+          descriptions and the code produced from them are used to answer your request and for nothing else.
+          If that ever changes we will ask for your consent first; we will not switch it on by default.
+        </p>
       </Clause>
 
       <Clause n={5} title="Who else processes it">
