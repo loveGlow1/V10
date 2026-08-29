@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Check, ChevronDown, GitFork, Github, MicOff, Paperclip, Shuffle } from "lucide-react";
 
-import { DEFAULT_MODEL, MODELS, modelById, shortModelName } from "../../models";
+import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type Project } from "../../ProjectsContext";
 import { MicMark, SendArrow } from "../marks";
-import { AutoMark, ModelMark } from "./modelMarks";
+import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { openTab } from "./openTabs";
 
@@ -285,11 +285,7 @@ export default function ChatPanel({
                   aria-label="Choose a model"
                   className={chip}
                 >
-                  {chosen.auto ? (
-                    <AutoMark className="h-4 w-4 text-white" />
-                  ) : (
-                    <ModelMark className="h-4 w-4 text-[#D97757]" />
-                  )}
+                  <ProviderMark provider={chosen.provider} />
                   <span className="font-medium tracking-tight">{shortModelName(chosen)}</span>
                   <ChevronDown
                     className={`h-3.5 w-3.5 transition-transform ${modelOpen ? "rotate-180" : ""}`}
@@ -369,61 +365,69 @@ export default function ChatPanel({
                       Model changes apply from your next message
                     </p>
 
-                    <div className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5" role="menu">
-                      {MODELS.map((option) => {
-                        const selected = model === option.id;
-                        return (
-                          <button
-                            key={option.id}
-                            role="menuitem"
-                            onClick={() => {
-                              setModel(option.id);
-                              setModelOpen(false);
-                            }}
-                            className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
-                              selected ? "bg-white/[0.06]" : ""
-                            }`}
-                          >
-                            <span className="mt-0.5 shrink-0">
-                              {option.auto ? (
-                                <AutoMark className="h-4 w-4 text-white" />
-                              ) : (
-                                <ModelMark className="h-4 w-4 text-[#D97757]" />
-                              )}
-                            </span>
-
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-2">
-                                <span
-                                  className={`truncate text-[13px] font-medium ${
-                                    selected ? "text-[#34F5A0]" : "text-white"
-                                  }`}
-                                >
-                                  {option.name}
+                    <div
+                      className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5"
+                      role="menu"
+                    >
+                      {groupedModels().map((group) => (
+                        <div key={group.provider}>
+                          {group.label && (
+                            <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-[#8F939A]">
+                              {group.label}
+                            </p>
+                          )}
+                          {group.models.map((option) => {
+                            const selected = model === option.id;
+                            return (
+                              <button
+                                key={option.id}
+                                role="menuitem"
+                                onClick={() => {
+                                  setModel(option.id);
+                                  setModelOpen(false);
+                                }}
+                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
+                                  selected ? "bg-white/[0.06]" : ""
+                                }`}
+                              >
+                                <span className="mt-0.5 shrink-0">
+                                  <ProviderMark provider={option.provider} />
                                 </span>
-                                {option.badge && (
-                                  <span className="shrink-0 rounded-full bg-[#F4D96B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F4D96B]">
-                                    {option.badge}
-                                  </span>
-                                )}
-                              </span>
-                              <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8F939A]">
-                                {option.blurb}
-                                {option.note && (
-                                  <>
-                                    {" · "}
-                                    <span className="text-[#F4D96B]">{option.note}</span>
-                                  </>
-                                )}
-                              </span>
-                            </span>
 
-                            {selected && (
-                              <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-[#34F5A0]" />
-                            )}
-                          </button>
-                        );
-                      })}
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-2">
+                                    <span
+                                      className={`truncate text-[13px] font-medium ${
+                                        selected ? "text-[#34F5A0]" : "text-white"
+                                      }`}
+                                    >
+                                      {option.name}
+                                    </span>
+                                    {option.badge && (
+                                      <span className="shrink-0 rounded-full bg-[#F4D96B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F4D96B]">
+                                        {option.badge}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8F939A]">
+                                    {option.blurb}
+                                    {option.note && (
+                                      <>
+                                        {" · "}
+                                        <span className="text-[#F4D96B]">{option.note}</span>
+                                      </>
+                                    )}
+                                  </span>
+                                </span>
+
+                                {selected && (
+                                  <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-[#34F5A0]" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
                     </div>
                   </Popover>
             </div>
