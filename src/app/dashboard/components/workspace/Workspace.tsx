@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import TopNav from "../TopNav";
 import TopBar from "../TopBar";
 import Sidebar from "../Sidebar";
+import PhoneField from "../PhoneField";
 import BillingModal from "../billing/BillingModal";
 import AccountSettingsModal from "../AccountSettingsModal";
 import SupportChat from "../SupportChat";
@@ -58,6 +59,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
   return (
     <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0d0d0f]">
+      {/* The same light Home stands on, so moving between the two screens on a
+          phone changes what is on the glass rather than the room behind it. */}
+      <PhoneField />
+
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
@@ -120,7 +125,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           </button>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="relative z-10 flex min-h-0 flex-1">
           {/* One at a time on a phone, both from md up. Hidden rather than
               unmounted, so switching back does not discard what was typed. */}
           <div

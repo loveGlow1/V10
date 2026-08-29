@@ -20,10 +20,17 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
 
   if (tabs.length === 0) return null;
 
+  /* Two materials, one component. A pointer gets browser tabs — flat, square
+     shouldered, the shape a row of documents has everywhere else. A phone gets
+     the glass the header beside it is made of: a translucent fill, a hairline
+     rim and one pixel of light along the top edge, so the row reads as controls
+     over the blue rather than as chrome bolted above the app. */
   const base =
-    "group flex h-8 shrink-0 items-center gap-2 rounded-lg px-2.5 text-[13px] transition-colors";
-  const on = "bg-white/[0.08] text-white";
-  const off = "text-[#8F939A] hover:bg-white/[0.04] hover:text-white";
+    "group flex h-[34px] shrink-0 items-center gap-2 rounded-full border px-3 text-[13px] transition-colors md:h-8 md:rounded-lg md:border-transparent md:px-2.5";
+  const on =
+    "border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] md:border-transparent md:shadow-none";
+  const off =
+    "border-white/[0.07] bg-white/[0.02] text-[#8F939A] hover:text-white md:border-transparent md:bg-transparent md:hover:bg-white/[0.04]";
 
   function close(id: string) {
     const index = tabs.findIndex((tab) => tab.id === id);
@@ -36,7 +43,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1 overflow-x-auto border-b border-white/[0.06] bg-[#0c0c0e] px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-1 md:border-b md:border-white/[0.06] md:bg-[#0c0c0e] md:px-2 md:py-1.5 [&::-webkit-scrollbar]:hidden">
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
@@ -74,7 +81,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
       <button
         onClick={() => router.push("/dashboard")}
         aria-label="New app"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white"
+        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.07] bg-white/[0.02] text-[#8F939A] transition-colors hover:text-white md:h-8 md:w-8 md:rounded-lg md:border-transparent md:bg-transparent md:hover:bg-white/[0.04]"
       >
         <Plus className="h-4 w-4" />
       </button>

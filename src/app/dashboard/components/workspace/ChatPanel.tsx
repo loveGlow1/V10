@@ -3,12 +3,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, ChevronDown, GitFork, Github, Mic, MicOff, Paperclip } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, GitFork, Github, MicOff, Paperclip, Shuffle } from "lucide-react";
 
-import { AGENTS } from "../../agents";
+import { DEFAULT_MODEL, MODELS, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type Project } from "../../ProjectsContext";
-import { AgentMark, MicMark, SendArrow } from "../marks";
+import { MicMark, SendArrow } from "../marks";
+import { AutoMark, ModelMark } from "./modelMarks";
+import Popover from "./Popover";
 import { openTab } from "./openTabs";
 
 type Message = { id: number; from: "you" | "system"; text: string };
@@ -35,8 +37,8 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [agent, setAgent] = useState(AGENTS[0].id);
-  const [agentOpen, setAgentOpen] = useState(false);
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
@@ -61,16 +63,16 @@ export default function ChatPanel({
   // One handler for both popovers in the toolbar: an outside press closes
   // whichever is open, the way a menu behaves.
   useEffect(() => {
-    if (!agentOpen && !forkOpen) return;
+    if (!modelOpen && !forkOpen) return;
     function onPointerDown(event: MouseEvent) {
       if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
-        setAgentOpen(false);
+        setModelOpen(false);
         setForkOpen(false);
       }
     }
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [agentOpen, forkOpen]);
+  }, [modelOpen, forkOpen]);
 
   function send() {
     const text = draft.trim();
@@ -143,12 +145,12 @@ export default function ChatPanel({
     }
   }
 
+  const chosen = modelById(model);
+
   const control =
     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
   const chip =
     "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
-  const popover =
-    "absolute bottom-[calc(100%+8px)] z-50 w-[220px] rounded-xl border border-white/[0.09] bg-[#141416] p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]";
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-white/[0.06] md:border-r">
@@ -260,80 +262,39 @@ export default function ChatPanel({
                   <Github className="h-4 w-4" />
                 </button>
 
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setForkOpen((open) => !open);
-                      setAgentOpen(false);
-                    }}
-                    aria-expanded={forkOpen}
-                    className={chip}
-                  >
-                    <GitFork className="h-4 w-4" />
-                    <span className="font-medium tracking-tight">Fork</span>
-                  </button>
-
-                  {forkOpen && (
-                    <div className={`${popover} left-0 p-3.5`}>
-                      <p className="text-[13px] font-medium text-white">Fork this app</p>
-                      <p className="mt-1.5 text-[12px] leading-relaxed text-[#8F939A]">
-                        Opens a copy you can change without touching{" "}
-                        {project?.name ?? "this one"}. Nothing is built yet, so the copy starts
-                        from the same place this one did.
-                      </p>
-                      <button
-                        onClick={fork}
-                        disabled={!project || forking}
-                        className="mt-3 h-8 w-full rounded-lg bg-white text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-40"
-                      >
-                        {forking ? "Forking…" : "Create the fork"}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={() => {
+                    setForkOpen((open) => !open);
+                    setModelOpen(false);
+                  }}
+                  aria-expanded={forkOpen}
+                  className={chip}
+                >
+                  <GitFork className="h-4 w-4" />
+                  <span className="font-medium tracking-tight">Fork</span>
+                </button>
               </div>
 
               <div className="flex shrink-0 items-center gap-[3px]">
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      setAgentOpen((open) => !open);
-                      setForkOpen(false);
-                    }}
-                    aria-expanded={agentOpen}
-                    aria-label="Choose an agent"
-                    className={chip}
-                  >
-                    <AgentMark className="h-4 w-4 text-white" />
-                    <span className="font-medium tracking-tight">{agent}</span>
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-
-                  {agentOpen && (
-                    <div className={`${popover} right-0`} role="menu">
-                      {AGENTS.map((option) => (
-                        <button
-                          key={option.id}
-                          role="menuitem"
-                          onClick={() => {
-                            setAgent(option.id);
-                            setAgentOpen(false);
-                          }}
-                          className={`w-full rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.06] ${
-                            agent === option.id ? "bg-white/[0.06]" : ""
-                          }`}
-                        >
-                          <span className="block text-[13px] font-medium text-white">
-                            {option.title}
-                          </span>
-                          <span className="block text-[12px] text-[#8F939A]">
-                            {option.subtitle}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                <button
+                  onClick={() => {
+                    setModelOpen((open) => !open);
+                    setForkOpen(false);
+                  }}
+                  aria-expanded={modelOpen}
+                  aria-label="Choose a model"
+                  className={chip}
+                >
+                  {chosen.auto ? (
+                    <AutoMark className="h-4 w-4 text-white" />
+                  ) : (
+                    <ModelMark className="h-4 w-4 text-[#D97757]" />
                   )}
-                </div>
+                  <span className="font-medium tracking-tight">{shortModelName(chosen)}</span>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${modelOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
 
                 <button
                   onClick={toggleRecording}
@@ -363,6 +324,108 @@ export default function ChatPanel({
                   <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
                 </button>
               </div>
+
+              {/* Anchored to the row rather than to the chip that opens it: a
+                  panel hung off a control near the right edge has only the
+                  width between that control and the edge, which on a phone is
+                  not enough for it. */}
+                  <Popover
+                    open={forkOpen}
+                    onClose={() => setForkOpen(false)}
+                    title="Fork this app"
+                    align="left"
+                    side="top"
+                    width="w-[min(300px,100%)]"
+                    sheetOnMobile={false}
+                  >
+                    <p className="text-[13px] font-medium text-white">Fork this app</p>
+                    <p className="mt-1.5 text-[12px] leading-relaxed text-[#8F939A]">
+                      Opens a copy you can change without touching{" "}
+                      {project?.name ?? "this one"}. Nothing is built yet, so the copy starts from
+                      the same place this one did.
+                    </p>
+                    <button
+                      onClick={fork}
+                      disabled={!project || forking}
+                      className="mt-3 h-9 w-full rounded-lg bg-white text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-40"
+                    >
+                      {forking ? "Forking…" : "Create the fork"}
+                    </button>
+                  </Popover>
+                  {/* Hung off the chip on every size. The bar sits at the foot
+                      of the screen, so on a phone the list opens right above the
+                      thumb that asked for it rather than in the middle. */}
+                  <Popover
+                    open={modelOpen}
+                    onClose={() => setModelOpen(false)}
+                    title="Select model"
+                    align="right"
+                    side="top"
+                    width="w-[min(340px,100%)]"
+                    sheetOnMobile={false}
+                  >
+                    <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-center text-[12px] text-[#8F939A]">
+                      <Shuffle className="h-3.5 w-3.5 shrink-0" />
+                      Model changes apply from your next message
+                    </p>
+
+                    <div className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5" role="menu">
+                      {MODELS.map((option) => {
+                        const selected = model === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            role="menuitem"
+                            onClick={() => {
+                              setModel(option.id);
+                              setModelOpen(false);
+                            }}
+                            className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
+                              selected ? "bg-white/[0.06]" : ""
+                            }`}
+                          >
+                            <span className="mt-0.5 shrink-0">
+                              {option.auto ? (
+                                <AutoMark className="h-4 w-4 text-white" />
+                              ) : (
+                                <ModelMark className="h-4 w-4 text-[#D97757]" />
+                              )}
+                            </span>
+
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2">
+                                <span
+                                  className={`truncate text-[13px] font-medium ${
+                                    selected ? "text-[#34F5A0]" : "text-white"
+                                  }`}
+                                >
+                                  {option.name}
+                                </span>
+                                {option.badge && (
+                                  <span className="shrink-0 rounded-full bg-[#F4D96B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F4D96B]">
+                                    {option.badge}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8F939A]">
+                                {option.blurb}
+                                {option.note && (
+                                  <>
+                                    {" · "}
+                                    <span className="text-[#F4D96B]">{option.note}</span>
+                                  </>
+                                )}
+                              </span>
+                            </span>
+
+                            {selected && (
+                              <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-[#34F5A0]" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Popover>
             </div>
           </div>
         </div>
