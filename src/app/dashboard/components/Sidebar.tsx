@@ -3,8 +3,32 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, LayoutGrid, Sparkles, ChevronDown, Coins, LogOut, PanelLeftClose, Settings } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  Coins,
+  CreditCard,
+  Eye,
+  EyeOff,
+  Gift,
+  Github,
+  Globe,
+  LayoutGrid,
+  LifeBuoy,
+  LogOut,
+  PanelLeftClose,
+  Plus,
+  Repeat2,
+  Settings,
+  Sparkles,
+  Trophy,
+  Users,
+} from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
+import { maskEmail } from "../account";
+import { avatarFor } from "../projectColours";
+import { useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -32,7 +56,12 @@ export default function Sidebar({
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [emailRevealed, setEmailRevealed] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  /* The project the panel names. Read from the same place the switcher and the
+     list read it, so the drawer cannot name a project the rest of the app has
+     moved on from. */
+  const { selected } = useProjects();
 
   // The card used to show one hardcoded person, which every visitor would have
   // seen as their own. Read the signed-in user instead.
@@ -59,10 +88,18 @@ export default function Sidebar({
     };
   }, []);
 
-  // Reopening the drawer should not reopen the menu on top of it.
+  // Reopening the drawer should not reopen the menu on top of it, and an address
+  // uncovered once should not still be uncovered the next time it is opened.
   useEffect(() => {
-    if (!open) setAccountMenuOpen(false);
+    if (!open) {
+      setAccountMenuOpen(false);
+      setEmailRevealed(false);
+    }
   }, [open]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) setEmailRevealed(false);
+  }, [accountMenuOpen]);
 
   /* Hold the page still while the drawer is open.
      `overscroll-contain` alone stops a scroll *inside* the drawer from continuing
@@ -111,6 +148,44 @@ export default function Sidebar({
       setSigningOut(false);
     }
   }
+
+  /* The same rows the desktop header's account panel carries. Only Manage Plan
+     and Account Settings have somewhere real to go; the rest stay inert rather
+     than pointing at routes this application does not have. */
+  const menuItems: {
+    icon: typeof Gift;
+    label: string;
+    trailing?: "chevron" | "external";
+    onClick?: () => void;
+  }[] = [
+    { icon: Gift, label: "Refer and Earn" },
+    {
+      icon: CreditCard,
+      label: "Manage Plan",
+      onClick: () => {
+        setAccountMenuOpen(false);
+        onUpgradeClick();
+      },
+    },
+    { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
+    ...(onAccountSettings
+      ? [
+          {
+            icon: Settings,
+            label: "Account Settings",
+            onClick: () => {
+              setAccountMenuOpen(false);
+              onClose();
+              onAccountSettings();
+            },
+          },
+        ]
+      : []),
+    { icon: Globe, label: "Language", trailing: "chevron" as const },
+    { icon: Github, label: "Connect to GitHub", trailing: "external" as const },
+    { icon: Users, label: "Community", trailing: "external" as const },
+    { icon: LifeBuoy, label: "Help Center", trailing: "external" as const },
+  ];
 
   return (
     <AnimatePresence>
@@ -229,6 +304,14 @@ export default function Sidebar({
               <div className="relative">
                 {/* The chevron was inert; it now opens the account menu that holds
                     sign-out, which the drawer otherwise had nowhere to live. */}
+                {/* The account panel, the one the desktop header already opens —
+                    the same address line, project, credits and actions — brought
+                    to the drawer, where a phone has no header to open it from.
+
+                    The address stays covered: the panel identifies the account
+                    by name, and the address itself is not something to leave on
+                    screen over someone's shoulder. The eye uncovers it for as
+                    long as the panel is open. */}
                 <AnimatePresence>
                   {accountMenuOpen && (
                     <motion.div
@@ -236,30 +319,106 @@ export default function Sidebar({
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 6 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute bottom-full left-0 right-0 mb-2 rounded-[16px] border border-white/[0.08] bg-[rgba(18,18,22,0.98)] p-1.5 shadow-xl backdrop-blur-xl"
+                      className="absolute bottom-full left-0 right-0 mb-2 max-h-[calc(100dvh-220px)] overflow-y-auto overscroll-contain rounded-[16px] border border-white/[0.08] bg-[rgba(18,18,22,0.98)] shadow-xl backdrop-blur-xl"
                     >
-                      {onAccountSettings && (
+                      <div className="flex items-center gap-2 px-4 pb-3 pt-3.5">
+                        <p className="min-w-0 flex-1 truncate text-sm text-[#8F939A]">
+                          {account.email
+                            ? emailRevealed
+                              ? account.email
+                              : maskEmail(account.email)
+                            : "Signed in"}
+                        </p>
+                        {account.email && (
+                          <button
+                            onClick={() => setEmailRevealed((value) => !value)}
+                            aria-label={
+                              emailRevealed ? "Hide email address" : "Show email address"
+                            }
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8F939A] transition-colors hover:bg-white/[0.06] hover:text-white"
+                          >
+                            {emailRevealed ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Project */}
+                      <div className="flex items-center gap-2.5 px-4 pb-3">
+                        <span
+                          className={`h-6 w-6 shrink-0 rounded-full bg-gradient-to-br ${avatarFor(
+                            selected?.id,
+                          )}`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium leading-tight text-white">
+                            {selected?.name ?? "No project yet"}
+                          </p>
+                          <p className="truncate text-xs leading-tight text-[#8F939A]">
+                            Owner · 1 member
+                          </p>
+                        </div>
+                        <Repeat2 className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                      </div>
+
+                      {/* Credits */}
+                      <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-white/[0.03] p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-[#8F939A]">Credits</span>
+                          <span className="text-sm font-semibold text-white">{credits}</span>
+                        </div>
                         <button
                           onClick={() => {
                             setAccountMenuOpen(false);
-                            onClose();
-                            onAccountSettings();
+                            onUpgradeClick();
                           }}
-                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white"
+                          className="mt-2.5 h-9 w-full rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.99]"
                         >
-                          <Settings className="h-4 w-4" />
-                          <span className="text-sm font-medium">Account Settings</span>
+                          Upgrade
                         </button>
-                      )}
+                      </div>
 
-                      <button
-                        onClick={handleSignOut}
-                        disabled={signingOut}
-                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white disabled:opacity-60"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        <span className="text-sm font-medium">{signingOut ? "Signing out…" : "Sign out"}</span>
-                      </button>
+                      {/* Actions. The same rows the header's panel carries, and the
+                          same two that lead anywhere: the rest stay inert rather
+                          than pointing at routes this application does not have. */}
+                      <div className="px-1.5 pb-1.5">
+                        {menuItems.map((item) => {
+                          const Icon = item.icon;
+                          return (
+                            <button
+                              key={item.label}
+                              onClick={item.onClick}
+                              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                            >
+                              <Icon className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                              <span className="flex-1 truncate text-[13px]">{item.label}</span>
+                              {item.trailing === "chevron" && (
+                                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                              )}
+                              {item.trailing === "external" && (
+                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Logout, set apart from the rest */}
+                      <div className="border-t border-white/[0.06] px-1.5 py-1.5">
+                        <button
+                          onClick={handleSignOut}
+                          disabled={signingOut}
+                          className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[#ef7777] transition-colors hover:bg-[#ef7777]/[0.08] disabled:opacity-60"
+                        >
+                          <LogOut className="h-4 w-4 shrink-0" />
+                          <span className="text-[13px]">
+                            {signingOut ? "Signing out…" : "Logout"}
+                          </span>
+                        </button>
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
