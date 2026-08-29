@@ -13,6 +13,7 @@ import { AgentMark, MicMark, SendArrow } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
+import WorkspaceTabs from "./components/workspace/WorkspaceTabs";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
@@ -243,6 +244,10 @@ export default function DashboardPage() {
       />
 
       <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
+
+      {/* The apps open this sitting. It draws nothing until one is opened, so an
+          account that has never opened a project sees Home exactly as before. */}
+      <WorkspaceTabs />
 
       <Sidebar
         open={sidebarOpen}

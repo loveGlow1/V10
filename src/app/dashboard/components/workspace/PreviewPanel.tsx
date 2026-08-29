@@ -1,0 +1,222 @@
+"use client";
+
+import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Check, Link2, Monitor, Rocket, SlidersHorizontal } from "lucide-react";
+
+import { avatarFor } from "../../projectColours";
+import { isPublished, useProjects, type Project } from "../../ProjectsContext";
+import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import { closeTab } from "./openTabs";
+
+/* The address a published project would answer on. Derived from the name so it
+   is the same string the Manage tab shows and the publish panel promises. */
+function subdomainFor(project: Project | null) {
+  const slug = (project?.name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return `${slug || "your-app"}${PUBLISH_SUBDOMAIN}`;
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] py-3 last:border-b-0">
+      <span className="shrink-0 text-[13px] text-[#8F939A]">{label}</span>
+      <span className="min-w-0 text-right text-[13px] text-white">{children}</span>
+    </div>
+  );
+}
+
+export default function PreviewPanel({ project }: { project: Project | null }) {
+  const router = useRouter();
+  const { rename, remove } = useProjects();
+  const [view, setView] = useState<"preview" | "manage">("preview");
+  const [shared, setShared] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [draft, setDraft] = useState(project?.name ?? "");
+  const [confirming, setConfirming] = useState(false);
+  const publishRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
+
+  useEffect(() => {
+    if (!publishOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (publishRef.current && !publishRef.current.contains(event.target as Node)) {
+        setPublishOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [publishOpen]);
+
+  async function share() {
+    if (!project) return;
+    const url = `${SITE_URL}/dashboard/project/${project.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShared(true);
+      window.setTimeout(() => setShared(false), 2000);
+    } catch {
+      // Clipboard permission can be refused; leave the label alone rather than
+      // claiming a copy that did not happen.
+    }
+  }
+
+  const segment = (active: boolean) =>
+    `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors ${
+      active ? "bg-white/[0.08] text-white" : "text-[#8F939A] hover:text-white"
+    }`;
+
+  return (
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3">
+        <div
+          role="group"
+          aria-label="Workspace view"
+          className="flex items-center gap-0.5 rounded-full border border-white/[0.07] bg-white/[0.02] p-0.5"
+        >
+          <button onClick={() => setView("preview")} aria-pressed={view === "preview"} className={segment(view === "preview")}>
+            <Monitor className="h-3.5 w-3.5" />
+            Preview
+          </button>
+          <button onClick={() => setView("manage")} aria-pressed={view === "manage"} className={segment(view === "manage")}>
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Manage
+          </button>
+        </div>
+
+        <div className="relative flex shrink-0 items-center gap-2" ref={publishRef}>
+          <button
+            onClick={share}
+            className="flex h-8 items-center gap-1.5 rounded-full border border-white/[0.09] px-3 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            {shared ? <Check className="h-3.5 w-3.5 text-[#34F5A0]" /> : <Link2 className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{shared ? "Link copied" : "Share"}</span>
+          </button>
+
+          <button
+            onClick={() => setPublishOpen((open) => !open)}
+            aria-expanded={publishOpen}
+            className="flex h-8 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90"
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            Publish
+          </button>
+
+          {publishOpen && (
+            <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-[300px] max-w-[calc(100vw-24px)] rounded-xl border border-white/[0.09] bg-[#141416] p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]">
+              <p className="text-[13px] font-medium text-white">Publish this app</p>
+              <p className="mt-1.5 break-all rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 text-[12px] text-[#C7CAD0]">
+                {subdomainFor(project)}
+              </p>
+              {/* Honest rather than convincing: there is no build to put on that
+                  address yet, so the button says why instead of failing. */}
+              <p className="mt-2.5 text-[12px] leading-relaxed text-[#8F939A]">
+                Goes live once your first build finishes.
+              </p>
+              <button
+                disabled
+                className="mt-3 h-8 w-full rounded-lg bg-white/[0.08] text-[13px] font-medium text-[#8F939A]"
+              >
+                Publish app
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {view === "preview" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
+            <span className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${avatarFor(project?.id)}`} />
+            <p className="mt-4 text-[15px] text-white">Nothing to preview yet</p>
+            <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-[#8F939A]">
+              Your app renders here the moment the first build finishes.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="mx-auto w-full max-w-[520px]">
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!project || !draft.trim() || draft.trim() === project.name) return;
+                await rename(project.id, draft.trim());
+              }}
+            >
+              <label className="block text-[13px] text-[#8F939A]" htmlFor="workspace-name">
+                Name
+              </label>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  id="workspace-name"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  className="h-9 min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none focus-visible:border-white/25"
+                />
+                <button
+                  type="submit"
+                  disabled={!draft.trim() || draft.trim() === project?.name}
+                  className="h-9 shrink-0 rounded-lg bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-30"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+
+            <div className="mt-5">
+              <Row label="Status">{project ? project.status : "—"}</Row>
+              <Row label="Address">
+                <span className="break-all text-[#C7CAD0]">{subdomainFor(project)}</span>
+              </Row>
+              <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
+              <Row label="Last updated">
+                {project ? new Date(project.updated_at).toLocaleString() : "—"}
+              </Row>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-[#FF6B6B]/25 p-3.5">
+              <p className="text-[13px] font-medium text-white">Delete this app</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+                Removes the project and everything in it. This cannot be undone.
+              </p>
+              {confirming ? (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={async () => {
+                      if (!project) return;
+                      if (await remove(project.id)) {
+                        closeTab(project.id);
+                        router.push("/dashboard");
+                      }
+                    }}
+                    className="flex-1 rounded-lg bg-[#FF6B6B] px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-[#ff5252]"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setConfirming(false)}
+                    className="flex-1 rounded-lg border border-white/[0.09] px-3 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirming(true)}
+                  className="mt-3 rounded-lg border border-[#FF6B6B]/40 px-3 py-1.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10"
+                >
+                  Delete app
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
