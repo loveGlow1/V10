@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import ChatMark from "./ChatMark";
+import { useSupportChatRequests } from "../supportChat";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
 type Message = { id: number; from: "support" | "user"; text: string };
@@ -25,6 +26,9 @@ const GREETING =
 export default function SupportChat() {
   useKeyboardInset();
   const [open, setOpen] = useState(false);
+  /* Contact Support, wherever it is pressed, lands here. The count only ever
+     goes up, so the effect below runs once per request and never on mount. */
+  const supportRequests = useSupportChatRequests();
   /* Starts at nothing. This was seeded at 1, so every visitor arrived to a badge
      announcing a message that did not exist — and once dismissed it could never
      come back, since nothing else set it. It now counts what it claims to count:
@@ -46,6 +50,12 @@ export default function SupportChat() {
       current.length > 0 ? current : [{ id: 0, from: "support", text: GREETING }],
     );
   }, [open]);
+
+  useEffect(() => {
+    if (supportRequests === 0) return;
+    setOpen(true);
+    setUnread(0);
+  }, [supportRequests]);
 
   // Keep the newest message in view as the thread grows.
   useEffect(() => {

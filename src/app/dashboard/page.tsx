@@ -5,7 +5,7 @@ import TopNav from "./components/TopNav";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
-import AccountSettingsModal from "./components/AccountSettingsModal";
+import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
 import { formatCredits, signupBalance, totalCredits } from "./credits";
@@ -104,6 +104,9 @@ const projectTypes = [
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
+  /* Which pane the settings panel opens on. The account menu wants its own; the
+     project switcher wants the project's. */
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [activeType, setActiveType] = useState("web");
   const [composerFocused, setComposerFocused] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
@@ -260,7 +263,10 @@ export default function DashboardPage() {
 
       <TopNav
         onUpgradeClick={() => setBillingOpen(true)}
-        onAccountSettingsClick={() => setAccountSettingsOpen(true)}
+        onAccountSettingsClick={() => {
+          setSettingsSection("account");
+          setAccountSettingsOpen(true);
+        }}
         projectName={projectName ?? "No project yet"}
         credits={CREDITS}
       />
@@ -278,7 +284,10 @@ export default function DashboardPage() {
           setSidebarOpen(false);
           setBillingOpen(true);
         }}
-        onAccountSettings={() => setAccountSettingsOpen(true)}
+        onAccountSettings={() => {
+          setSettingsSection("account");
+          setAccountSettingsOpen(true);
+        }}
         onNewTask={focusComposer}
         credits={CREDITS}
       />
@@ -294,6 +303,7 @@ export default function DashboardPage() {
         credits={CREDITS}
         agents={AGENTS}
         selectedAgent={selectedAgent}
+        initialSection={settingsSection}
       />
       <SupportChat />
       <ComingSoonModal open={comingSoonOpen} onClose={() => setComingSoonOpen(false)} />
@@ -310,7 +320,13 @@ export default function DashboardPage() {
           it keeps the proportion at any height, and still resolves to 72px at
           668. */}
       <main className="relative z-10 mx-auto flex w-full flex-1 flex-col items-center px-4 pb-16 pt-7 md:px-5 md:pt-10">
-        <ProjectSwitcher onSelectedChange={setProjectName} />
+        <ProjectSwitcher
+          onSelectedChange={setProjectName}
+          onOpenSettings={(pane) => {
+            setSettingsSection(pane);
+            setAccountSettingsOpen(true);
+          }}
+        />
 
         <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
