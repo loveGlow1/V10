@@ -22,12 +22,6 @@ type Message = { id: number; from: "support" | "user"; text: string };
 const GREETING =
   "Hi, I'm Quinn! Your AI assistant in your build journey. Chat with me for FREE!";
 
-const QUICK_REPLIES = [
-  "I have an issue with my current app.",
-  "Help me build a great app!!",
-  "Help in adding features to my current app",
-];
-
 export default function SupportChat() {
   useKeyboardInset();
   const [open, setOpen] = useState(false);
@@ -37,14 +31,21 @@ export default function SupportChat() {
      support messages that arrived while the panel was shut. */
   const [unread, setUnread] = useState(0);
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 0, from: "support", text: GREETING },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const threadRef = useRef<HTMLDivElement>(null);
-  /* How much of the thread the visitor has already been shown. Seeded with the
-     opening greeting, which is on screen the moment the panel opens and is not
-     something that "arrived". */
-  const seenCount = useRef(1);
+  /* How much of the thread the visitor has already been shown. The thread starts
+     empty, so nothing has been seen yet. */
+  const seenCount = useRef(0);
+
+  /* The greeting arrives when the panel is opened, not when the page loads, so it
+     reads as a message that has just come in rather than one that was sitting
+     there all along. Added once — reopening the panel does not repeat it. */
+  useEffect(() => {
+    if (!open) return;
+    setMessages((current) =>
+      current.length > 0 ? current : [{ id: 0, from: "support", text: GREETING }],
+    );
+  }, [open]);
 
   // Keep the newest message in view as the thread grows.
   useEffect(() => {
@@ -71,10 +72,6 @@ export default function SupportChat() {
     setMessages((current) => [...current, { id: current.length, from: "user", text: body }]);
     setDraft("");
   }
-
-  // Only the first three carry the canned openers; once the conversation has
-  // started they would be noise.
-  const showQuickReplies = messages.every((message) => message.from === "support");
 
   return (
     <>
@@ -138,20 +135,6 @@ export default function SupportChat() {
                     </div>
                   </div>
                 ),
-              )}
-
-              {showQuickReplies && (
-                <div className="flex flex-col items-end gap-2 pt-1">
-                  {QUICK_REPLIES.map((reply) => (
-                    <button
-                      key={reply}
-                      onClick={() => send(reply)}
-                      className="max-w-[85%] rounded-[16px] border border-white/[0.1] bg-white/[0.06] px-3.5 py-2.5 text-right text-sm text-white transition-colors hover:bg-white/[0.1]"
-                    >
-                      {reply}
-                    </button>
-                  ))}
-                </div>
               )}
             </div>
 
