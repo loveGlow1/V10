@@ -10,7 +10,6 @@ import {
   Gift,
   Github,
   Globe,
-  Home,
   LifeBuoy,
   LogOut,
   Repeat2,
@@ -127,10 +126,10 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
             </span>
           </a>
 
-          <button className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 text-[13px] font-medium text-white transition-colors hover:bg-white/[0.1]">
-            <Home className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Home</span>
-          </button>
+          {/* No Home button here. The tab strip below carries Home as a tab —
+              one control, in the row where the apps you can switch to already
+              are — and the brand beside this is a link to the same place. Two
+              Homes a hairline apart is one too many to read. */}
         </div>
 
         {/* Upgrade + avatar */}

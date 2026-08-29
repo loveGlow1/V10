@@ -49,7 +49,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-white/[0.06] md:bg-[#0c0c0e] md:px-2 md:py-1.5 [&::-webkit-scrollbar]:hidden">
+    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-white/[0.06] md:bg-[#0c0c0e] md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
