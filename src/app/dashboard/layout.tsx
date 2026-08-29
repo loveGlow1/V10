@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export const metadata: Metadata = {
-  title: "QuickStart.Ai | Dashboard",
+  title: "Quickstark.Ai | Dashboard",
   description: "Where ideas become reality.",
 };
 

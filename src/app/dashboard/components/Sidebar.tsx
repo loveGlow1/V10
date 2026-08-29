@@ -139,7 +139,7 @@ export default function Sidebar({
                which is what made scrolling feel heavy. */
             className="fixed top-0 left-0 z-50 flex h-[100dvh] w-[min(300px,84vw)] flex-col overflow-hidden overscroll-contain border-r border-white/[0.09] bg-[rgba(10,10,12,0.97)] p-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] md:hidden"
           >
-            {/* Header: 3D Canvas Logo & QuickStart.Ai Brand */}
+            {/* Header: 3D Canvas Logo & Quickstark.Ai Brand */}
             <div className="mb-5 flex shrink-0 items-center justify-between">
               <div className="flex min-w-0 items-center gap-2.5">
                 {/* The size has to be given to the canvas itself — the component passes
@@ -149,7 +149,7 @@ export default function Sidebar({
                   <Q3DCanvas scale={0.65} className="h-9 w-9" />
                 </div>
                 <span className="text-lg font-bold tracking-tight text-white">
-                  QuickStart<span className="text-[#34F5A0]">.Ai</span>
+                  Quickstark<span className="text-[#34F5A0]">.Ai</span>
                 </span>
               </div>
 

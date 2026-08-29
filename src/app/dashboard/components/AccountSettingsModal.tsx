@@ -25,7 +25,7 @@ const SECTION_META: Record<SectionId, { title: string; subtitle?: string }> = {
   account: { title: "Account settings" },
   key: { title: "Universal Key", subtitle: "Bring your own model key" },
   agents: { title: "Manage Agents", subtitle: "Create, edit and manage your custom agents" },
-  preferences: { title: "Preferences", subtitle: "Customize how QuickStart.Ai works for you" },
+  preferences: { title: "Preferences", subtitle: "Customize how Quickstark.Ai works for you" },
   plans: { title: "Plans & Invoices", subtitle: "Manage your plan and view transaction history" },
   credits: { title: "Credit Usage", subtitle: "Track your credit usage and history" },
 };
@@ -858,7 +858,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               <button
                                 disabled={!active}
                                 aria-pressed={active}
-                                title={active ? undefined : "QuickStart.Ai is dark-only for now"}
+                                title={active ? undefined : "Quickstark.Ai is dark-only for now"}
                                 className={`flex h-[74px] w-full items-center justify-center rounded-lg border-2 transition-colors ${
                                   active
                                     ? "border-[#4A90E2] bg-[#141417]"
@@ -884,7 +884,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       )}
                     </div>
                     <p className="mt-3 text-[13px] text-[#8F939A]">
-                      QuickStart.Ai is dark-only for now, so the other themes are not selectable yet.
+                      Quickstark.Ai is dark-only for now, so the other themes are not selectable yet.
                     </p>
                   </div>
                 )}
