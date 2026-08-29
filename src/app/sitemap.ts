@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next";
 
+import { SITE_URL } from "@/lib/site";
+
 /* The pages a stranger can actually open. The dashboard is behind sign-in, so it
    is deliberately absent. */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://v10-eight-jet.vercel.app");
+  const siteUrl = SITE_URL;
   const lastModified = new Date();
 
   return [

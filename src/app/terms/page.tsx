@@ -45,7 +45,7 @@ export default function TermsPage() {
         </p>
         <p>
           When you publish, we take a snapshot of the generated code into a repository in your own GitHub
-          account and deploy it. Published projects are served from a quickstark.ai subdomain, or from your
+          account and deploy it. Published projects are served from a quickstark.tech subdomain, or from your
           own domain on plans that allow it.
         </p>
         <p>
@@ -188,7 +188,7 @@ export default function TermsPage() {
           revoke it at any time.
         </p>
         <p>
-          Applications published on a quickstark.ai subdomain are hosted by us and remain subject to
+          Applications published on a quickstark.tech subdomain are hosted by us and remain subject to
           clause 8. We may remove a published project that breaches it, and will tell you why.
         </p>
       </Clause>

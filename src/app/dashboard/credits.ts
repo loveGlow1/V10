@@ -21,6 +21,8 @@
    balance, which is what lets the same functions run in the composer to
    preview a cost and on the server to enforce one. */
 
+import { PUBLISH_SUBDOMAIN } from "@/lib/site";
+
 export type PlanId = "free" | "standard" | "pro";
 
 /* Both plans get the same daily grant — the spec gives Free "5 daily build
@@ -60,14 +62,14 @@ export const PLANS: Record<PlanId, Plan> = {
     /* Daily credits are explicitly non-rolling: an unused day is gone. */
     rolloverCycles: 0,
     publishing: {
-      subdomain: ".quickstark.ai",
+      subdomain: PUBLISH_SUBDOMAIN,
       customDomains: false,
       privateRepos: false,
     },
     support: "Standard community support",
     features: [
       `${DAILY_ALLOWANCE} daily build credits`,
-      "Publish to a quickstark.ai subdomain",
+      `Publish to a ${PUBLISH_SUBDOMAIN.replace(/^\./, "")} subdomain`,
       "Unlimited sandbox iteration",
       "Standard community support",
     ],
@@ -80,7 +82,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyCredits: 100,
     rolloverCycles: 1,
     publishing: {
-      subdomain: ".quickstark.ai",
+      subdomain: PUBLISH_SUBDOMAIN,
       customDomains: true,
       privateRepos: true,
     },
@@ -104,7 +106,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyCredits: 600,
     rolloverCycles: 1,
     publishing: {
-      subdomain: ".quickstark.ai",
+      subdomain: PUBLISH_SUBDOMAIN,
       customDomains: true,
       privateRepos: true,
     },
