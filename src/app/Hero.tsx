@@ -21,7 +21,7 @@ export function Hero() {
         <div className="relative rounded-2xl overflow-hidden bg-slate-900">
           <img
             src="https://raw.githubusercontent.com/loveGlow1/V10/main/public/hero-showcase.png"
-            alt="Quickstark.Ai Platform Experience"
+            alt="QuickStark.Ai Platform Experience"
             className="w-full h-auto object-cover transform hover:scale-[1.01] transition-transform duration-500"
           />
         </div>

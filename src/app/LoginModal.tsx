@@ -183,7 +183,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
   const heading = (
     <div className="flex flex-col items-center gap-1">
       <p className="text-xs font-semibold uppercase tracking-[0.2em]">
-        <span className="wordmark-quickstart">Quickstark</span><span className="wordmark-ai">.Ai</span>
+        <span className="wordmark-quickstart">QuickStark</span><span className="wordmark-ai">.Ai</span>
       </p>
       <h2 className="whitespace-nowrap text-center text-[clamp(1.2rem,5vw,2.4rem)] font-bold leading-[1.15] tracking-tight">
         <span className="metal-shimmer">Build Full-Stack</span>
