@@ -68,7 +68,7 @@ export default function ProjectSwitcher({
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="mx-auto flex h-[38px] max-w-[calc(100vw-40px)] items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.05] pl-2 pr-3 text-sm text-white transition-colors hover:bg-white/[0.08]"
+        className="mx-auto flex h-[38px] max-w-[calc(100vw-40px)] items-center gap-2 rounded-full border border-line/[0.09] bg-layer/[0.05] pl-2 pr-3 text-sm text-ink transition-colors hover:bg-layer/[0.08]"
       >
         <span
           className={`h-[22px] w-[22px] shrink-0 rounded-full bg-gradient-to-br ${
@@ -77,7 +77,7 @@ export default function ProjectSwitcher({
         />
         <span className="max-w-[190px] truncate font-medium">{label}</span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[#8F939A] transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -93,7 +93,7 @@ export default function ProjectSwitcher({
             transition={{ duration: 0.16, ease: "easeOut" }}
             role="menu"
             aria-label="Projects"
-            className="w-full overflow-hidden rounded-2xl border border-white/[0.09] bg-[#141416] p-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.7)]"
+            className="w-full overflow-hidden rounded-2xl border border-line/[0.09] bg-panel p-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.7)]"
           >
             {projects.map((project) => {
               const current = project.id === selectedId;
@@ -105,22 +105,22 @@ export default function ProjectSwitcher({
                       select(project.id);
                       setOpen(false);
                     }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.06]"
                   >
                     <span
                       className={`h-8 w-8 shrink-0 rounded-full bg-gradient-to-br ${avatarFor(project.id)}`}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-white">
+                      <span className="block truncate text-sm font-medium text-ink">
                         {project.name}
                       </span>
                       {/* Projects are owner-scoped and there is no sharing yet, so the
                           owner is the only member — stated, not counted. */}
-                      <span className="block truncate text-[13px] text-[#8F939A]">
+                      <span className="block truncate text-[13px] text-muted">
                         Owner · 1 member
                       </span>
                     </span>
-                    {current && <Check className="h-4 w-4 shrink-0 text-[#34F5A0]" />}
+                    {current && <Check className="h-4 w-4 shrink-0 text-accent" />}
                   </button>
 
                   {/* Under the one you are in, and only that one: settings and
@@ -133,9 +133,9 @@ export default function ProjectSwitcher({
                           setOpen(false);
                           onOpenSettings?.("project");
                         }}
-                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.04] text-[13px] text-white transition-colors hover:bg-white/[0.08]"
+                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.04] text-[13px] text-ink transition-colors hover:bg-layer/[0.08]"
                       >
-                        <Settings className="h-4 w-4 text-[#C7CAD0]" />
+                        <Settings className="h-4 w-4 text-soft" />
                         Settings
                       </button>
                       <button
@@ -143,9 +143,9 @@ export default function ProjectSwitcher({
                           setOpen(false);
                           onOpenSettings?.("members");
                         }}
-                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.04] text-[13px] text-white transition-colors hover:bg-white/[0.08]"
+                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.04] text-[13px] text-ink transition-colors hover:bg-layer/[0.08]"
                       >
-                        <UserPlus className="h-4 w-4 text-[#C7CAD0]" />
+                        <UserPlus className="h-4 w-4 text-soft" />
                         Invite members
                       </button>
                     </div>
@@ -155,12 +155,12 @@ export default function ProjectSwitcher({
             })}
 
             {!loading && !error && projects.length === 0 && !creating && (
-              <p className="px-3 py-2.5 text-[13px] text-[#8F939A]">
+              <p className="px-3 py-2.5 text-[13px] text-muted">
                 No projects yet. Create the first one below.
               </p>
             )}
 
-            {error && <p className="px-3 py-2.5 text-[13px] text-[#FF6B6B]">{error}</p>}
+            {error && <p className="px-3 py-2.5 text-[13px] text-danger">{error}</p>}
 
             {creating ? (
               <form onSubmit={createProject} className="p-1.5">
@@ -170,13 +170,13 @@ export default function ProjectSwitcher({
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Project name"
                   aria-label="Project name"
-                  className="h-10 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-[#6F737A] focus-visible:border-white/25"
+                  className="h-10 w-full rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none placeholder:text-faint focus-visible:border-line/25"
                 />
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     type="submit"
                     disabled={saving || !draft.trim()}
-                    className="rounded-lg bg-white px-3 py-1.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90 disabled:opacity-50"
+                    className="rounded-lg bg-solid px-3 py-1.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
                   >
                     {saving ? "Creating…" : "Create"}
                   </button>
@@ -186,7 +186,7 @@ export default function ProjectSwitcher({
                       setCreating(false);
                       setDraft("");
                     }}
-                    className="rounded-lg px-3 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
+                    className="rounded-lg px-3 py-1.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05]"
                   >
                     Cancel
                   </button>
@@ -196,12 +196,12 @@ export default function ProjectSwitcher({
               <button
                 role="menuitem"
                 onClick={() => setCreating(true)}
-                className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-3 transition-colors hover:bg-white/[0.06] ${
-                  projects.length > 0 ? "mt-1 border-t border-white/[0.06] pt-3" : ""
+                className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-3 transition-colors hover:bg-layer/[0.06] ${
+                  projects.length > 0 ? "mt-1 border-t border-line/[0.06] pt-3" : ""
                 }`}
               >
-                <Plus className="h-4 w-4 shrink-0 text-[#C7CAD0]" />
-                <span className="text-sm text-white">Create new project</span>
+                <Plus className="h-4 w-4 shrink-0 text-soft" />
+                <span className="text-sm text-ink">Create new project</span>
               </button>
             )}
           </motion.div>

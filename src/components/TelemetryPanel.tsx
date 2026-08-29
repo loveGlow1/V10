@@ -50,7 +50,7 @@ export default function TelemetryPanel({ activePlanet, starSystem, station }: Te
     <div className="bg-space-800 border border-space-accent/20 rounded-xl p-4 shadow-neon-blue/10">
       <div className="flex items-center gap-1.5 border-b border-space-accent/20 pb-2 mb-3.5">
         <Compass className="w-4 h-4 text-space-accent animate-pulse" />
-        <h3 className="text-xs font-mono font-bold tracking-widest text-white uppercase">
+        <h3 className="text-xs font-mono font-bold tracking-widest text-ink uppercase">
           COSMIC TELEMETRY ANALYZER
         </h3>
       </div>
@@ -72,7 +72,7 @@ export default function TelemetryPanel({ activePlanet, starSystem, station }: Te
             {/* Stats grid box 1 */}
             <div className="bg-space-900/60 p-2.5 rounded border border-gray-800">
               <span className="block text-[9px] font-mono text-gray-400 uppercase">Orbital Radius</span>
-              <span className="text-sm font-mono font-bold text-white">{activePlanet.distance} AU</span>
+              <span className="text-sm font-mono font-bold text-ink">{activePlanet.distance} AU</span>
               <span className="block text-[8px] text-gray-500 font-mono mt-0.5">{(activePlanet.distance * 149.6).toFixed(0)}m Kilometers</span>
             </div>
 
@@ -93,7 +93,7 @@ export default function TelemetryPanel({ activePlanet, starSystem, station }: Te
             {/* Stats grid box 3 */}
             <div className="bg-space-900/60 p-2.5 rounded border border-gray-800">
               <span className="block text-[9px] font-mono text-gray-400 uppercase">Estimated Mass</span>
-              <span className="text-sm font-mono font-bold text-white">{activePlanet.mass} M⊕</span>
+              <span className="text-sm font-mono font-bold text-ink">{activePlanet.mass} M⊕</span>
               <span className="block text-[8px] text-gray-500 font-mono mt-0.5">
                 {activePlanet.mass > 100 ? 'Supergiant planet' : 'Terrestrial body'}
               </span>

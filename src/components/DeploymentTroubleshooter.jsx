@@ -110,7 +110,7 @@ export default function DeploymentTroubleshooter({ activeProject, onResolveIssue
         <div className="lg:col-span-5 flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <div>
-              <h4 className="text-white font-semibold text-sm flex items-center mb-1">
+              <h4 className="text-ink font-semibold text-sm flex items-center mb-1">
                 <Sliders className="w-4 h-4 mr-2 text-indigo-400" /> Build Configuration Settings
               </h4>
               <p className="text-xs text-gray-400">Simulate or fix settings for Vercel deployment.</p>
@@ -160,7 +160,7 @@ export default function DeploymentTroubleshooter({ activeProject, onResolveIssue
                   value={rootDir}
                   onChange={(e) => setRootDir(e.target.value)}
                   disabled={simulationStep === 'running_failed' || simulationStep === 'running_fixed'}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 pl-8 text-xs font-mono text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                  className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 pl-8 text-xs font-mono text-ink focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                 />
                 <Server className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-500" />
               </div>
@@ -227,7 +227,7 @@ export default function DeploymentTroubleshooter({ activeProject, onResolveIssue
                 onClick={applyOverrideAndDeploy}
                 className={`w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg text-xs font-semibold tracking-wide transition duration-150 ${
                   frameworkPreset === 'nextjs'
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-ink cursor-pointer'
                     : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                 }`}
               >

@@ -47,9 +47,9 @@ function subdomainFor(project: Project | null) {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] py-3 last:border-b-0">
-      <span className="shrink-0 text-[13px] text-[#8F939A]">{label}</span>
-      <span className="min-w-0 text-right text-[13px] text-white">{children}</span>
+    <div className="flex items-start justify-between gap-4 border-b border-line/[0.06] py-3 last:border-b-0">
+      <span className="shrink-0 text-[13px] text-muted">{label}</span>
+      <span className="min-w-0 text-right text-[13px] text-ink">{children}</span>
     </div>
   );
 }
@@ -121,13 +121,13 @@ export default function PreviewPanel({
 
   const segment = (active: boolean) =>
     `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors ${
-      active ? "bg-white/[0.08] text-white" : "text-[#8F939A] hover:text-white"
+      active ? "bg-layer/[0.08] text-ink" : "text-muted hover:text-ink"
     }`;
 
   /* Glass over the blue, the material every control in the phone header is made
      of: a translucent fill, a hairline rim, one pixel of light along the top. */
   const glass =
-    "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors active:scale-[0.98]";
+    "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors active:scale-[0.98]";
 
   const sections: { id: ManageSection; label: string; icon: typeof Blocks }[] = [
     { id: "settings", label: "App settings", icon: SlidersHorizontal },
@@ -137,18 +137,18 @@ export default function PreviewPanel({
 
   const publishBody = (
     <>
-      <p className="hidden text-[13px] font-medium text-white md:block">Publish this app</p>
-      <p className="break-all rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-2 text-[12px] text-[#C7CAD0] md:mt-1.5">
+      <p className="hidden text-[13px] font-medium text-ink md:block">Publish this app</p>
+      <p className="break-all rounded-lg border border-line/[0.06] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-soft md:mt-1.5">
         {subdomainFor(project)}
       </p>
       {/* Honest rather than convincing: there is no build to put on that address
           yet, so the button says why instead of failing. */}
-      <p className="mt-2.5 text-[12px] leading-relaxed text-[#8F939A]">
+      <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
         Goes live once your first build finishes.
       </p>
       <button
         disabled
-        className="mt-3 h-10 w-full rounded-xl bg-white/[0.08] text-[13px] font-medium text-[#8F939A] md:h-8 md:rounded-lg"
+        className="mt-3 h-10 w-full rounded-xl bg-layer/[0.08] text-[13px] font-medium text-muted md:h-8 md:rounded-lg"
       >
         Publish app
       </button>
@@ -157,10 +157,10 @@ export default function PreviewPanel({
 
   const preview = (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
+      <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
         <span className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${avatarFor(project?.id)}`} />
-        <p className="mt-4 text-[15px] text-white">Nothing to preview yet</p>
-        <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-[#8F939A]">
+        <p className="mt-4 text-[15px] text-ink">Nothing to preview yet</p>
+        <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-muted">
           Your app renders here the moment the first build finishes.
         </p>
       </div>
@@ -175,8 +175,8 @@ export default function PreviewPanel({
           navigation. Below that it is a scrolling row of pills: the chat half
           takes 420px of the screen, so at md the pane itself is barely wider
           than the rail would be. */}
-      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-white/[0.06] p-2 [scrollbar-width:none] lg:w-[190px] lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:hidden">
-        <p className="hidden px-2.5 py-2 text-[13px] text-[#8F939A] lg:block">Manage your app</p>
+      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-line/[0.06] p-2 [scrollbar-width:none] lg:w-[190px] lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r [&::-webkit-scrollbar]:hidden">
+        <p className="hidden px-2.5 py-2 text-[13px] text-muted lg:block">Manage your app</p>
         {sections.map((item) => {
           const Icon = item.icon;
           const active = section === item.id;
@@ -187,8 +187,8 @@ export default function PreviewPanel({
               aria-current={active ? "page" : undefined}
               className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-2.5 text-[13px] transition-colors ${
                 active
-                  ? "bg-white/[0.08] text-white"
-                  : "text-[#8F939A] hover:bg-white/[0.04] hover:text-white"
+                  ? "bg-layer/[0.08] text-ink"
+                  : "text-muted hover:bg-layer/[0.04] hover:text-ink"
               }`}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -208,7 +208,7 @@ export default function PreviewPanel({
                 await rename(project.id, draft.trim());
               }}
             >
-              <label className="block text-[13px] text-[#8F939A]" htmlFor="workspace-name">
+              <label className="block text-[13px] text-muted" htmlFor="workspace-name">
                 Name
               </label>
               <div className="mt-1.5 flex gap-2">
@@ -216,12 +216,12 @@ export default function PreviewPanel({
                   id="workspace-name"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  className="h-10 min-w-0 flex-1 rounded-xl border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none focus-visible:border-white/25 md:h-9 md:rounded-lg"
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none focus-visible:border-line/25 md:h-9 md:rounded-lg"
                 />
                 <button
                   type="submit"
                   disabled={!draft.trim() || draft.trim() === project?.name}
-                  className="h-10 shrink-0 rounded-xl bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-30 md:h-9 md:rounded-lg"
+                  className="h-10 shrink-0 rounded-xl bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-opacity hover:bg-layer/90 disabled:opacity-30 md:h-9 md:rounded-lg"
                 >
                   Save
                 </button>
@@ -231,7 +231,7 @@ export default function PreviewPanel({
             <div className="mt-5">
               <Row label="Status">{project ? project.status : "—"}</Row>
               <Row label="Address">
-                <span className="break-all text-[#C7CAD0]">{subdomainFor(project)}</span>
+                <span className="break-all text-soft">{subdomainFor(project)}</span>
               </Row>
               <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
               <Row label="Last updated">
@@ -239,9 +239,9 @@ export default function PreviewPanel({
               </Row>
             </div>
 
-            <div className="mt-6 rounded-[18px] border border-[#FF6B6B]/25 p-3.5 md:rounded-xl">
-              <p className="text-[13px] font-medium text-white">Delete this app</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+            <div className="mt-6 rounded-[18px] border border-danger/25 p-3.5 md:rounded-xl">
+              <p className="text-[13px] font-medium text-ink">Delete this app</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 Removes the project and everything in it. This cannot be undone.
               </p>
               {confirming ? (
@@ -254,13 +254,13 @@ export default function PreviewPanel({
                         router.push("/dashboard");
                       }
                     }}
-                    className="h-10 flex-1 rounded-xl bg-[#FF6B6B] px-3 text-[13px] font-medium text-white transition-colors hover:bg-[#ff5252] md:h-8 md:rounded-lg"
+                    className="h-10 flex-1 rounded-xl bg-danger px-3 text-[13px] font-medium text-white transition-colors hover:bg-danger md:h-8 md:rounded-lg"
                   >
                     Delete
                   </button>
                   <button
                     onClick={() => setConfirming(false)}
-                    className="h-10 flex-1 rounded-xl border border-white/[0.09] px-3 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] md:h-8 md:rounded-lg"
+                    className="h-10 flex-1 rounded-xl border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] md:h-8 md:rounded-lg"
                   >
                     Cancel
                   </button>
@@ -268,7 +268,7 @@ export default function PreviewPanel({
               ) : (
                 <button
                   onClick={() => setConfirming(true)}
-                  className="mt-3 h-10 rounded-xl border border-[#FF6B6B]/40 px-3.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10 md:h-8 md:rounded-lg"
+                  className="mt-3 h-10 rounded-xl border border-danger/40 px-3.5 text-[13px] text-danger transition-colors hover:bg-danger/10 md:h-8 md:rounded-lg"
                 >
                   Delete app
                 </button>
@@ -285,27 +285,27 @@ export default function PreviewPanel({
 
         {section === "payments" && (
           <div className="w-full max-w-[520px] px-4 py-4 lg:pl-5">
-            <h2 className="text-[17px] font-semibold text-white">Payments</h2>
-            <p className="mt-1 text-[13px] text-[#8F939A]">
+            <h2 className="text-[17px] font-semibold text-ink">Payments</h2>
+            <p className="mt-1 text-[13px] text-muted">
               What you pay to build here, and what your app charges for.
             </p>
 
-            <div className="mt-4 rounded-[18px] border border-white/[0.07] bg-white/[0.02] p-3.5 md:rounded-xl">
-              <p className="text-[14px] font-medium text-white">Your plan and credits</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+            <div className="mt-4 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
+              <p className="text-[14px] font-medium text-ink">Your plan and credits</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 Billing for building on QuickStark.Ai — the plan, the credit balance and top-ups.
               </p>
               <button
                 onClick={onUpgradeClick}
-                className="mt-3 h-10 rounded-xl bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90 md:h-8 md:rounded-lg"
+                className="mt-3 h-10 rounded-xl bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 md:h-8 md:rounded-lg"
               >
                 Manage plan
               </button>
             </div>
 
-            <div className="mt-3 rounded-[18px] border border-white/[0.07] bg-white/[0.02] p-3.5 md:rounded-xl">
-              <p className="text-[14px] font-medium text-white">Charging in this app</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-[#8F939A]">
+            <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
+              <p className="text-[14px] font-medium text-ink">Charging in this app</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 To take card payments from the people who use your app, add a payments provider.
               </p>
               <button
@@ -313,7 +313,7 @@ export default function PreviewPanel({
                   setIntegrationsCategory("Payments");
                   setSection("integrations");
                 }}
-                className="mt-3 h-10 rounded-xl border border-white/[0.09] px-3.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white md:h-8 md:rounded-lg"
+                className="mt-3 h-10 rounded-xl border border-line/[0.09] px-3.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink md:h-8 md:rounded-lg"
               >
                 Browse payment integrations
               </button>
@@ -341,12 +341,12 @@ export default function PreviewPanel({
           <span
             className={`h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br ${avatarFor(project?.id)}`}
           />
-          <p className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+          <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
             {project?.name ?? "Loading…"}
           </p>
 
           <button onClick={share} aria-label="Copy link" className={glass}>
-            {shared ? <Check className="h-4 w-4 text-[#34F5A0]" /> : <Link2 className="h-4 w-4" />}
+            {shared ? <Check className="h-4 w-4 text-accent" /> : <Link2 className="h-4 w-4" />}
           </button>
           <button
             onClick={() => setView("manage")}
@@ -378,15 +378,15 @@ export default function PreviewPanel({
 
         {view === "manage" &&
           createPortal(
-            <div className="fixed inset-0 z-[70] flex flex-col bg-[#0d0d0f]">
-              <header className="flex shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
-                <h2 className="text-base font-semibold tracking-tight text-white">
+            <div className="fixed inset-0 z-[70] flex flex-col bg-canvas">
+              <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
+                <h2 className="text-base font-semibold tracking-tight text-ink">
                   Manage your app
                 </h2>
                 <button
                   onClick={() => setView("preview")}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.06] bg-white/[0.04] text-white/70 transition-all hover:bg-white/[0.08] hover:text-white"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-line/[0.06] bg-layer/[0.04] text-ink/70 transition-all hover:bg-layer/[0.08] hover:text-ink"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -401,11 +401,11 @@ export default function PreviewPanel({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3">
+      <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-3">
         <div
           role="group"
           aria-label="Workspace view"
-          className="flex items-center gap-0.5 rounded-full border border-white/[0.07] bg-white/[0.02] p-0.5"
+          className="flex items-center gap-0.5 rounded-full border border-line/[0.07] bg-layer/[0.02] p-0.5"
         >
           <button
             onClick={() => setView("preview")}
@@ -428,10 +428,10 @@ export default function PreviewPanel({
         <div className="relative flex shrink-0 items-center gap-2" ref={publishRef}>
           <button
             onClick={share}
-            className="flex h-8 items-center gap-1.5 rounded-full border border-white/[0.09] px-3 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+            className="flex h-8 items-center gap-1.5 rounded-full border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
           >
             {shared ? (
-              <Check className="h-3.5 w-3.5 text-[#34F5A0]" />
+              <Check className="h-3.5 w-3.5 text-accent" />
             ) : (
               <Link2 className="h-3.5 w-3.5" />
             )}
@@ -441,7 +441,7 @@ export default function PreviewPanel({
           <button
             onClick={() => setPublishOpen((open) => !open)}
             aria-expanded={publishOpen}
-            className="flex h-8 items-center gap-1.5 rounded-full bg-white px-3.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90"
+            className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
           >
             <Rocket className="h-3.5 w-3.5" />
             Publish

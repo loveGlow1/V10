@@ -12,11 +12,17 @@ import React from "react";
    Resend and Vonage all publish white marks for dark grounds, and this app has
    only dark grounds.
 
-   Two marks are not here. OpenAI and Twilio both asked to be removed from Simple
-   Icons, so ChatGPT is drawn in modelMarks.tsx as a plain blossom rather than
-   traced, and SMS names Vonage, which does publish one. */
+   `tint` is the brand's own colour. Four of these publish a monochrome mark
+   instead — GitHub, OpenAI, Resend and Vonage all draw in black or white
+   depending on the ground — and those carry the token "ink" rather than a hex,
+   so they follow the theme the way text does.
+
+   OpenAI and Twilio were later withdrawn from Simple Icons at their owners'
+   request; theirs come from 11.14.0, the last release that carried them. */
 export type BrandId =
   | "github"
+  | "openai"
+  | "twilio"
   | "google"
   | "claude"
   | "gemini"
@@ -26,9 +32,19 @@ export type BrandId =
   | "vonage";
 
 export const BRANDS: Record<BrandId, { title: string; tint: string; path: string }> = {
+  openai: {
+    title: "ChatGPT",
+    tint: "ink",
+    path: "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+  },
+  twilio: {
+    title: "Twilio",
+    tint: "#F22F46",
+    path: "M12 0C5.381-.008.008 5.352 0 11.971V12c0 6.64 5.359 12 12 12 6.64 0 12-5.36 12-12 0-6.641-5.36-12-12-12zm0 20.801c-4.846.015-8.786-3.904-8.801-8.75V12c-.014-4.846 3.904-8.786 8.75-8.801H12c4.847-.014 8.786 3.904 8.801 8.75V12c.015 4.847-3.904 8.786-8.75 8.801H12zm5.44-11.76c0 1.359-1.12 2.479-2.481 2.479-1.366-.007-2.472-1.113-2.479-2.479 0-1.361 1.12-2.481 2.479-2.481 1.361 0 2.481 1.12 2.481 2.481zm0 5.919c0 1.36-1.12 2.48-2.481 2.48-1.367-.008-2.473-1.114-2.479-2.48 0-1.359 1.12-2.479 2.479-2.479 1.361-.001 2.481 1.12 2.481 2.479zm-5.919 0c0 1.36-1.12 2.48-2.479 2.48-1.368-.007-2.475-1.113-2.481-2.48 0-1.359 1.12-2.479 2.481-2.479 1.358-.001 2.479 1.12 2.479 2.479zm0-5.919c0 1.359-1.12 2.479-2.479 2.479-1.367-.007-2.475-1.112-2.481-2.479 0-1.361 1.12-2.481 2.481-2.481 1.358 0 2.479 1.12 2.479 2.481z",
+  },
   github: {
     title: "GitHub",
-    tint: "#FFFFFF",
+    tint: "ink",
     path: "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12",
   },
   google: {
@@ -58,48 +74,34 @@ export const BRANDS: Record<BrandId, { title: string; tint: string; path: string
   },
   resend: {
     title: "Resend",
-    tint: "#FFFFFF",
+    tint: "ink",
     path: "M14.679 0c4.648 0 7.413 2.765 7.413 6.434s-2.765 6.434-7.413 6.434H12.33L24 24h-8.245l-8.88-8.44c-.636-.588-.93-1.273-.93-1.86 0-.831.587-1.565 1.713-1.883l4.574-1.224c1.737-.465 2.936-1.81 2.936-3.572 0-2.153-1.761-3.4-3.939-3.4H0V0z",
   },
   vonage: {
     title: "Vonage",
-    tint: "#FFFFFF",
+    tint: "ink",
     path: "M9.279 11.617l-4.54-10.07H0l6.797 15.296a.084.084 0 0 0 .153 0zm9.898-10.07s-6.148 13.868-6.917 15.565c-1.838 4.056-3.2 5.07-4.588 5.289a.026.026 0 0 0 .004.052h4.34c1.911 0 3.219-1.285 5.06-5.341C17.72 15.694 24 1.547 24 1.547z",
   },
 };
 
-/* ChatGPT, drawn rather than traced — six lobes on a ring, which reads at 16px
-   where a faithful trace of the interlocked knot does not. */
-export function OpenAiMark({ className = "h-4 w-4" }: { className?: string }) {
-  const lobes = [0, 60, 120, 180, 240, 300];
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      role="img"
-      aria-label="ChatGPT"
-      className={className}
-    >
-      <circle cx="12" cy="12" r="8" />
-      {lobes.map((angle) => (
-        <path key={angle} d="M12 4.2 L12 9.4" transform={`rotate(${angle} 12 12)`} />
-      ))}
-    </svg>
-  );
-}
+/* Google's G is four colours in one mark, so it cannot be a single path drawn in
+   currentColor like the rest. These are the paths from Google's own sign-in
+   button, which is the asset their branding terms point at. */
+const GOOGLE = [
+  { fill: "#4285F4", d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" },
+  { fill: "#34A853", d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" },
+  { fill: "#FBBC05", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" },
+  { fill: "#EA4335", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" },
+];
 
-export type ServiceId = BrandId | "openai";
+export type ServiceId = BrandId;
 
-/** The colour a service's mark is drawn in. */
+/** The colour a service's mark is drawn in — a hex, or "ink" for the ones whose
+    own mark is monochrome and should follow the theme. */
 export function tintFor(service: ServiceId) {
-  return service === "openai" ? "#10A37F" : BRANDS[service].tint;
+  return BRANDS[service].tint;
 }
 
-/** Every service's mark behind one name, so a caller never has to know which of
-    them is traced and which is drawn. */
 export function BrandMark({
   brand,
   className = "h-4 w-4",
@@ -107,7 +109,15 @@ export function BrandMark({
   brand: ServiceId;
   className?: string;
 }) {
-  if (brand === "openai") return <OpenAiMark className={className} />;
+  if (brand === "google") {
+    return (
+      <svg viewBox="0 0 24 24" role="img" aria-label="Google" className={className}>
+        {GOOGLE.map((part) => (
+          <path key={part.fill} fill={part.fill} d={part.d} />
+        ))}
+      </svg>
+    );
+  }
 
   const { title, path } = BRANDS[brand];
   return (

@@ -138,7 +138,7 @@ export default function AudioSynth() {
         className={`p-2 rounded-md border flex items-center justify-center transition-all duration-300 ${
           isPlaying 
             ? 'bg-space-accent/20 border-space-accent text-space-accent animate-pulse shadow-neon-blue'
-            : 'bg-space-900 border-gray-700 text-gray-400 hover:text-white'
+            : 'bg-space-900 border-gray-700 text-gray-400 hover:text-ink'
         }`}
         title={isPlaying ? 'Mute Ambient Space Synth' : 'Enable Space Synth'}
       >

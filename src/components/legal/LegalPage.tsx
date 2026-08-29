@@ -34,7 +34,7 @@ export default function LegalPage({
   const missing = missingDetails();
 
   return (
-    <div className="min-h-[100dvh] bg-brandBg text-white antialiased">
+    <div className="min-h-[100dvh] bg-brandBg text-ink antialiased">
       <header className="border-b border-brandBorder px-6">
         <div className="page-shell flex h-20 items-center justify-between">
           <Link
@@ -94,7 +94,7 @@ export default function LegalPage({
           <Link href="/privacy" className="transition-colors hover:text-brandGreen">
             Privacy Policy
           </Link>
-          <span className="text-white/30">
+          <span className="text-ink/30">
             © {new Date().getFullYear()} <Fill value={LEGAL.entity} name="legal entity" />
           </span>
         </div>
@@ -118,7 +118,7 @@ export function Clause({
 
   return (
     <section id={id} className="scroll-mt-8">
-      <h2 className="flex items-baseline gap-3 text-lg font-semibold tracking-tight text-white">
+      <h2 className="flex items-baseline gap-3 text-lg font-semibold tracking-tight text-ink">
         <span className="font-mono text-sm text-brandGreen">{n}</span>
         {title}
       </h2>

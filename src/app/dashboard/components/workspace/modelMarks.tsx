@@ -29,7 +29,9 @@ export function AutoMark({ className }: MarkProps) {
    cannot disagree about either. */
 const MARKS: Record<Exclude<Provider, "auto">, { brand: "claude" | "openai" | "gemini"; tint: string }> = {
   claude: { brand: "claude", tint: "text-[#D97757]" },
-  openai: { brand: "openai", tint: "text-[#10A37F]" },
+  // ChatGPT's mark is monochrome by design, so it takes the theme's own ink
+  // rather than a colour that is not the brand's.
+  openai: { brand: "openai", tint: "text-ink" },
   google: { brand: "gemini", tint: "text-[#8E75B2]" },
 };
 
@@ -40,7 +42,7 @@ export function ProviderMark({
   provider: Provider;
   className?: string;
 }) {
-  if (provider === "auto") return <AutoMark className={`${className} text-white`} />;
+  if (provider === "auto") return <AutoMark className={`${className} text-ink`} />;
 
   const { brand, tint } = MARKS[provider];
   return <BrandMark brand={brand} className={`${className} ${tint}`} />;

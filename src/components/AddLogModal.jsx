@@ -58,9 +58,9 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-950/50">
           <div className="flex items-center space-x-2">
             <Code2 className="w-5 h-5 text-indigo-400" />
-            <h3 className="text-white font-bold text-base">Record New Project & Issue Log</h3>
+            <h3 className="text-ink font-bold text-base">Record New Project & Issue Log</h3>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition">
+          <button onClick={onClose} className="text-gray-400 hover:text-ink transition">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -78,7 +78,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
                 placeholder="e.g. QuickStark.Ai"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               />
             </div>
             <div>
@@ -86,7 +86,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               >
                 <option value="active_development">Active Dev</option>
                 <option value="shipped">Shipped</option>
@@ -105,7 +105,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
                 placeholder="e.g. micheledallida-web/V10"
                 value={repository}
                 onChange={(e) => setRepository(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               />
             </div>
             <div>
@@ -115,7 +115,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
                 placeholder="main"
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               />
             </div>
           </div>
@@ -128,7 +128,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows="2"
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -139,7 +139,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
               placeholder="Next.js, Vercel, TailwindCSS"
               value={techStack}
               onChange={(e) => setTechStack(e.target.value)}
-              className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
             />
           </div>
 
@@ -157,7 +157,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
                 value={issue}
                 onChange={(e) => setIssue(e.target.value)}
                 rows="2"
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               />
             </div>
 
@@ -169,7 +169,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
                 rows="2"
-                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+                className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-ink focus:outline-none focus:border-indigo-500"
               />
             </div>
           </div>

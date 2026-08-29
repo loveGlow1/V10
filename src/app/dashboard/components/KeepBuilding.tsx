@@ -13,7 +13,7 @@ import DotMatrixText from "./DotMatrixText";
 export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () => void }) {
   /* The board's own light: the green it is lit in, and the bloom a lit dot has
      against a dark room. */
-  const lit = "text-[#34F5A0] [filter:drop-shadow(0_0_10px_rgba(52,245,160,0.35))]";
+  const lit = "text-accent [filter:drop-shadow(0_0_10px_rgba(52,245,160,0.35))]";
 
   return (
     <section className="relative w-full overflow-hidden px-4 pb-20 pt-16 text-center md:px-6 md:pb-28 md:pt-24">
@@ -25,7 +25,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
       />
 
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
-        <h2 className="text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight text-white">
+        <h2 className="text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight text-ink">
           Start building with
         </h2>
 
@@ -48,7 +48,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
 
         <button
           onClick={onKeepBuilding}
-          className="mt-10 h-[52px] rounded-full bg-white px-8 text-[15px] font-semibold text-[#0d0d0f] shadow-[0_10px_40px_rgba(255,255,255,0.16)] transition-all hover:brightness-95 active:scale-[0.98] md:mt-12"
+          className="mt-10 h-[52px] rounded-full bg-solid px-8 text-[15px] font-semibold text-onSolid shadow-[0_10px_40px_rgba(255,255,255,0.16)] transition-all hover:brightness-95 active:scale-[0.98] md:mt-12"
         >
           Keep Building
         </button>

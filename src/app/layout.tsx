@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import { SITE_URL } from "@/lib/site";
+import { THEME_BOOT_SCRIPT } from "./theme";
 
 /* The FAQ is set in a geometric grotesque rather than the system stack the rest of the
    page uses. Exposed as a CSS variable and mapped to Tailwind's `font-display`, so it is
@@ -92,8 +93,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`scroll-smooth ${dmSans.variable}`}>
-      <body className="bg-brandBg text-white antialiased">
+    /* suppressHydrationWarning is here for one attribute and one only: the boot
+       script below stamps data-theme on this element before React exists, so
+       React finds an attribute the server did not send and reports a mismatch.
+       It suppresses the warning for this element's own attributes, not for its
+       subtree, which is exactly the scope of the discrepancy. */
+    <html lang="en" suppressHydrationWarning className={`scroll-smooth ${dmSans.variable}`}>
+      <head>
+        {/* Before the first paint, and before React exists. A browser set to
+            light would otherwise be shown the dark palette for one frame and
+            corrected after hydration — the white flash every themed site used to
+            have, except here it is a black one. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
+      <body className="bg-brandBg text-ink antialiased">
         {children}
       </body>
     </html>

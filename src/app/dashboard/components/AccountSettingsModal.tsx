@@ -82,14 +82,14 @@ type McpFormProps = {
 };
 
 const FIELD =
-  "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus-visible:border-white/25";
+  "mt-1.5 h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink placeholder:text-faint outline-none focus-visible:border-line/25";
 
 function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy }: McpFormProps) {
   return (
-    <div className="mb-1 rounded-xl border border-white/[0.09] bg-white/[0.03] p-4">
+    <div className="mb-1 rounded-xl border border-line/[0.09] bg-layer/[0.03] p-4">
       {custom && (
         <>
-          <label className="block text-[13px] text-[#C7CAD0]">
+          <label className="block text-[13px] text-soft">
             Name
             <input
               value={draft.name}
@@ -98,7 +98,7 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
               className={FIELD}
             />
           </label>
-          <label className="mt-3 block text-[13px] text-[#C7CAD0]">
+          <label className="mt-3 block text-[13px] text-soft">
             Server URL
             <input
               value={draft.url}
@@ -109,8 +109,8 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
           </label>
         </>
       )}
-      <label className="mt-3 block text-[13px] text-[#C7CAD0]">
-        API key{custom && <span className="text-[#6F737A]"> (optional)</span>}
+      <label className="mt-3 block text-[13px] text-soft">
+        API key{custom && <span className="text-faint"> (optional)</span>}
         <input
           type="password"
           value={draft.apiKey}
@@ -122,20 +122,20 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
       </label>
       {/* The key is write-only in the database, so it cannot be shown back here
           once saved — replacing it means pasting a new one. */}
-      <p className="mt-2 text-[12px] text-[#6F737A]">
+      <p className="mt-2 text-[12px] text-faint">
         Stored against your account and never read back into the browser.
       </p>
       <div className="mt-4 flex items-center gap-2">
         <button
           onClick={onSave}
           disabled={busy}
-          className="rounded-lg bg-white px-3.5 py-1.5 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90 disabled:opacity-50"
+          className="rounded-lg bg-solid px-3.5 py-1.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
         >
           {busy ? "Saving…" : "Save"}
         </button>
         <button
           onClick={onCancel}
-          className="rounded-lg border border-white/[0.09] px-3.5 py-1.5 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05]"
+          className="rounded-lg border border-line/[0.09] px-3.5 py-1.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05]"
         >
           Cancel
         </button>
@@ -143,7 +143,7 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
           <button
             onClick={onDisconnect}
             disabled={busy}
-            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] text-[#FF6B6B] transition-colors hover:bg-[#FF6B6B]/10 disabled:opacity-50"
+            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
           >
             Disconnect
           </button>
@@ -325,8 +325,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
       description: row.url || "Custom MCP server",
       needsKey: true,
       path: null,
-      tint: "bg-white/[0.06]",
-      color: "text-[#C7CAD0]",
+      tint: "bg-layer/[0.06]",
+      color: "text-soft",
     })),
   ].map((server) => ({ server, connected: mcpEnabled.includes(server.id) }));
 
@@ -457,8 +457,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const Row = ({ title, description, children }: { title: string; description: string; children: React.ReactNode }) => (
     <div className="flex items-center justify-between gap-6 py-4">
       <div className="min-w-0">
-        <p className="text-[15px] font-medium text-white">{title}</p>
-        <p className="mt-0.5 text-[13px] text-[#8F939A]">{description}</p>
+        <p className="text-[15px] font-medium text-ink">{title}</p>
+        <p className="mt-0.5 text-[13px] text-muted">{description}</p>
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -476,17 +476,17 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
             role="dialog"
             aria-modal="true"
             aria-label="Settings"
-            className="flex h-[590px] max-h-[calc(100dvh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f11] shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
+            className="flex h-[590px] max-h-[calc(100dvh-48px)] w-full max-w-[880px] overflow-hidden rounded-2xl border border-line/[0.08] bg-panel shadow-[0_30px_90px_rgba(0,0,0,0.75)]"
           >
             {/* Left rail */}
-            <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-white/[0.07] p-3 sm:flex">
+            <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-line/[0.07] p-3 sm:flex">
               {navGroups.map((group, index) => (
                 <nav
                   key={group.label}
                   aria-label={group.label}
-                  className={index > 0 ? "mt-4 border-t border-white/[0.07] pt-4" : ""}
+                  className={index > 0 ? "mt-4 border-t border-line/[0.07] pt-4" : ""}
                 >
-                  <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8F939A]">
+                  <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                     {group.label}
                   </p>
                   <div className="space-y-0.5">
@@ -500,12 +500,12 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           aria-current={active ? "page" : undefined}
                           className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
                             active
-                              ? "bg-white/[0.07] text-white"
-                              : "text-[#C7CAD0] hover:bg-white/[0.04] hover:text-white"
+                              ? "bg-layer/[0.07] text-ink"
+                              : "text-soft hover:bg-layer/[0.04] hover:text-ink"
                           }`}
                         >
                           {Icon ? (
-                            <Icon className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                            <Icon className="h-4 w-4 shrink-0 text-muted" />
                           ) : (
                             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-purple-600 text-[10px] font-bold text-white">
                               {initial}
@@ -522,17 +522,17 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
             {/* Right pane */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex items-start justify-between gap-4 border-b border-white/[0.07] px-6 py-4">
+              <header className="flex items-start justify-between gap-4 border-b border-line/[0.07] px-6 py-4">
                 <div className="min-w-0">
-                  <h2 className="text-[17px] font-semibold text-white">{SECTION_META[section].title}</h2>
+                  <h2 className="text-[17px] font-semibold text-ink">{SECTION_META[section].title}</h2>
                   {SECTION_META[section].subtitle && (
-                    <p className="mt-0.5 text-[13px] text-[#8F939A]">{SECTION_META[section].subtitle}</p>
+                    <p className="mt-0.5 text-[13px] text-muted">{SECTION_META[section].subtitle}</p>
                   )}
                 </div>
                 <button
                   onClick={onClose}
                   aria-label="Close settings"
-                  className="flex h-7 w-7 items-center justify-center rounded-full border border-white/[0.1] text-[#8F939A] transition-colors hover:text-white"
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-line/[0.1] text-muted transition-colors hover:text-ink"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -541,18 +541,18 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
                 {section === "project" && (
                   <div className="py-6">
-                    <p className="text-[13px] text-[#C7CAD0]">Icon</p>
+                    <p className="text-[13px] text-soft">Icon</p>
                     {/* A project has no picture of its own yet, so the mark is
                         the same one the rail carries rather than an uploader
                         pointing at nothing. */}
-                    <div className="mt-2 flex h-[52px] w-[52px] items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05]">
-                      <Building2 className="h-[22px] w-[22px] text-white" />
+                    <div className="mt-2 flex h-[52px] w-[52px] items-center justify-center rounded-xl border border-line/[0.08] bg-layer/[0.05]">
+                      <Building2 className="h-[22px] w-[22px] text-ink" />
                     </div>
 
-                    <label htmlFor="project-name" className="mt-6 block text-[13px] text-[#C7CAD0]">
+                    <label htmlFor="project-name" className="mt-6 block text-[13px] text-soft">
                       Project Name
                     </label>
-                    <div className="mt-2 flex h-11 w-full items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 focus-within:border-white/25">
+                    <div className="mt-2 flex h-11 w-full items-center gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.03] px-3.5 focus-within:border-line/25">
                       <input
                         id="project-name"
                         value={projectDraft}
@@ -563,9 +563,9 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           if (event.key === "Escape") setProjectDraft(project?.name ?? "");
                         }}
                         placeholder={project ? "Project name" : "No project yet"}
-                        className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#6F737A]"
+                        className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
                       />
-                      <Pencil className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" aria-hidden />
+                      <Pencil className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
                     </div>
                     {/* Only once it differs from what is stored: a Save that is
                         always there says the name is unsaved when it is not. */}
@@ -574,22 +574,22 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                         <button
                           onClick={() => void saveProjectName()}
                           disabled={renaming}
-                          className="h-9 rounded-lg bg-white px-4 text-[13px] font-semibold text-[#0d0d0f] transition-all hover:brightness-95 disabled:opacity-50"
+                          className="h-9 rounded-lg bg-solid px-4 text-[13px] font-semibold text-onSolid transition-all hover:brightness-95 disabled:opacity-50"
                         >
                           {renaming ? "Saving…" : "Save"}
                         </button>
                         <button
                           onClick={() => setProjectDraft(project.name)}
-                          className="h-9 rounded-lg px-3 text-[13px] text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                          className="h-9 rounded-lg px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
                         >
                           Cancel
                         </button>
                       </div>
                     )}
 
-                    <div className="mt-8 border-t border-white/[0.06] pt-6">
-                      <p className="text-[15px] font-medium text-white">Danger Zone</p>
-                      <p className="mt-1.5 text-[13px] leading-relaxed text-[#8F939A]">
+                    <div className="mt-8 border-t border-line/[0.06] pt-6">
+                      <p className="text-[15px] font-medium text-ink">Danger Zone</p>
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
                         Permanently delete {project ? `${project.name}` : "this project"} and all of
                         its data.
                         <br />
@@ -602,14 +602,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             <button
                               onClick={() => void deleteProject()}
                               disabled={deleting}
-                              className="flex h-10 items-center gap-2 rounded-lg border border-[#FF6B6B]/40 bg-[#FF6B6B]/15 px-4 text-sm font-semibold text-[#FF8A8A] transition-colors hover:bg-[#FF6B6B]/25 disabled:opacity-50"
+                              className="flex h-10 items-center gap-2 rounded-lg border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-[#FF8A8A] transition-colors hover:bg-danger/25 disabled:opacity-50"
                             >
                               <Trash2 className="h-4 w-4" />
                               {deleting ? "Deleting…" : "Yes, delete permanently"}
                             </button>
                             <button
                               onClick={() => setConfirmingDelete(false)}
-                              className="h-10 rounded-lg px-3 text-sm text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                              className="h-10 rounded-lg px-3 text-sm text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
                             >
                               Keep it
                             </button>
@@ -618,7 +618,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           <button
                             onClick={() => setConfirmingDelete(true)}
                             disabled={!project}
-                            className="flex h-10 items-center gap-2 rounded-lg border border-[#FF6B6B]/30 bg-[#FF6B6B]/10 px-4 text-sm font-medium text-[#FF8A8A] transition-colors hover:bg-[#FF6B6B]/20 disabled:opacity-40"
+                            className="flex h-10 items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-medium text-[#FF8A8A] transition-colors hover:bg-danger/20 disabled:opacity-40"
                           >
                             <Trash2 className="h-4 w-4" />
                             Delete Project
@@ -630,14 +630,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             onClose();
                             requestSupportChat();
                           }}
-                          className="h-10 rounded-lg border border-white/[0.1] bg-white/[0.04] px-4 text-sm text-white transition-colors hover:bg-white/[0.07]"
+                          className="h-10 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
                         >
                           Contact Support
                         </button>
                       </div>
 
                       {projectError && (
-                        <p className="mt-3 text-[13px] text-[#ef7777]">{projectError}</p>
+                        <p className="mt-3 text-[13px] text-danger">{projectError}</p>
                       )}
                     </div>
                   </div>
@@ -645,19 +645,19 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "members" && (
                   <div className="py-6">
-                    <div className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3.5">
+                    <div className="flex items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-4 py-3.5">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
                         {initial}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-white">
+                        <span className="block truncate text-sm font-medium text-ink">
                           {account.name || account.email || "You"}
                         </span>
-                        <span className="block truncate text-[13px] text-[#8F939A]">
+                        <span className="block truncate text-[13px] text-muted">
                           {account.email ? maskEmail(account.email) : "Signed in"}
                         </span>
                       </span>
-                      <span className="shrink-0 rounded-full border border-white/[0.1] px-2.5 py-1 text-[12px] text-[#C7CAD0]">
+                      <span className="shrink-0 rounded-full border border-line/[0.1] px-2.5 py-1 text-[12px] text-soft">
                         Owner
                       </span>
                     </div>
@@ -669,14 +669,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       <button
                         disabled
                         title="Sharing is not connected yet"
-                        className="flex h-10 cursor-not-allowed items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-white/55"
+                        className="flex h-10 cursor-not-allowed items-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-4 text-sm text-ink/55"
                       >
                         <UserPlus className="h-4 w-4" />
                         Invite members
                       </button>
                       <ComingSoonBadge />
                     </div>
-                    <p className="mt-3 text-[13px] leading-relaxed text-[#8F939A]">
+                    <p className="mt-3 text-[13px] leading-relaxed text-muted">
                       A project belongs to the account that made it. Once sharing is connected,
                       the people you invite will appear here with the access you gave them.
                     </p>
@@ -685,8 +685,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "budget" && (
                   <div className="py-6">
-                    <p className="text-[15px] font-medium text-white">No budget set</p>
-                    <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-[#8F939A]">
+                    <p className="text-[15px] font-medium text-ink">No budget set</p>
+                    <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-muted">
                       A budget caps what a project may spend before it stops asking for more.
                       Nothing meters a build yet, so there is no figure to cap — this is where the
                       cap will be set once there is.
@@ -699,10 +699,10 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "usage" && (
                   <div className="py-5">
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.03] px-6 py-5">
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
                       <div className="min-w-0">
-                        <p className="text-[13px] text-[#8F939A]">Credits on this account</p>
-                        <p className="mt-1 text-[28px] font-bold leading-none text-white">{credits}</p>
+                        <p className="text-[13px] text-muted">Credits on this account</p>
+                        <p className="mt-1 text-[28px] font-bold leading-none text-ink">{credits}</p>
                       </div>
                       <button
                         onClick={onUpgradeClick}
@@ -713,16 +713,16 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                     </div>
                     {/* Credits are held against the account, not the project, and
                         a per-project figure invented here would be fiction. */}
-                    <p className="mt-4 max-w-[560px] text-[13px] leading-relaxed text-[#8F939A]">
+                    <p className="mt-4 max-w-[560px] text-[13px] leading-relaxed text-muted">
                       Credits are held against your account and shared by every project on it.
                       When a build starts spending them, what {project?.name ?? "this project"} used
                       will be broken out here.
                     </p>
                     <button
                       onClick={() => setSection("plans")}
-                      className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.04] px-4 text-sm text-white transition-colors hover:bg-white/[0.07]"
+                      className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
                     >
-                      <CreditCard className="h-4 w-4 text-[#8F939A]" />
+                      <CreditCard className="h-4 w-4 text-muted" />
                       See plans and invoices
                     </button>
                   </div>
@@ -730,24 +730,24 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "account" && (
                   <>
-                    <div className="divide-y divide-white/[0.06]">
+                    <div className="divide-y divide-line/[0.06]">
                       <Row title="Email" description="The email address linked to your current account">
                         {account.email ? (
                           <span className="flex items-center gap-2">
-                            <span className="text-sm text-white">
+                            <span className="text-sm text-ink">
                               {emailRevealed ? account.email : maskEmail(account.email)}
                             </span>
                             <button
                               type="button"
                               onClick={() => setEmailRevealed((shown) => !shown)}
                               aria-label={emailRevealed ? "Hide email address" : "Show email address"}
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[#8F939A] transition-colors hover:text-white"
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line/[0.08] bg-layer/[0.04] text-muted transition-colors hover:text-ink"
                             >
                               {emailRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </button>
                           </span>
                         ) : (
-                          <span className="text-sm text-white">—</span>
+                          <span className="text-sm text-ink">—</span>
                         )}
                       </Row>
 
@@ -766,13 +766,13 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               onKeyDown={(event) => event.key === "Enter" && saveName()}
                               autoFocus
                               aria-label="Your name"
-                              className="h-9 w-[180px] rounded-lg border border-white/[0.14] bg-white/[0.04] px-3 text-sm text-white outline-none"
+                              className="h-9 w-[180px] rounded-lg border border-line/[0.14] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
                             />
                             <button
                               onClick={saveName}
                               disabled={savingName}
                               aria-label="Save name"
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.14] text-[#34F5A0] transition-colors hover:bg-white/[0.06] disabled:opacity-60"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-line/[0.14] text-accent transition-colors hover:bg-layer/[0.06] disabled:opacity-60"
                             >
                               <Check className="h-4 w-4" />
                             </button>
@@ -783,24 +783,24 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               setNameDraft(account.name);
                               setEditingName(true);
                             }}
-                            className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white transition-colors hover:bg-white/[0.07]"
+                            className="flex h-9 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
                           >
                             <span className="max-w-[180px] truncate">{account.name || "Add your name"}</span>
-                            <Pencil className="h-3.5 w-3.5 text-[#8F939A]" />
+                            <Pencil className="h-3.5 w-3.5 text-muted" />
                           </button>
                         )}
                       </Row>
 
                       <Row title="Support code" description="Share this with our support team if they ask for it.">
                         {supportCode ? (
-                          <code className="rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 py-2 font-mono text-[13px] text-white">
+                          <code className="rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 py-2 font-mono text-[13px] text-ink">
                             {supportCode}
                           </code>
                         ) : (
                           <button
                             onClick={() => setSupportCode(account.id ? account.id.slice(0, 8).toUpperCase() : null)}
                             disabled={!account.id}
-                            className="h-9 rounded-lg bg-white px-4 text-sm font-semibold text-black transition-all hover:brightness-95 disabled:opacity-50"
+                            className="h-9 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-all hover:brightness-95 disabled:opacity-50"
                           >
                             Generate
                           </button>
@@ -809,14 +809,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                     </div>
 
                     {nameError && (
-                      <p className="pb-2 text-right text-[13px] text-[#ef7777]">{nameError}</p>
+                      <p className="pb-2 text-right text-[13px] text-danger">{nameError}</p>
                     )}
 
-                    <div className="border-t border-white/[0.06] pb-6 pt-6">
-                      <p className="text-[15px] font-medium text-white">Personal Plan</p>
-                      <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.03] px-6 py-5">
+                    <div className="border-t border-line/[0.06] pb-6 pt-6">
+                      <p className="text-[15px] font-medium text-ink">Personal Plan</p>
+                      <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
                         {/* No subscription record exists yet, so everyone is on Free. */}
-                        <span className="text-[28px] font-bold leading-none text-white">Free</span>
+                        <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                         <button
                           onClick={onUpgradeClick}
                           className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
@@ -831,8 +831,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                 {section === "plans" && (
                   <div className="py-5">
                     {/* No subscription record exists yet, so everyone is on Free. */}
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/[0.07] bg-white/[0.03] px-6 py-5">
-                      <span className="text-[28px] font-bold leading-none text-white">Free</span>
+                    <div className="flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
+                      <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                       <button
                         onClick={onUpgradeClick}
                         className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
@@ -842,40 +842,40 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                     </div>
 
                     <div className="mt-6 flex items-center justify-between">
-                      <p className="text-[15px] font-medium text-white">Transactions</p>
-                      <span className="flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-[#8F939A]">
+                      <p className="text-[15px] font-medium text-ink">Transactions</p>
+                      <span className="flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-muted">
                         All <ChevronDown className="h-3.5 w-3.5" />
                       </span>
                     </div>
 
-                    <div className="mt-3 min-h-[220px] rounded-xl border border-white/[0.07] bg-white/[0.02]">
+                    <div className="mt-3 min-h-[220px] rounded-xl border border-line/[0.07] bg-layer/[0.02]">
                       {TRANSACTIONS.length === 0 ? (
                         <div className="flex h-[220px] flex-col items-center justify-center px-6 text-center">
-                          <CalendarDays className="h-5 w-5 text-[#5B5F66]" />
-                          <p className="mt-3 text-sm text-[#C7CAD0]">No transactions yet</p>
-                          <p className="mt-1 text-[13px] text-[#8F939A]">
+                          <CalendarDays className="h-5 w-5 text-faint" />
+                          <p className="mt-3 text-sm text-soft">No transactions yet</p>
+                          <p className="mt-1 text-[13px] text-muted">
                             Charges and invoices appear here once billing is connected.
                           </p>
                         </div>
                       ) : (
-                        <ul className="divide-y divide-white/[0.06]">
+                        <ul className="divide-y divide-line/[0.06]">
                           {TRANSACTIONS.map((transaction) => (
                             <li key={transaction.id} className="flex items-center gap-4 px-4 py-3.5">
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
-                                <CalendarDays className="h-4 w-4 text-[#8F939A]" />
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
+                                <CalendarDays className="h-4 w-4 text-muted" />
                               </span>
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm text-white">
+                                <p className="truncate text-sm text-ink">
                                   {transaction.plan} · {transaction.cadence}
                                 </p>
-                                <p className="truncate text-[13px] text-[#8F939A]">{transaction.date}</p>
+                                <p className="truncate text-[13px] text-muted">{transaction.date}</p>
                               </div>
-                              <span className="shrink-0 text-sm text-white">{transaction.amount}</span>
-                              <span className="flex shrink-0 items-center gap-1.5 text-sm text-[#F4D96B]">
+                              <span className="shrink-0 text-sm text-ink">{transaction.amount}</span>
+                              <span className="flex shrink-0 items-center gap-1.5 text-sm text-warn">
                                 <Coins className="h-3.5 w-3.5" />
                                 {transaction.credits}
                               </span>
-                              <button className="flex shrink-0 items-center gap-1.5 text-[13px] text-[#8F939A] transition-colors hover:text-white">
+                              <button className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
                                 Download <Download className="h-3.5 w-3.5" />
                               </button>
                             </li>
@@ -888,15 +888,15 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "credits" && (
                   <div className="py-5">
-                    <p className="text-[15px] font-medium text-white">Available credits</p>
+                    <p className="text-[15px] font-medium text-ink">Available credits</p>
 
-                    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-5 rounded-xl border border-white/[0.07] bg-white/[0.03] px-5 py-4 sm:grid-cols-[1.6fr_1fr_1fr_1fr]">
+                    <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-5 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-5 py-4 sm:grid-cols-[1.6fr_1fr_1fr_1fr]">
                       {/* The total gets its own column and a rule, so its label cannot
                           collide with the first metric beside it. */}
-                      <div className="sm:border-r sm:border-white/[0.07] sm:pr-6">
-                        <p className="text-[13px] text-[#8F939A]">Total available credits</p>
-                        <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-white">
-                          <Coins className="h-5 w-5 text-[#F4D96B]" />
+                      <div className="sm:border-r sm:border-line/[0.07] sm:pr-6">
+                        <p className="text-[13px] text-muted">Total available credits</p>
+                        <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-ink">
+                          <Coins className="h-5 w-5 text-warn" />
                           {credits}
                         </p>
                       </div>
@@ -904,30 +904,30 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           the figure the app already displayed. */}
                       {["Plan credits", "Top-up credits", "Free credits"].map((label) => (
                         <div key={label}>
-                          <p className="flex items-center gap-1 text-[13px] text-[#8F939A]">
+                          <p className="flex items-center gap-1 text-[13px] text-muted">
                             {label} <Info className="h-3 w-3" />
                           </p>
-                          <p className="mt-2 text-lg text-[#5B5F66]">—</p>
+                          <p className="mt-2 text-lg text-faint">—</p>
                         </div>
                       ))}
                     </div>
 
-                    <p className="mt-6 text-[15px] font-medium text-white">Usage history</p>
+                    <p className="mt-6 text-[15px] font-medium text-ink">Usage history</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {["Last week", "All projects", "All types"].map((filter) => (
                         <span
                           key={filter}
-                          className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-[13px] text-[#8F939A]"
+                          className="flex h-9 items-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-muted"
                         >
                           {filter} <ChevronDown className="h-3.5 w-3.5" />
                         </span>
                       ))}
                     </div>
 
-                    <div className="mt-3 flex h-[180px] flex-col items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.02] px-6 text-center">
-                      <Coins className="h-5 w-5 text-[#5B5F66]" />
-                      <p className="mt-3 text-sm text-[#C7CAD0]">No usage yet</p>
-                      <p className="mt-1 text-[13px] text-[#8F939A]">
+                    <div className="mt-3 flex h-[180px] flex-col items-center justify-center rounded-xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
+                      <Coins className="h-5 w-5 text-faint" />
+                      <p className="mt-3 text-sm text-soft">No usage yet</p>
+                      <p className="mt-1 text-[13px] text-muted">
                         Daily refreshes and spend appear here once a credits service is connected.
                       </p>
                     </div>
@@ -936,7 +936,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "agents" && (
                   <div className="pb-6">
-                    <div className="flex gap-6 border-b border-white/[0.07]">
+                    <div className="flex gap-6 border-b border-line/[0.07]">
                       {([["main", "Main agents"], ["sub", "Sub-agents"], ["mcp", "MCP Tools"]] as const).map(
                         ([id, label]) => (
                           <button
@@ -944,8 +944,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             onClick={() => setAgentTab(id)}
                             className={`-mb-px border-b-2 pb-3 pt-4 text-sm transition-colors ${
                               agentTab === id
-                                ? "border-white text-white"
-                                : "border-transparent text-[#8F939A] hover:text-white"
+                                ? "border-line text-ink"
+                                : "border-transparent text-muted hover:text-ink"
                             }`}
                           >
                             {label}
@@ -963,29 +963,29 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             key={agent.id}
                             className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
                               agent.soon
-                                ? "border-white/[0.04] bg-white/[0.015]"
-                                : "border-white/[0.07] bg-white/[0.03]"
+                                ? "border-line/[0.04] bg-layer/[0.015]"
+                                : "border-line/[0.07] bg-layer/[0.03]"
                             }`}
                           >
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
-                              <Bot className="h-4 w-4 text-[#8F939A]" />
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
+                              <Bot className="h-4 w-4 text-muted" />
                             </span>
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm text-white">{agent.title}</p>
-                              <p className="truncate text-[13px] text-[#8F939A]">{agent.subtitle}</p>
+                              <p className="truncate text-sm text-ink">{agent.title}</p>
+                              <p className="truncate text-[13px] text-muted">{agent.subtitle}</p>
                             </div>
                             {agent.soon ? (
                               <ComingSoonBadge />
                             ) : (
                               agent.id === selectedAgent && (
-                                <span className="shrink-0 rounded-full border border-[#34F5A0]/30 bg-[#34F5A0]/10 px-2.5 py-1 text-[11px] font-medium text-[#34F5A0]">
+                                <span className="shrink-0 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
                                   In use
                                 </span>
                               )
                             )}
                           </li>
                         ))}
-                        <li className="pt-1 text-[13px] text-[#8F939A]">
+                        <li className="pt-1 text-[13px] text-muted">
                           Custom agents need somewhere to save them before they can be created here.
                         </li>
                       </ul>
@@ -993,11 +993,11 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                     {agentTab === "sub" && (
                       <div className="flex h-[300px] flex-col items-center justify-center px-6 text-center">
-                        <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.05]">
-                          <Bot className="h-5 w-5 text-[#8F939A]" />
+                        <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-layer/[0.05]">
+                          <Bot className="h-5 w-5 text-muted" />
                         </span>
-                        <p className="mt-4 text-lg font-semibold text-white">Delegate work to sub-agents</p>
-                        <p className="mt-2 max-w-[380px] text-sm text-[#8F939A]">
+                        <p className="mt-4 text-lg font-semibold text-ink">Delegate work to sub-agents</p>
+                        <p className="mt-2 max-w-[380px] text-sm text-muted">
                           Sub-agents let a main agent hand off parts of a build. Nothing runs them yet.
                         </p>
                       </div>
@@ -1010,14 +1010,14 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             setMcpError(null);
                             setConfiguring({ serverId: "", name: "", url: "", apiKey: "" });
                           }}
-                          className="flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-white/[0.06]"
+                          className="flex w-full items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-layer/[0.06]"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.05]">
-                            <Plus className="h-4 w-4 text-[#C7CAD0]" />
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
+                            <Plus className="h-4 w-4 text-soft" />
                           </span>
                           <span className="min-w-0">
-                            <span className="block truncate text-sm text-white">New MCP Server</span>
-                            <span className="block truncate text-[13px] text-[#8F939A]">Add a custom MCP server</span>
+                            <span className="block truncate text-sm text-ink">New MCP Server</span>
+                            <span className="block truncate text-[13px] text-muted">Add a custom MCP server</span>
                           </span>
                         </button>
 
@@ -1053,21 +1053,21 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                  <p className="truncate text-sm text-white">{server.name}</p>
+                                  <p className="truncate text-sm text-ink">{server.name}</p>
                                   {server.needsKey && !connected && (
-                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-white/[0.07] px-1.5 py-0.5 text-[11px] text-[#C7CAD0]">
+                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-layer/[0.07] px-1.5 py-0.5 text-[11px] text-soft">
                                       <KeyRound className="h-3 w-3" />
                                       Key needed
                                     </span>
                                   )}
                                   {connected && (
-                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-[#34F5A0]/10 px-1.5 py-0.5 text-[11px] text-[#34F5A0]">
+                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent">
                                       <Check className="h-3 w-3" />
                                       Connected
                                     </span>
                                   )}
                                 </div>
-                                <p className="truncate text-[13px] text-[#8F939A]">{server.description}</p>
+                                <p className="truncate text-[13px] text-muted">{server.description}</p>
                               </div>
 
                               {server.needsKey ? (
@@ -1076,7 +1076,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                                     setMcpError(null);
                                     setConfiguring({ serverId: server.id, name: "", url: "", apiKey: "" });
                                   }}
-                                  className="flex shrink-0 items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.05] px-3 py-1.5 text-[13px] text-[#E6E7EA] transition-colors hover:bg-white/[0.09]"
+                                  className="flex shrink-0 items-center gap-2 rounded-lg border border-line/[0.09] bg-layer/[0.05] px-3 py-1.5 text-[13px] text-ink transition-colors hover:bg-layer/[0.09]"
                                 >
                                   <Settings className="h-3.5 w-3.5" />
                                   Configure
@@ -1088,8 +1088,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                                   aria-pressed={connected}
                                   className={`shrink-0 rounded-lg border px-3 py-1.5 text-[13px] transition-colors disabled:opacity-50 ${
                                     connected
-                                      ? "border-white/[0.09] bg-white/[0.05] text-[#E6E7EA] hover:bg-white/[0.09]"
-                                      : "border-transparent bg-white text-[#0d0d0f] hover:bg-white/90"
+                                      ? "border-line/[0.09] bg-layer/[0.05] text-ink hover:bg-layer/[0.09]"
+                                      : "border-transparent bg-solid text-onSolid hover:bg-layer/90"
                                   }`}
                                 >
                                   {connected ? "Disable" : "Enable"}
@@ -1111,11 +1111,11 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           </div>
                         ))}
 
-                        {mcpError && <p className="px-1 pt-1 text-[13px] text-[#FF6B6B]">{mcpError}</p>}
+                        {mcpError && <p className="px-1 pt-1 text-[13px] text-danger">{mcpError}</p>}
 
                         {/* Saying so beats letting a "Connected" badge imply a build
                             step that has not been written. */}
-                        <p className="px-1 pt-2 text-[13px] text-[#6F737A]">
+                        <p className="px-1 pt-2 text-[13px] text-faint">
                           Connections are saved to your account. Nothing calls these servers during a
                           build yet.
                         </p>
@@ -1126,20 +1126,20 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "preferences" && (
                   <div className="py-5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8F939A]">General</p>
-                    <label className="mt-3 block text-sm text-white" htmlFor="language">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">General</p>
+                    <label className="mt-3 block text-sm text-ink" htmlFor="language">
                       Language
                     </label>
                     <select
                       id="language"
                       defaultValue="en"
-                      className="mt-2 h-10 w-[280px] max-w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white outline-none"
+                      className="mt-2 h-10 w-[280px] max-w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
                     >
                       {/* Only English exists until the app is translated. */}
                       <option value="en">English</option>
                     </select>
 
-                    <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8F939A]">
+                    <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                       Appearance
                     </p>
                     <div className="mt-3 flex flex-wrap gap-3">
@@ -1154,21 +1154,21 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                                 title={active ? undefined : "QuickStark.Ai is dark-only for now"}
                                 className={`flex h-[74px] w-full items-center justify-center rounded-lg border-2 transition-colors ${
                                   active
-                                    ? "border-[#4A90E2] bg-[#141417]"
-                                    : "cursor-not-allowed border-white/[0.08] bg-white/[0.03] opacity-45"
+                                    ? "border-[#4A90E2] bg-panel"
+                                    : "cursor-not-allowed border-line/[0.08] bg-layer/[0.03] opacity-45"
                                 }`}
                               >
                                 <span
                                   className={`flex h-[46px] w-[76px] flex-col gap-1 rounded p-2 ${
-                                    id === "light" ? "bg-white" : id === "dark" ? "bg-[#0d0d0f]" : "bg-gradient-to-r from-white to-[#0d0d0f]"
+                                    id === "light" ? "bg-solid" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-[#0d0d0f]"
                                   }`}
                                 >
-                                  <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-white/40"}`} />
-                                  <span className={`h-1 w-12 rounded-full ${id === "light" ? "bg-black/15" : "bg-white/20"}`} />
-                                  <span className={`h-1 w-10 rounded-full ${id === "light" ? "bg-black/15" : "bg-white/20"}`} />
+                                  <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-layer/40"}`} />
+                                  <span className={`h-1 w-12 rounded-full ${id === "light" ? "bg-black/15" : "bg-layer/20"}`} />
+                                  <span className={`h-1 w-10 rounded-full ${id === "light" ? "bg-black/15" : "bg-layer/20"}`} />
                                 </span>
                               </button>
-                              <p className={`mt-2 text-center text-[13px] ${active ? "text-white" : "text-[#8F939A]"}`}>
+                              <p className={`mt-2 text-center text-[13px] ${active ? "text-ink" : "text-muted"}`}>
                                 {label}
                               </p>
                             </div>
@@ -1176,7 +1176,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                         },
                       )}
                     </div>
-                    <p className="mt-3 text-[13px] text-[#8F939A]">
+                    <p className="mt-3 text-[13px] text-muted">
                       QuickStark.Ai is dark-only for now, so the other themes are not selectable yet.
                     </p>
                   </div>
@@ -1184,8 +1184,8 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                 {section === "key" && (
                   <div className="py-6">
-                    <p className="text-[15px] font-medium text-white">Universal Key</p>
-                    <p className="mt-1 text-[13px] text-[#8F939A]">
+                    <p className="text-[15px] font-medium text-ink">Universal Key</p>
+                    <p className="mt-1 text-[13px] text-muted">
                       Bring your own model key. Nothing is connected to store one yet.
                     </p>
                   </div>

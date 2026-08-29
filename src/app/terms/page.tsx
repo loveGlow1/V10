@@ -106,11 +106,11 @@ export default function TermsPage() {
 
       <Clause n={6} title="Who owns what">
         <p>
-          <strong className="text-white">You own your inputs.</strong> The descriptions, prompts, text,
+          <strong className="text-ink">You own your inputs.</strong> The descriptions, prompts, text,
           images and data you supply remain yours.
         </p>
         <p>
-          <strong className="text-white">You own your output.</strong> As between you and us, you own the
+          <strong className="text-ink">You own your output.</strong> As between you and us, you own the
           application code generated for you, and may use, modify, sell and distribute it without
           restriction or royalty.
         </p>
@@ -119,7 +119,7 @@ export default function TermsPage() {
           generated output is unique, and similar output may be generated for others.
         </p>
         <p>
-          <strong className="text-white">We own the platform.</strong> The service itself — the interface,
+          <strong className="text-ink">We own the platform.</strong> The service itself — the interface,
           the generation system, our prompts, our name and marks — remains ours.
         </p>
         <p>

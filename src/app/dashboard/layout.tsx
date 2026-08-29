@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { ThemeProvider } from './components/ThemeProvider';
 
 export const metadata: Metadata = {
   title: "QuickStark.Ai | Dashboard",
@@ -25,12 +26,18 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   }
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#0d0d0f] text-white">
+    <ThemeProvider>
+    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
       {/* The page stays nearly black so nothing competes with the composer; the
-          existing blue is kept only as a faint wash rather than a backdrop. */}
-      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f]" />
+          existing blue is kept only as a faint wash rather than a backdrop.
+
+          Dark only. On the light theme there is no dark ground for it to wash,
+          and a blue haze over white is not the same idea in a lighter key — it
+          is a different one. */}
+      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f] [html[data-theme=light]_&]:hidden" />
 
       {children}
     </div>
+    </ThemeProvider>
   );
 }

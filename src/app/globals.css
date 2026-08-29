@@ -24,6 +24,124 @@
   /* Carries its own alpha, so it is not a channel triplet: it is used as a flat border
      tint and never takes an opacity variant. */
   --brandBorder: rgba(255, 255, 255, 0.08);
+
+  /* ── The dark palette ───────────────────────────────────────────────────────
+     The app's own colours, named for the job each does rather than for what it
+     looks like. Everything in the markup points at these, so the light palette
+     below is the whole of the second theme — there is no second set of classes.
+
+     --layer and --line are the ones that do the heavy lifting: every translucent
+     fill and every hairline in the app is one of them at some opacity, so
+     flipping these two from white to near-black turns ~300 surfaces over at once.
+
+     colorScheme tells the browser which way form controls, scrollbars and the
+     space beyond the page should be painted. */
+  color-scheme: dark;
+
+  --ink: 255 255 255;
+  --soft: 199 202 208;
+  --muted: 143 147 154;
+  --faint: 111 115 122;
+
+  --layer: 255 255 255;
+  --line: 255 255 255;
+
+  --canvas: 13 13 15;
+  --bar: 12 12 14;
+  --panel: 18 18 21;
+  --sunken: 14 15 18;
+
+  --solid: 255 255 255;
+  --on-solid: 13 13 15;
+
+  --accent: 52 245 160;
+  --danger: 255 107 107;
+  --warn: 244 217 107;
+}
+
+/* ── Dark, whatever the theme says ────────────────────────────────────────────
+   The signed-out landing page is one composition on a dark ground: a lit mark
+   floating over a black field, screenshots dimmed to sit behind it, a silver
+   headline that only exists as a highlight. None of that is a dark *variant* of
+   something — there is no lighter key it survives in, and rebuilding it for one
+   would be designing a second marketing page rather than theming this one.
+
+   So it stays dark, and the theme applies to the app behind the sign-in — which
+   is also the only place the switch appears. A visitor who has never signed in
+   never sees a choice they are not being offered.
+
+   The whole palette is restated rather than only the parts that differ: this has
+   to survive its parent being light, and a partial restatement leaves whichever
+   token someone adds next leaking through. */
+.theme-dark-scope {
+  color-scheme: dark;
+
+  --ink: 255 255 255;
+  --soft: 199 202 208;
+  --muted: 143 147 154;
+  --faint: 111 115 122;
+
+  --layer: 255 255 255;
+  --line: 255 255 255;
+
+  --canvas: 13 13 15;
+  --bar: 12 12 14;
+  --panel: 18 18 21;
+  --sunken: 14 15 18;
+
+  --solid: 255 255 255;
+  --on-solid: 13 13 15;
+
+  --accent: 52 245 160;
+  --danger: 255 107 107;
+  --warn: 244 217 107;
+
+  --brandBg-rgb: 5 5 5;
+  --brandSurface-rgb: 15 15 15;
+  --brandSurfaceAccent-rgb: 21 21 21;
+  --brandTextSec-rgb: 161 161 170;
+  --brandBorder: rgba(255, 255, 255, 0.08);
+}
+
+/* ── The light palette ────────────────────────────────────────────────────────
+   Not an inversion. A dark interface separates surfaces by making them lighter
+   than the ground; a light one cannot go on getting lighter than white, so the
+   ground drops to a warm off-white and the raised surfaces are the white ones —
+   the opposite direction, which is why this is a hand-picked palette rather than
+   a filter.
+
+   The mint and the coral are re-picked outright: #34F5A0 on white measures about
+   1.4:1, which is not a colour so much as a suggestion of one. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* The brand surfaces the landing page is built from, lifted onto the light
+     ground so that page turns over with the rest of the app. */
+  --brandBg-rgb: 246 246 248;
+  --brandSurface-rgb: 255 255 255;
+  --brandSurfaceAccent-rgb: 250 250 252;
+  --brandTextSec-rgb: 99 103 111;
+  --brandBorder: rgba(17, 17, 20, 0.1);
+
+  --ink: 20 20 23;
+  --soft: 61 64 71;
+  --muted: 99 103 111;
+  --faint: 138 142 150;
+
+  --layer: 17 17 20;
+  --line: 17 17 20;
+
+  --canvas: 246 246 248;
+  --bar: 255 255 255;
+  --panel: 255 255 255;
+  --sunken: 255 255 255;
+
+  --solid: 24 24 27;
+  --on-solid: 255 255 255;
+
+  --accent: 4 142 96;
+  --danger: 205 34 34;
+  --warn: 146 89 6;
 }
 
 /* ── Touch input ──────────────────────────────────────────────────────────────
@@ -86,7 +204,7 @@ button:disabled:active,
 
 body {
   background-color: var(--brandBg);
-  color: #ffffff;
+  color: rgb(var(--ink));
 
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   margin: 0;
@@ -180,7 +298,7 @@ body {
    the default hairline instead of green. */
 @layer components {
   .glass-card {
-    background: rgba(16, 16, 16, 0.65);
+    background: rgb(var(--panel) / 0.65);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--brandBorder);

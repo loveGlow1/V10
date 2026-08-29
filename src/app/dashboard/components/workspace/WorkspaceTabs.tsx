@@ -34,9 +34,9 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   const base =
     "group flex h-[34px] shrink-0 items-center gap-2 rounded-full border px-3 text-[13px] transition-all duration-150 focus-within:outline-none md:h-[30px] md:gap-2 md:rounded-[9px] md:px-2.5";
   const on =
-    "border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] md:border-white/[0.12] md:bg-white/[0.06] md:font-medium md:text-white md:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.5)]";
+    "border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] md:border-line/[0.12] md:bg-layer/[0.06] md:font-medium md:text-ink md:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.5)]";
   const off =
-    "border-white/[0.07] bg-white/[0.02] text-[#8F939A] hover:text-white md:border-transparent md:bg-transparent md:text-[#8A8E96] md:shadow-none md:hover:bg-white/[0.035] md:hover:text-white";
+    "border-line/[0.07] bg-layer/[0.02] text-muted hover:text-ink md:border-transparent md:bg-transparent md:text-muted md:shadow-none md:hover:bg-layer/[0.035] md:hover:text-ink";
 
   function close(id: string) {
     const index = tabs.findIndex((tab) => tab.id === id);
@@ -49,11 +49,11 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-white/[0.06] md:bg-[#0c0c0e] md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
+    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-line/[0.06] md:bg-bar md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
-        className={`${base} ${activeId ? off : on} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/25`}
+        className={`${base} ${activeId ? off : on} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-line/25`}
       >
         {/* The apps you have made, not a house: the grid is what Home actually
             opens onto, and it is the one tab that never carries a project's
@@ -69,7 +69,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
             <button
               onClick={() => router.push(`/dashboard/project/${tab.id}`)}
               aria-current={active ? "page" : undefined}
-              className="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:gap-2.5"
+              className="flex min-w-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-line/25 md:gap-2.5"
             >
               {/* A favicon's job at a favicon's size: the app's own colour, round
                   on a pointer the way a site's mark is, and dimmed on the tabs
@@ -88,7 +88,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
             <button
               onClick={() => close(tab.id)}
               aria-label={`Close ${tab.name}`}
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[#8F939A] transition-all hover:bg-white/[0.1] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:focus-visible:opacity-100 ${
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted transition-all hover:bg-layer/[0.1] hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-line/25 md:focus-visible:opacity-100 ${
                 active ? "md:opacity-100" : "md:opacity-0 md:group-hover:opacity-100"
               }`}
             >
@@ -101,7 +101,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
       <button
         onClick={() => router.push("/dashboard")}
         aria-label="New app"
-        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.07] bg-white/[0.02] text-[#8F939A] transition-all hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/25 md:h-[30px] md:w-[30px] md:rounded-[9px] md:border-transparent md:bg-transparent md:hover:bg-white/[0.035] md:hover:text-white"
+        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.02] text-muted transition-all hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-line/25 md:h-[30px] md:w-[30px] md:rounded-[9px] md:border-transparent md:bg-transparent md:hover:bg-layer/[0.035] md:hover:text-ink"
       >
         <Plus className="h-4 w-4" />
       </button>

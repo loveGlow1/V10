@@ -136,7 +136,7 @@ export default function StationBuilder({ modules, onUpdateModules }: StationBuil
                 step="1.5"
                 value={gridX}
                 onChange={e => setGridX(parseFloat(e.target.value))}
-                className="w-full bg-space-800 text-white font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
+                className="w-full bg-space-800 text-ink font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
               />
             </div>
             <div>
@@ -146,7 +146,7 @@ export default function StationBuilder({ modules, onUpdateModules }: StationBuil
                 step="1.5"
                 value={gridZ}
                 onChange={e => setGridZ(parseFloat(e.target.value))}
-                className="w-full bg-space-800 text-white font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
+                className="w-full bg-space-800 text-ink font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
               />
             </div>
             <div>
@@ -154,7 +154,7 @@ export default function StationBuilder({ modules, onUpdateModules }: StationBuil
               <select
                 value={rotationAngle}
                 onChange={e => setRotationAngle(parseInt(e.target.value))}
-                className="w-full bg-space-800 text-white font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
+                className="w-full bg-space-800 text-ink font-mono text-xs rounded border border-gray-700 px-2 py-1 outline-none focus-visible:border-space-accent"
               >
                 <option value={0}>0°</option>
                 <option value={90}>90°</option>

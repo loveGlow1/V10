@@ -10,7 +10,13 @@ import React from "react";
    between the two screens would see the light change. */
 export default function PhoneField() {
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden">
+    <div
+      aria-hidden
+      /* Dark only, for the same reason the dashboard's wash is: this is a deep
+         blue field over a black floor, and there is no lighter key it stays
+         itself in. The light theme's ground is the ground. */
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden md:hidden [html[data-theme=light]_&]:hidden"
+    >
       {/* The floor the field sits on — the reference's lower half is this flat,
           with no vignette closing it. */}
       <div className="absolute inset-0 bg-[#020206]" />

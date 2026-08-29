@@ -113,7 +113,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
     // From md up. A phone gets TopBar instead: the brand, the home button and the
     // account menu do not fit beside an upgrade pill at 390px, and the drawer
     // already carries them.
-    <header className="sticky top-0 z-50 hidden h-14 w-full border-b border-white/[0.06] bg-[#0c0c0e] md:block">
+    <header className="sticky top-0 z-50 hidden h-14 w-full border-b border-line/[0.06] bg-bar md:block">
       <div className="mx-auto flex h-full w-full items-center justify-between px-4 sm:px-6">
         {/* Brand */}
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">
@@ -121,8 +121,8 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
             <span className="flex h-7 w-7 items-center justify-center overflow-hidden">
               <Q3DCanvas scale={0.55} />
             </span>
-            <span className="whitespace-nowrap text-[15px] font-bold tracking-tight text-white">
-              QuickStark<span className="text-[#34F5A0]">.Ai</span>
+            <span className="whitespace-nowrap text-[15px] font-bold tracking-tight text-ink">
+              QuickStark<span className="text-accent">.Ai</span>
             </span>
           </a>
 
@@ -159,11 +159,11 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                 transition={{ duration: 0.15, ease: "easeOut" }}
                 role="menu"
                 // Right-anchored to the avatar, and never wider than the viewport.
-                className="absolute right-0 top-[calc(100%+10px)] z-[70] w-[270px] max-w-[calc(100vw-24px)] overflow-hidden rounded-b-2xl rounded-t-lg border border-white/[0.08] bg-[#141417] shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
+                className="absolute right-0 top-[calc(100%+10px)] z-[70] w-[270px] max-w-[calc(100vw-24px)] overflow-hidden rounded-b-2xl rounded-t-lg border border-line/[0.08] bg-panel shadow-[0_24px_60px_rgba(0,0,0,0.65)]"
               >
                 {/* Names the account without printing the address. Settings keeps
                     the address, where showing it is the point. */}
-                <p className="truncate px-4 pb-3 pt-3.5 text-sm text-[#8F939A]">
+                <p className="truncate px-4 pb-3 pt-3.5 text-sm text-muted">
                   {account.name || account.email || "Signed in"}
                 </p>
 
@@ -171,17 +171,17 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                 <div className="flex items-center gap-2.5 px-4 pb-3">
                   <span className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium leading-tight text-white">{projectName}</p>
-                    <p className="truncate text-xs leading-tight text-[#8F939A]">Owner · 1 member</p>
+                    <p className="truncate text-sm font-medium leading-tight text-ink">{projectName}</p>
+                    <p className="truncate text-xs leading-tight text-muted">Owner · 1 member</p>
                   </div>
-                  <Repeat2 className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                  <Repeat2 className="h-4 w-4 shrink-0 text-muted" />
                 </div>
 
                 {/* Credits */}
-                <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-white/[0.03] p-3">
+                <div className="mx-3 mb-3 rounded-xl border border-line/[0.06] bg-layer/[0.03] p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-[#8F939A]">Credits</span>
-                    <span className="text-sm font-semibold text-white">{credits}</span>
+                    <span className="text-sm text-muted">Credits</span>
+                    <span className="text-sm font-semibold text-ink">{credits}</span>
                   </div>
                   <button
                     onClick={() => {
@@ -203,24 +203,24 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                         key={item.label}
                         onClick={item.onClick}
                         role="menuitem"
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
                       >
-                        <Icon className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                        <Icon className="h-4 w-4 shrink-0 text-muted" />
                         <span className="flex-1 truncate text-[13px]">{item.label}</span>
-                        {item.trailing === "chevron" && <ChevronRight className="h-3.5 w-3.5 text-[#8F939A]" />}
-                        {item.trailing === "external" && <ArrowUpRight className="h-3.5 w-3.5 text-[#8F939A]" />}
+                        {item.trailing === "chevron" && <ChevronRight className="h-3.5 w-3.5 text-muted" />}
+                        {item.trailing === "external" && <ArrowUpRight className="h-3.5 w-3.5 text-muted" />}
                       </button>
                     );
                   })}
                 </div>
 
                 {/* Logout, set apart from the rest */}
-                <div className="border-t border-white/[0.06] px-1.5 py-1.5">
+                <div className="border-t border-line/[0.06] px-1.5 py-1.5">
                   <button
                     onClick={handleSignOut}
                     disabled={signingOut}
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[#ef7777] transition-colors hover:bg-[#ef7777]/[0.08] disabled:opacity-60"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-danger transition-colors hover:bg-[#ef7777]/[0.08] disabled:opacity-60"
                   >
                     <LogOut className="h-4 w-4 shrink-0" />
                     <span className="text-[13px]">{signingOut ? "Signing out…" : "Logout"}</span>

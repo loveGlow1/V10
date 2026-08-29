@@ -258,7 +258,7 @@ export default function DashboardPage() {
 
   return (
     <ProjectsProvider>
-    <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-[#0d0d0f]">
+    <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-canvas">
       {/* Shared with the project workspace, so a phone sees the same light on
           both screens. */}
       <PhoneField />
@@ -330,7 +330,7 @@ export default function DashboardPage() {
           }}
         />
 
-        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-[#F5F5F5] sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
+        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-ink sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
         </h1>
 
@@ -348,12 +348,12 @@ export default function DashboardPage() {
                   onClick={() => setActiveType(type.id)}
                   className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal leading-[20px] transition-all md:leading-normal sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
-                      ? "border-white/[0.16] bg-white/[0.07] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-[rgba(255,255,255,0.08)] md:border-b-transparent md:bg-[#171719] md:shadow-none"
-                      : "border-white/[0.08] bg-white/[0.03] text-[#9A9A9F] hover:bg-white/[0.06] hover:text-white md:border-transparent md:text-[#8F939A]"
+                      ? "border-line/[0.16] bg-layer/[0.07] font-medium text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-line/[0.08] md:border-b-transparent md:bg-panel md:shadow-none"
+                      : "border-line/[0.08] bg-layer/[0.03] text-faint hover:bg-layer/[0.06] hover:text-ink md:border-transparent md:text-muted"
                   }`}
                 >
-                  <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-white" : "text-[#9A9A9F]"}`} />
-                  <Icon className={`hidden h-4 w-4 md:block ${active ? "text-white" : "text-[#8F939A]"}`} />
+                  <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-ink" : "text-faint"}`} />
+                  <Icon className={`hidden h-4 w-4 md:block ${active ? "text-ink" : "text-muted"}`} />
                   {type.label}
                 </button>
               );
@@ -372,47 +372,47 @@ export default function DashboardPage() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.97 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-[#3A3A42] bg-[#141416] p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
+                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-line/[0.14] bg-panel p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
                 >
                   <button
                     onClick={() => {
                       photoLibraryInputRef.current?.click();
                       setIsUploadPopoverOpen(false);
                     }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
                     <span className="font-medium">Photo Library</span>
-                    <ImageIcon className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                    <ImageIcon className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
                     onClick={() => {
                       cameraInputRef.current?.click();
                       setIsUploadPopoverOpen(false);
                     }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
                     <span className="font-medium">Take Photo or Video</span>
-                    <Camera className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                    <Camera className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
                     onClick={() => {
                       chooseFilesInputRef.current?.click();
                       setIsUploadPopoverOpen(false);
                     }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
                     <span className="font-medium">Choose Files</span>
-                    <FolderOpen className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                    <FolderOpen className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
                     onClick={() => {
                       alert("Google Drive integration triggered");
                       setIsUploadPopoverOpen(false);
                     }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-white/90 hover:bg-white/[0.06] transition-colors text-left group"
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
                     <span className="font-medium">Google Drive</span>
-                    <Triangle className="w-4 h-4 text-[#8F939A] group-hover:text-white transition-colors" />
+                    <Triangle className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                 </motion.div>
               )}
@@ -423,7 +423,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-[#292b32] md:bg-[#171719] md:bg-clip-border">
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -440,7 +440,7 @@ export default function DashboardPage() {
                   rows={3}
                   value={transcript}
                   onChange={(e) => setTranscript(e.target.value)}
-                  className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-white outline-none md:h-auto"
+                  className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-ink outline-none md:h-auto"
                 />
                 <AnimatePresence mode="wait">
                   {!transcript && (
@@ -451,7 +451,7 @@ export default function DashboardPage() {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.45, ease: "easeInOut" }}
                       aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#9A9A9F] md:text-[#85858a]"
+                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-faint md:text-faint"
                     >
                       {PROMPTS[promptIndex]}
                     </motion.span>
@@ -495,7 +495,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => chooseFilesInputRef.current?.click()}
                     aria-label="Add photos or files"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all active:scale-[0.98] md:hidden"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all active:scale-[0.98] md:hidden"
                   >
                     <Paperclip className="h-4 w-4 -rotate-45" />
                   </button>
@@ -510,8 +510,8 @@ export default function DashboardPage() {
                     aria-expanded={isUploadPopoverOpen}
                     className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
-                        ? "bg-white/[0.08] border-white/[0.2] text-white"
-                        : "bg-white/[0.03] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white"
+                        ? "bg-layer/[0.08] border-line/[0.2] text-ink"
+                        : "bg-layer/[0.03] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-ink"
                     }`}
                   >
                     <Paperclip className="h-4 w-4" />
@@ -521,7 +521,7 @@ export default function DashboardPage() {
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
+                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
@@ -533,11 +533,11 @@ export default function DashboardPage() {
                   <button
                     onClick={() => setIsAgentModalOpen(true)}
                     aria-label="Choose an agent"
-                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm md:hidden"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm md:hidden"
                   >
-                    <AgentMark className="h-4 w-4 text-white" />
+                    <AgentMark className="h-4 w-4 text-ink" />
                     <span className="font-medium tracking-tight">{selectedAgent}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-white" />
+                    <ChevronDown className="h-3.5 w-3.5 text-ink" />
                   </button>
 
                   {/* Model selector — the workspace's chip, from md up: the maker's
@@ -550,12 +550,12 @@ export default function DashboardPage() {
                     }}
                     aria-expanded={isModelPopoverOpen}
                     aria-label="Choose a model"
-                    className="hidden h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.03] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] md:flex md:h-10 md:gap-2 md:px-3.5 md:text-sm"
+                    className="hidden h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
                     <ProviderMark provider={chosenModel.provider} />
                     <span className="font-medium tracking-tight">{shortModelName(chosenModel)}</span>
                     <ChevronDown
-                      className={`h-3.5 w-3.5 text-white transition-transform ${
+                      className={`h-3.5 w-3.5 text-ink transition-transform ${
                         isModelPopoverOpen ? "rotate-180" : ""
                       }`}
                     />
@@ -565,7 +565,7 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-sm text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] md:bg-white/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-line/[0.08] bg-layer/[0.06] text-sm text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] md:bg-layer/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
@@ -574,7 +574,7 @@ export default function DashboardPage() {
                     onClick={() => setIsAdvancedModalOpen(true)}
                     title="Advanced controls"
                     aria-label="Advanced controls"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] hover:bg-white/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-white/[0.03]"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                   </button>
@@ -586,7 +586,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-white/[0.06] border-[rgba(255,255,255,0.08)] hover:bg-white/[0.06] hover:border-white/[0.12] text-white md:bg-white/[0.03]"
+                        : "bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
                     }`}
                   >
                     {isRecording ? (
@@ -606,8 +606,8 @@ export default function DashboardPage() {
                     aria-label="Send"
                     className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] sm:h-10 sm:w-10 sm:rounded-full ${
                       transcript.trim()
-                        ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                        : "border-transparent bg-[#28292a] text-white/40 md:bg-[#35343B] md:text-white"
+                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                        : "border-transparent bg-layer/[0.07] text-ink/30 md:bg-layer/[0.1] md:text-ink"
                     }`}
                   >
                     <SendArrow className="h-4 w-4 md:hidden" />
@@ -632,7 +632,7 @@ export default function DashboardPage() {
               width="w-[min(340px,100%)]"
               sheetOnMobile={false}
             >
-              <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-center text-[12px] text-[#8F939A]">
+              <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
                 <Shuffle className="h-3.5 w-3.5 shrink-0" />
                 Model changes apply from your next message
               </p>
@@ -644,7 +644,7 @@ export default function DashboardPage() {
                 {groupedModels().map((group) => (
                   <div key={group.provider}>
                     {group.label && (
-                      <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-[#8F939A]">
+                      <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
                         {group.label}
                       </p>
                     )}
@@ -658,8 +658,8 @@ export default function DashboardPage() {
                             setModel(option.id);
                             setIsModelPopoverOpen(false);
                           }}
-                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
-                            selected ? "bg-white/[0.06]" : ""
+                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
+                            selected ? "bg-layer/[0.06]" : ""
                           }`}
                         >
                           <span className="mt-0.5 shrink-0">
@@ -670,30 +670,30 @@ export default function DashboardPage() {
                             <span className="flex items-center gap-2">
                               <span
                                 className={`truncate text-[13px] font-medium ${
-                                  selected ? "text-[#34F5A0]" : "text-white"
+                                  selected ? "text-accent" : "text-ink"
                                 }`}
                               >
                                 {option.name}
                               </span>
                               {option.badge && (
-                                <span className="shrink-0 rounded-full bg-[#F4D96B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F4D96B]">
+                                <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
                                   {option.badge}
                                 </span>
                               )}
                             </span>
-                            <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8F939A]">
+                            <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
                               {option.blurb}
                               {option.note && (
                                 <>
                                   {" · "}
-                                  <span className="text-[#F4D96B]">{option.note}</span>
+                                  <span className="text-warn">{option.note}</span>
                                 </>
                               )}
                             </span>
                           </span>
 
                           {selected && (
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-[#34F5A0]" />
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-accent" />
                           )}
                         </button>
                       );
@@ -734,9 +734,9 @@ export default function DashboardPage() {
                       composer.setSelectionRange(starter.prompt.length, starter.prompt.length);
                     });
                   }}
-                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[13px] text-[#C7CAD0] transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line/[0.06] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft transition-colors hover:border-line/[0.12] hover:bg-layer/[0.06] hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30"
                 >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
                   {starter.label}
                   {"soon" in starter && starter.soon ? <ComingSoonBadge /> : null}
                 </button>
@@ -764,13 +764,13 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-full max-w-md bg-[#121215] border border-white/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-4"
+              className="w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-4"
             >
               <div className="flex items-center justify-between pb-1">
-                <h3 className="text-base font-semibold text-white tracking-tight">Select Agent</h3>
+                <h3 className="text-base font-semibold text-ink tracking-tight">Select Agent</h3>
                 <button
                   onClick={() => setIsAgentModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[0.08] transition-all"
+                  className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -795,23 +795,23 @@ export default function DashboardPage() {
                       }}
                       className={`p-4 rounded-[18px] cursor-pointer transition-all duration-200 flex items-center justify-between border ${
                         agent.soon
-                          ? "bg-[rgba(18,18,22,0.35)] border-white/[0.04]"
+                          ? "bg-layer/[0.02] border-line/[0.04]"
                           : isSelected
-                            ? "bg-[rgba(26,26,32,0.9)] border-[#34F5A0]/50 shadow-[0_0_15px_rgba(52,245,160,0.08)]"
-                            : "bg-[rgba(18,18,22,0.6)] border-white/[0.05] hover:bg-[rgba(24,24,28,0.8)] hover:border-white/[0.1]"
+                            ? "bg-layer/[0.07] border-accent/50 shadow-[0_0_15px_rgba(52,245,160,0.08)]"
+                            : "bg-layer/[0.035] border-line/[0.05] hover:bg-layer/[0.055] hover:border-line/[0.1]"
                       }`}
                     >
                       <div className="space-y-0.5">
-                        <h4 className={`text-sm font-semibold ${agent.soon ? "text-white/55" : "text-white"}`}>
+                        <h4 className={`text-sm font-semibold ${agent.soon ? "text-ink/55" : "text-ink"}`}>
                           {agent.title}
                         </h4>
-                        <p className="text-xs text-[#8F939A] font-normal">{agent.subtitle}</p>
+                        <p className="text-xs text-muted font-normal">{agent.subtitle}</p>
                       </div>
                       {agent.soon ? (
                         <ComingSoonBadge />
                       ) : (
                         isSelected && (
-                          <div className="w-5 h-5 rounded-full bg-[#34F5A0]/15 flex items-center justify-center text-[#34F5A0]">
+                          <div className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-accent">
                             <Check className="w-3.5 h-3.5 stroke-[2.5]" />
                           </div>
                         )
@@ -834,13 +834,13 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-full max-w-md bg-[#121215] border border-white/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-4"
+              className="w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-4"
             >
               <div className="flex items-center justify-between pb-1">
-                <h3 className="text-base font-semibold text-white tracking-tight">Privacy Settings</h3>
+                <h3 className="text-base font-semibold text-ink tracking-tight">Privacy Settings</h3>
                 <button
                   onClick={() => setIsPrivacyModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[0.08] transition-all"
+                  className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -854,22 +854,22 @@ export default function DashboardPage() {
                   }}
                   className={`p-4 rounded-[18px] cursor-pointer transition-all duration-200 flex items-center justify-between border ${
                     selectedPrivacy === "public"
-                      ? "bg-[rgba(26,26,32,0.9)] border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]"
-                      : "bg-[rgba(18,18,22,0.6)] border-white/[0.05] hover:bg-[rgba(24,24,28,0.8)] hover:border-white/[0.1]"
+                      ? "bg-layer/[0.07] border-line/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]"
+                      : "bg-layer/[0.035] border-line/[0.05] hover:bg-layer/[0.055] hover:border-line/[0.1]"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="mt-1">
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedPrivacy === "public" ? "border-white" : "border-white/40"}`}>
-                        {selectedPrivacy === "public" && <div className="w-2 h-2 rounded-full bg-white" />}
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedPrivacy === "public" ? "border-line" : "border-line/40"}`}>
+                        {selectedPrivacy === "public" && <div className="w-2 h-2 rounded-full bg-solid" />}
                       </div>
                     </div>
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-semibold text-white">Public</h4>
-                        <Globe className="w-3.5 h-3.5 text-[#8F939A]" />
+                        <h4 className="text-sm font-semibold text-ink">Public</h4>
+                        <Globe className="w-3.5 h-3.5 text-muted" />
                       </div>
-                      <p className="text-xs text-[#8F939A] font-normal">Anyone can view and explore</p>
+                      <p className="text-xs text-muted font-normal">Anyone can view and explore</p>
                     </div>
                   </div>
                 </div>
@@ -881,25 +881,25 @@ export default function DashboardPage() {
                   }}
                   className={`p-4 rounded-[18px] cursor-pointer transition-all duration-200 flex items-center justify-between border ${
                     selectedPrivacy === "private"
-                      ? "bg-[rgba(26,26,32,0.9)] border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]"
-                      : "bg-[rgba(18,18,22,0.6)] border-white/[0.05] hover:bg-[rgba(24,24,28,0.8)] hover:border-white/[0.1]"
+                      ? "bg-layer/[0.07] border-line/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]"
+                      : "bg-layer/[0.035] border-line/[0.05] hover:bg-layer/[0.055] hover:border-line/[0.1]"
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="mt-1">
-                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedPrivacy === "private" ? "border-white" : "border-white/40"}`}>
-                        {selectedPrivacy === "private" && <div className="w-2 h-2 rounded-full bg-white" />}
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${selectedPrivacy === "private" ? "border-line" : "border-line/40"}`}>
+                        {selectedPrivacy === "private" && <div className="w-2 h-2 rounded-full bg-solid" />}
                       </div>
                     </div>
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-semibold text-white">Private</h4>
-                        <Lock className="w-3.5 h-3.5 text-[#8F939A]" />
+                        <h4 className="text-sm font-semibold text-ink">Private</h4>
+                        <Lock className="w-3.5 h-3.5 text-muted" />
                       </div>
-                      <p className="text-xs text-[#8F939A] font-normal">Only visible to yourself, unless shared</p>
+                      <p className="text-xs text-muted font-normal">Only visible to yourself, unless shared</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs font-medium text-[#F4D96B]">
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-layer/[0.04] border border-line/[0.08] text-xs font-medium text-warn">
                     <Globe className="w-3 h-3" />
                     <span>Standard</span>
                   </div>
@@ -919,87 +919,87 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-full max-w-md bg-[#121215] border border-white/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-5"
+              className="w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-5"
             >
               <div className="flex items-center justify-between pb-1">
-                <h3 className="text-base font-semibold text-white tracking-tight">Advanced Controls</h3>
+                <h3 className="text-base font-semibold text-ink tracking-tight">Advanced Controls</h3>
                 <button
                   onClick={() => setIsAdvancedModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[0.08] transition-all"
+                  className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-4">
-                <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] flex items-center justify-between">
+                <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-white/[0.05] flex items-center justify-center text-white">
-                      <Bot className="w-4 h-4 text-[#34F5A0]" />
+                    <div className="w-7 h-7 rounded-full bg-layer/[0.05] flex items-center justify-center text-ink">
+                      <Bot className="w-4 h-4 text-accent" />
                     </div>
-                    <span className="text-sm font-semibold text-white flex items-center gap-1">
-                      Maxx <Sparkles className="w-3.5 h-3.5 text-[#34F5A0]" />
+                    <span className="text-sm font-semibold text-ink flex items-center gap-1">
+                      Maxx <Sparkles className="w-3.5 h-3.5 text-accent" />
                     </span>
                   </div>
                   <button
                     onClick={() => setMaxxEnabled(!maxxEnabled)}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${maxxEnabled ? "bg-[#34F5A0]" : "bg-white/20"}`}
+                    className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${maxxEnabled ? "bg-accent" : "bg-layer/20"}`}
                   >
                     <div className={`w-5 h-5 rounded-full bg-black transition-transform ${maxxEnabled ? "translate-x-5" : "translate-x-0"}`} />
                   </button>
                 </div>
 
                 <div className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[#8F939A] px-1">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     Select Model
                   </span>
-                  <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] hover:border-white/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
                     <div className="flex items-center gap-3">
-                      <Cpu className="w-4 h-4 text-[#8F939A]" />
-                      <span className="text-sm font-semibold text-white">{selectedModel}</span>
+                      <Cpu className="w-4 h-4 text-muted" />
+                      <span className="text-sm font-semibold text-ink">{selectedModel}</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[#8F939A]" />
+                    <ChevronRight className="w-4 h-4 text-muted" />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between px-1">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-[#8F939A]">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Select MCP Tools
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4D96B] text-black">
                       New
                     </span>
                   </div>
-                  <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] hover:border-white/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
                     <div className="flex items-center gap-3">
-                      <Paperclip className="w-4 h-4 text-[#8F939A]" />
-                      <span className="text-sm font-semibold text-white">Select MCP Tools</span>
+                      <Paperclip className="w-4 h-4 text-muted" />
+                      <span className="text-sm font-semibold text-ink">Select MCP Tools</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[#8F939A]" />
+                    <ChevronRight className="w-4 h-4 text-muted" />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[#8F939A] px-1">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     GitHub
                   </span>
-                  <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] hover:border-white/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
                     <div className="flex items-center gap-3">
-                      <Github className="w-4 h-4 text-[#8F939A]" />
-                      <span className="text-sm font-semibold text-white">Connect to GitHub</span>
+                      <Github className="w-4 h-4 text-muted" />
+                      <span className="text-sm font-semibold text-ink">Connect to GitHub</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[#8F939A]" />
+                    <ChevronRight className="w-4 h-4 text-muted" />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[#8F939A] px-1">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     Select Template
                   </span>
-                  <div className="p-4 rounded-[18px] bg-[rgba(18,18,22,0.6)] border border-white/[0.05] hover:border-white/[0.1] cursor-pointer flex items-center justify-between transition-all">
-                    <span className="text-sm font-semibold text-white">Full Stack Template</span>
-                    <ChevronRight className="w-4 h-4 text-[#8F939A]" />
+                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                    <span className="text-sm font-semibold text-ink">Full Stack Template</span>
+                    <ChevronRight className="w-4 h-4 text-muted" />
                   </div>
                 </div>
               </div>

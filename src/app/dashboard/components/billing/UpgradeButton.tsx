@@ -15,7 +15,7 @@ export default function UpgradeButton({ plan = "standard" }: { plan?: PlanId }) 
       whileTap={{ scale: 0.98 }}
       whileHover={{ scale: 1.01 }}
       transition={{ duration: 0.15 }}
-      className="h-13 w-full rounded-2xl bg-white py-3.5 text-base font-bold text-[#0A0A0A]"
+      className="h-13 w-full rounded-2xl bg-solid py-3.5 text-base font-bold text-[#0A0A0A]"
     >
       {monthlyPriceUsd === 0 ? `Stay on ${name}` : `Upgrade to ${name}`}
     </motion.button>

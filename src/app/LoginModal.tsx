@@ -191,7 +191,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
     </div>
   );
 
-  const accountPromptClass = "text-center text-sm text-white/50";
+  const accountPromptClass = "text-center text-sm text-ink/50";
   const accountPromptLinkClass =
     "font-medium text-emerald-400 transition-colors hover:text-emerald-300";
 
@@ -233,7 +233,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
   // normal widths and splits it evenly when it cannot.
   const footerLinkClass = "whitespace-nowrap underline underline-offset-4";
   const footerLinks = (
-    <p className="mx-auto text-balance text-center text-[11px] leading-[1.55] text-white/45 sm:text-xs">
+    <p className="mx-auto text-balance text-center text-[11px] leading-[1.55] text-ink/45 sm:text-xs">
       By continuing, you agree to our{" "}
       <a href="#" className={footerLinkClass}>
         Terms of Service
@@ -247,24 +247,24 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
 
   const providerIconClass = PROVIDER_ICON_CLASS;
   const primaryProviderButtonClass =
-    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 text-sm font-semibold text-black transition hover:bg-emerald-50 disabled:opacity-60 sm:text-base";
+    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-solid px-4 text-sm font-semibold text-onSolid transition hover:bg-emerald-50 disabled:opacity-60 sm:text-base";
   const compactProviderButtonClass =
-    "flex h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-neutral-900/60 px-3 text-sm font-medium transition hover:border-emerald-500/30 disabled:opacity-60";
+    "flex h-11 items-center justify-center gap-2 rounded-2xl border border-line/10 bg-neutral-900/60 px-3 text-sm font-medium transition hover:border-emerald-500/30 disabled:opacity-60";
   const alternateMethodButtonClass =
-    "flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-neutral-900/60 px-4 text-sm font-semibold transition hover:border-emerald-500/30 sm:h-12 sm:text-base";
+    "flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-line/10 bg-neutral-900/60 px-4 text-sm font-semibold transition hover:border-emerald-500/30 sm:h-12 sm:text-base";
   const inputWrapperClass =
-    "flex h-12 items-center gap-3 rounded-2xl border border-white/10 bg-neutral-900/60 px-4 transition focus-within:ring-2 focus-within:ring-emerald-500/20";
-  const inputFieldClass = "w-full bg-transparent text-base placeholder:text-white/40 outline-none";
+    "flex h-12 items-center gap-3 rounded-2xl border border-line/10 bg-neutral-900/60 px-4 transition focus-within:ring-2 focus-within:ring-emerald-500/20";
+  const inputFieldClass = "w-full bg-transparent text-base placeholder:text-ink/40 outline-none";
   const primaryActionButtonClass =
-    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-white text-sm sm:text-base font-semibold text-black tracking-tight transition hover:bg-emerald-50 disabled:opacity-60";
+    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-solid text-sm sm:text-base font-semibold text-onSolid tracking-tight transition hover:bg-emerald-50 disabled:opacity-60";
   const goBackButtonClass =
-    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-neutral-900/60 text-sm sm:text-base font-semibold text-white transition hover:border-emerald-500/30";
+    "flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-line/10 bg-neutral-900/60 text-sm sm:text-base font-semibold text-ink transition hover:border-emerald-500/30";
 
   return (
-    <div className="fixed inset-0 z-[10000] flex min-h-dvh w-full flex-col overflow-y-auto bg-black text-white">
+    <div className="fixed inset-0 z-[10000] flex min-h-dvh w-full flex-col overflow-y-auto bg-black text-ink">
       <button
         onClick={handleClose}
-        className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 text-white/80 transition hover:border-white/40 hover:text-white"
+        className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-line/20 text-ink/80 transition hover:border-line/40 hover:text-ink"
         style={{ top: "max(1rem, env(safe-area-inset-top))" }}
         aria-label="Close and return to homepage"
       >
@@ -306,7 +306,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                       onProviderAuth={onProviderAuth}
                       className={compactProviderButtonClass}
                     >
-                      <Apple className={`${providerIconClass} text-white`} />
+                      <Apple className={`${providerIconClass} text-ink`} />
                       <span>Apple</span>
                     </ProviderButton>
                     <ProviderButton
@@ -320,16 +320,16 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className="flex items-center gap-3 py-0.5">
-                    <div className="flex-1 h-px bg-white/15" />
-                    <span className="text-white/45 text-xs sm:text-sm font-medium tracking-widest">OR</span>
-                    <div className="flex-1 h-px bg-white/15" />
+                    <div className="flex-1 h-px bg-layer/15" />
+                    <span className="text-ink/45 text-xs sm:text-sm font-medium tracking-widest">OR</span>
+                    <div className="flex-1 h-px bg-layer/15" />
                   </div>
 
                   <button
                     onClick={() => setAuthStep("email")}
                     className={alternateMethodButtonClass}
                   >
-                    <Mail className={`${providerIconClass} text-white/80`} />
+                    <Mail className={`${providerIconClass} text-ink/80`} />
                     Continue with Email
                   </button>
 
@@ -340,7 +340,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                     }}
                     className={alternateMethodButtonClass}
                   >
-                    <Phone className={`${providerIconClass} text-white/80`} />
+                    <Phone className={`${providerIconClass} text-ink/80`} />
                     Continue with Phone
                   </button>
                 </div>
@@ -360,7 +360,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   className="space-y-3"
                 >
                   <div className={inputWrapperClass}>
-                    <UserRound className="h-5 w-5 shrink-0 text-white/45" />
+                    <UserRound className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
@@ -370,7 +370,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className={inputWrapperClass}>
-                    <Mail className="h-5 w-5 shrink-0 text-white/45" />
+                    <Mail className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       type="email"
                       value={email}
@@ -381,7 +381,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className={inputWrapperClass}>
-                    <KeyRound className="h-5 w-5 shrink-0 text-white/45" />
+                    <KeyRound className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       type={showPassword ? "text" : "password"}
                       value={password}
@@ -392,7 +392,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="text-white/45 hover:text-white/80 transition-colors shrink-0"
+                      className="text-ink/45 hover:text-ink/80 transition-colors shrink-0"
                       aria-label={showPassword ? "Hide password" : "Show password"}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -425,7 +425,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   className="space-y-3"
                 >
                   <div className={inputWrapperClass}>
-                    <Mail className="h-5 w-5 shrink-0 text-white/45" />
+                    <Mail className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       type="email"
                       value={signinEmail}
@@ -436,7 +436,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className={inputWrapperClass}>
-                    <KeyRound className="h-5 w-5 shrink-0 text-white/45" />
+                    <KeyRound className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       type={showSigninPassword ? "text" : "password"}
                       value={signinPassword}
@@ -447,7 +447,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                     <button
                       type="button"
                       onClick={() => setShowSigninPassword((v) => !v)}
-                      className="text-white/45 hover:text-white/80 transition-colors shrink-0"
+                      className="text-ink/45 hover:text-ink/80 transition-colors shrink-0"
                       aria-label={showSigninPassword ? "Hide password" : "Show password"}
                     >
                       {showSigninPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -455,7 +455,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className="text-right">
-                    <a href="#" className="text-xs sm:text-sm text-white/50 hover:text-white/80 underline underline-offset-4 transition-colors">
+                    <a href="#" className="text-xs sm:text-sm text-ink/50 hover:text-ink/80 underline underline-offset-4 transition-colors">
                       Forgot Password?
                     </a>
                   </div>
@@ -471,7 +471,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   <div className="pt-1 flex justify-center">
                     <button
                       type="button"
-                      className="flex items-center gap-2 text-xs sm:text-sm text-white/50 hover:text-white/80 transition-colors"
+                      className="flex items-center gap-2 text-xs sm:text-sm text-ink/50 hover:text-ink/80 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
                         <rect width="20" height="16" x="2" y="4" rx="2" />
@@ -514,7 +514,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   className="space-y-3"
                 >
                   <div className={inputWrapperClass}>
-                    <UserRound className="h-5 w-5 text-white/45" />
+                    <UserRound className="h-5 w-5 text-ink/45" />
                     <input
                       value={name}
                       onChange={(e) => setName(e.target.value)}
@@ -524,33 +524,33 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   </div>
 
                   <div className="space-y-2">
-                    <div className="flex h-12 items-center gap-2 rounded-2xl border border-white/10 bg-neutral-900/60 px-3 transition focus-within:ring-2 focus-within:ring-emerald-500/20 sm:px-4">
+                    <div className="flex h-12 items-center gap-2 rounded-2xl border border-line/10 bg-neutral-900/60 px-3 transition focus-within:ring-2 focus-within:ring-emerald-500/20 sm:px-4">
                       <button
                         type="button"
                         onClick={() => setCountryDropdownOpen((value) => !value)}
-                        className="flex items-center gap-2 pr-3 border-r border-white/15 text-sm"
+                        className="flex items-center gap-2 pr-3 border-r border-line/15 text-sm"
                       >
                         <span className="text-lg">{selectedCountry?.flag}</span>
                         <span className="text-sm">{selectedCountry?.dialCode}</span>
-                        <ChevronDown className="h-4 w-4 text-white/45" />
+                        <ChevronDown className="h-4 w-4 text-ink/45" />
                       </button>
                       <input
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="Enter mobile number"
-                        className="min-w-0 flex-1 bg-transparent text-base placeholder:text-white/40 outline-none"
+                        className="min-w-0 flex-1 bg-transparent text-base placeholder:text-ink/40 outline-none"
                       />
                     </div>
 
                     {countryDropdownOpen && (
-                      <div className="rounded-2xl border border-white/10 bg-neutral-900/60 p-2">
-                        <div className="mb-2 h-10 rounded-2xl border border-white/10 px-3 flex items-center gap-2 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                          <Search className="h-4 w-4 text-white/45" />
+                      <div className="rounded-2xl border border-line/10 bg-neutral-900/60 p-2">
+                        <div className="mb-2 h-10 rounded-2xl border border-line/10 px-3 flex items-center gap-2 focus-within:ring-2 focus-within:ring-emerald-500/20">
+                          <Search className="h-4 w-4 text-ink/45" />
                           <input
                             value={countryQuery}
                             onChange={(e) => setCountryQuery(e.target.value)}
                             placeholder="Search your country"
-                            className="w-full bg-transparent text-base placeholder:text-white/40 outline-none"
+                            className="w-full bg-transparent text-base placeholder:text-ink/40 outline-none"
                           />
                         </div>
 
@@ -567,7 +567,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                                   setCountryQuery("");
                                 }}
                                 className={`w-full rounded-xl px-3 py-2 flex items-center justify-between text-left transition ${
-                                  isSelected ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-white/5"
+                                  isSelected ? "bg-emerald-500/20 text-emerald-400" : "hover:bg-layer/5"
                                 }`}
                               >
                                 <span className="flex items-center gap-2 text-sm">
@@ -608,9 +608,9 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
               <div>
                 {brandingBlock}
 
-                <p className="mb-4 text-center text-sm text-white/60">
+                <p className="mb-4 text-center text-sm text-ink/60">
                   Enter the 6-digit code sent to{" "}
-                  <span className="font-semibold text-white">
+                  <span className="font-semibold text-ink">
                     {selectedCountry?.dialCode}
                     {phone}
                   </span>
@@ -628,7 +628,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                   className="space-y-3"
                 >
                   <div className={inputWrapperClass}>
-                    <KeyRound className="h-5 w-5 shrink-0 text-white/45" />
+                    <KeyRound className="h-5 w-5 shrink-0 text-ink/45" />
                     <input
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}

@@ -11,7 +11,7 @@ export function Hero() {
         Deploy production-ready applications with unmatched speed, security, and scalability.
       </p>
       <div className="flex justify-center gap-4 mb-16">
-        <button className="bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-6 rounded-lg flex items-center gap-2">
+        <button className="bg-indigo-600 hover:bg-indigo-700 text-ink py-3 px-6 rounded-lg flex items-center gap-2">
           Get Started <ArrowRight className="w-5 h-5" />
         </button>
       </div>

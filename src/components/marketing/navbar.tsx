@@ -2,8 +2,8 @@ import Link from 'next/link';
 
 export function Navbar() {
   return (
-    <header className="flex items-center justify-between rounded-full border border-white/10 bg-slate-950/60 px-5 py-3 backdrop-blur">
-      <Link className="text-lg font-semibold text-white" href="/">
+    <header className="flex items-center justify-between rounded-full border border-line/10 bg-slate-950/60 px-5 py-3 backdrop-blur">
+      <Link className="text-lg font-semibold text-ink" href="/">
         Emergent V10
       </Link>
       <nav className="flex items-center gap-4 text-sm text-slate-300">
