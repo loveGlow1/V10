@@ -28,6 +28,35 @@ module.exports = {
         brandTextSec: 'rgb(var(--brandTextSec-rgb) / <alpha-value>)',
         // Bakes in its own alpha, so it takes no opacity modifier.
         brandBorder: 'var(--brandBorder)',
+
+        // The theme. Every one of these is a role rather than a colour — what the
+        // thing is for, not what it looks like — so the two palettes in
+        // globals.css can disagree about the colour without a single class in the
+        // markup changing. Channel triplets for the same reason as the brand
+        // colours above: it is what lets `bg-layer/[0.06]` compose.
+        ink: 'rgb(var(--ink) / <alpha-value>)',
+        soft: 'rgb(var(--soft) / <alpha-value>)',
+        muted: 'rgb(var(--muted) / <alpha-value>)',
+        faint: 'rgb(var(--faint) / <alpha-value>)',
+        // The tint every translucent fill and hairline is made of. White on a dark
+        // ground, near-black on a light one — which is what flips ~300 overlays in
+        // this app without touching one of them.
+        layer: 'rgb(var(--layer) / <alpha-value>)',
+        line: 'rgb(var(--line) / <alpha-value>)',
+        canvas: 'rgb(var(--canvas) / <alpha-value>)',
+        bar: 'rgb(var(--bar) / <alpha-value>)',
+        panel: 'rgb(var(--panel) / <alpha-value>)',
+        sunken: 'rgb(var(--sunken) / <alpha-value>)',
+        // A primary button and the text on it, which swap ends between themes.
+        solid: 'rgb(var(--solid) / <alpha-value>)',
+        onSolid: 'rgb(var(--on-solid) / <alpha-value>)',
+        // Brand colours that have to be re-picked for a light ground: mint on white
+        // is unreadable, and so is coral.
+        accent: 'rgb(var(--accent) / <alpha-value>)',
+        danger: 'rgb(var(--danger) / <alpha-value>)',
+        // Gold as *text*. The gold fills keep their literal gradients: they carry
+        // dark text on them and read on either ground.
+        warn: 'rgb(var(--warn) / <alpha-value>)',
       },
       // Large-display steps beyond Tailwind's 2xl (1536px), so the layout keeps scaling
       // on 1080p/1440p/4K screens and TVs instead of topping out at desktop sizes.

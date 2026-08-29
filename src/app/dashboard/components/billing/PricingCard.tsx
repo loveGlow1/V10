@@ -23,17 +23,17 @@ export default function PricingCard({ plan }: PricingCardProps) {
       />
 
       <div className="relative z-10 mb-4 flex items-center justify-between">
-        <span className="text-base font-bold text-black">{name} ⚡</span>
+        <span className="text-base font-bold text-onSolid">{name} ⚡</span>
       </div>
 
       {/* One figure: what the plan costs. It previously led with a promotional $0
           for the middle tier, which read as the price and disagreed with every
           other pricing surface in the product. */}
       <div className="relative z-10 flex flex-wrap items-end gap-2">
-        <span className="text-[44px] font-extrabold leading-none text-black sm:text-[48px]">
+        <span className="text-[44px] font-extrabold leading-none text-onSolid sm:text-[48px]">
           ${monthlyPriceUsd}
         </span>
-        <span className="mb-1.5 text-xs font-medium text-black">
+        <span className="mb-1.5 text-xs font-medium text-onSolid">
           {monthlyPriceUsd === 0 ? "/ free forever" : "/ month"}
         </span>
       </div>

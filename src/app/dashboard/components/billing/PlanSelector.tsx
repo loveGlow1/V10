@@ -36,13 +36,13 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
           >
             <span
               className={`mb-2 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
-                isSelected ? "border-[#22C55E]" : "border-white/30"
+                isSelected ? "border-[#22C55E]" : "border-line/30"
               }`}
             >
               {isSelected && <span className="h-2 w-2 rounded-full bg-[#22C55E]" />}
             </span>
 
-            <p className="mb-1 text-[15px] font-bold leading-tight text-white">{plan.name}</p>
+            <p className="mb-1 text-[15px] font-bold leading-tight text-ink">{plan.name}</p>
             {/* The plan's own price, not a promotional one. */}
             <p className="text-sm font-bold text-[#22C55E]">${plan.monthlyPriceUsd}</p>
           </motion.button>

@@ -14,7 +14,7 @@ export default function MetricCard({ title, value, subtext, icon: Icon, colorCla
       </div>
       
       <div className="flex items-baseline space-x-2">
-        <span className="text-3xl font-extrabold tracking-tight text-white">{value}</span>
+        <span className="text-3xl font-extrabold tracking-tight text-ink">{value}</span>
       </div>
       
       <p className="mt-1 text-xs text-gray-500 font-mono">{subtext}</p>

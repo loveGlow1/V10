@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
 import { maskEmail } from "../account";
+import ThemeSwitch from "./ThemeSwitch";
 import { avatarFor } from "../projectColours";
 import { useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -212,7 +213,7 @@ export default function Sidebar({
                used to sit here was doing nothing visible behind an opaque panel and
                cost a full-height filter pass on every frame of the page behind it —
                which is what made scrolling feel heavy. */
-            className="fixed top-0 left-0 z-50 flex h-[100dvh] w-[min(300px,84vw)] flex-col overflow-hidden overscroll-contain border-r border-white/[0.09] bg-[rgba(10,10,12,0.97)] p-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] md:hidden"
+            className="fixed top-0 left-0 z-50 flex h-[100dvh] w-[min(300px,84vw)] flex-col overflow-hidden overscroll-contain border-r border-line/[0.09] bg-panel/[0.97] p-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] md:hidden"
           >
             {/* Header: 3D Canvas Logo & QuickStark.Ai Brand */}
             <div className="mb-5 flex shrink-0 items-center justify-between">
@@ -223,14 +224,14 @@ export default function Sidebar({
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center">
                   <Q3DCanvas scale={0.65} className="h-9 w-9" />
                 </div>
-                <span className="text-lg font-bold tracking-tight text-white">
-                  QuickStark<span className="text-[#34F5A0]">.Ai</span>
+                <span className="text-lg font-bold tracking-tight text-ink">
+                  QuickStark<span className="text-accent">.Ai</span>
                 </span>
               </div>
 
               <button
                 onClick={onClose}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-white/[0.09] hover:text-white"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-line/[0.08] bg-layer/[0.05] text-ink/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-layer/[0.09] hover:text-ink"
                 aria-label="Close menu"
               >
                 <PanelLeftClose className="h-4 w-4" />
@@ -245,20 +246,20 @@ export default function Sidebar({
               }}
               className="group mb-4 flex shrink-0 items-center gap-3 text-left"
             >
-              <span className="w-8 h-8 rounded-full bg-[#34F5A0] flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(52,245,160,0.2)]">
-                <Plus className="w-4 h-4 text-black stroke-[2.5]" />
+              <span className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0 shadow-[0_0_15px_rgba(52,245,160,0.2)]">
+                <Plus className="w-4 h-4 text-onSolid stroke-[2.5]" />
               </span>
-              <span className="text-[#34F5A0] font-semibold text-base">New Task</span>
+              <span className="text-accent font-semibold text-base">New Task</span>
             </button>
 
             {/* Nav items */}
             {/* min-h-11 keeps each row at a thumb-sized target while the gaps close up. */}
             <nav className="mb-5 shrink-0 space-y-1">
-              <button className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white">
+              <button className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink">
                 <LayoutGrid className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-medium">Published Apps</span>
               </button>
-              <button className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[#8F939A] transition-colors hover:bg-white/[0.04] hover:text-white">
+              <button className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink">
                 <Sparkles className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-medium">Showcase</span>
               </button>
@@ -266,15 +267,15 @@ export default function Sidebar({
 
             {/* Recent Tasks Section */}
             <div className="flex min-h-0 flex-1 flex-col">
-              <h3 className="mb-3 shrink-0 px-1 text-xs font-semibold uppercase tracking-wider text-[#8F939A]/70">
+              <h3 className="mb-3 shrink-0 px-1 text-xs font-semibold uppercase tracking-wider text-muted/70">
                 Recent Tasks
               </h3>
               {/* Once there are tasks this is what scrolls; nothing else in the panel
                   does, so a drag anywhere else cannot start a scroll at all. */}
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-                  <p className="mb-1 text-sm font-medium text-[#8F939A]">No tasks yet</p>
-                  <p className="text-xs leading-relaxed text-[#8F939A]/60">
+                  <p className="mb-1 text-sm font-medium text-muted">No tasks yet</p>
+                  <p className="text-xs leading-relaxed text-muted/60">
                     Create your first task to start building
                   </p>
                 </div>
@@ -282,14 +283,14 @@ export default function Sidebar({
             </div>
 
             {/* Bottom Stack: Credits Card on top, User Profile Dock below */}
-            <div className="mt-3 shrink-0 space-y-2 border-t border-white/[0.06] pt-3">
+            <div className="mt-3 shrink-0 space-y-2 border-t border-line/[0.06] pt-3">
               {/* Credits & Upgrade Card */}
-              <div className="rounded-[20px] bg-white/[0.03] border border-white/[0.08] p-3.5 flex items-center justify-between shadow-lg">
+              <div className="rounded-[20px] bg-layer/[0.03] border border-line/[0.08] p-3.5 flex items-center justify-between shadow-lg">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-[#F4D96B]/15 flex items-center justify-center">
-                    <Coins className="w-4 h-4 text-[#F4D96B]" />
+                  <div className="w-7 h-7 rounded-full bg-warn/15 flex items-center justify-center">
+                    <Coins className="w-4 h-4 text-warn" />
                   </div>
-                  <span className="text-white text-sm font-semibold tracking-wide">{credits}</span>
+                  <span className="text-ink text-sm font-semibold tracking-wide">{credits}</span>
                 </div>
                 <button
                   onClick={onUpgradeClick}
@@ -319,10 +320,10 @@ export default function Sidebar({
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 6 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute bottom-full left-0 right-0 mb-2 max-h-[calc(100dvh-220px)] overflow-y-auto overscroll-contain rounded-[16px] border border-white/[0.08] bg-[rgba(18,18,22,0.98)] shadow-xl backdrop-blur-xl"
+                      className="absolute bottom-full left-0 right-0 mb-2 max-h-[calc(100dvh-220px)] overflow-y-auto overscroll-contain rounded-[16px] border border-line/[0.08] bg-panel/[0.98] shadow-xl backdrop-blur-xl"
                     >
                       <div className="flex items-center gap-2 px-4 pb-3 pt-3.5">
-                        <p className="min-w-0 flex-1 truncate text-sm text-[#8F939A]">
+                        <p className="min-w-0 flex-1 truncate text-sm text-muted">
                           {account.email
                             ? emailRevealed
                               ? account.email
@@ -335,7 +336,7 @@ export default function Sidebar({
                             aria-label={
                               emailRevealed ? "Hide email address" : "Show email address"
                             }
-                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8F939A] transition-colors hover:bg-white/[0.06] hover:text-white"
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
                           >
                             {emailRevealed ? (
                               <EyeOff className="h-3.5 w-3.5" />
@@ -354,21 +355,21 @@ export default function Sidebar({
                           )}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium leading-tight text-white">
+                          <p className="truncate text-sm font-medium leading-tight text-ink">
                             {selected?.name ?? "No project yet"}
                           </p>
-                          <p className="truncate text-xs leading-tight text-[#8F939A]">
+                          <p className="truncate text-xs leading-tight text-muted">
                             Owner · 1 member
                           </p>
                         </div>
-                        <Repeat2 className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                        <Repeat2 className="h-4 w-4 shrink-0 text-muted" />
                       </div>
 
                       {/* Credits */}
-                      <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-white/[0.03] p-3">
+                      <div className="mx-3 mb-3 rounded-xl border border-line/[0.06] bg-layer/[0.03] p-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-[#8F939A]">Credits</span>
-                          <span className="text-sm font-semibold text-white">{credits}</span>
+                          <span className="text-sm text-muted">Credits</span>
+                          <span className="text-sm font-semibold text-ink">{credits}</span>
                         </div>
                         <button
                           onClick={() => {
@@ -391,39 +392,42 @@ export default function Sidebar({
                             <button
                               key={item.label}
                               onClick={item.onClick}
-                              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[#C7CAD0] transition-colors hover:bg-white/[0.05] hover:text-white"
+                              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
                             >
-                              <Icon className="h-4 w-4 shrink-0 text-[#8F939A]" />
+                              <Icon className="h-4 w-4 shrink-0 text-muted" />
                               <span className="flex-1 truncate text-[13px]">{item.label}</span>
                               {item.trailing === "chevron" && (
-                                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" />
                               )}
                               {item.trailing === "external" && (
-                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[#8F939A]" />
+                                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted" />
                               )}
                             </button>
                           );
                         })}
                       </div>
 
-                      {/* Logout, set apart from the rest */}
-                      <div className="border-t border-white/[0.06] px-1.5 py-1.5">
+                      {/* Logout, set apart from the rest, with the theme beside
+                          it: the two things on this panel that belong to you
+                          rather than to the app. */}
+                      <div className="flex items-center gap-2 border-t border-line/[0.06] px-1.5 py-1.5">
                         <button
                           onClick={handleSignOut}
                           disabled={signingOut}
-                          className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[#ef7777] transition-colors hover:bg-[#ef7777]/[0.08] disabled:opacity-60"
+                          className="flex min-h-11 flex-1 items-center gap-2.5 rounded-xl px-2.5 text-left text-danger transition-colors hover:bg-danger/[0.08] disabled:opacity-60"
                         >
                           <LogOut className="h-4 w-4 shrink-0" />
                           <span className="text-[13px]">
                             {signingOut ? "Signing out…" : "Logout"}
                           </span>
                         </button>
+                        <ThemeSwitch />
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
 
-                <div className="rounded-[20px] bg-white/[0.02] border border-white/[0.06] p-3 flex items-center justify-between">
+                <div className="rounded-[20px] bg-layer/[0.02] border border-line/[0.06] p-3 flex items-center justify-between">
                   <div className="flex items-center gap-3 overflow-hidden">
                     <div className="w-9 h-9 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-inner">
                       {(account.name || account.email || "?").charAt(0).toUpperCase()}
@@ -434,17 +438,17 @@ export default function Sidebar({
                         caption. An account with no name falls back to the address —
                         an unlabelled card identifies nobody. */}
                     <div className="overflow-hidden">
-                      <p className="truncate text-sm font-medium leading-tight text-white">
+                      <p className="truncate text-sm font-medium leading-tight text-ink">
                         {account.name || account.email || "Your account"}
                       </p>
-                      <p className="truncate text-xs leading-tight text-[#8F939A]">Signed in</p>
+                      <p className="truncate text-xs leading-tight text-muted">Signed in</p>
                     </div>
                   </div>
                   <button
                     onClick={() => setAccountMenuOpen((value) => !value)}
                     aria-expanded={accountMenuOpen}
                     aria-label="Account menu"
-                    className="w-7 h-7 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-[#8F939A] hover:text-white transition-all flex-shrink-0"
+                    className="w-7 h-7 rounded-full bg-layer/[0.04] border border-line/[0.08] flex items-center justify-center text-muted hover:text-ink transition-all flex-shrink-0"
                   >
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${accountMenuOpen ? "rotate-180" : ""}`} />
                   </button>

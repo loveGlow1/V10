@@ -28,9 +28,9 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   const base =
     "group flex h-[34px] shrink-0 items-center gap-2 rounded-full border px-3 text-[13px] transition-colors md:h-8 md:rounded-lg md:border-transparent md:px-2.5";
   const on =
-    "border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] md:border-transparent md:shadow-none";
+    "border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] md:border-transparent md:shadow-none";
   const off =
-    "border-white/[0.07] bg-white/[0.02] text-[#8F939A] hover:text-white md:border-transparent md:bg-transparent md:hover:bg-white/[0.04]";
+    "border-line/[0.07] bg-layer/[0.02] text-muted hover:text-ink md:border-transparent md:bg-transparent md:hover:bg-layer/[0.04]";
 
   function close(id: string) {
     const index = tabs.findIndex((tab) => tab.id === id);
@@ -43,7 +43,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-1 md:border-b md:border-white/[0.06] md:bg-[#0c0c0e] md:px-2 md:py-1.5 [&::-webkit-scrollbar]:hidden">
+    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-1 md:border-b md:border-line/[0.06] md:bg-bar md:px-2 md:py-1.5 [&::-webkit-scrollbar]:hidden">
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
@@ -70,7 +70,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
             <button
               onClick={() => close(tab.id)}
               aria-label={`Close ${tab.name}`}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#8F939A] transition-colors hover:bg-white/[0.08] hover:text-white"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-layer/[0.08] hover:text-ink"
             >
               <X className="h-3 w-3" />
             </button>
@@ -81,7 +81,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
       <button
         onClick={() => router.push("/dashboard")}
         aria-label="New app"
-        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.07] bg-white/[0.02] text-[#8F939A] transition-colors hover:text-white md:h-8 md:w-8 md:rounded-lg md:border-transparent md:bg-transparent md:hover:bg-white/[0.04]"
+        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.02] text-muted transition-colors hover:text-ink md:h-8 md:w-8 md:rounded-lg md:border-transparent md:bg-transparent md:hover:bg-layer/[0.04]"
       >
         <Plus className="h-4 w-4" />
       </button>

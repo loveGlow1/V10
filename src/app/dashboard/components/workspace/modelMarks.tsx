@@ -40,7 +40,7 @@ export function ProviderMark({
   provider: Provider;
   className?: string;
 }) {
-  if (provider === "auto") return <AutoMark className={`${className} text-white`} />;
+  if (provider === "auto") return <AutoMark className={`${className} text-ink`} />;
 
   const { brand, tint } = MARKS[provider];
   return <BrandMark brand={brand} className={`${className} ${tint}`} />;

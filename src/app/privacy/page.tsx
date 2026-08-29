@@ -30,13 +30,13 @@ export default function PrivacyPage() {
       <Clause n={2} title="What we collect">
         <Points
           items={[
-            <><strong className="text-white">Account</strong> — email address or phone number, display name, avatar image, and which sign-in provider you used.</>,
-            <><strong className="text-white">Projects</strong> — project names, the descriptions and prompts you write, generated code, and project status.</>,
-            <><strong className="text-white">Usage and credits</strong> — your credit balance and a ledger of every credit movement: the action, the amount, when it happened, and which project it belonged to.</>,
-            <><strong className="text-white">Connections</strong> — details of integrations you configure, including server names, URLs and access keys.</>,
-            <><strong className="text-white">Billing</strong> — plan, subscription status and payment history. Card details are held by our payment processor, not by us.</>,
-            <><strong className="text-white">Support</strong> — messages you send us through in-product chat or email.</>,
-            <><strong className="text-white">Technical</strong> — IP address, browser and device information, and server logs.</>,
+            <><strong className="text-ink">Account</strong> — email address or phone number, display name, avatar image, and which sign-in provider you used.</>,
+            <><strong className="text-ink">Projects</strong> — project names, the descriptions and prompts you write, generated code, and project status.</>,
+            <><strong className="text-ink">Usage and credits</strong> — your credit balance and a ledger of every credit movement: the action, the amount, when it happened, and which project it belonged to.</>,
+            <><strong className="text-ink">Connections</strong> — details of integrations you configure, including server names, URLs and access keys.</>,
+            <><strong className="text-ink">Billing</strong> — plan, subscription status and payment history. Card details are held by our payment processor, not by us.</>,
+            <><strong className="text-ink">Support</strong> — messages you send us through in-product chat or email.</>,
+            <><strong className="text-ink">Technical</strong> — IP address, browser and device information, and server logs.</>,
           ]}
         />
         <p>
@@ -74,7 +74,7 @@ export default function PrivacyPage() {
           a support request you have raised, or respond to a security or abuse issue.
         </p>
         <p>
-          <strong className="text-white">
+          <strong className="text-ink">
             We do not use your prompts or your generated code to train or improve any model.
           </strong>{" "}
           We use our model provider under terms that exclude training on customer content, so your
@@ -86,12 +86,12 @@ export default function PrivacyPage() {
       <Clause n={5} title="Who else processes it">
         <Points
           items={[
-            <><strong className="text-white">Supabase</strong> — database and authentication. Sees account, project, credit and connection data.</>,
-            <><strong className="text-white">Vercel</strong> — hosting and deployment. Sees technical and log data, and published project code.</>,
-            <><strong className="text-white"><L k="aiProvider" name="AI model provider" /></strong> — code generation. Sees prompts and project context.</>,
-            <><strong className="text-white">GitHub</strong> — repository creation when you publish, if you connect it. Sees generated code.</>,
-            <><strong className="text-white">Google, Apple and Facebook</strong> — sign-in, if you choose it. See your email address and basic profile.</>,
-            <><strong className="text-white"><L k="paymentProvider" name="payment provider" /></strong> — payments and subscriptions. Sees billing details and payment history.</>,
+            <><strong className="text-ink">Supabase</strong> — database and authentication. Sees account, project, credit and connection data.</>,
+            <><strong className="text-ink">Vercel</strong> — hosting and deployment. Sees technical and log data, and published project code.</>,
+            <><strong className="text-ink"><L k="aiProvider" name="AI model provider" /></strong> — code generation. Sees prompts and project context.</>,
+            <><strong className="text-ink">GitHub</strong> — repository creation when you publish, if you connect it. Sees generated code.</>,
+            <><strong className="text-ink">Google, Apple and Facebook</strong> — sign-in, if you choose it. See your email address and basic profile.</>,
+            <><strong className="text-ink"><L k="paymentProvider" name="payment provider" /></strong> — payments and subscriptions. Sees billing details and payment history.</>,
           ]}
         />
         <p>

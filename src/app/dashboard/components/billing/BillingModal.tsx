@@ -37,29 +37,29 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ duration: 0.28, ease: "easeOut" }}
-            className="fixed bottom-0 inset-x-0 mx-auto w-[94%] sm:w-[96%] max-w-md z-50 max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-[28px] bg-[rgba(20,20,24,0.92)] backdrop-blur-[28px] border border-white/[0.08] shadow-[0_30px_80px_rgba(0,0,0,0.45)] pb-[max(2rem,env(safe-area-inset-bottom))]"
+            className="fixed bottom-0 inset-x-0 mx-auto w-[94%] sm:w-[96%] max-w-md z-50 max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-[28px] bg-panel/[0.92] backdrop-blur-[28px] border border-line/[0.08] shadow-[0_30px_80px_rgba(0,0,0,0.45)] pb-[max(2rem,env(safe-area-inset-bottom))]"
           >
             {/* Drag indicator */}
             <div className="flex justify-center pt-3">
-              <span className="w-10 h-1.5 rounded-full bg-white/20" />
+              <span className="w-10 h-1.5 rounded-full bg-layer/20" />
             </div>
 
             {/* Close button */}
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-transparent border border-white/40 flex items-center justify-center hover:rotate-90 transition-transform duration-250 active:scale-[0.98]"
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-transparent border border-line/40 flex items-center justify-center hover:rotate-90 transition-transform duration-250 active:scale-[0.98]"
               aria-label="Close"
             >
-              <X className="w-4 h-4 text-white" />
+              <X className="w-4 h-4 text-ink" />
             </button>
 
             <div className="px-5 pt-6">
               {/* pr-14 keeps the headline clear of the close button, which it ran
                   underneath once the title wrapped to a second line. */}
-              <h1 className="text-[28px] sm:text-[30px] font-bold text-white leading-[1.1] pr-14">
+              <h1 className="text-[28px] sm:text-[30px] font-bold text-ink leading-[1.1] pr-14">
                 Try QuickStark.Ai for free
               </h1>
-              <p className="text-[#9CA3AF] text-sm font-medium mt-2">
+              <p className="text-muted text-sm font-medium mt-2">
                 Choose your plan. Cancel anytime.
               </p>
 
@@ -81,7 +81,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
 
               {/* The footnote states the same figure as the card, rather than a
                   promotional one that disagreed with it. */}
-              <p className="text-[#8F939A] text-xs font-medium text-center mt-3">
+              <p className="text-muted text-xs font-medium text-center mt-3">
                 {PLANS[selectedPlan].monthlyPriceUsd === 0
                   ? "No card required. Upgrade whenever you need more."
                   : `$${PLANS[selectedPlan].monthlyPriceUsd} per month. Cancel anytime.`}

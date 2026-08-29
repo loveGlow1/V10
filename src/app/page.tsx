@@ -701,7 +701,10 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="bg-brandBg text-white antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-black min-h-[100dvh] relative">
+    /* theme-dark-scope: this page is one composition on a dark ground and does
+       not have a lighter key (see globals.css). The theme applies to the app
+       behind the sign-in, which is also the only place its switch appears. */
+    <div className="theme-dark-scope bg-brandBg text-ink antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-onSolid min-h-[100dvh] relative">
       <div className="noise-bg" />
       <div className="radial-vignette" />
       <div className="ambient-glow-1" />
@@ -722,14 +725,14 @@ export default function LandingPage() {
               <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStark</span><span className="wordmark-ai">.Ai</span></span>
             </a>
             <nav className="hidden md:flex justify-self-center items-center gap-8 text-sm font-medium text-brandTextSec">
-              <a href="#features" className="hover:text-white transition-colors duration-200">Features</a>
-              <a href="#workflow" className="hover:text-white transition-colors duration-200">Workflow</a>
-              <a href="#pricing" className="hover:text-white transition-colors duration-200">Pricing</a>
-              <a href="#faq" className="hover:text-white transition-colors duration-200">FAQ</a>
+              <a href="#features" className="hover:text-ink transition-colors duration-200">Features</a>
+              <a href="#workflow" className="hover:text-ink transition-colors duration-200">Workflow</a>
+              <a href="#pricing" className="hover:text-ink transition-colors duration-200">Pricing</a>
+              <a href="#faq" className="hover:text-ink transition-colors duration-200">FAQ</a>
             </nav>
             <div className="justify-self-end">
               {showGetStartedButton && (
-                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-white text-black px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 shadow-sm">Get Started</button>
+                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-solid text-onSolid px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 shadow-sm">Get Started</button>
               )}
             </div>
           </div>
@@ -821,7 +824,7 @@ export default function LandingPage() {
                 With the previous <br /> the browser treated both lines as one inline flow and
                 balancing was skipped, which left "Minutes" orphaned on a third line. The size
                 ramp is graded so the green line lands on one row from 1024px up. */}
-            <h1 className="text-balance text-3xl md:text-4xl 2xl:text-5xl 3xl:text-6xl font-bold tracking-tighter leading-[1.15] text-white">
+            <h1 className="text-balance text-3xl md:text-4xl 2xl:text-5xl 3xl:text-6xl font-bold tracking-tighter leading-[1.15] text-ink">
               <span className="block metal-shimmer">Build Full-Stack</span>
               <span className="block" style={{ color: "#70F39B" }}>Web &amp; Mobile Apps in Minutes</span>
             </h1>
@@ -830,23 +833,23 @@ export default function LandingPage() {
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
           <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element active">
             <div className="hero-auth-stack">
-              <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-white text-black py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 shadow-lg group">
+              <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-solid text-onSolid py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
                 <span>Continue with Google</span>
               </ProviderButton>
               <div className="grid grid-cols-3 gap-3">
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><Apple className={`${PROVIDER_ICON_CLASS} text-white`} /><span>Apple</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-white/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><Apple className={`${PROVIDER_ICON_CLASS} text-ink`} /><span>Apple</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
               </div>
               <div className="flex items-center gap-3 py-1">
-                <div className="flex-1 h-px bg-white/15" />
-                <span className="text-white/45 text-xs sm:text-sm font-medium tracking-widest">OR</span>
-                <div className="flex-1 h-px bg-white/15" />
+                <div className="flex-1 h-px bg-layer/15" />
+                <span className="text-ink/45 text-xs sm:text-sm font-medium tracking-widest">OR</span>
+                <div className="flex-1 h-px bg-layer/15" />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <button type="button" onClick={() => openAuthModal("email")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Mail className={`${PROVIDER_ICON_CLASS} text-white/80`} /><span>Continue with Email</span></button>
-                <button type="button" onClick={() => openAuthModal("phone")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Phone className={`${PROVIDER_ICON_CLASS} text-white/80`} /><span>Continue with Phone</span></button>
+                <button type="button" onClick={() => openAuthModal("email")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Mail className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span>Continue with Email</span></button>
+                <button type="button" onClick={() => openAuthModal("phone")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Phone className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span>Continue with Phone</span></button>
               </div>
             </div>
           </div>
@@ -856,7 +859,7 @@ export default function LandingPage() {
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStark.Ai</p>
-              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
+              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                 What can QuickStark.Ai do for you?
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
@@ -886,10 +889,10 @@ export default function LandingPage() {
                             onClick={() => setActiveFeature(index)}
                             aria-expanded={isActive}
                             aria-controls={panelId}
-                            className={`flex w-full items-center gap-3 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen ${isActive ? "" : "py-5 hover:text-white"}`}
+                            className={`flex w-full items-center gap-3 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen ${isActive ? "" : "py-5 hover:text-ink"}`}
                           >
-                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-brandGreen" : "text-white/60"}`} />
-                            <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isActive ? "text-brandGreen" : "text-white/85"}`}>
+                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-brandGreen" : "text-ink/60"}`} />
+                            <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isActive ? "text-brandGreen" : "text-ink/85"}`}>
                               {feature.title}
                             </span>
                           </button>
@@ -933,7 +936,7 @@ export default function LandingPage() {
             <Reveal className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">Pricing</p>
-                <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
+                <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                   Choose the plan that fits your build velocity.
                 </h2>
                 <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
@@ -980,7 +983,7 @@ export default function LandingPage() {
                           hidden one on Free included, so the rows stay the same height. */}
                       <div className="flex min-h-[2.75rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 lg:flex-col lg:items-start lg:gap-3 xl:flex-row xl:items-center">
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <h3 className="text-2xl font-semibold text-white">{tier.name}</h3>
+                          <h3 className="text-2xl font-semibold text-ink">{tier.name}</h3>
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brandBorder bg-brandSurface text-brandGreen">
                             <Icon className="h-4 w-4" />
                           </span>
@@ -1002,15 +1005,15 @@ export default function LandingPage() {
                           className={`group -my-2.5 inline-flex shrink-0 items-center gap-2 rounded-pill py-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${canBillAnnually ? "" : "invisible"}`}
                         >
                           <span
-                            className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandGreen" : "text-brandTextSec group-hover:text-white/80"}`}
+                            className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandGreen" : "text-brandTextSec group-hover:text-ink/80"}`}
                           >
                             Annual
                           </span>
                           <span
-                            className={`relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-200 ${isAnnual ? "bg-brandGreen" : "bg-white/15"}`}
+                            className={`relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-200 ${isAnnual ? "bg-brandGreen" : "bg-layer/15"}`}
                           >
                             <span
-                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200 ${isAnnual ? "left-[1.125rem]" : "left-0.5"}`}
+                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-solid shadow-sm transition-all duration-200 ${isAnnual ? "left-[1.125rem]" : "left-0.5"}`}
                             />
                           </span>
                         </button>
@@ -1024,10 +1027,10 @@ export default function LandingPage() {
 
                       <div className="mt-8">
                         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
-                          <span className="text-5xl font-bold tracking-tight text-white">{formatPrice(perMonthPrice)}</span>
+                          <span className="text-5xl font-bold tracking-tight text-ink">{formatPrice(perMonthPrice)}</span>
                           <span className="pb-1 text-sm font-medium text-brandGreen">/ month</span>
                           {isAnnual ? (
-                            <span className="pb-1 text-sm font-medium text-white/40 line-through">{formatPrice(tier.monthlyPrice)}</span>
+                            <span className="pb-1 text-sm font-medium text-ink/40 line-through">{formatPrice(tier.monthlyPrice)}</span>
                           ) : null}
                         </div>
                         {/* Reserved on every card so the feature lists below stay on a shared
@@ -1058,7 +1061,7 @@ export default function LandingPage() {
                       <button
                         type="button"
                         onClick={() => openAuthModal()}
-                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${tier.highlight ? "bg-brandGreen text-black hover:bg-white" : "border border-brandBorder bg-brandSurface text-white hover:border-brandGreen/40 hover:bg-brandSurfaceAccent"}`}
+                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${tier.highlight ? "bg-brandGreen text-onSolid hover:bg-solid" : "border border-brandBorder bg-brandSurface text-ink hover:border-brandGreen/40 hover:bg-brandSurfaceAccent"}`}
                       >
                         {tier.ctaLabel}
                       </button>
@@ -1074,7 +1077,7 @@ export default function LandingPage() {
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">FAQ</p>
-              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-white">
+              <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                 Questions people ask before they build.
               </h2>
               <p className="mt-5 text-base sm:text-lg leading-relaxed text-brandTextSec">
@@ -1102,11 +1105,11 @@ export default function LandingPage() {
                           aria-controls={panelId}
                           className="flex w-full items-center justify-between gap-8 py-7 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen sm:py-8"
                         >
-                          <span className={`text-lg font-medium tracking-normal sm:text-xl ${isOpen ? "text-brandGreen" : "text-white"}`}>
+                          <span className={`text-lg font-medium tracking-normal sm:text-xl ${isOpen ? "text-brandGreen" : "text-ink"}`}>
                             {faq.question}
                           </span>
                           <ChevronDown
-                            className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-white/60"}`}
+                            className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-ink/60"}`}
                           />
                         </button>
                       </h3>
@@ -1179,7 +1182,7 @@ export default function LandingPage() {
             {FOOTER_LINK_COLUMNS.map((column) => (
               <Reveal key={column.title}>
                 <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/80">{column.title}</h3>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-ink/80">{column.title}</h3>
                   <ul className="mt-4 space-y-3">
                     {column.links.map((link) => (
                       <li key={link.label}>
@@ -1195,7 +1198,7 @@ export default function LandingPage() {
 
             <Reveal>
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-white/80">Social</h3>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-ink/80">Social</h3>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {[
                     { label: "GitHub", icon: GitHubIcon },
@@ -1210,7 +1213,7 @@ export default function LandingPage() {
                         key={social.label}
                         href="#"
                         aria-label={social.label}
-                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-white/70 transition-all duration-300 hover:border-brandGreen/40 hover:text-brandGreen"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-ink/70 transition-all duration-300 hover:border-brandGreen/40 hover:text-brandGreen"
                       >
                         <Icon className="h-4 w-4" />
                       </a>

@@ -34,7 +34,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick, view: controlledVi
     `flex h-7 w-[42px] items-center justify-center rounded-full transition-all ${
       active
         ? "bg-[#19E7E8] text-[#06232b] shadow-[0_0_18px_rgba(25,231,232,0.35)]"
-        : "text-white/60"
+        : "text-ink/60"
     }`;
 
   return (
@@ -42,7 +42,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick, view: controlledVi
       <div className="flex items-center gap-2.5">
         <button
           onClick={onMenuClick}
-          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-white/[0.12] active:scale-[0.98]"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-layer/[0.12] active:scale-[0.98]"
           aria-label="Open menu"
         >
           <MenuMark className="h-4 w-4" />
@@ -51,7 +51,7 @@ export default function TopBar({ onMenuClick, onUpgradeClick, view: controlledVi
         <div
           role="group"
           aria-label="View"
-          className="flex h-[34px] items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+          className="flex h-[34px] items-center gap-1 rounded-full border border-line/[0.12] bg-layer/[0.06] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
         >
           <button
             onClick={() => setView("preview")}

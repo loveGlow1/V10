@@ -148,18 +148,18 @@ export default function ChatPanel({
   const chosen = modelById(model);
 
   const control =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
   const chip =
-    "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[rgba(255,255,255,0.08)] bg-white/[0.06] px-2.5 text-[13px] text-white transition-all hover:border-white/[0.12] active:scale-[0.98]";
+    "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-white/[0.06] md:border-r">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
       {/* h-[53px] on both halves so the two headers rule off at the same line. */}
-      <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-white/[0.06] px-4">
+      <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-line/[0.06] px-4">
         <span
           className={`h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br ${avatarFor(project?.id)}`}
         />
-        <p className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+        <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
           {project?.name ?? "Loading…"}
         </p>
       </header>
@@ -169,7 +169,7 @@ export default function ChatPanel({
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
       >
         {messages.length === 0 ? (
-          <p className="pt-8 text-center text-sm text-[#8F939A]">
+          <p className="pt-8 text-center text-sm text-muted">
             Describe a change and it will appear here.
           </p>
         ) : (
@@ -177,12 +177,12 @@ export default function ChatPanel({
             message.from === "you" ? (
               <p
                 key={message.id}
-                className="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-white/[0.08] px-3.5 py-2.5 text-[14px] leading-relaxed text-white"
+                className="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-layer/[0.08] px-3.5 py-2.5 text-[14px] leading-relaxed text-ink"
               >
                 {message.text}
               </p>
             ) : (
-              <p key={message.id} className="max-w-[88%] text-[13px] leading-relaxed text-[#8F939A]">
+              <p key={message.id} className="max-w-[88%] text-[13px] leading-relaxed text-muted">
                 {message.text}
               </p>
             ),
@@ -198,7 +198,7 @@ export default function ChatPanel({
             <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)]" />
           </div>
 
-          <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-white/[0.11] bg-[#0e0f12] bg-clip-padding p-3.5">
+          <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
             <div className="relative">
               <textarea
                 value={draft}
@@ -213,7 +213,7 @@ export default function ChatPanel({
                 }}
                 aria-label="Describe a change"
                 rows={2}
-                className="relative z-10 h-[52px] w-full resize-none bg-transparent text-base text-white outline-none"
+                className="relative z-10 h-[52px] w-full resize-none bg-transparent text-base text-ink outline-none"
               />
               <AnimatePresence>
                 {!draft && (
@@ -223,7 +223,7 @@ export default function ChatPanel({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.45, ease: "easeInOut" }}
                     aria-hidden
-                    className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#9A9A9F]"
+                    className="pointer-events-none absolute left-0 top-0 select-none text-base text-faint"
                   >
                     Describe a change…
                   </motion.span>
@@ -298,7 +298,7 @@ export default function ChatPanel({
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] ${
                     isRecording
                       ? "animate-pulse border-red-500 bg-red-500/20 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                      : "border-[rgba(255,255,255,0.08)] bg-white/[0.06] text-white hover:border-white/[0.12]"
+                      : "border-line/[0.08] bg-layer/[0.06] text-ink hover:border-line/[0.12]"
                   }`}
                 >
                   {isRecording ? <MicOff className="h-4 w-4" /> : <MicMark className="h-4 w-4" />}
@@ -312,8 +312,8 @@ export default function ChatPanel({
                   aria-label="Send"
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] ${
                     draft.trim()
-                      ? "border-transparent bg-[#4A4A54] text-white hover:bg-[#565662]"
-                      : "border-transparent bg-[#28292a] text-white/40"
+                      ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                      : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
                 >
                   <SendArrow className="h-4 w-4 md:hidden" />
@@ -334,8 +334,8 @@ export default function ChatPanel({
                     width="w-[min(300px,100%)]"
                     sheetOnMobile={false}
                   >
-                    <p className="text-[13px] font-medium text-white">Fork this app</p>
-                    <p className="mt-1.5 text-[12px] leading-relaxed text-[#8F939A]">
+                    <p className="text-[13px] font-medium text-ink">Fork this app</p>
+                    <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
                       Opens a copy you can change without touching{" "}
                       {project?.name ?? "this one"}. Nothing is built yet, so the copy starts from
                       the same place this one did.
@@ -343,7 +343,7 @@ export default function ChatPanel({
                     <button
                       onClick={fork}
                       disabled={!project || forking}
-                      className="mt-3 h-9 w-full rounded-lg bg-white text-[13px] font-medium text-[#0d0d0f] transition-opacity hover:bg-white/90 disabled:opacity-40"
+                      className="mt-3 h-9 w-full rounded-lg bg-solid text-[13px] font-medium text-onSolid transition-opacity hover:bg-layer/90 disabled:opacity-40"
                     >
                       {forking ? "Forking…" : "Create the fork"}
                     </button>
@@ -360,7 +360,7 @@ export default function ChatPanel({
                     width="w-[min(340px,100%)]"
                     sheetOnMobile={false}
                   >
-                    <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-center text-[12px] text-[#8F939A]">
+                    <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
                       <Shuffle className="h-3.5 w-3.5 shrink-0" />
                       Model changes apply from your next message
                     </p>
@@ -372,7 +372,7 @@ export default function ChatPanel({
                       {groupedModels().map((group) => (
                         <div key={group.provider}>
                           {group.label && (
-                            <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-[#8F939A]">
+                            <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
                               {group.label}
                             </p>
                           )}
@@ -386,8 +386,8 @@ export default function ChatPanel({
                                   setModel(option.id);
                                   setModelOpen(false);
                                 }}
-                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-white/[0.05] ${
-                                  selected ? "bg-white/[0.06]" : ""
+                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
+                                  selected ? "bg-layer/[0.06]" : ""
                                 }`}
                               >
                                 <span className="mt-0.5 shrink-0">
@@ -398,30 +398,30 @@ export default function ChatPanel({
                                   <span className="flex items-center gap-2">
                                     <span
                                       className={`truncate text-[13px] font-medium ${
-                                        selected ? "text-[#34F5A0]" : "text-white"
+                                        selected ? "text-accent" : "text-ink"
                                       }`}
                                     >
                                       {option.name}
                                     </span>
                                     {option.badge && (
-                                      <span className="shrink-0 rounded-full bg-[#F4D96B]/15 px-2 py-0.5 text-[10px] font-semibold text-[#F4D96B]">
+                                      <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
                                         {option.badge}
                                       </span>
                                     )}
                                   </span>
-                                  <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8F939A]">
+                                  <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
                                     {option.blurb}
                                     {option.note && (
                                       <>
                                         {" · "}
-                                        <span className="text-[#F4D96B]">{option.note}</span>
+                                        <span className="text-warn">{option.note}</span>
                                       </>
                                     )}
                                   </span>
                                 </span>
 
                                 {selected && (
-                                  <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-[#34F5A0]" />
+                                  <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-accent" />
                                 )}
                               </button>
                             );

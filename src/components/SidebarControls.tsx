@@ -105,7 +105,7 @@ export default function SidebarControls({
                 starType: e.target.value as any,
                 starColor: e.target.value === 'yellow_dwarf' ? '#ffd700' : e.target.value === 'blue_giant' ? '#00f0ff' : e.target.value === 'red_dwarf' ? '#ff3c00' : '#ffffff'
               })}
-              className="w-full mt-1 bg-space-900 border border-gray-700 rounded text-xs px-2 py-1.5 text-white font-mono outline-none focus-visible:border-space-accent"
+              className="w-full mt-1 bg-space-900 border border-gray-700 rounded text-xs px-2 py-1.5 text-ink font-mono outline-none focus-visible:border-space-accent"
             >
               <option value="yellow_dwarf">Yellow Dwarf G-Type</option>
               <option value="blue_giant">Blue Giant O-Type</option>
@@ -138,7 +138,7 @@ export default function SidebarControls({
 
       {/* Add New Planet Form */}
       <div>
-        <h3 className="text-xs font-mono font-bold tracking-widest text-white uppercase mb-2 flex items-center gap-1">
+        <h3 className="text-xs font-mono font-bold tracking-widest text-ink uppercase mb-2 flex items-center gap-1">
           <Globe className="w-3.5 h-3.5 text-space-accent" />
           FORGE NEW CELESTIAL PLANET
         </h3>
@@ -152,7 +152,7 @@ export default function SidebarControls({
               placeholder="e.g. Cygnus-Prime"
               value={planetName}
               onChange={(e) => setPlanetName(e.target.value)}
-              className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none focus-visible:border-space-accent font-mono"
+              className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none focus-visible:border-space-accent font-mono"
             />
           </div>
 
@@ -162,7 +162,7 @@ export default function SidebarControls({
               <select
                 value={planetType}
                 onChange={(e) => setPlanetType(e.target.value as any)}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               >
                 <option value="earth">Terrestrial Biosphere</option>
                 <option value="gas_giant">Gas Giant</option>
@@ -181,7 +181,7 @@ export default function SidebarControls({
                 max="5.0"
                 value={planetSize}
                 onChange={(e) => setPlanetSize(parseFloat(e.target.value))}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               />
             </div>
           </div>
@@ -196,7 +196,7 @@ export default function SidebarControls({
                 max="70"
                 value={planetDistance}
                 onChange={(e) => setPlanetDistance(parseInt(e.target.value))}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               />
             </div>
 
@@ -209,7 +209,7 @@ export default function SidebarControls({
                 max="0.08"
                 value={planetSpeed}
                 onChange={(e) => setPlanetSpeed(parseFloat(e.target.value))}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               />
             </div>
           </div>
@@ -224,7 +224,7 @@ export default function SidebarControls({
                 max="400"
                 value={planetMass}
                 onChange={(e) => setPlanetMass(parseFloat(e.target.value))}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               />
             </div>
 
@@ -233,7 +233,7 @@ export default function SidebarControls({
               <select
                 value={moonsCount}
                 onChange={(e) => setMoonsCount(parseInt(e.target.value))}
-                className="w-full mt-1 bg-space-800 text-white border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
+                className="w-full mt-1 bg-space-800 text-ink border border-gray-700 rounded text-xs px-2 py-1.5 outline-none font-mono"
               >
                 <option value={0}>0 Moons</option>
                 <option value={1}>1 Moon</option>
@@ -269,7 +269,7 @@ export default function SidebarControls({
 
       {/* Orbit Planets List */}
       <div className="flex-1">
-        <h3 className="text-xs font-mono font-bold tracking-widest text-white uppercase mb-2 flex items-center gap-1">
+        <h3 className="text-xs font-mono font-bold tracking-widest text-ink uppercase mb-2 flex items-center gap-1">
           <Zap className="w-3.5 h-3.5 text-space-accent" />
           SYSTEM PLANETARY OBJECTS
         </h3>
@@ -292,7 +292,7 @@ export default function SidebarControls({
               >
                 <div className="flex items-center gap-2">
                   <span 
-                    className="w-3 h-3 rounded-full border border-white/20"
+                    className="w-3 h-3 rounded-full border border-line/20"
                     style={{ backgroundColor: p.color }}
                   />
                   <div className="flex flex-col">

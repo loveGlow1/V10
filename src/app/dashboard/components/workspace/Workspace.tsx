@@ -58,7 +58,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   }, [project, select]);
 
   return (
-    <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-[#0d0d0f]">
+    <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-canvas">
       {/* The same light Home stands on, so moving between the two screens on a
           phone changes what is on the glass rather than the room behind it. */}
       <PhoneField />
@@ -109,17 +109,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
       <WorkspaceTabs activeId={projectId} />
 
       {loading ? (
-        <p className="flex flex-1 items-center justify-center text-sm text-[#8F939A]">Opening…</p>
+        <p className="flex flex-1 items-center justify-center text-sm text-muted">Opening…</p>
       ) : error ? (
-        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[#FF6B6B]">
+        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-danger">
           {error}
         </p>
       ) : !project ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-sm text-[#8F939A]">That app is not in your account.</p>
+          <p className="text-sm text-muted">That app is not in your account.</p>
           <button
             onClick={() => router.push("/dashboard")}
-            className="rounded-full bg-white px-4 py-2 text-[13px] font-medium text-[#0d0d0f] transition-colors hover:bg-white/90"
+            className="rounded-full bg-solid px-4 py-2 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
           >
             Back to Home
           </button>

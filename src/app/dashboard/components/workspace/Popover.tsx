@@ -61,7 +61,7 @@ export default function Popover({
       <div
         className={`absolute z-50 ${align === "right" ? "right-0" : "left-0"} ${
           side === "top" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"
-        } ${width} max-w-[calc(100vw-24px)] rounded-xl border border-white/[0.09] bg-[#141416] p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]`}
+        } ${width} max-w-[calc(100vw-24px)] rounded-xl border border-line/[0.09] bg-panel p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]`}
       >
         {children}
       </div>
@@ -78,14 +78,14 @@ export default function Popover({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md space-y-4 rounded-[24px] border border-white/[0.08] bg-[#121215] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+        className="w-full max-w-md space-y-4 rounded-[24px] border border-line/[0.08] bg-panel p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
       >
         <div className="flex items-center justify-between pb-1">
-          <h3 className="text-base font-semibold tracking-tight text-white">{title}</h3>
+          <h3 className="text-base font-semibold tracking-tight text-ink">{title}</h3>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.06] bg-white/[0.04] text-white/70 transition-all hover:bg-white/[0.08] hover:text-white"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-line/[0.06] bg-layer/[0.04] text-ink/70 transition-all hover:bg-layer/[0.08] hover:text-ink"
           >
             <X className="h-4 w-4" />
           </button>
