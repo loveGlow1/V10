@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:auth-domain": "node tools/check-auth-domain.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

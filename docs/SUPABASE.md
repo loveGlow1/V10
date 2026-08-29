@@ -9,7 +9,7 @@ The project's public values are committed in `.env`, so any build picks them up
 with no further setup:
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://kobyrxmpphilhistcotg.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://esuatccbicekcohzgcvd.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi…   (anon role, valid to 2036)
 ```
 
@@ -39,6 +39,14 @@ is not enough.
 Until they are set the site renders normally with authentication disabled, and a
 banner explains why in development.
 
+## 1a. The hostname Google shows — optional
+
+The sign-in sheet names the host serving the request, which by default is
+`esuatccbicekcohzgcvd.supabase.co`. Putting `auth.quickstark.tech` there instead
+is the Custom Domains add-on and a change to `NEXT_PUBLIC_SUPABASE_URL`; see
+[AUTH-DOMAIN.md](AUTH-DOMAIN.md) for the whole sequence, and
+`npm run check:auth-domain` to check it afterwards.
+
 ## 2. Redirect URLs
 
 **Authentication → URL Configuration.** Add every origin the app runs on to
@@ -46,7 +54,7 @@ banner explains why in development.
 
 ```
 http://localhost:3000/auth/callback
-https://v10-eight-jet.vercel.app/auth/callback
+https://www.quickstark.tech/auth/callback
 https://<any-custom-domain>/auth/callback
 ```
 

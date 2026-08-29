@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import TopNav from "../TopNav";
@@ -13,7 +13,7 @@ import { AGENTS } from "../../agents";
 import { formatCredits, signupBalance, totalCredits } from "../../credits";
 import { useProjects } from "../../ProjectsContext";
 import ChatPanel from "./ChatPanel";
-import PreviewPanel from "./PreviewPanel";
+import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
 import WorkspaceTabs from "./WorkspaceTabs";
 import { openTab } from "./openTabs";
 
@@ -35,6 +35,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view, setView] = useState<"preview" | "chat">("chat");
+  const [manageRequest, setManageRequest] = useState<ManageRequest | null>(null);
+  const requests = useRef(0);
+
+  /* The composer's GitHub button belongs to the chat half but its answer lives
+     in the other one, so the request is made here, where both are in view. On a
+     phone that also means bringing the preview half onto the screen. */
+  function openIntegrations() {
+    requests.current += 1;
+    setManageRequest({ section: "integrations", category: "Source", n: requests.current });
+    setView("preview");
+  }
 
   /* Opening the route is what opens the tab, so a link, a reload and a click in
      the list all leave the strip in the same state. A rename flows through here
@@ -115,10 +126,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
           <div
             className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex md:w-[420px] md:flex-none`}
           >
-            <ChatPanel project={project} />
+            <ChatPanel project={project} onOpenIntegrations={openIntegrations} />
           </div>
           <div className={`${view === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex`}>
-            <PreviewPanel project={project} />
+            <PreviewPanel
+              project={project}
+              onUpgradeClick={() => setBillingOpen(true)}
+              request={manageRequest}
+            />
           </div>
         </div>
       )}
