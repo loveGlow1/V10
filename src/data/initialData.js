@@ -12,7 +12,7 @@ export const initialProfile = {
   dated_events_projects_plans: [
     {
       id: "project-qs-ai",
-      project_name: "QuickStart.Ai",
+      project_name: "Quickstark.Ai",
       repository: "micheledallida-web/V10",
       branch: "main",
       status: "active_development",

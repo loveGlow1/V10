@@ -1,4 +1,4 @@
-# Wiring QuickStart.Ai to Supabase
+# Wiring Quickstark.Ai to Supabase
 
 Everything in the app is written against Supabase already. This is what has to
 exist on the Supabase side, and in which order, for sign-in to work end to end.

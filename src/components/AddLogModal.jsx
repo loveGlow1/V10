@@ -75,7 +75,7 @@ export default function AddLogModal({ isOpen, onClose, onSave }) {
               <input 
                 type="text"
                 required
-                placeholder="e.g. QuickStart.Ai"
+                placeholder="e.g. Quickstark.Ai"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 className="w-full bg-gray-950 border border-gray-800 rounded-lg py-2 px-3 text-xs text-white focus:outline-none focus:border-indigo-500"

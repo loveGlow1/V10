@@ -1,4 +1,4 @@
--- QuickStart.Ai — Supabase schema.
+-- Quickstark.Ai — Supabase schema.
 --
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.

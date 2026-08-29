@@ -60,14 +60,14 @@ export const PLANS: Record<PlanId, Plan> = {
     /* Daily credits are explicitly non-rolling: an unused day is gone. */
     rolloverCycles: 0,
     publishing: {
-      subdomain: ".quickstart.ai",
+      subdomain: ".quickstark.ai",
       customDomains: false,
       privateRepos: false,
     },
     support: "Standard community support",
     features: [
       `${DAILY_ALLOWANCE} daily build credits`,
-      "Publish to a quickstart.ai subdomain",
+      "Publish to a quickstark.ai subdomain",
       "Unlimited sandbox iteration",
       "Standard community support",
     ],
@@ -80,7 +80,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyCredits: 100,
     rolloverCycles: 1,
     publishing: {
-      subdomain: ".quickstart.ai",
+      subdomain: ".quickstark.ai",
       customDomains: true,
       privateRepos: true,
     },
@@ -104,7 +104,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyCredits: 600,
     rolloverCycles: 1,
     publishing: {
-      subdomain: ".quickstart.ai",
+      subdomain: ".quickstark.ai",
       customDomains: true,
       privateRepos: true,
     },
