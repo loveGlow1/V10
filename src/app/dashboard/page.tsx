@@ -751,9 +751,18 @@ export default function DashboardPage() {
 
       {/* Below the list of what has been built: the way back to the composer at
           the top of this page, and the footer under it. Outside main, so both
-          run the full width rather than the column the composer sits in. */}
-      <KeepBuilding onKeepBuilding={focusComposer} />
-      <DashboardFooter />
+          run the full width rather than the column the composer sits in.
+
+          From md up only. A phone's Home ends on the list — the composer is one
+          thumb-flick back up, so a band inviting you to return to it is a screen
+          of scrolling to say what the screen above already said, and a
+          five-column footer of links is a page in its own right down there. The
+          desktop has the room and the pointer that makes a link row worth
+          having. */}
+      <div className="hidden md:block">
+        <KeepBuilding onKeepBuilding={focusComposer} />
+        <DashboardFooter />
+      </div>
 
       {/* Select Agent Modal Sheet */}
       <AnimatePresence>
