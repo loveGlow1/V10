@@ -4,9 +4,8 @@ import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bot, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, X } from "lucide-react";
 
+import { maskEmail } from "../account";
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
-
-
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 interface AccountSettingsModalProps {
@@ -54,15 +53,6 @@ type McpFormProps = {
   onDisconnect?: () => void;
   busy: boolean;
 };
-
-/* Masks an address for display: the first character and the domain, which is
-   enough for the owner to recognise their own account, with a fixed run of dots
-   in between so the length of the local part is not published either. */
-function maskEmail(email: string): string {
-  const at = email.lastIndexOf("@");
-  if (at < 1) return "•••";
-  return `${email[0]}•••${email.slice(at)}`;
-}
 
 const FIELD =
   "mt-1.5 h-10 w-full rounded-lg border border-white/[0.1] bg-white/[0.04] px-3 text-sm text-white placeholder:text-[#6F737A] outline-none focus-visible:border-white/25";
