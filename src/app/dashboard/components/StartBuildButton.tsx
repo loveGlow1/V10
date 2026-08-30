@@ -6,7 +6,6 @@ import { ArrowUp } from "lucide-react";
 
 import { useProjects } from "../ProjectsContext";
 import { SendArrow } from "./marks";
-import { openTab } from "./workspace/openTabs";
 
 /* Home's send button.
  *
@@ -63,7 +62,6 @@ export default function StartBuildButton({
       return;
     }
 
-    openTab({ id: project.id, name: project.name });
     /* The prompt travels in the URL rather than in a store: a reload of the
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
