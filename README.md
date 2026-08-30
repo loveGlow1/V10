@@ -75,8 +75,11 @@ checks cannot live on the other side.
 `N8N_WEBHOOK_TOKEN` is required too, not optional: the workflow writes to the
 `projects` table with the service_role key, which bypasses RLS, so an
 unauthenticated webhook is a way to overwrite any project row. The Webhook node
-requires Header Auth and fails closed until a matching credential is attached —
-see [`n8n/README.md`](./n8n/README.md).
+requires Header Auth and fails closed until a matching credential is attached.
+
+The token travels in the `X-QuickStark-Token` header, so the n8n credential is
+two fields — that name, and the token — with no `Bearer` prefix to get wrong.
+See [`n8n/README.md`](./n8n/README.md).
 
 Without `N8N_WEBHOOK_URL` the app runs normally and the chat says building is
 not connected rather than pretending to build.

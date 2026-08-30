@@ -45,6 +45,10 @@ export type BuildResult = {
 
 export const isBuilderConfigured = Boolean(process.env.N8N_WEBHOOK_URL);
 
+/** The header carrying N8N_WEBHOOK_TOKEN. Must match the Header Auth credential
+ *  on the workflow's Webhook node, name for name. */
+export const WEBHOOK_TOKEN_HEADER = "X-QuickStark-Token";
+
 /* How long to wait before giving up. A build branch calls out to provisioning
    services, so this is generous — but it is bounded, because the caller is an
    HTTP request someone is watching a spinner for. */
@@ -111,10 +115,14 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        /* Set N8N_WEBHOOK_TOKEN here and header auth on the webhook node once
-           the workflow is published — an n8n webhook is public by default. */
+        /* The shared secret the webhook's Header Auth credential checks.
+           A dedicated header rather than Authorization: n8n's Header Auth
+           compares the whole value, so "Bearer " would have to be typed into
+           the credential exactly, and a missing prefix fails as a 403 that
+           looks like a wrong token. One field, one value, nothing to get
+           subtly wrong. */
         ...(process.env.N8N_WEBHOOK_TOKEN
-          ? { Authorization: `Bearer ${process.env.N8N_WEBHOOK_TOKEN}` }
+          ? { [WEBHOOK_TOKEN_HEADER]: process.env.N8N_WEBHOOK_TOKEN }
           : {}),
       },
       body: JSON.stringify(request),
@@ -133,14 +141,22 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
   }
 
   if (!response.ok) {
-    /* 404 is the one worth naming: it is what an unpublished workflow answers,
-       and it is the mistake most likely to be made first. */
-    throw new BuilderError(
-      response.status === 404
-        ? "The builder answered 404 — the workflow is probably not published yet."
-        : `The builder answered ${response.status}.`,
-      502,
-    );
+    /* These two are the mistakes that actually get made, so they are named
+       rather than reported as a bare status: 404 is an unpublished workflow,
+       403 is a token that does not match the Header Auth credential. */
+    if (response.status === 404) {
+      throw new BuilderError(
+        "The builder answered 404 — the workflow is probably not published yet.",
+        502,
+      );
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new BuilderError(
+        `The builder rejected the request (${response.status}) — check that the webhook's Header Auth credential uses the header ${WEBHOOK_TOKEN_HEADER} with the same value as N8N_WEBHOOK_TOKEN.`,
+        502,
+      );
+    }
+    throw new BuilderError(`The builder answered ${response.status}.`, 502);
   }
 
   try {

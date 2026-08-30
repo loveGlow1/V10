@@ -116,9 +116,18 @@ The graph is wired and tested; the outbound integrations are not yet connected.
 1. **Header Auth on the webhook (do this first).** The Webhook node now requires
    Header Auth and has no credential attached, so it fails closed. Create a
    Header Auth credential named `QuickStark.Ai Build Webhook`, attach it, and set
-   the same value as `N8N_WEBHOOK_TOKEN` in the app — `src/lib/n8n.ts` sends it
-   as `Authorization: Bearer …`, so name the header `Authorization` and give it
-   the value `Bearer <your-token>`.
+   the same value as `N8N_WEBHOOK_TOKEN` in the app. Two fields, copied exactly:
+
+   | Field | Value |
+   | --- | --- |
+   | Name | `X-QuickStark-Token` |
+   | Value | the same string as `N8N_WEBHOOK_TOKEN` |
+
+   A dedicated header rather than `Authorization`: n8n's Header Auth compares
+   the whole value, so `Authorization` would mean typing `Bearer <token>` into
+   the credential exactly, and a missing prefix fails as a 403 that reads like a
+   wrong token. The header name lives in one place — `WEBHOOK_TOKEN_HEADER` in
+   `src/lib/n8n.ts`.
 
    This is not optional hardening. `Sync Project Row` writes with the
    service_role key, which bypasses RLS, and the row it writes to comes from the
