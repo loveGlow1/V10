@@ -131,11 +131,14 @@ charged for. This one is the classifier being unreachable.
 
 ## Before this can run for real
 
-Where this stands: the workflow is **published**, the Webhook node carries a
-Header Auth credential, `Sync Project Row` carries the Supabase one and
-`Intent Classifier Model` the Anthropic one. What is still outstanding is
-step 2 — the four placeholder URLs — and, on the app's side, the two environment
-variables in step 1. Verify the whole chain with `npm run check:builder`.
+Where this stands: the workflow is **published** and wired end to end. The
+Webhook node carries a Header Auth credential, `Sync Project Row` the Supabase
+one, `Intent Classifier Model` the Anthropic one, and the app holds the two
+environment variables in step 1. Builds reach n8n, route to a branch, sync to
+Supabase and answer the chat — verified by production executions 209 and 210.
+
+What is not real is the provisioning itself: step 2 is a stub. Verify the chain
+with `npm run check:builder`.
 
 The graph is wired and tested; the outbound integrations are not yet connected.
 
@@ -170,12 +173,25 @@ that is gated on every enabled node having a credential attached.
    overwrite any project row in the database. `/api/build` checks ownership, but
    nothing forces a caller to go through `/api/build`.
 
-2. **Placeholder URLs** — four HTTP Request nodes point at your provisioning service.
-   Open each and fill in the URL:
-   - `Scaffold Next.js App`
-   - `Apply Supabase Schema`
-   - `Provision WordPress Site`
-   - `Register Store Webhooks`
+2. **The four build steps** now call a stub, not a real provisioning service:
+
+   | Node | URL |
+   | --- | --- |
+   | `Scaffold Next.js App` | `/api/builder/webapp/scaffold` |
+   | `Apply Supabase Schema` | `/api/builder/supabase/schema` |
+   | `Provision WordPress Site` | `/api/builder/wordpress/provision` |
+   | `Register Store Webhooks` | `/api/builder/commerce/provision` |
+
+   Those are routes on the app itself (`src/app/api/builder/[...step]/route.ts`),
+   answering in each branch's shape and **building nothing**. They exist so the
+   loop can be watched working before the expensive half is written; they are
+   off unless `BUILDER_STUB_ENABLED=true`, and every reply carries `stub: true`.
+
+   A branch's `Collect` node reads `$json.error ? "failed" : "provisioned"`, so
+   whatever eventually replaces the stub must answer without an `error` key and
+   with the fields that branch reads — `previewUrl`/`siteUrl`/`storefrontUrl`,
+   `repoUrl`, `adminUrl`, and `filesTouched`, which is what the build is priced
+   from.
 3. **Credentials** — connect these in n8n:
    - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
      **Supabase API**, with two fields:
