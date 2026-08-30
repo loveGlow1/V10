@@ -800,3 +800,53 @@ drop policy if exists "Owners read their builds" on public.project_builds;
 create policy "Owners read their builds"
   on public.project_builds for select
   using (auth.uid() = user_id);
+
+-- ── Conversations ──────────────────────────────────────────────────────────
+--
+-- The thread in a workspace, kept.
+--
+-- It used to live in React state, so a reload — or switching to another app and
+-- back — showed an empty panel for an app that had been built and discussed at
+-- length. What someone asked for is the record of why their app looks the way
+-- it does, so it belongs in a row.
+--
+-- Written by the browser under the owner's own session: every message is
+-- rendered there first, the ones someone types and the ones a build comes back
+-- with. RLS is what scopes a thread to its owner, rather than a check in code
+-- that could be forgotten.
+create table if not exists public.project_messages (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  -- "you" or "system", matching what the panel renders.
+  role       text not null check (role in ('you', 'system')),
+  body       text not null,
+  -- Preview and repository addresses a build came back with. Re-filtered
+  -- through safeHttpUrl when read: a stored address is not a trusted one.
+  links      jsonb not null default '[]'::jsonb,
+  tone       text not null default 'normal' check (tone in ('normal', 'error')),
+  created_at timestamptz not null default now()
+);
+
+-- A thread is always read whole, oldest first, for one project.
+create index if not exists project_messages_project_created_idx
+  on public.project_messages (project_id, created_at);
+
+alter table public.project_messages enable row level security;
+
+drop policy if exists "Owners read their messages" on public.project_messages;
+create policy "Owners read their messages"
+  on public.project_messages for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners write their messages" on public.project_messages;
+create policy "Owners write their messages"
+  on public.project_messages for insert
+  with check (auth.uid() = user_id);
+
+-- Deleting a project takes its thread with it by cascade; this is for clearing
+-- a conversation without deleting the app.
+drop policy if exists "Owners delete their messages" on public.project_messages;
+create policy "Owners delete their messages"
+  on public.project_messages for delete
+  using (auth.uid() = user_id);
