@@ -113,12 +113,19 @@ four is wrong. It POSTs one real build request with no `projectId` and no
 `userId`, so it runs one execution — the classifier bills an Anthropic call —
 and `Sync Project Row` matches no row and writes nothing.
 
-### What is still unfinished in the workflow
+### The builder is a stub
 
-The workflow is published and its Supabase and Anthropic credentials are
-attached. What is not filled in are the four provisioning endpoints the build
-branches call (`Scaffold Next.js App`, `Apply Supabase Schema`,
-`Provision WordPress Site`, `Register Store Webhooks`), which still hold
-placeholder URLs. Until those point at a real service every build comes back
-`status: "Failed"` — an answer in the chat rather than a hang, but not a build.
-See [`n8n/README.md`](./n8n/README.md).
+The workflow is published, its credentials are attached, and its four build
+steps now call `/api/builder/*` on this app rather than the placeholder URLs
+they shipped with. That endpoint answers in the shape each branch reads and
+**builds nothing** — it exists so the finished half of the product (chat,
+routing, status sync, preview panel, credit pricing) can be seen working end to
+end before the service that generates and deploys apps is written.
+
+It is off unless `BUILDER_STUB_ENABLED=true`, every reply it gives carries
+`stub: true`, and the preview it hands back is a page that says it is a
+placeholder. A fake builder that quietly outlives its purpose is worse than no
+builder, because the product would look finished.
+
+Replacing it means pointing those four nodes at something that really
+provisions. See [`n8n/README.md`](./n8n/README.md).
