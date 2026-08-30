@@ -27,6 +27,9 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 export const runtime = "nodejs";
 /* A build is a side effect; it must never be served from a cache. */
 export const dynamic = "force-dynamic";
+/* The ceiling this waits under. startBuild gives up at 55s so its own message
+   reaches the chat before the platform cuts the function off at 60. */
+export const maxDuration = 60;
 
 type BuildRequestBody = {
   projectId?: unknown;

@@ -54,10 +54,13 @@ export const isBuilderConfigured = Boolean(process.env.N8N_WEBHOOK_URL);
  *  on the workflow's Webhook node, name for name. */
 export const WEBHOOK_TOKEN_HEADER = "X-QuickStark-Token";
 
-/* How long to wait before giving up. A build branch calls out to provisioning
-   services, so this is generous — but it is bounded, because the caller is an
-   HTTP request someone is watching a spinner for. */
-const TIMEOUT_MS = 60_000;
+/* How long to wait before giving up.
+   Deliberately under the 60s the hosting platform allows a function to run: at
+   exactly 60s the platform wins, kills this function mid-flight, and the browser
+   gets a gateway error page instead of the sentence below — which is a spinner
+   that never resolves rather than a build that says what went wrong. Five
+   seconds of headroom is what buys the app the last word. */
+const TIMEOUT_MS = 55_000;
 
 export class BuilderError extends Error {
   constructor(
