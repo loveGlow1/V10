@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Blocks,
   Check,
+  ChevronLeft,
   CreditCard,
   Link2,
   Monitor,
@@ -60,10 +61,16 @@ export default function PreviewPanel({
   project,
   onUpgradeClick,
   request,
+  onBackToChat,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
   request: ManageRequest | null;
+  /* The way out of this pane on a phone. The bar above no longer carries the
+     preview/chat pair — an open app names itself there instead — so without
+     this, arriving here from the composer's GitHub button would be a one-way
+     trip. Unused from md up, where both halves are on screen at once. */
+  onBackToChat: () => void;
 }) {
   const router = useRouter();
   const { rename, remove } = useProjects();
@@ -425,9 +432,9 @@ export default function PreviewPanel({
     return (
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-[53px] shrink-0 items-center gap-2 px-3">
-          <span
-            className={`h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br ${avatarFor(project?.id)}`}
-          />
+          <button onClick={onBackToChat} aria-label="Back to the conversation" className={glass}>
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
             {project?.name ?? "Loading…"}
           </p>
