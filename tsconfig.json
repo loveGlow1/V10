@@ -20,5 +20,6 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "comment:exclude": "n8n/ is n8n Workflow SDK source, not app code. It is authored against @n8n/workflow-sdk, which lives inside n8n's own builder and is never installed here, so type-checking it would fail the build.",
+  "exclude": ["node_modules", "n8n"]
 }

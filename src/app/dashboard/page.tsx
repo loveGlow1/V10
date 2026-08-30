@@ -10,9 +10,10 @@ import { AGENTS } from "./agents";
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
 import { formatCredits, signupBalance, totalCredits } from "./credits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
-import { AgentMark, MicMark, SendArrow } from "./components/marks";
+import { AgentMark, MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
+import StartBuildButton from "./components/StartBuildButton";
 import DashboardFooter from "./components/DashboardFooter";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
@@ -30,7 +31,6 @@ import {
   SlidersHorizontal,
   Mic,
   MicOff,
-  ArrowUp,
   Smartphone,
   Layers,
   FileText,
@@ -150,6 +150,9 @@ export default function DashboardPage() {
   // Voice Recording State & Refs
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
+  /* Why a send did not open an app. Held here rather than in the button so it
+     can be shown under the composer, where the text that failed still is. */
+  const [startError, setStartError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -600,22 +603,19 @@ export default function DashboardPage() {
                   </button>
 
                   {/* Send sits in the bar's own material rather than shouting over it,
-                      and only lifts once there is something to send. */}
-                  <button
-                    disabled={!transcript.trim()}
-                    aria-label="Send"
-                    className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] sm:h-10 sm:w-10 sm:rounded-full ${
-                      transcript.trim()
-                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                        : "border-transparent bg-layer/[0.07] text-ink/30 md:bg-layer/[0.1] md:text-ink"
-                    }`}
-                  >
-                    <SendArrow className="h-4 w-4 md:hidden" />
-                    <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
-                  </button>
+                      and only lifts once there is something to send. It names a
+                      new app from what was typed and opens it; the build runs
+                      in the workspace it opens. */}
+                  <StartBuildButton prompt={transcript} onError={setStartError} />
                 </div>
               </div>
             </div>
+
+            {startError && (
+              <p role="alert" className="mt-2 px-1 text-[12px] leading-relaxed text-danger">
+                {startError}
+              </p>
+            )}
 
             {/* Hung off the whole composer rather than off the chip, and for the
                 same reason the upload menu is: the graphite box clips what grows

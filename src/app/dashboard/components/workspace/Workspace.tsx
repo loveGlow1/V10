@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import TopNav from "../TopNav";
 import TopBar from "../TopBar";
@@ -29,6 +29,10 @@ const CREDITS = formatCredits(totalCredits(signupBalance()));
    that control was built for. */
 export default function Workspace({ projectId }: { projectId: string }) {
   const router = useRouter();
+  /* Home sends here with ?prompt=… when it opens a brand new app. That is the
+     first thing the conversation should say, so it is handed to the chat panel
+     to send rather than being dropped on the floor. */
+  const initialPrompt = useSearchParams().get("prompt");
   const { projects, loading, error, select } = useProjects();
   const project = projects.find((candidate) => candidate.id === projectId) ?? null;
 
@@ -131,7 +135,11 @@ export default function Workspace({ projectId }: { projectId: string }) {
           <div
             className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex md:w-[420px] md:flex-none`}
           >
-            <ChatPanel project={project} onOpenIntegrations={openIntegrations} />
+            <ChatPanel
+              project={project}
+              onOpenIntegrations={openIntegrations}
+              initialPrompt={initialPrompt}
+            />
           </div>
           <div className={`${view === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex`}>
             <PreviewPanel
