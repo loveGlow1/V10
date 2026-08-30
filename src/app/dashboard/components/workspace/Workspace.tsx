@@ -161,6 +161,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               project={project}
               onOpenIntegrations={openIntegrations}
               onOpenPreview={() => setPreviewSheetOpen(true)}
+              previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}
               onBuildSettled={refreshCredits}
             />
