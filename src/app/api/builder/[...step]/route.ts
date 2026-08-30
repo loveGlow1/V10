@@ -31,11 +31,14 @@ type StubRequest = {
   prompt?: unknown;
 };
 
-/* Enough to look like work was done, small enough that a demo build prices near
-   the floor of the generate band (0.5–2.5 credits) rather than at its ceiling.
-   Fixed rather than random: a build that costs a different amount every time it
-   is run is a worse thing to demonstrate than one that costs the same. */
-const FILES_TOUCHED = 12;
+/* What the build reports having done, which is what /api/build prices it from:
+   0.5 + files x 0.25, clamped to the generate band's 2.5 ceiling. Four files
+   lands at 1.5 credits — mid-band, so the charge visibly moves with the work
+   rather than pinning at the maximum, which anything from ten files up does.
+
+   Fixed rather than random: a demo build that costs a different amount every
+   run is a worse thing to show than one that costs the same. */
+const FILES_TOUCHED = 4;
 
 function text(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
