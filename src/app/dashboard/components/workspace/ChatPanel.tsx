@@ -67,7 +67,7 @@ export default function ChatPanel({
   onBuildSettled?: () => void;
 }) {
   const router = useRouter();
-  const { create, build } = useProjects();
+  const { create, build, watchBuild } = useProjects();
   /* A build running is what makes a session active. The tab strip shows it, so
      a workspace left for another one still says it is working. */
   const { setBusy } = useWorkspaceTabs();
@@ -151,6 +151,12 @@ export default function ChatPanel({
     if (prompt === undefined) setDraft("");
     setBuilding(true);
 
+    /* Noted before the build starts, because it is what tells a page that has
+       just been built from the one that was already there: the build's save
+       step stamps last_build_at, and anything older than this moment belongs to
+       a previous build. */
+    const startedAt = Date.now();
+
     try {
       const outcome = await build(project.id, text);
       /* Only offer a link the build actually returned, and only if it is an
@@ -176,6 +182,35 @@ export default function ChatPanel({
           tone: outcome.status === "Failed" ? "error" : "normal",
         },
       ]);
+
+      /* The reply above arrives as soon as the prompt has been classified — the
+         page itself is still being generated, which takes as long as it takes.
+         This is the wait for it, and it is why the composer stays busy: the
+         message said the preview link updates as it finishes, and this is what
+         makes that true without a reload. */
+      if (outcome.status === "Building") {
+        const finished = await watchBuild(project.id, startedAt);
+        const preview = safeHttpUrl(finished?.preview_url);
+
+        setMessages((current) => [
+          ...current,
+          preview
+            ? {
+                id: nextId.current++,
+                from: "system",
+                text: "Your page is ready.",
+                links: [{ label: "Open preview", href: preview }],
+              }
+            : {
+                id: nextId.current++,
+                from: "system",
+                /* Not "it failed": nothing here knows that. The build may still
+                   land, and the workspace will show it when it does. */
+                text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
+                tone: "error",
+              },
+        ]);
+      }
     } catch (error) {
       setMessages((current) => [
         ...current,

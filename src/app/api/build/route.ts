@@ -182,6 +182,22 @@ export async function POST(request: Request) {
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
 
+  /* The page as it stands, sent along so a second message edits the app rather
+     than replacing it — "make the header darker" has to mean the page that is
+     already there. Read here rather than in the orchestrator because this is the
+     one place with the caller's session: RLS answers it, so a project id cannot
+     be used to read someone else's page.
+
+     Absent on a first build, and absent if the read fails, which degrades to
+     generating afresh rather than failing the build. */
+  const { data: lastBuild } = await supabase
+    .from("project_builds")
+    .select("html")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   let result: BuildResult;
   try {
     result = await startBuild({
@@ -190,6 +206,7 @@ export async function POST(request: Request) {
       userId: user.id,
       projectId: project.id,
       requestId,
+      previousHtml: lastBuild?.html ?? null,
     });
   } catch (error) {
     if (error instanceof BuilderError) {

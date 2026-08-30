@@ -31,6 +31,8 @@ export type BuildRequest = {
   projectId: string;
   /** Ties a reply to the message that asked for it. */
   requestId: string;
+  /** The page as it stands, when this build is a change to an existing one. */
+  previousHtml?: string | null;
 };
 
 export type BuildResult = {

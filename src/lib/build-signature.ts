@@ -22,9 +22,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * either way — and it is one fewer value to keep in step across two systems. */
 
 /* Long enough for a slow build to finish, short enough that a signature caught
-   in an n8n execution log is not a standing key to someone's workspace. The
-   whole chain has 60 seconds to run; five minutes is generous. */
-const MAX_AGE_MS = 5 * 60 * 1000;
+   in an n8n execution log is not a standing key to someone's workspace.
+   Generation is no longer bounded by a function timeout — it runs in the
+   workflow, at whatever pace the model takes — so this has to outlast a slow
+   page rather than a fast HTTP call. Fifteen minutes is well past the longest
+   plausible generation and still short enough to be worth expiring. */
+const MAX_AGE_MS = 15 * 60 * 1000;
 
 export type BuildClaim = {
   requestId: string;

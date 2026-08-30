@@ -30,6 +30,13 @@ export type BuildOutcome = {
   configKeys: Record<string, string>;
 };
 
+/* How the workspace waits for a page. Generation is not bounded by an HTTP
+   request any more, so these are patience, not timeouts: three seconds between
+   polls is often enough to feel immediate, and eight minutes is longer than any
+   page has taken. */
+const BUILD_POLL_MS = 3_000;
+const BUILD_WATCH_MS = 8 * 60 * 1000;
+
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
 const COLUMNS =
@@ -50,6 +57,8 @@ type ProjectsValue = {
   remove: (id: string) => Promise<boolean>;
   /** Runs a build for a project and folds the result back into the list. */
   build: (id: string, prompt: string) => Promise<BuildOutcome>;
+  /** Waits for a started build to land its page. See {@link watchBuild}. */
+  watchBuild: (id: string, since: number) => Promise<Project | null>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -216,6 +225,46 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     return payload.build;
   }, []);
 
+  /* A build answers before it has finished.
+     Generation runs in the orchestrator, which takes as long as the model takes
+     — a minute or two — and the chat is answered as soon as the prompt has been
+     classified, so nobody waits on a request that a serverless function would
+     kill anyway. The page arrives later, written straight to the project row by
+     the build's own save step.
+
+     So this is the other half: poll that row until it carries a build newer
+     than the one that started, then fold it into the list, which is what turns
+     the spinner in the chat into a preview.
+
+     `last_build_at` is the signal because it is written once, by the step that
+     stores the page — the earlier "Building" update deliberately leaves it
+     alone, or the very first poll would report a build that has not happened. */
+  const watchBuild = useCallback(async (id: string, since: number): Promise<Project | null> => {
+    if (!isSupabaseConfigured) return null;
+    const supabase = createSupabaseBrowserClient();
+    const deadline = Date.now() + BUILD_WATCH_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, BUILD_POLL_MS));
+
+      const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
+      const row = data as unknown as Project | null;
+      if (!row) continue;
+
+      const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
+      if (landed > since) {
+        setProjects((current) =>
+          current.map((project) => (project.id === id ? { ...project, ...row } : project)),
+        );
+        return row;
+      }
+    }
+
+    /* Out of patience rather than out of hope: the build may still land, and
+       the row will show it on the next load. The caller says so. */
+    return null;
+  }, []);
+
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab
      relabelled, and one deleted anywhere loses its tab, without the row above
@@ -241,8 +290,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       rename,
       remove,
       build,
+      watchBuild,
     }),
-    [projects, loading, error, selectedId, create, rename, remove, build],
+    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;

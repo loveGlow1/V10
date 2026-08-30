@@ -11,12 +11,15 @@ import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseC
  * one until someone sends a message and the chat answers "Building is not
  * connected yet". This says so from the outside, before a user finds out.
  *
- * `generationConfigured` and `storageConfigured` are the same question for the
- * two variables a build needs to produce and keep a page. They are booleans
- * about presence, which is exactly what catches the failure they exist for: a
- * variable whose name is a character out is not missing in any way a hosting
- * dashboard shows you — it is simply never read, and the first sign is a build
- * that fails for no visible reason. */
+ * `storageConfigured` is the same question for the key a finished page is
+ * stored under. A boolean about presence, which is exactly what catches the
+ * failure it exists for: a variable whose name is a character out is not
+ * missing in any way a hosting dashboard shows you — it is simply never read,
+ * and the first sign is a build that fails for no visible reason.
+ *
+ * There is no `generationConfigured`: the page is generated in the orchestrator
+ * now, under n8n's own Anthropic credential, and this app has no key to report
+ * on. Claiming otherwise would be worse than saying nothing. */
 
 /* Never prerendered. This answers about the running deployment's environment,
    and a statically rendered copy would freeze whatever was set at build time. */
@@ -36,11 +39,8 @@ export async function GET() {
        even the fact that a token is set is more than a health check owes an
        anonymous caller. */
     builderConfigured: isBuilderConfigured,
-    /* What a build needs beyond reaching the orchestrator: a key to generate
-       the page with, and one to store it under. Both are read by name, so
-       either being false means the name in the environment is not the name the
-       code looks for. */
-    generationConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    /* What a finished page needs to be kept: read by name, so false means the
+       name in the environment is not the name the code looks for. */
     storageConfigured: isServiceRoleConfigured,
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
