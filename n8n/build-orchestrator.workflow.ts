@@ -415,6 +415,11 @@ const createStarterPage = node({
   config: {
     name: 'Create Starter Page',
     position: [80, 240],
+    /* Disabled until there is a WordPress account to point it at. n8n's publish
+       gate skips disabled nodes, so this is what lets the workflow go live
+       without parking a junk credential in the account to satisfy a presence
+       check. Re-enable it alongside a real `wordpressApi` credential. */
+    disabled: true,
     onError: 'continueRegularOutput',
     parameters: {
       resource: 'page',
@@ -544,6 +549,9 @@ const seedShopifyCatalog = node({
   config: {
     name: 'Seed Shopify Catalog',
     position: [-160, 500],
+    /* Disabled for the same reason as Create Starter Page. Re-enable it
+       alongside a real `shopifyAccessTokenApi` credential. */
+    disabled: true,
     onError: 'continueRegularOutput',
     parameters: {
       resource: 'product',

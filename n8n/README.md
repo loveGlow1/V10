@@ -132,7 +132,11 @@ charged for. This one is the classifier being unreachable.
 ## Before this can run for real
 
 The graph is wired and tested; the outbound integrations are not yet connected.
-Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
+
+Two different questions are easy to conflate here. **Running** the workflow needs
+nothing — a manual execution works today, and did (see Testing). **Publishing**
+it is what the chat needs, because the app reaches the production webhook, and
+that is gated on every enabled node having a credential attached.
 
 1. **Header Auth on the webhook (do this first).** The Webhook node requires
    Header Auth, and the `Header Auth account` credential is now attached to it —
@@ -173,8 +177,10 @@ Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
      RLS, so an anon key updates nothing and reports success. It updates the row
      matching the `projectId` the app sent, writing `status, intent,
      preview_url, repo_url, admin_url, last_build_at`.
-   - `WordPress` on `Create Starter Page`
-   - `Shopify Admin API` on `Seed Shopify Catalog`
+   - `WordPress` on `Create Starter Page` — **the node is currently disabled**,
+     so this is not blocking. Re-enable it when there is a real WordPress site.
+   - `Shopify Admin API` on `Seed Shopify Catalog` — **also disabled**, same
+     reasoning.
 4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
    `claude-opus-5`, replacing the OpenAI node that was bound to the shared
    "n8n free OpenAI API credits" pool (exhausted — it returned
@@ -202,10 +208,21 @@ Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
      Node "Sync Project Row":      Missing required credential: supabaseApi
    ```
 
-   None of those three credentials exist in the n8n account yet, so creating them
-   is the gate on everything downstream. Until the workflow is published the
-   production webhook answers 404, which the app reports as "the workflow is
-   probably not published yet".
+
+   **The gate skips disabled nodes.** `Create Starter Page` and
+   `Seed Shopify Catalog` are disabled, which takes them off that list without
+   parking a junk credential in the account purely to satisfy a presence check.
+   What remains is:
+
+   ```
+   Cannot publish workflow: 2 nodes have configuration issues:
+     Node "Sync Project Row":          Missing required credential: supabaseApi
+     Node "Intent Classifier Model":   Missing required credential: anthropicApi
+   ```
+
+   Both are credentials this account can supply, so those two are the real gate.
+   Until the workflow is published the production webhook answers 404, which the
+   app reports as "the workflow is probably not published yet".
 
    `supabaseApi` is the one that matters even if WordPress and Shopify never
    get used: without it `Sync Project Row` writes nothing, every build stays
