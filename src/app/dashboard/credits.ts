@@ -9,10 +9,12 @@
    Two rules are structural rather than conventional, because the business
    model rests on them:
 
-     1. Publishing is a flat charge, not a metered one. `creditCostOf` returns
-        PUBLISH_COST for a publish before it looks at any usage signal, so the
-        price a user is quoted before a deploy is the price they pay, whatever
-        the deploy turned out to involve.
+     1. Publishing is a flat charge, not a metered one, and going live costs
+        far more than staying live: `creditCostOf` returns PUBLISH_COST for a
+        first publish and REDEPLOY_COST after, before it looks at any usage
+        signal. Provisioning is the expensive part and it happens once. A
+        redeploy is nominal on purpose — a platform that charges most for
+        iterating is charging most for the thing it is for.
      2. Credits are spent expiring-soonest-first: today's daily grant, then
         last cycle's rollover, then this cycle's grant, then top-ups (which
         never expire). Spending the pool in any other order silently burns
@@ -30,6 +32,24 @@ export type PlanId = "free" | "standard" | "pro";
    credits" and Pro "100 monthly credits + daily allowances", so the daily
    allowance is a platform-wide floor rather than a per-plan figure. */
 export const DAILY_ALLOWANCE = 5;
+
+/* Going live the first time. This is the charge that pays for provisioning —
+   a repository, a subdomain, hosting — which happens once per project and is
+   real work whatever the app turns out to be.
+
+   It is the largest single charge on the platform by a wide margin — at the
+   top-up pack's rate, ten dollars — so it is deliberately the one action a user
+   is expected to think before taking. */
+export const PUBLISH_COST = 50;
+
+/* Pushing a change to an app that is already live. Nominal on purpose.
+
+   Charging the full publish price every time would tax the thing this platform
+   exists to make cheap. Someone who publishes, spots a typo and fixes it should
+   not pay ten dollars for the typo — they would batch changes, or stop
+   deploying, or leave. Nothing is provisioned on a redeploy; it is a commit and
+   a build, so it is priced like one. */
+export const REDEPLOY_COST = 1;
 
 export type Plan = {
   id: PlanId;
@@ -70,8 +90,12 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Standard community support",
     features: [
       `${DAILY_ALLOWANCE} daily build credits`,
-      `Publish to a ${PUBLISH_SUBDOMAIN.replace(/^\./, "")} subdomain`,
       "Unlimited sandbox iteration",
+      /* Not "publish to a subdomain": the daily grant does not roll over, so a
+         Free account cannot reach the publish price however long it saves.
+         Advertising a subdomain it can never reach is the kind of promise a
+         pricing page should not make. */
+      `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
       "Standard community support",
     ],
   },
@@ -128,14 +152,6 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
    no expiry, which is why they are spent last. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
 
-/* What one production deploy costs. Flat, not metered: a deploy either happens
-   or it does not, and its cost to us does not scale with how much was written.
-
-   It is the largest single charge on the platform by a wide margin — at the
-   top-up pack's rate, ten dollars — so it is deliberately the one action a user
-   is expected to think before taking. */
-export const PUBLISH_COST = 50;
-
 /* Every new account opens with this much credit, on the house. Written in
    credits rather than dollars because credits are what the account actually
    holds and what every screen counts in — at the top-up pack's rate of fifty
@@ -181,12 +197,12 @@ export const CREDIT_ACTIONS: Record<CreditActionId, CreditAction> = {
   publish: {
     id: "publish",
     label: "Production publishing / deploy",
-    /* Equal bounds: the band is a single point, so a publish cannot be priced
-       at anything but the flat rate. */
-    min: PUBLISH_COST,
+    /* The band's two ends are the two prices: a redeploy at the floor, a first
+       publish at the ceiling. Nothing in between, and nothing outside. */
+    min: REDEPLOY_COST,
     max: PUBLISH_COST,
     description:
-      `A flat ${PUBLISH_COST} credits to push code live, whatever the deploy contains.`,
+      `${PUBLISH_COST} credits to take a project live the first time, then ${REDEPLOY_COST} for each deploy after that.`,
     billedInCredits: true,
   },
   runtime: {
@@ -208,6 +224,16 @@ export type UsageSignal = {
   outputTokens?: number;
   /** Files the turn created, edited or deleted. */
   filesTouched?: number;
+  /**
+   * Whether the project is already live — the difference between provisioning
+   * one and redeploying it.
+   *
+   * The browser may pass this to preview a price. The server must not take its
+   * word for it: it is the one signal where understating costs the platform
+   * money rather than the caller, so /api/credits/spend reads the project's
+   * stored status and prices from that instead.
+   */
+  alreadyPublished?: boolean;
 };
 
 /* Tuning constants for the bands above. Named rather than inlined so the shape
@@ -239,9 +265,12 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
   /* Runtime never touches the pool — it is metered against the plan instead. */
   if (!spec.billedInCredits) return 0;
 
-  /* A publish is flat. Returned before any signal is read, so no token count or
-     file count can move it off the advertised price in either direction. */
-  if (action === "publish") return PUBLISH_COST;
+  /* A publish is one of two flat prices, decided only by whether the project is
+     already live. Returned before any usage is read, so no token count or file
+     count can move a deploy off its advertised price in either direction. */
+  if (action === "publish") {
+    return signal.alreadyPublished ? REDEPLOY_COST : PUBLISH_COST;
+  }
 
   const outputTokens = Math.max(0, signal.outputTokens ?? 0);
   const filesTouched = Math.max(0, signal.filesTouched ?? 0);

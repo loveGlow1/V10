@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import LegalPage, { Clause, L, Points } from "@/components/legal/LegalPage";
-import { PUBLISH_COST } from "@/app/dashboard/credits";
+import { PUBLISH_COST, REDEPLOY_COST } from "@/app/dashboard/credits";
 import { LEGAL } from "@/lib/legal";
 
 export const metadata: Metadata = {
@@ -65,7 +65,7 @@ export default function TermsPage() {
           items={[
             "Chat and planning costs between nothing and one credit. Short exchanges are free.",
             "Code generation and file edits cost between half a credit and two and a half, depending on how much is written and how many files change.",
-            `Publishing and deploying to production costs a flat ${PUBLISH_COST} credits each time, whatever the deploy contains.`,
+            `Taking a project live costs a flat ${PUBLISH_COST} credits. Deploying a change to a project that is already live costs ${REDEPLOY_COST}.`,
             "Runtime and database use is included, metered against your plan's limits rather than your credit balance.",
           ]}
         />
