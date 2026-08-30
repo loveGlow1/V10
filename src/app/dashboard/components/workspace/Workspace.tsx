@@ -31,7 +31,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
   /* Home sends here with ?prompt=… when it opens a brand new app. That is the
      first thing the conversation should say, so it is handed to the chat panel
      to send rather than being dropped on the floor. */
-  const initialPrompt = useSearchParams().get("prompt");
+  const search = useSearchParams();
+  const initialPrompt = search.get("prompt");
+  /* "?view=preview" is how the apps list says "they wanted to look at it".
+     Read once on arrival rather than watched: closing the sheet must not be
+     undone by the parameter still sitting in the address bar. */
+  const openedOnPreview = search.get("view") === "preview";
   const { projects, loading, error, select } = useProjects();
   /* The account's own balance, not a constant. Refreshed after a build, which
      is the thing in this screen that spends. */
@@ -46,7 +51,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
   /* The preview sheet on a phone. Separate from `view`, which still switches
      this pane between the conversation and the Manage panes — the sheet is a
      layer over both rather than a third tab. */
-  const [previewSheetOpen, setPreviewSheetOpen] = useState(false);
+  const [previewSheetOpen, setPreviewSheetOpen] = useState(openedOnPreview);
   const requests = useRef(0);
 
   /* The composer's GitHub button belongs to the chat half but its answer lives
@@ -85,6 +90,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
         onUpgradeClick={() => setBillingOpen(true)}
         view={view}
         onViewChange={setView}
+        projectName={project?.name ?? "Loading…"}
+        onBack={() => router.push("/dashboard")}
       />
 
       <Sidebar
@@ -163,6 +170,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               project={project}
               onUpgradeClick={() => setBillingOpen(true)}
               request={manageRequest}
+              onBackToChat={() => setView("chat")}
             />
           </div>
         </div>
