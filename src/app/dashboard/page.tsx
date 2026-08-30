@@ -60,9 +60,10 @@ import {
    end, so the next thing a visitor does is edit a real sentence instead of
    facing an empty box.
 
-   A fixed three, and every one of them builds. The fourth was Mobile App, which
-   could only explain that it was not here yet — a chip that answers a tap with
-   an apology is worth less than the room it takes. */
+   A fixed three. Two of them carry a prompt and fill the composer; AI Agent
+   carries none and is a dead label holding its place in the row. The fourth was
+   Mobile App, which could only answer a tap with an apology, and a chip that
+   apologises is worth less than the room it takes. */
 const STARTERS = [
   {
     label: "Storefront",
@@ -78,9 +79,14 @@ const STARTERS = [
     prompt: "Build a dashboard with sign-in, a customer table and charts for revenue and usage.",
   },
   {
+    /* A placeholder, and deliberately a dead one: it names the third thing this
+       row will offer without pretending to offer it yet. No prompt is what makes
+       it inert — the chip carries nothing to put in the composer, so pressing it
+       cannot. It is drawn as a label rather than a control for the same reason:
+       a chip that lights under the finger and then does nothing reads as broken
+       rather than as not-yet. */
     label: "AI Agent",
     icon: Bot,
-    prompt: "Build an AI agent that answers questions from my documents and emails me a daily summary.",
   },
 ] as const;
 
@@ -716,6 +722,32 @@ export default function DashboardPage() {
             <div className="mx-auto flex w-max gap-2">
             {STARTERS.map((starter) => {
               const Icon = starter.icon;
+              /* Shared by both, so the dead chip keeps the size, the rim and the
+                 spacing of the ones beside it — it is the same object in the row,
+                 minus everything that reacts. */
+              const shape =
+                "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line/[0.06] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft";
+              const body = (
+                <>
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  {starter.label}
+                  {"beta" in starter && starter.beta ? (
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                      Beta
+                    </span>
+                  ) : null}
+                </>
+              );
+
+              /* No prompt, no control: it is a span rather than a disabled button
+                 so nothing tabs to it and nothing lights under the cursor. */
+              if (!("prompt" in starter)) {
+                return (
+                  <span key={starter.label} className={shape}>
+                    {body}
+                  </span>
+                );
+              }
 
               return (
                 <button
@@ -732,15 +764,9 @@ export default function DashboardPage() {
                       composer.setSelectionRange(starter.prompt.length, starter.prompt.length);
                     });
                   }}
-                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line/[0.06] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft transition-colors hover:border-line/[0.12] hover:bg-layer/[0.06] hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30"
+                  className={`${shape} transition-colors hover:border-line/[0.12] hover:bg-layer/[0.06] hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30`}
                 >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
-                  {starter.label}
-                  {"beta" in starter && starter.beta ? (
-                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
-                      Beta
-                    </span>
-                  ) : null}
+                  {body}
                 </button>
               );
             })}
