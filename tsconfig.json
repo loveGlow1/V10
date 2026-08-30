@@ -14,11 +14,11 @@
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
+  "comment:baseUrl": "There is deliberately no baseUrl. It is deprecated and stops working in TypeScript 7, and while it was set tsc raised TS5101 — a config-level error, which aborts before a single file is type-checked, so `tsc --noEmit` reported nothing but that one line and appeared to pass. Under moduleResolution 'bundler' the paths below resolve relative to this file and need no baseUrl.",
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "comment:exclude": "n8n/ is n8n Workflow SDK source, not app code. It is authored against @n8n/workflow-sdk, which lives inside n8n's own builder and is never installed here, so type-checking it would fail the build.",
   "exclude": ["node_modules", "n8n"]

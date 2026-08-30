@@ -5,13 +5,17 @@ import { Check } from "lucide-react";
 import { PLANS } from "../dashboard/credits";
 
 export default function PricingPage() {
-  /* Three tiers, priced from the credit economy rather than written out here —
-     this page quoted $16 for the middle plan while the dashboard sold it at a
-     different figure again. */
+  /* Three tiers, priced AND named from the credit economy rather than written out
+     here — this page quoted $16 for the middle plan while the dashboard sold it at a
+     different figure again. The names had drifted the same way the prices had: this
+     page offered "Hobbyist / Professional / Enterprise" while the landing page, the
+     billing modal and every upgrade button said Free / Standard / Pro, so a visitor
+     comparing the two pages could not tell that "Professional" and "Standard" were
+     one plan. */
   const tiers = [
-    { name: "Hobbyist", price: `$${PLANS.free.monthlyPriceUsd}`, desc: "Excellent tier to experiment with natural language architectures." },
-    { name: "Professional", price: `$${PLANS.standard.monthlyPriceUsd}`, desc: "Best for builders, production systems, and fast scaling tools.", highlight: true },
-    { name: "Enterprise", price: `$${PLANS.pro.monthlyPriceUsd}`, desc: "Engineered for corporations demanding strict isolated setups." }
+    { name: PLANS.free.name, price: `$${PLANS.free.monthlyPriceUsd}`, desc: "Excellent tier to experiment with natural language architectures." },
+    { name: PLANS.standard.name, price: `$${PLANS.standard.monthlyPriceUsd}`, desc: "Best for builders, production systems, and fast scaling tools.", highlight: true },
+    { name: PLANS.pro.name, price: `$${PLANS.pro.monthlyPriceUsd}`, desc: "Engineered for corporations demanding strict isolated setups." }
   ];
 
   return (
