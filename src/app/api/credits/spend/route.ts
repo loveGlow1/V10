@@ -21,9 +21,13 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * Generation now runs server-side, in /api/build, which prices a build from
  * what the orchestrator reports and charges it there. So "generate" is refused
  * here: it was the action worth under-reporting, and it no longer has any
- * reason to arrive from a browser. What is left is chat, whose band tops out at
- * a single credit, and the two free actions — under-reporting those buys a
- * caller nothing it could not already have. */
+ * reason to arrive from a browser.
+ *
+ * What is left is chat, whose band tops out at a single credit; runtime, which
+ * is free; and publish. Publish is now the largest charge on the platform, but
+ * it is priced flat and reads no usage signal, so there is nothing about it a
+ * caller could understate — creditCostOf ignores whatever they send. What a
+ * caller can do is spend their own balance, which was always true. */
 
 export const runtime = "nodejs";
 /* Charges must never be served from a cache. */

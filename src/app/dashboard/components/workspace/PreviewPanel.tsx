@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { avatarFor } from "../../projectColours";
+import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -153,6 +154,12 @@ export default function PreviewPanel({
           yet, so the button says why instead of failing. */}
       <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
         Goes live once your first build finishes.
+      </p>
+      {/* The price belongs next to the button, not only on the pricing page: a
+          publish is the largest single charge on the platform, and it is the one
+          action nobody should discover the cost of after taking it. */}
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        Publishing costs {formatCredits(creditCostOf("publish"))} credits.
       </p>
       <button
         disabled

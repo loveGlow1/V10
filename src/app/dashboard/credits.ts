@@ -9,9 +9,10 @@
    Two rules are structural rather than conventional, because the business
    model rests on them:
 
-     1. Publishing is free. `creditCostOf` returns 0 for a publish before it
-        looks at anything else, so no future signal — token count, file count,
-        plan — can make a deploy cost credits.
+     1. Publishing is a flat charge, not a metered one. `creditCostOf` returns
+        PUBLISH_COST for a publish before it looks at any usage signal, so the
+        price a user is quoted before a deploy is the price they pay, whatever
+        the deploy turned out to involve.
      2. Credits are spent expiring-soonest-first: today's daily grant, then
         last cycle's rollover, then this cycle's grant, then top-ups (which
         never expire). Spending the pool in any other order silently burns
@@ -127,6 +128,14 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
    no expiry, which is why they are spent last. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
 
+/* What one production deploy costs. Flat, not metered: a deploy either happens
+   or it does not, and its cost to us does not scale with how much was written.
+
+   It is the largest single charge on the platform by a wide margin — at the
+   top-up pack's rate, ten dollars — so it is deliberately the one action a user
+   is expected to think before taking. */
+export const PUBLISH_COST = 50;
+
 /* Every new account opens with this much credit, on the house. Written in
    credits rather than dollars because credits are what the account actually
    holds and what every screen counts in — at the top-up pack's rate of fifty
@@ -172,10 +181,12 @@ export const CREDIT_ACTIONS: Record<CreditActionId, CreditAction> = {
   publish: {
     id: "publish",
     label: "Production publishing / deploy",
-    min: 0,
-    max: 0,
+    /* Equal bounds: the band is a single point, so a publish cannot be priced
+       at anything but the flat rate. */
+    min: PUBLISH_COST,
+    max: PUBLISH_COST,
     description:
-      "Free. Pushing code live to Vercel does not deduct from the credit balance.",
+      `A flat ${PUBLISH_COST} credits to push code live, whatever the deploy contains.`,
     billedInCredits: true,
   },
   runtime: {
@@ -225,9 +236,12 @@ function clamp(value: number, min: number, max: number): number {
 export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): number {
   const spec = CREDIT_ACTIONS[action];
 
-  /* Publishing and runtime never touch the pool. Returned before any signal is
-     read, so no future input can turn a deploy into a charge. */
-  if (action === "publish" || !spec.billedInCredits) return 0;
+  /* Runtime never touches the pool — it is metered against the plan instead. */
+  if (!spec.billedInCredits) return 0;
+
+  /* A publish is flat. Returned before any signal is read, so no token count or
+     file count can move it off the advertised price in either direction. */
+  if (action === "publish") return PUBLISH_COST;
 
   const outputTokens = Math.max(0, signal.outputTokens ?? 0);
   const filesTouched = Math.max(0, signal.filesTouched ?? 0);
