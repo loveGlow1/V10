@@ -8,7 +8,10 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  ExternalLink,
+  LifeBuoy,
   Link2,
+  RotateCw,
   Rocket,
   SlidersHorizontal,
   X,
@@ -18,6 +21,7 @@ import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
+import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -61,10 +65,14 @@ export default function PreviewPanel({
   onUpgradeClick,
   request,
   onBackToChat,
+  onClose,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
   request: ManageRequest | null;
+  /* Puts this half away and gives the whole workspace to the conversation.
+     Desktop only — a phone shows one at a time already. */
+  onClose?: () => void;
   /* The way out of this pane on a phone. The bar above no longer carries the
      preview/chat pair — an open app names itself there instead — so without
      this, arriving here from the composer's GitHub button would be a one-way
@@ -81,6 +89,10 @@ export default function PreviewPanel({
   const [publishOpen, setPublishOpen] = useState(false);
   const [draft, setDraft] = useState(project?.name ?? "");
   const [confirming, setConfirming] = useState(false);
+  /* Bumped by the reload button and used as the frame's key, which is what
+     remounts it. Reaching into the frame to call location.reload() is not
+     available here: it is another origin, and deliberately sandboxed. */
+  const [reloads, setReloads] = useState(0);
   const publishRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
@@ -139,13 +151,33 @@ export default function PreviewPanel({
      out of it — a hairline of light along its top, a soft shadow beneath — so
      which view you are in is legible from the shape alone, before the labels
      are read. The unchosen half carries no fill at all; two filled halves is
-     the arrangement that makes a segmented control read as two buttons. */
+     the arrangement that makes a segmented control read as two buttons.
+
+     28px inside a 36px track, which is what puts the switch on the same line as
+     every control across the header: one height, one baseline, one row. */
   const segment = (active: boolean) =>
-    `relative flex h-[30px] items-center gap-1.5 rounded-[9px] px-3 text-[13px] font-medium transition-all ${
+    `relative flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-all lg:px-3 ${
       active
         ? "bg-layer/[0.12] text-ink shadow-[0_1px_2px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12)]"
         : "text-muted hover:text-ink"
     }`;
+
+  /* Every control to the right of the switch is cut from this: 36 tall, a
+     hairline rim, a translucent fill that firms up under the cursor. The ones
+     that are only an icon are square, so the row reads as a set of equal tiles
+     rather than as pills of assorted widths.
+
+     Widths are why the labels come and go with the viewport. This pane is
+     whatever is left after the conversation's fixed 420, so at 1024 it is about
+     600px and at 768 about 350 — the labels appear as that room arrives, and
+     below it every control keeps its icon, its title and its aria-label. */
+  const action =
+    "flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-line/[0.08] bg-layer/[0.04] px-2.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
+
+  /* A rule between groups of controls: what the app is, what you do to it, and
+     the way out of the pane. Without them the eight controls read as one queue
+     and the eye has to count. */
+  const divider = <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-line/[0.09]" />;
 
   /* Glass over the blue, the material every control in the phone header is made
      of: a translucent fill, a hairline rim, one pixel of light along the top. */
@@ -206,17 +238,28 @@ export default function PreviewPanel({
             <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
               {previewUrl}
             </span>
+            {/* A phone's header has no room for these two, so they ride on the
+                frame's own chrome instead — where the address they act on is.
+                From md up the header above carries them and this pair stands
+                down rather than saying the same thing twice. */}
+            <button
+              onClick={() => setReloads((count) => count + 1)}
+              aria-label="Reload the preview"
+              className="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
             <a
               href={previewUrl}
               target="_blank"
               rel="noreferrer"
-              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
+              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
             >
               Open
             </a>
           </div>
           <iframe
-            key={previewUrl}
+            key={`${previewUrl}#${reloads}`}
             src={previewUrl}
             title={`${project?.name ?? "App"} preview`}
             sandbox="allow-scripts allow-forms allow-popups"
@@ -501,51 +544,133 @@ export default function PreviewPanel({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-[53px] shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-3">
+      {/* One row, one height. The switch, the four things you do to an app, the
+          publish button and the way out of the pane all stand 36px tall on the
+          same centre line, in the order they are reached for: what you are
+          looking at, help with it, the app itself, sharing it, shipping it, and
+          then closing the pane. */}
+      <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-3">
         <div
           role="group"
           aria-label="Workspace view"
-          className="flex items-center gap-1 rounded-xl border border-line/[0.07] bg-sunken/70 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]"
+          className="flex h-9 shrink-0 items-center gap-1 rounded-xl border border-line/[0.07] bg-sunken/70 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]"
         >
           <button
             onClick={() => setView("preview")}
             aria-pressed={view === "preview"}
+            title="Preview"
             className={segment(view === "preview")}
           >
             <PreviewMark className="h-[15px] w-[15px] shrink-0" />
-            Preview
+            <span className="hidden lg:inline">Preview</span>
           </button>
           <button
             onClick={() => setView("manage")}
             aria-pressed={view === "manage"}
+            title="Manage"
             className={segment(view === "manage")}
           >
             <ManageMark className="h-[15px] w-[15px] shrink-0" />
-            Manage
+            <span className="hidden lg:inline">Manage</span>
           </button>
         </div>
 
-        <div className="relative flex shrink-0 items-center gap-2" ref={publishRef}>
+        <div className="relative flex min-w-0 shrink-0 items-center gap-1.5" ref={publishRef}>
+          {/* Quinn, the assistant already floating in the corner of this screen.
+              The button asks it to open rather than starting a second thread:
+              there is one conversation with support, wherever it is opened
+              from. Hidden below lg, where the corner launcher is the only one
+              the row has room for. */}
+          <button
+            onClick={requestSupportChat}
+            title="Need help?"
+            className={`hidden ${action} lg:flex`}
+          >
+            <LifeBuoy className="h-4 w-4 shrink-0" />
+            <span className="hidden 2xl:inline">Need help?</span>
+          </button>
+
+          {divider}
+
+          {/* The app on its own, outside this pane. An anchor when there is
+              somewhere to go and a dead button when there is not — an anchor
+              with no href is not a control, it is text that takes focus. */}
+          {previewUrl ? (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Open in a new tab"
+              aria-label="Open the app in a new tab"
+              className={`${action} w-9 px-0`}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : (
+            <button
+              disabled
+              title="Nothing to open yet"
+              aria-label="Open the app in a new tab"
+              className={`${action} w-9 px-0`}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* A build writes to the same address, so the frame has to be told to
+              look again. Disabled until there is something to look at, so it
+              cannot promise a refresh of nothing. */}
+          <button
+            onClick={() => setReloads((count) => count + 1)}
+            disabled={!previewUrl}
+            title="Reload the preview"
+            aria-label="Reload the preview"
+            className={`${action} w-9 px-0`}
+          >
+            <RotateCw className="h-4 w-4" />
+          </button>
+
+          {divider}
+
           <button
             onClick={share}
-            className="flex h-8 items-center gap-1.5 rounded-full border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+            title="Copy a link to this app"
+            className={action}
           >
             {shared ? (
-              <Check className="h-3.5 w-3.5 text-accent" />
+              <Check className="h-4 w-4 shrink-0 text-accent" />
             ) : (
-              <Link2 className="h-3.5 w-3.5" />
+              <Link2 className="h-4 w-4 shrink-0" />
             )}
-            {shared ? "Link copied" : "Share"}
+            <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
 
           <button
             onClick={() => setPublishOpen((open) => !open)}
             aria-expanded={publishOpen}
-            className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
+            title="Publish this app"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
           >
-            <Rocket className="h-3.5 w-3.5" />
-            Publish
+            <Rocket className="h-4 w-4 shrink-0" />
+            <span className="hidden lg:inline">Publish</span>
           </button>
+
+          {/* The way out of this half. The conversation takes the whole
+              workspace and a button on the edge brings the pane back — see
+              Workspace. Only where there is a second half to fall back on. */}
+          {onClose && (
+            <>
+              {divider}
+              <button
+                onClick={onClose}
+                title="Close the preview"
+                aria-label="Close the preview"
+                className={`${action} w-9 px-0`}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </>
+          )}
 
           <Popover open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish this app">
             {publishBody}

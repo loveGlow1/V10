@@ -18,6 +18,7 @@ import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
+import { PreviewMark } from "./panelMarks";
 import PreviewSheet from "./PreviewSheet";
 
 /* An opened app. The header and drawer are the ones Home carries, so moving
@@ -55,6 +56,11 @@ export default function Workspace({ projectId }: { projectId: string }) {
      this pane between the conversation and the Manage panes — the sheet is a
      layer over both rather than a third tab. */
   const [previewSheetOpen, setPreviewSheetOpen] = useState(openedOnPreview);
+  /* Whether the preview keeps its column. Desktop only: the pane's close button
+     hands the whole width to the conversation, which is what someone writing a
+     long prompt wants, and the control on the edge brings it back. Unrelated to
+     the sheet above, which is the phone's arrangement. */
+  const [previewPaneOpen, setPreviewPaneOpen] = useState(true);
   const requests = useRef(0);
 
   /* The composer's GitHub button belongs to the chat half but its answer lives
@@ -64,6 +70,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
     requests.current += 1;
     setManageRequest({ section: "integrations", category: "Source", n: requests.current });
     setView("preview");
+    /* A request for a pane that has been put away has to reopen it, or the
+       button answers by doing nothing visible at all. */
+    setPreviewPaneOpen(true);
   }
 
   /* Opening the route is what selects the app, so a link, a reload and a click
@@ -165,9 +174,15 @@ export default function Workspace({ projectId }: { projectId: string }) {
       ) : (
         <div className="relative z-10 flex min-h-0 flex-1">
           {/* One at a time on a phone, both from md up. Hidden rather than
-              unmounted, so switching back does not discard what was typed. */}
+              unmounted, so switching back does not discard what was typed.
+
+              The conversation's 420 is a column beside the preview; with the
+              preview put away it takes the room the preview had rather than
+              leaving it blank. */}
           <div
-            className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex md:w-[420px] md:flex-none`}
+            className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex ${
+              previewPaneOpen ? "md:w-[420px] md:flex-none" : "md:flex-1"
+            }`}
           >
             <ChatPanel
               project={project}
@@ -178,14 +193,36 @@ export default function Workspace({ projectId }: { projectId: string }) {
               onBuildSettled={refreshCredits}
             />
           </div>
-          <div className={`${view === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex`}>
+          {/* Put away from md up only: a phone's `view` already decides which
+              half is on screen, and hiding this one there would leave the
+              header's preview button with nothing to show. */}
+          <div
+            className={`${view === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 ${
+              previewPaneOpen ? "md:flex" : "md:hidden"
+            }`}
+          >
             <PreviewPanel
               project={project}
               onUpgradeClick={() => setBillingOpen(true)}
               request={manageRequest}
               onBackToChat={() => setView("chat")}
+              onClose={() => setPreviewPaneOpen(false)}
             />
           </div>
+
+          {/* The way back to a pane that has been closed, on the edge it went
+              out through. It is the only thing on screen that says the preview
+              still exists, so it is a labelled button rather than a bare
+              chevron. */}
+          {!previewPaneOpen && (
+            <button
+              onClick={() => setPreviewPaneOpen(true)}
+              className="absolute right-3 top-2.5 z-20 hidden h-9 items-center gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.04] px-3 text-[13px] text-soft shadow-[0_8px_24px_rgba(0,0,0,0.35)] transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98] md:flex"
+            >
+              <PreviewMark className="h-4 w-4 shrink-0" />
+              Preview
+            </button>
+          )}
         </div>
       )}
     </div>
