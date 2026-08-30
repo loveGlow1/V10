@@ -9,6 +9,7 @@
  * /api/build, which knows who is asking and which projects they own; putting
  * the URL in the browser bundle would let anyone POST builds directly. */
 
+import { signBuildClaim } from "@/lib/build-signature";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 /* The orchestrator only builds web apps and landing pages now — its WordPress
@@ -129,7 +130,11 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
           ? { [WEBHOOK_TOKEN_HEADER]: process.env.N8N_WEBHOOK_TOKEN }
           : {}),
       },
-      body: JSON.stringify(request),
+      /* The signature travels with the request and is carried by the workflow
+         into the build step, which is called with no session behind it and has
+         to be told which project it may write to. n8n never interprets it; it
+         is an opaque field passed through. See src/lib/build-signature.ts. */
+      body: JSON.stringify({ ...request, signature: signBuildClaim(request) ?? "" }),
       cache: "no-store",
       signal: controller.signal,
     });

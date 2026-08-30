@@ -21,8 +21,8 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
   ▼                                ▼
 WebApp / Landing            Manual Review
 • Build Spec                (fallback — a prompt for something
-• Scaffold Next.js           not built yet is answered, not dropped)
-• Apply Supabase Schema
+• Generate Page              not built yet is answered, not dropped)
+  (Claude → stored page)
   └───────┬────────────────────────┘
           ▼
 [ Collect Build Outcome ]  (Merge, append, 3 inputs)
@@ -96,7 +96,7 @@ behave identically.
   "intent": "webapp | unclassified",
   "status": "Building | Failed | Needs Clarification",
   "links":      { "preview": "…", "repo": "…", "admin": "…" },
-  "configKeys": { "NEXT_PUBLIC_SUPABASE_URL": "…", "…": "…" },
+  "configKeys": {},
   "artifacts":  { "stack": "…", "…": "…" },
   "message": "Your webapp build is underway — the preview link updates as it finishes."
 }
@@ -109,9 +109,12 @@ so the chat UI has one response shape to render regardless of which branch ran.
 `status` is derived in `Assemble Build Result` and written straight to
 `projects.status`, which the dashboard already reads.
 
-`artifacts.filesTouched` is what `/api/build` prices the build from, so each
-branch reports it from its provisioning response (`filesTouched`, or `files`).
-A branch that reports neither prices at the action's floor.
+`artifacts.filesTouched` is what `/api/build` prices the build from. The
+generate step derives it from the page it produced; a branch that reports
+nothing prices at the action's floor.
+
+`configKeys` is empty for now. It carried the environment a provisioned backend
+would need, and there is no provisioning until publishing exists.
 
 **The webhook always answers.** Every outbound call runs with
 `onError: continueRegularOutput`, and `Intent Classifier` — the one node every
@@ -122,6 +125,14 @@ responds, and the app waits out its 60-second timeout before telling the user
 the build "may still finish", which is not true. Now it comes back as
 `status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
 bill a build that never ran.
+
+The classifier also **retries**: three tries, two seconds apart, on both the
+Text Classifier and the model node under it. Execution 215 is why — a build
+came back "the classifier could not be reached" on a bare
+`Service unavailable` from Anthropic, which is a passing outage rather than
+anything wrong with the setup, and the one node every build depends on. Three
+tries fit comfortably inside the app's 60-second timeout. The error output is
+not redundant with this: it is what answers once the retries are spent too.
 
 `Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
 that one is a prompt nobody could classify, which is a real answer and is
@@ -135,7 +146,7 @@ one, `Intent Classifier Model` the Anthropic one, and the app holds the two
 environment variables in step 1. Builds reach n8n, route to a branch, sync to
 Supabase and answer the chat — verified by production executions 209 and 210.
 
-What is not real is the provisioning itself: step 2 is a stub. Verify the chain
+Builds are real: the branch generates a page and stores it. Verify the chain
 with `npm run check:builder`.
 
 The graph is wired and tested; the outbound integrations are not yet connected.
@@ -171,23 +182,32 @@ that is gated on every enabled node having a credential attached.
    overwrite any project row in the database. `/api/build` checks ownership, but
    nothing forces a caller to go through `/api/build`.
 
-2. **The two build steps** now call a stub, not a real provisioning service:
+2. **The build step** calls the app, which is where a page is generated:
 
    | Node | URL |
    | --- | --- |
-   | `Scaffold Next.js App` | `/api/builder/webapp/scaffold` |
-   | `Apply Supabase Schema` | `/api/builder/supabase/schema` |
+   | `Generate Page` | `/api/builder/webapp/generate` |
 
-   Those are routes on the app itself (`src/app/api/builder/[...step]/route.ts`),
-   answering in each branch's shape and **building nothing**. They exist so the
-   loop can be watched working before the expensive half is written; they are
-   off unless `BUILDER_STUB_ENABLED=true`, and every reply carries `stub: true`.
+   That route (`src/app/api/builder/webapp/generate/route.ts`) asks Claude for a
+   complete standalone HTML page, stores it in `project_builds`, and returns the
+   address it can be previewed at. It needs `ANTHROPIC_API_KEY` and
+   `SUPABASE_SERVICE_ROLE_KEY` in the app's environment.
 
-   A branch's `Collect` node reads `$json.error ? "failed" : "provisioned"`, so
-   whatever eventually replaces the stub must answer without an `error` key and
-   with the fields that branch reads — `previewUrl`/`siteUrl`/`storefrontUrl`,
-   `repoUrl`, `adminUrl`, and `filesTouched`, which is what the build is priced
-   from.
+   **It refuses anything unsigned.** `/api/build` signs `requestId`, `projectId`
+   and `userId` — the three it has already checked ownership of — and the
+   workflow carries that `signature` through as an opaque field. Knowing the URL
+   is not enough to spend model credit or write into someone's workspace. If
+   this step starts answering 401, the field is not reaching it: check that
+   `Normalize Build Request` sets `signature` and that `Generate Page` sends it.
+
+   `Collect WebApp Result` reads `$json.error ? "failed" : "provisioned"`, so
+   the endpoint never returns an `error` key on success — a failure answers with
+   an HTTP status instead, which the HTTP node surfaces as a real error.
+
+   There is no `Apply Supabase Schema` step any more. Provisioning a schema is
+   part of publishing, which is the owner's own paid choice, not something every
+   build should do.
+
 3. **Credentials** — connect these in n8n:
    - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
      **Supabase API**, with two fields:
@@ -274,8 +294,8 @@ fallback, then the error output. Adding a category shifts the last two along by
 one, so their connections have to move too.
 
 Then update `Build Chat Payload`'s Needs Clarification message, which names what
-is currently built, and the stub in `src/app/api/builder` if the new branch is
-to be demonstrated before its real service exists.
+is currently built, and add a generate step for the new branch under
+`src/app/api/builder/` alongside the web app one.
 
 ## "Waiting for the webhook call"
 
