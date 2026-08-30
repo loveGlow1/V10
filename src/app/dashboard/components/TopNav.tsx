@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 
+import CreditPill from "./CreditPill";
 import Q3DCanvas from "../../Q3DCanvas";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -26,7 +27,7 @@ interface TopNavProps {
   onUpgradeClick: () => void;
   onAccountSettingsClick: () => void;
   projectName: string;
-  /** No credits service exists yet; the value the app already displayed is passed in. */
+  /** The account's balance, already formatted — see useCredits. */
   credits: string;
 }
 
@@ -131,8 +132,16 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
               second control a hairline away would say the same thing twice. */}
         </div>
 
-        {/* Upgrade + avatar */}
+        {/* Balance, upgrade, avatar — in that order, because it is the order the
+            thought runs in: what is left, then the way to get more, then the
+            account both belong to. */}
         <div className="relative flex shrink-0 items-center gap-2 sm:gap-3" ref={panelRef}>
+          {/* The number that decides whether the next build runs, on every
+              dashboard screen rather than only inside this menu. The menu keeps
+              its own row: that is where the balance is explained, this is where
+              it is glanced at. */}
+          <CreditPill credits={credits} onClick={onUpgradeClick} />
+
           <button
             onClick={onUpgradeClick}
             className="h-[34px] w-[112px] rounded-full bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.98]"

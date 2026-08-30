@@ -10,9 +10,11 @@ import PhoneField from "../PhoneField";
 import BillingModal from "../billing/BillingModal";
 import AccountSettingsModal from "../AccountSettingsModal";
 import SupportChat from "../SupportChat";
+import WorkspaceTabs from "../WorkspaceTabs";
 import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
+import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
@@ -36,6 +38,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
      undone by the parameter still sitting in the address bar. */
   const openedOnPreview = search.get("view") === "preview";
   const { projects, loading, error, select } = useProjects();
+  /* Opening an app puts it in the strip above, or brings the tab it already has
+     forward — never a second one for the same app. */
+  const { open: openTab } = useWorkspaceTabs();
   /* The account's own balance, not a constant. Refreshed after a build, which
      is the thing in this screen that spends. */
   const { label: credits, refresh: refreshCredits } = useCredits();
@@ -68,6 +73,16 @@ export default function Workspace({ projectId }: { projectId: string }) {
     select(project.id);
   }, [project, select]);
 
+  /* And the same arrival opens its tab. It waits for the name rather than
+     firing on the route, which is what keeps an id that belongs to no project
+     of yours — a stale link, someone else's — out of the strip, and what lets a
+     rename in the Manage pane reach the tab without a reload. */
+  const projectName = project?.name;
+  useEffect(() => {
+    if (!projectName) return;
+    openTab({ id: projectId, name: projectName });
+  }, [projectId, projectName, openTab]);
+
   return (
     <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-canvas">
       {/* The same light Home stands on, so moving between the two screens on a
@@ -81,9 +96,14 @@ export default function Workspace({ projectId }: { projectId: string }) {
         credits={credits}
       />
 
+      {/* Under the header and over the workspace, the way a browser puts its
+          tabs between the chrome and the page. */}
+      <WorkspaceTabs />
+
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
+        credits={credits}
         projectName={project?.name ?? "Loading…"}
         onBack={() => router.push("/dashboard")}
       />
