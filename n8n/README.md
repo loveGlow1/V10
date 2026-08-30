@@ -139,13 +139,24 @@ it is what the chat needs, because the app reaches the production webhook, and
 that is gated on every enabled node having a credential attached.
 
 1. **Header Auth on the webhook (do this first).** The Webhook node requires
-   Header Auth, and the `Header Auth account` credential is now attached to it —
-   its header name is `Authorization`, which is the header `src/lib/n8n.ts`
-   sends. What is left is to make the two sides agree: set that credential's
-   **value** to `Bearer <your-token>` and set `N8N_WEBHOOK_TOKEN=<your-token>`
-   in the app. If the credential currently holds a value for something else,
-   make a new Header Auth credential instead and attach that one — every call
-   from the app will 403 until the header value matches.
+   Header Auth, and the credential it carries has to hold the header the app
+   actually sends. Two fields, copied exactly:
+
+   | Field | Value |
+   | --- | --- |
+   | Name | `X-QuickStark-Token` |
+   | Value | the same string as `N8N_WEBHOOK_TOKEN` in the app |
+
+   Set them on the `QuickStark.Ai Build Webhook` credential and attach it to the
+   node; if a Header Auth credential is already attached and holds a value for
+   something else, make a new one with these two fields and attach that instead.
+   Until the two sides agree, every call from the app is a 403.
+
+   A dedicated header rather than `Authorization`: n8n's Header Auth compares
+   the whole value, so `Authorization` would mean typing `Bearer <token>` into
+   the credential exactly, and a missing prefix fails as a 403 that reads like a
+   wrong token. The header name lives in one place — `WEBHOOK_TOKEN_HEADER` in
+   `src/lib/n8n.ts`.
 
    This is not optional hardening. `Sync Project Row` writes with the
    service_role key, which bypasses RLS, and the row it writes to comes from the
