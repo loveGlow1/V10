@@ -761,3 +761,42 @@ revoke all on public.n8n_chat_histories from anon, authenticated;
 revoke execute on function public.match_documents(extensions.vector, int, jsonb) from public;
 revoke execute on function public.match_documents(extensions.vector, int, jsonb) from anon, authenticated;
 grant execute on function public.match_documents(extensions.vector, int, jsonb) to service_role;
+
+-- ── Generated pages ────────────────────────────────────────────────────────
+--
+-- What a build actually produced. One row per build, so a project keeps its
+-- history rather than only its latest state: the workspace can show what a
+-- prompt changed, and a bad generation can be rolled back to the one before it
+-- rather than regenerated and hoped over.
+--
+-- `html` is a complete standalone document — this is what /preview/<projectId>
+-- serves and what the workspace's iframe loads. It is model output, which is to
+-- say untrusted text: it is served under `Content-Security-Policy: sandbox`, so
+-- the browser gives it an opaque origin and it cannot reach the session cookie
+-- on this domain. Nothing else in the app renders it.
+create table if not exists public.project_builds (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid not null references public.projects (id) on delete cascade,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  request_id    text,
+  prompt        text not null,
+  html          text not null,
+  model         text,
+  files_touched integer not null default 0,
+  created_at    timestamptz not null default now()
+);
+
+-- The preview reads the newest row for a project on every load.
+create index if not exists project_builds_project_created_idx
+  on public.project_builds (project_id, created_at desc);
+
+alter table public.project_builds enable row level security;
+
+-- Read-only to the browser, and only your own. Writes come from the build
+-- endpoint under the service_role key, which bypasses RLS: the generation has
+-- no user session behind it — n8n calls it, not the browser — and a client that
+-- could insert here could put its own HTML on someone's preview.
+drop policy if exists "Owners read their builds" on public.project_builds;
+create policy "Owners read their builds"
+  on public.project_builds for select
+  using (auth.uid() = user_id);

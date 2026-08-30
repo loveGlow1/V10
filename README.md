@@ -113,19 +113,32 @@ four is wrong. It POSTs one real build request with no `projectId` and no
 `userId`, so it runs one execution — the classifier bills an Anthropic call —
 and `Sync Project Row` matches no row and writes nothing.
 
-### The builder is a stub
+### What a build makes
 
-The workflow is published, its credentials are attached, and its four build
-steps now call `/api/builder/*` on this app rather than the placeholder URLs
-they shipped with. That endpoint answers in the shape each branch reads and
-**builds nothing** — it exists so the finished half of the product (chat,
-routing, status sync, preview panel, credit pricing) can be seen working end to
-end before the service that generates and deploys apps is written.
+A build generates one complete, self-contained HTML page — markup, styles and
+its own interactivity in a single document — saved against the project and
+served at `/preview/<projectId>`. That is the artifact for now: a landing page
+or a small web app that really exists and can be looked at, not a description of
+one. A second message in the same workspace edits that page rather than
+replacing it.
 
-It is off unless `BUILDER_STUB_ENABLED=true`, every reply it gives carries
-`stub: true`, and the preview it hands back is a page that says it is a
-placeholder. A fake builder that quietly outlives its purpose is worse than no
-builder, because the product would look finished.
+Two variables are required for it, beyond the orchestrator's own:
 
-Replacing it means pointing those four nodes at something that really
-provisions. See [`n8n/README.md`](./n8n/README.md).
+```bash
+ANTHROPIC_API_KEY=sk-ant-...          # what the page is generated with
+SUPABASE_SERVICE_ROLE_KEY=...          # what stores it; never NEXT_PUBLIC_
+```
+
+The generated page is untrusted: it is model output shaped by whatever someone
+typed, and it has to run its own scripts to be a working page. It is served
+under `Content-Security-Policy: sandbox`, which puts it in an opaque origin —
+scripts run, but they cannot reach the session cookie or the API routes on this
+domain. Previews are private to their owner; RLS decides that, and making a page
+public is what publishing will be for.
+
+**Publishing, custom domains, a provisioned Supabase schema and Stripe are
+deliberately not part of a build.** A build saves work into the workspace; going
+live is a separate step the owner chooses and spends credits on. None of it is
+built yet.
+
+See [`n8n/README.md`](./n8n/README.md).
