@@ -13,8 +13,10 @@ import SupportChat from "../SupportChat";
 import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
+import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
+import PreviewSheet from "./PreviewSheet";
 import WorkspaceTabs from "./WorkspaceTabs";
 import { openTab } from "./openTabs";
 
@@ -41,6 +43,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view, setView] = useState<"preview" | "chat">("chat");
   const [manageRequest, setManageRequest] = useState<ManageRequest | null>(null);
+  /* The preview sheet on a phone. Separate from `view`, which still switches
+     this pane between the conversation and the Manage panes — the sheet is a
+     layer over both rather than a third tab. */
+  const [previewSheetOpen, setPreviewSheetOpen] = useState(false);
   const requests = useRef(0);
 
   /* The composer's GitHub button belongs to the chat half but its answer lives
@@ -110,6 +116,15 @@ export default function Workspace({ projectId }: { projectId: string }) {
       />
       <SupportChat />
 
+      {/* Over everything, and only on a phone — the sheet hides itself from md
+          up, where the preview already has a column of its own. */}
+      <PreviewSheet
+        open={previewSheetOpen}
+        url={safeHttpUrl(project?.preview_url)}
+        title={project?.name ?? "App"}
+        onClose={() => setPreviewSheetOpen(false)}
+      />
+
       <WorkspaceTabs activeId={projectId} />
 
       {loading ? (
@@ -138,6 +153,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             <ChatPanel
               project={project}
               onOpenIntegrations={openIntegrations}
+              onOpenPreview={() => setPreviewSheetOpen(true)}
               initialPrompt={initialPrompt}
               onBuildSettled={refreshCredits}
             />
