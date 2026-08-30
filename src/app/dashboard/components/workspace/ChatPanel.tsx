@@ -241,21 +241,30 @@ export default function ChatPanel({
         const finished = await watchBuild(project.id, startedAt);
         const preview = safeHttpUrl(finished?.preview_url);
 
-        say(
-          preview
-            ? {
-                from: "system",
-                text: "Your page is ready.",
-                links: [{ label: "Open preview", href: preview }],
-              }
-            : {
-                from: "system",
-                /* Not "it failed": nothing here knows that. The build may still
-                   land, and the workspace will show it when it does. */
-                text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
-                tone: "error",
-              },
-        );
+        if (preview) {
+          say({
+            from: "system",
+            text: "Your page is ready.",
+            links: [{ label: "Open preview", href: preview }],
+          });
+        } else if (finished?.status === "Failed") {
+          /* The build came back and said so. Generation happens after the reply,
+             so a failure there cannot travel in the response — it is written to
+             the row instead, which is the same row this was waiting on. */
+          say({
+            from: "system",
+            text: "The build did not finish. Try again, or describe a smaller page — a very large one can run past what a single build allows.",
+            tone: "error",
+          });
+        } else {
+          say({
+            from: "system",
+            /* Not "it failed": nothing here knows that. The build may still
+               land, and the workspace will show it when it does. */
+            text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
+            tone: "error",
+          });
+        }
       }
     } catch (error) {
       say({ from: "system", text: (error as Error).message, tone: "error" });
