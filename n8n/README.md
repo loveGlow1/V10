@@ -131,6 +131,12 @@ charged for. This one is the classifier being unreachable.
 
 ## Before this can run for real
 
+Where this stands: the workflow is **published**, the Webhook node carries a
+Header Auth credential, `Sync Project Row` carries the Supabase one and
+`Intent Classifier Model` the Anthropic one. What is still outstanding is
+step 2 — the four placeholder URLs — and, on the app's side, the two environment
+variables in step 1. Verify the whole chain with `npm run check:builder`.
+
 The graph is wired and tested; the outbound integrations are not yet connected.
 
 Two different questions are easy to conflate here. **Running** the workflow needs
@@ -243,6 +249,35 @@ that is gated on every enabled node having a credential attached.
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
+
+## "Waiting for the webhook call"
+
+The canvas says it is waiting; the chat looks fine; nothing happens. That
+message is the *test* URL listening — it accepts a single call, only while the
+editor is open — and it is also what a published workflow looks like when no
+call ever arrives. n8n cannot tell the two apart for you, because a request that
+was never sent leaves nothing behind on this side. Check the execution list: if
+every run says `manual`, nothing has ever reached the production webhook.
+
+Run this from the app's directory:
+
+```bash
+npm run check:builder
+```
+
+It makes the call the app would make and names which link is broken:
+
+| What it finds | What it means |
+| --- | --- |
+| `N8N_WEBHOOK_URL is not set` | `/api/build` answers 503 and never calls n8n. The usual one. |
+| the URL contains `/webhook-test/` | That is the listen-once editor address. The app needs `/webhook/`. |
+| `404` | The workflow is not published. |
+| `401` / `403` | The token or the header name does not match the Header Auth credential. It retries under `Authorization` so it can say which. |
+| `200` with a bad shape | A branch stopped setting one of the seven fields. |
+
+The probe sends no `projectId` and no `userId`, so `Sync Project Row` matches no
+row and writes nothing. It does run one real execution, so the classifier bills
+an Anthropic call.
 
 ## Database
 

@@ -95,10 +95,30 @@ outside because the variable is server-side.
   `builderTokenSet`.
 - In production, detailed missing-var names are hidden by default; set `SUPABASE_HEALTH_INCLUDE_DETAILS=true` only when you explicitly need detailed diagnostics.
 
-### The orchestrator is not published yet
+### Checking the wiring
 
-`N8N_WEBHOOK_URL` on its own is not enough: the workflow behind it is
-deliberately left unpublished, and an unpublished n8n webhook answers 404 —
-which the app reports as "the workflow is probably not published yet". The
-remaining steps, and what still needs credentials, are in
-[`n8n/README.md`](./n8n/README.md).
+```bash
+npm run check:builder
+```
+
+Four things have to agree before a chat message becomes an n8n execution: the
+URL the app holds, the token it sends, the header name the Webhook node's
+credential compares, and the workflow being published. From the browser all four
+fail the same way — nothing happens — and from n8n's side a call that never
+arrives leaves no trace at all, which is why the canvas can sit on "waiting for
+the webhook call" indefinitely while the app looks healthy.
+
+`npm run check:builder` makes the call the app would make and names which of the
+four is wrong. It POSTs one real build request with no `projectId` and no
+`userId`, so it runs one execution — the classifier bills an Anthropic call —
+and `Sync Project Row` matches no row and writes nothing.
+
+### What is still unfinished in the workflow
+
+The workflow is published and its Supabase and Anthropic credentials are
+attached. What is not filled in are the four provisioning endpoints the build
+branches call (`Scaffold Next.js App`, `Apply Supabase Schema`,
+`Provision WordPress Site`, `Register Store Webhooks`), which still hold
+placeholder URLs. Until those point at a real service every build comes back
+`status: "Failed"` — an answer in the chat rather than a hang, but not a build.
+See [`n8n/README.md`](./n8n/README.md).
