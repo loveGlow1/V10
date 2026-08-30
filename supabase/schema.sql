@@ -3,7 +3,7 @@
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.
 --
--- Covers six tables:
+-- Covers eight tables:
 --   user_profiles   — already created; this adds the policies and the trigger
 --                     that fills it, without which it stays empty forever.
 --   projects        — read by the dashboard, and not yet created.
@@ -11,6 +11,8 @@
 --   credit_plans    — what each plan grants (mirrors PLANS in credits.ts).
 --   credit_balances — one row per account: daily, rollover, monthly, top-up.
 --   credit_ledger   — append-only record of every credit movement.
+--   documents          — the n8n agent's RAG knowledge base (pgvector).
+--   n8n_chat_histories — that same agent's conversation memory.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Shared helper: keep updated_at honest without the client having to set it.
@@ -639,3 +641,123 @@ revoke select (api_key) on public.mcp_connections from anon, authenticated;
 revoke execute on function public.rls_auto_enable() from public;
 revoke execute on function public.rls_auto_enable() from anon, authenticated;
 grant execute on function public.rls_auto_enable() to service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The n8n agent — documents, n8n_chat_histories.
+--
+-- Backs the "AI Agent with Postgres Memory and Supabase RAG" workflow in n8n
+-- (workflow id tgLFph6yjJ5q8nDL). Two independent paths reach these tables, and
+-- the difference matters for how they are secured:
+--
+--   documents          — over PostgREST, with the service_role key, by the two
+--                        Supabase Vector Store nodes.
+--   n8n_chat_histories — over the session pooler on port 5432, as the postgres
+--                        role, by the Postgres Chat Memory node.
+--
+-- Both of those roles carry BYPASSRLS, which is what makes the policy-free RLS
+-- below workable rather than merely restrictive.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- pgvector lands in extensions rather than public: the database linter flags
+-- extensions in public, and Supabase's own pgvector guidance schema-qualifies
+-- it. Every vector type below is written extensions.vector for that reason.
+create extension if not exists vector with schema extensions;
+
+-- Column names are not free choices — LangChain's SupabaseVectorStore writes
+-- content/metadata/embedding by those exact names, so renaming any of them
+-- breaks ingestion silently rather than loudly.
+--
+-- 1536 dimensions is text-embedding-3-small, which both embeddings nodes in the
+-- workflow are pinned to. The pinning is deliberate: a model swap changes the
+-- dimension, and a dimension mismatch is rejected at insert time by this column.
+create table if not exists public.documents (
+  id bigserial primary key,
+  content text,
+  metadata jsonb,
+  embedding extensions.vector(1536)
+);
+
+-- HNSW with cosine ops, matching the <=> operator match_documents orders by.
+-- An index built for a different operator class is simply not used by that
+-- query, so the two have to be chosen together.
+create index if not exists documents_embedding_hnsw_idx
+  on public.documents
+  using hnsw (embedding extensions.vector_cosine_ops);
+
+-- For the `metadata @> filter` containment test below.
+create index if not exists documents_metadata_gin_idx
+  on public.documents
+  using gin (metadata);
+
+-- PostgREST cannot express the pgvector distance operators, so similarity search
+-- has to be reached as an RPC. The name match_documents is the n8n node default
+-- and is set explicitly on both vector store nodes.
+--
+-- Left SECURITY INVOKER (the default). It reads a table whose RLS the caller is
+-- expected to bypass on its own credentials; making it DEFINER would hand anon
+-- a read of the whole knowledge base through /rest/v1/rpc/match_documents.
+create or replace function public.match_documents (
+  query_embedding extensions.vector(1536),
+  match_count int default null,
+  filter jsonb default '{}'
+) returns table (
+  id bigint,
+  content text,
+  metadata jsonb,
+  similarity float
+)
+language plpgsql
+-- Not set to '' like the helpers above: the body has to resolve both the
+-- documents table and pgvector's operators, so both schemas are named.
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+begin
+  return query
+  select
+    id,
+    content,
+    metadata,
+    1 - (documents.embedding <=> query_embedding) as similarity
+  from documents
+  where metadata @> filter
+  order by documents.embedding <=> query_embedding
+  limit match_count;
+end;
+$$;
+
+-- Shape copied exactly from LangChain's PostgresChatMessageHistory.ensureTable().
+-- The node issues its own CREATE TABLE IF NOT EXISTS on first message; matching
+-- it column for column turns that into a no-op instead of leaving the table to
+-- be created on a first run that has to succeed for the agent to answer at all.
+create table if not exists public.n8n_chat_histories (
+  id serial primary key,
+  session_id text not null,
+  message jsonb not null
+);
+
+-- Every read the memory node makes is by session_id.
+create index if not exists n8n_chat_histories_session_id_idx
+  on public.n8n_chat_histories (session_id);
+
+-- RLS on with no policies, the same posture the rest of this file takes: the two
+-- roles that need these tables bypass RLS, so the agent is unaffected, while the
+-- anon key gets nothing. That matters more here than elsewhere — both tables sit
+-- in the API-exposed public schema, and between them they hold the whole
+-- knowledge base and every conversation anyone has had with the agent.
+alter table public.documents enable row level security;
+alter table public.n8n_chat_histories enable row level security;
+
+-- Neither table is touched by the web app; n8n owns both. Withholding the
+-- privileges as well as the policies means a future policy added by mistake
+-- still does not expose them.
+revoke all on public.documents from anon, authenticated;
+revoke all on public.n8n_chat_histories from anon, authenticated;
+
+-- match_documents is invoker-rights, so a caller without table privileges gets
+-- nothing from it anyway. Revoking EXECUTE keeps it off the API surface
+-- entirely. PUBLIC first — Postgres grants EXECUTE on a new function to PUBLIC,
+-- and revoking from anon and authenticated alone leaves that default in place.
+revoke execute on function public.match_documents(extensions.vector, int, jsonb) from public;
+revoke execute on function public.match_documents(extensions.vector, int, jsonb) from anon, authenticated;
+grant execute on function public.match_documents(extensions.vector, int, jsonb) to service_role;
