@@ -1,33 +1,145 @@
-export type N8nWebhookPayload = {
-  projectId: string;
+/* The contract between this app and the build orchestrator.
+ *
+ * The orchestrator is an n8n workflow — see n8n/README.md and
+ * n8n/build-orchestrator.workflow.ts. It takes a description of an app,
+ * classifies what kind of build it is, runs the matching branch, and answers
+ * with somewhere to look at the result.
+ *
+ * The webhook URL is deliberately not NEXT_PUBLIC_. Every call goes through
+ * /api/build, which knows who is asking and which projects they own; putting
+ * the URL in the browser bundle would let anyone POST builds directly. */
+
+export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
+
+/** Mirrors the status strings the orchestrator writes to projects.status. */
+export type BuildStatus = "Building" | "Failed" | "Needs Clarification";
+
+export type BuildRequest = {
+  /** What the person asked for, in their words. Drives the classifier. */
   prompt: string;
-  metadata?: Record<string, unknown>;
+  projectName: string;
+  /** auth.users.id — the orchestrator writes rows against it. */
+  userId: string;
+  /** The row this build belongs to. Created before the build starts. */
+  projectId: string;
+  /** Ties a reply to the message that asked for it. */
+  requestId: string;
 };
 
-export type N8nWebhookResponse = {
-  executionId?: string;
-  message?: string;
+export type BuildResult = {
+  ok: boolean;
+  requestId: string;
+  projectId: string;
+  intent: BuildIntent;
+  status: BuildStatus;
+  links: { preview: string; repo: string; admin: string };
+  /** Environment variables the built app needs, e.g. NEXT_PUBLIC_SUPABASE_URL. */
+  configKeys: Record<string, string>;
+  /** Whatever the branch produced: stack, plugins, tables, webhooks. */
+  artifacts: Record<string, unknown>;
+  /** One line for the chat, written by the orchestrator. */
+  message: string;
 };
 
-export async function invokeN8nWebhook(payload: N8nWebhookPayload): Promise<N8nWebhookResponse> {
+export const isBuilderConfigured = Boolean(process.env.N8N_WEBHOOK_URL);
+
+/* How long to wait before giving up. A build branch calls out to provisioning
+   services, so this is generous — but it is bounded, because the caller is an
+   HTTP request someone is watching a spinner for. */
+const TIMEOUT_MS = 60_000;
+
+export class BuilderError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "BuilderError";
+  }
+}
+
+/* Trusts the shape no further than it has to: the orchestrator is a workflow
+   someone can edit in a browser, so a branch that stops setting `links` should
+   surface as a build with no preview rather than a crash in the chat panel. */
+function readResult(value: unknown, fallbackRequestId: string): BuildResult {
+  const body = (value ?? {}) as Partial<BuildResult> & { links?: Partial<BuildResult["links"]> };
+  const status = body.status;
+
+  return {
+    ok: body.ok !== false,
+    requestId: typeof body.requestId === "string" ? body.requestId : fallbackRequestId,
+    projectId: typeof body.projectId === "string" ? body.projectId : "",
+    intent: (body.intent ?? "unclassified") as BuildIntent,
+    status:
+      status === "Building" || status === "Failed" || status === "Needs Clarification"
+        ? status
+        : "Building",
+    links: {
+      preview: body.links?.preview ?? "",
+      repo: body.links?.repo ?? "",
+      admin: body.links?.admin ?? "",
+    },
+    configKeys: (body.configKeys ?? {}) as Record<string, string>,
+    artifacts: (body.artifacts ?? {}) as Record<string, unknown>,
+    message: typeof body.message === "string" ? body.message : "The build has started.",
+  };
+}
+
+/** Runs one build. Throws {@link BuilderError} with a status the route can pass on. */
+export async function startBuild(request: BuildRequest): Promise<BuildResult> {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
 
   if (!webhookUrl) {
-    throw new Error('Missing N8N_WEBHOOK_URL environment variable.');
+    throw new BuilderError(
+      "Building is not connected yet — set N8N_WEBHOOK_URL to the orchestrator's webhook.",
+      503,
+    );
   }
 
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        /* Set N8N_WEBHOOK_TOKEN here and header auth on the webhook node once
+           the workflow is published — an n8n webhook is public by default. */
+        ...(process.env.N8N_WEBHOOK_TOKEN
+          ? { Authorization: `Bearer ${process.env.N8N_WEBHOOK_TOKEN}` }
+          : {}),
+      },
+      body: JSON.stringify(request),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw new BuilderError(
+      (error as Error)?.name === "AbortError"
+        ? "The build is taking longer than expected. It may still finish — reopen the app in a moment."
+        : "Could not reach the builder.",
+      504,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
-    throw new Error(`n8n webhook failed with status ${response.status}`);
+    /* 404 is the one worth naming: it is what an unpublished workflow answers,
+       and it is the mistake most likely to be made first. */
+    throw new BuilderError(
+      response.status === 404
+        ? "The builder answered 404 — the workflow is probably not published yet."
+        : `The builder answered ${response.status}.`,
+      502,
+    );
   }
 
-  return (await response.json()) as N8nWebhookResponse;
+  try {
+    return readResult(await response.json(), request.requestId);
+  } catch {
+    throw new BuilderError("The builder answered with something that was not JSON.", 502);
+  }
 }

@@ -9,7 +9,29 @@ export type Project = {
   name: string;
   status: string;
   updated_at: string;
+  /* Written by the build orchestrator when a build finishes — see
+     n8n/README.md. Null on a project that has not been built yet, which is
+     every project the moment it is named. */
+  intent: string | null;
+  preview_url: string | null;
+  repo_url: string | null;
+  admin_url: string | null;
+  last_build_at: string | null;
 };
+
+/* The orchestrator's answer to one build, as /api/build passes it on. */
+export type BuildOutcome = {
+  message: string;
+  status: string;
+  intent: string;
+  links: { preview: string; repo: string; admin: string };
+  configKeys: Record<string, string>;
+};
+
+/* Every read asks for the same columns. Written once so a column added to the
+   type cannot be missed in one of the two queries below. */
+const COLUMNS =
+  "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at";
 
 /* The projects table is the only place a project exists, so one loader serves
    the switcher and the list below it — otherwise creating a project in one
@@ -24,6 +46,8 @@ type ProjectsValue = {
   create: (name: string) => Promise<Project | null>;
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
+  /** Runs a build for a project and folds the result back into the list. */
+  build: (id: string, prompt: string) => Promise<BuildOutcome>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -61,7 +85,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     }
     const { data, error: queryError } = await createSupabaseBrowserClient()
       .from("projects")
-      .select("id, name, status, updated_at")
+      .select(COLUMNS)
       .order("updated_at", { ascending: false });
 
     setLoading(false);
@@ -70,8 +94,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setError(null);
-    setProjects(data ?? []);
-    setSelectedId((current) => current ?? data?.[0]?.id ?? null);
+    const rows = (data ?? []) as unknown as Project[];
+    setProjects(rows);
+    setSelectedId((current) => current ?? rows[0]?.id ?? null);
   }, []);
 
   useEffect(() => {
@@ -93,7 +118,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       const { data, error: insertError } = await supabase
         .from("projects")
         .insert({ user_id: user.id, name })
-        .select("id, name, status, updated_at")
+        .select(COLUMNS)
         .single();
 
       if (insertError) {
@@ -101,10 +126,11 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
       setError(null);
-      if (data?.id) {
-        setProjects((current) => [data, ...current]);
-        setSelectedId(data.id);
-        return data;
+      const created = data as unknown as Project | null;
+      if (created?.id) {
+        setProjects((current) => [created, ...current]);
+        setSelectedId(created.id);
+        return created;
       }
       // The row was written but not returned; re-read rather than guess.
       await load();
@@ -151,6 +177,41 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
+  /* Starting a build is a server matter: /api/build holds the orchestrator's
+     address, checks the project is yours, and answers with the row it wrote.
+     Folding that row back in here is what makes the preview appear in the other
+     half of the workspace without a reload.
+
+     Errors are thrown rather than swallowed into `error` — the chat panel shows
+     a failed build in the conversation, next to the message that caused it,
+     rather than as a banner over the whole list. */
+  const build = useCallback(async (id: string, prompt: string): Promise<BuildOutcome> => {
+    const response = await fetch("/api/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: id, prompt }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      build?: BuildOutcome;
+      project?: Project | null;
+      error?: string;
+    } | null;
+
+    if (!response.ok || !payload?.build) {
+      throw new Error(payload?.error ?? "The build could not be started.");
+    }
+
+    if (payload.project) {
+      const row = payload.project;
+      setProjects((current) =>
+        current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
+      );
+    }
+
+    return payload.build;
+  }, []);
+
   const value = useMemo<ProjectsValue>(
     () => ({
       projects,
@@ -162,8 +223,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       create,
       rename,
       remove,
+      build,
     }),
-    [projects, loading, error, selectedId, create, rename, remove],
+    [projects, loading, error, selectedId, create, rename, remove, build],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;

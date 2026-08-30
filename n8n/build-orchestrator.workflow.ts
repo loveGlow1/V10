@@ -755,15 +755,24 @@ const syncProjectRow = node({
     onError: 'continueRegularOutput',
     parameters: {
       resource: 'row',
-      operation: 'create',
+      operation: 'update',
       tableId: 'projects',
+      filterType: 'manual',
+      matchType: 'allFilters',
+      filters: {
+        conditions: [
+          { keyName: 'id', condition: 'eq', keyValue: expr('{{ $json.projectId }}') },
+        ],
+      },
       dataToSend: 'defineBelow',
       fieldsUi: {
         fieldValues: [
-          { fieldId: 'user_id', fieldValue: expr('{{ $json.userId }}') },
-          { fieldId: 'name', fieldValue: expr('{{ $json.projectName }}') },
-          { fieldId: 'prompt', fieldValue: expr('{{ $json.prompt }}') },
           { fieldId: 'status', fieldValue: expr('{{ $json.status }}') },
+          { fieldId: 'intent', fieldValue: expr('{{ $json.intent }}') },
+          { fieldId: 'preview_url', fieldValue: expr('{{ $json.previewUrl }}') },
+          { fieldId: 'repo_url', fieldValue: expr('{{ $json.repoUrl }}') },
+          { fieldId: 'admin_url', fieldValue: expr('{{ $json.adminUrl }}') },
+          { fieldId: 'last_build_at', fieldValue: expr('{{ $json.completedAt }}') },
         ],
       },
     },
@@ -797,7 +806,7 @@ const buildChatPayload = node({
             id: 'project-id',
             name: 'projectId',
             type: 'string',
-            value: expr('{{ $json.id ?? $("Assemble Build Result").item.json.projectId ?? "" }}'),
+            value: expr('{{ $("Assemble Build Result").item.json.projectId }}'),
           },
           { id: 'intent', name: 'intent', type: 'string', value: expr('{{ $("Assemble Build Result").item.json.intent }}') },
           { id: 'status', name: 'status', type: 'string', value: expr('{{ $("Assemble Build Result").item.json.status }}') },

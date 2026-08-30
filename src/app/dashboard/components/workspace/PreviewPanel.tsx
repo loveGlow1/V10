@@ -155,15 +155,51 @@ export default function PreviewPanel({
     </>
   );
 
+  /* Once a build has somewhere to look, this is where it is looked at. The
+     frame is sandboxed: what it loads is generated from someone's prompt, and
+     it is served from another origin, so it gets scripts and forms and nothing
+     else — no same-origin access to the dashboard around it.
+
+     Until then the panel says there is nothing rather than showing an empty
+     frame that reads as a build that rendered blank. */
   const preview = (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
-        <span className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${avatarFor(project?.id)}`} />
-        <p className="mt-4 text-[15px] text-ink">Nothing to preview yet</p>
-        <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-muted">
-          Your app renders here the moment the first build finishes.
-        </p>
-      </div>
+      {project?.preview_url ? (
+        <div className="flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
+          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/[0.06] px-2.5">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+              {project.preview_url}
+            </span>
+            <a
+              href={project.preview_url}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
+            >
+              Open
+            </a>
+          </div>
+          <iframe
+            key={project.preview_url}
+            src={project.preview_url}
+            title={`${project.name} preview`}
+            sandbox="allow-scripts allow-forms allow-popups"
+            className="min-h-0 flex-1 border-0 bg-white"
+          />
+        </div>
+      ) : (
+        <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
+          <span className={`h-12 w-12 rounded-2xl bg-gradient-to-br ${avatarFor(project?.id)}`} />
+          <p className="mt-4 text-[15px] text-ink">
+            {project?.status === "Building" ? "Building…" : "Nothing to preview yet"}
+          </p>
+          <p className="mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-muted">
+            {project?.status === "Building"
+              ? "Your app renders here as soon as this build returns a preview."
+              : "Your app renders here the moment the first build finishes."}
+          </p>
+        </div>
+      )}
     </div>
   );
 
@@ -234,6 +270,35 @@ export default function PreviewPanel({
                 <span className="break-all text-soft">{subdomainFor(project)}</span>
               </Row>
               <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
+              <Row label="Build type">{project?.intent ?? "—"}</Row>
+              <Row label="Preview">
+                {project?.preview_url ? (
+                  <a
+                    href={project.preview_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all text-accent hover:underline"
+                  >
+                    {project.preview_url}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </Row>
+              <Row label="Code">
+                {project?.repo_url ? (
+                  <a
+                    href={project.repo_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all text-accent hover:underline"
+                  >
+                    {project.repo_url}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </Row>
               <Row label="Last updated">
                 {project ? new Date(project.updated_at).toLocaleString() : "—"}
               </Row>

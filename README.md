@@ -54,6 +54,28 @@ For the Vercel project:
 
 Without these variables, sign-up/sign-in/OAuth/OTP flows will be unavailable.
 
+## Build Orchestration (Required for the chat to build)
+
+The chat does not generate anything on its own: it hands the description to an
+n8n workflow that classifies the intent and runs the matching build. That
+workflow, its request/response contract and its setup checklist are documented
+in [`n8n/README.md`](./n8n/README.md).
+
+Point the app at it with one server-side variable:
+
+```bash
+N8N_WEBHOOK_URL=https://<your-instance>.app.n8n.cloud/webhook/api/v1/build
+```
+
+It is not `NEXT_PUBLIC_`. Builds go through `POST /api/build`, which reads the
+session, checks the project belongs to the caller, and only then calls n8n — an
+n8n webhook has no idea who is calling it, so that check cannot live on the
+other side. Set `N8N_WEBHOOK_TOKEN` as well and turn on Header Auth on the
+Webhook node; an n8n webhook is public by default.
+
+Without `N8N_WEBHOOK_URL` the app runs normally and the chat says building is
+not connected rather than pretending to build.
+
 ### Deployment health check
 
 The app exposes `GET /api/health` with `supabaseConfigured` status.

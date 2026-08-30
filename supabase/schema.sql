@@ -152,6 +152,24 @@ create table if not exists public.projects (
 -- dialog stored the prompt it collects.
 alter table public.projects add column if not exists prompt text;
 
+-- What a build returns. The orchestrator (n8n) writes these back when a build
+-- finishes, so the workspace can show the preview and the repository after a
+-- reload rather than only in the reply that started them.
+--
+--   intent      which branch the classifier chose: webapp | wordpress |
+--               ecommerce | unclassified
+--   preview_url where the built app can be seen
+--   repo_url    the repository holding its code
+--   admin_url   the CMS or store admin, where the stack has one
+--
+-- Nullable throughout: a project exists from the moment it is named, long
+-- before any of these have an answer.
+alter table public.projects add column if not exists intent text;
+alter table public.projects add column if not exists preview_url text;
+alter table public.projects add column if not exists repo_url text;
+alter table public.projects add column if not exists admin_url text;
+alter table public.projects add column if not exists last_build_at timestamptz;
+
 alter table public.projects enable row level security;
 
 drop policy if exists "Owners read their projects" on public.projects;

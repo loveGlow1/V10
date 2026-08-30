@@ -34,6 +34,31 @@ WebApp / Landing    WordPress / Blog         E-Commerce          Manual Review
 [ Build Chat Payload ] → [ Return Payload to Chat UI ]
 ```
 
+## How the app reaches it
+
+The browser never calls this webhook. The chat posts to `POST /api/build`
+(`src/app/api/build/route.ts`), which reads the Supabase session, checks the
+project belongs to the caller, and only then calls n8n with `N8N_WEBHOOK_URL`.
+An n8n webhook cannot tell who is calling it, so that check has to happen on
+the app's side of the line.
+
+```
+ChatPanel / StartBuildButton   (src/app/dashboard/…)
+        │  POST /api/build  { projectId, prompt }
+        ▼
+/api/build            authenticates, verifies ownership, marks the row Building
+        │  POST N8N_WEBHOOK_URL  { prompt, projectName, userId, projectId, requestId }
+        ▼
+this workflow         classifies, builds, writes the row back
+        │
+        ▼
+/api/build            re-reads the row, returns { build, project }
+```
+
+The app creates the `projects` row before the build starts and passes its `id`,
+so `Sync Project Row` **updates** that row — it does not insert. Two rows per
+build was the bug that change fixed.
+
 ## Request
 
 `POST https://neauraissystems.app.n8n.cloud/webhook/api/v1/build`
@@ -86,8 +111,12 @@ The graph is wired and tested; the outbound integrations are not yet connected.
    - `Provision WordPress Site`
    - `Register Store Webhooks`
 2. **Credentials** — connect these in n8n:
-   - `Supabase QuickStark.Ai` on `Sync Project Row` (needs insert rights on `public.projects`;
-     the row is written as `user_id, name, prompt, status`)
+   - `Supabase QuickStark.Ai` on `Sync Project Row`. This needs the **service_role**
+     key, not the anon key: the node updates a row on the user's behalf with no
+     user session, and `projects` is owner-scoped by RLS, so an anon key updates
+     nothing and reports success. It updates the row matching the `projectId`
+     the app sent, writing `status, intent, preview_url, repo_url, admin_url,
+     last_build_at`.
    - `WordPress` on `Create Starter Page`
    - `Shopify Admin API` on `Seed Shopify Catalog`
 3. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
@@ -100,8 +129,30 @@ Every external call runs with `onError: continueRegularOutput`, so one unconfigu
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
 
+## Database
+
+The build columns live on `public.projects` and are created by
+[`supabase/schema.sql`](../supabase/schema.sql), which is safe to re-run:
+
+| Column | Written by | Holds |
+| --- | --- | --- |
+| `status` | app, then workflow | `Building` / `Failed` / `Needs Clarification` |
+| `prompt` | app | what was asked for |
+| `intent` | workflow | `webapp` / `wordpress` / `ecommerce` / `unclassified` |
+| `preview_url` | workflow | where the built app can be seen |
+| `repo_url` | workflow | the repository holding its code |
+| `admin_url` | workflow | the CMS or store admin, where there is one |
+| `last_build_at` | workflow | when the last build returned |
+
+`preview_url` is what the workspace's preview pane loads, in a sandboxed frame.
+
 ## Testing
 
-`Assemble Build Result`, the Merge, and the response path were verified end to end with
-pinned data (execution 177). To repeat it, pin `Build Request Webhook`, the four HTTP nodes,
-and `Sync Project Row`, then run from the webhook trigger.
+The whole path — webhook, normalize, branch, merge, assemble, sync, response —
+was verified end to end with pinned data (executions 177 and 178). To repeat it,
+pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
+`Sync Project Row`, then run from the webhook trigger.
+
+Pinning `Intent Classifier` is what lets the rest of the graph be tested while
+the OpenAI credential is exhausted; with a working credential, leave it unpinned
+so the routing itself is exercised.

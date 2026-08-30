@@ -3,7 +3,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Check, ChevronDown, GitFork, Github, MicOff, Paperclip, Shuffle } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  GitFork,
+  Github,
+  MicOff,
+  Paperclip,
+  Shuffle,
+} from "lucide-react";
 
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
@@ -13,7 +23,15 @@ import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { openTab } from "./openTabs";
 
-type Message = { id: number; from: "you" | "system"; text: string };
+type Message = {
+  id: number;
+  from: "you" | "system";
+  text: string;
+  /* A build that came back with somewhere to look. Rendered as links under the
+     reply rather than pasted into it, so the address stays clickable. */
+  links?: { label: string; href: string }[];
+  tone?: "normal" | "error";
+};
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -22,18 +40,23 @@ type Message = { id: number; from: "you" | "system"; text: string };
    it, carrying the controls that belong to an app that already exists: its
    repository, a fork of it, and the agent working on it.
 
-   Nothing generates yet, so nothing here pretends to. A message you send is
-   shown as sent, and the panel says plainly that the builder is not connected —
-   an invented reply would read as a working product that is not there. */
+   A message is a build. It goes to /api/build, which runs the orchestrator
+   (n8n/README.md) and answers with what was made and where to see it. Nothing
+   is invented while that is in flight and nothing is invented if it fails: a
+   build that did not happen says so, in the conversation, next to the message
+   that asked for it. */
 export default function ChatPanel({
   project,
   onOpenIntegrations,
+  initialPrompt,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
+  /** What Home was asked for, when the workspace was opened by sending from it. */
+  initialPrompt?: string | null;
 }) {
   const router = useRouter();
-  const { create } = useProjects();
+  const { create, build } = useProjects();
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -41,6 +64,7 @@ export default function ChatPanel({
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
+  const [building, setBuilding] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -54,6 +78,23 @@ export default function ChatPanel({
     setDraft("");
     nextId.current = 0;
   }, [project?.id]);
+
+  /* The prompt Home arrived with, sent once. Guarded by a ref rather than by
+     the message list: a re-render while the build is in flight would otherwise
+     see an empty conversation and start it a second time.
+
+     Deliberately not in the dependency list — this is a one-shot on arrival,
+     and re-running it whenever `send` is redefined is exactly the loop the
+     ref is there to prevent. */
+  const openingPrompt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project || !initialPrompt) return;
+    const key = `${project.id}:${initialPrompt}`;
+    if (openingPrompt.current === key) return;
+    openingPrompt.current = key;
+    void send(initialPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, initialPrompt]);
 
   useEffect(() => {
     const stream = streamRef.current;
@@ -74,19 +115,50 @@ export default function ChatPanel({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [modelOpen, forkOpen]);
 
-  function send() {
-    const text = draft.trim();
-    if (!text) return;
-    setMessages((current) => [
-      ...current,
-      { id: nextId.current++, from: "you", text },
-      {
-        id: nextId.current++,
-        from: "system",
-        text: "Saved to this session. Building is not connected yet, so nothing runs on this message.",
-      },
-    ]);
-    setDraft("");
+  async function send(prompt?: string) {
+    const text = (prompt ?? draft).trim();
+    if (!text || !project || building) return;
+
+    setMessages((current) => [...current, { id: nextId.current++, from: "you", text }]);
+    if (prompt === undefined) setDraft("");
+    setBuilding(true);
+
+    try {
+      const outcome = await build(project.id, text);
+      /* Only offer a link the build actually returned. A branch whose
+         provisioning step is not connected yet comes back without one, and an
+         empty href would look like a preview that failed to open. */
+      const links = (
+        [
+          { label: "Open preview", href: outcome.links.preview },
+          { label: "View code", href: outcome.links.repo },
+          { label: "Open admin", href: outcome.links.admin },
+        ] as const
+      ).filter((link) => Boolean(link.href));
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: nextId.current++,
+          from: "system",
+          text: outcome.message,
+          links: links.length ? [...links] : undefined,
+          tone: outcome.status === "Failed" ? "error" : "normal",
+        },
+      ]);
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: nextId.current++,
+          from: "system",
+          text: (error as Error).message,
+          tone: "error",
+        },
+      ]);
+    } finally {
+      setBuilding(false);
+    }
   }
 
   /* A fork is a second app you can change without touching this one. Until a
@@ -182,11 +254,38 @@ export default function ChatPanel({
                 {message.text}
               </p>
             ) : (
-              <p key={message.id} className="max-w-[88%] text-[13px] leading-relaxed text-muted">
-                {message.text}
-              </p>
+              <div key={message.id} className="max-w-[88%]">
+                <p
+                  className={`text-[13px] leading-relaxed ${
+                    message.tone === "error" ? "text-danger" : "text-muted"
+                  }`}
+                >
+                  {message.text}
+                </p>
+                {message.links && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {message.links.map((link) => (
+                      <a
+                        key={link.href}
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
+                      >
+                        {link.label}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
             ),
           )
+        )}
+        {building && (
+          <p className="max-w-[88%] animate-pulse text-[13px] leading-relaxed text-muted">
+            Building…
+          </p>
         )}
       </div>
 
@@ -208,7 +307,7 @@ export default function ChatPanel({
                   // every chat composer already trained people on.
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    send();
+                    void send();
                   }
                 }}
                 aria-label="Describe a change"
@@ -307,11 +406,11 @@ export default function ChatPanel({
                 {/* Send sits in the bar's own material rather than shouting over
                     it, and only lifts once there is something to send. */}
                 <button
-                  onClick={send}
-                  disabled={!draft.trim()}
+                  onClick={() => void send()}
+                  disabled={!draft.trim() || building}
                   aria-label="Send"
-                  className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] ${
-                    draft.trim()
+                  className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
+                    draft.trim() && !building
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
                       : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
