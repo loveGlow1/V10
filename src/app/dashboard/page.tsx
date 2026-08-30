@@ -58,14 +58,16 @@ import {
 /* The row under the composer. Each chip is a way into a build rather than a
    label: tapping one drops its prompt into the bar and puts the caret at the
    end, so the next thing a visitor does is edit a real sentence instead of
-   facing an empty box. */
+   facing an empty box.
+
+   A fixed three, and every one of them builds. The fourth was Mobile App, which
+   could only explain that it was not here yet — a chip that answers a tap with
+   an apology is worth less than the room it takes. */
 const STARTERS = [
   {
     label: "Storefront",
     /* The blue pill says what beta says: you can use this, and it may break.
-       It belongs on the one starter that builds the most of an app for you —
-       not on Mobile App at the end of this row, which cannot be used at all and
-       carries a coming-soon badge instead. */
+       It belongs on the one starter that builds the most of an app for you. */
     beta: true,
     icon: Layers,
     prompt: "Build an online store with a product catalogue, cart and Stripe checkout.",
@@ -79,16 +81,6 @@ const STARTERS = [
     label: "AI Agent",
     icon: Bot,
     prompt: "Build an AI agent that answers questions from my documents and emails me a daily summary.",
-  },
-  {
-    label: "Mobile App",
-    /* Last, and not beta — beta means you can use it and it may break, and this
-       is the opposite claim. Pressing it explains rather than filling the
-       composer with a prompt nothing can build yet, so it sits at the end of the
-       row behind the three that do build something. */
-    soon: true,
-    icon: Smartphone,
-    prompt: "Build a mobile app for iOS and Android with sign-in, a home feed and push notifications.",
   },
 ] as const;
 
@@ -730,10 +722,6 @@ export default function DashboardPage() {
                   key={starter.label}
                   type="button"
                   onClick={() => {
-                    if ("soon" in starter && starter.soon) {
-                      setComingSoonOpen(true);
-                      return;
-                    }
                     setTranscript(starter.prompt);
                     const composer = composerRef.current;
                     if (!composer) return;
@@ -753,7 +741,6 @@ export default function DashboardPage() {
                       Beta
                     </span>
                   ) : null}
-                  {"soon" in starter && starter.soon ? <ComingSoonBadge /> : null}
                 </button>
               );
             })}
