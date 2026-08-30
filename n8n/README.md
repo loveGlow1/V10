@@ -264,5 +264,37 @@ exhausted OpenAI credential (executions 181 and 182): the run now ends at
 existed — ended at `Intent Classifier` having answered nothing at all.
 
 Pinning `Intent Classifier` is what lets the rest of the graph be tested while
-the OpenAI credential is exhausted; with a working credential, leave it unpinned
-so the routing itself is exercised.
+the model credential is missing; with a working credential, leave it unpinned so
+the routing itself is exercised.
+
+### The error output does not catch a missing model credential
+
+Worth knowing before the Anthropic credential is attached, because it looks like
+correct behaviour and is not.
+
+`onError: continueErrorOutput` catches what the classifier throws while it runs —
+an exhausted quota, a rejected key, a rate limit. It does **not** catch a
+sub-node that fails to resolve at all. With no credential on
+`Intent Classifier Model`, n8n raises a `configuration-node` error before the
+classifier body executes, and the item leaves by **output 0** — the WebApp
+branch — rather than the error output.
+
+Execution 186 is that: "Build me an online store that sells handmade ceramics"
+came back with `intent: "webapp"`, `WebApp Build Spec` sourced from
+`previousNodeOutput: 0`, and `Flag Classifier Failure` never reached. It reported
+`Failed` only because the placeholder URL fails; with the placeholder URLs filled
+in, a store request would have been built as a Next.js app with nothing to say it
+had gone wrong.
+
+Two things keep this out of production. It needs the credential to be *absent*,
+not merely broken — a bad key fails inside the classifier and does reach the
+error output (executions 181 and 182). And n8n refuses to publish the workflow at
+all while `anthropicApi` is missing, so the state cannot reach the production
+webhook. Attaching the credential removes it.
+
+### Node versions
+
+Every node is on the current type version except the seven `Set` nodes, which are
+on 3.4 where 3.5 exists. The difference is binary-field handling, which this
+graph has none of, and n8n does not upgrade existing nodes in place — so they are
+left alone rather than churned for a version number.

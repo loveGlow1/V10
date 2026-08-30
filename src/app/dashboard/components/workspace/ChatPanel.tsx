@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Eye,
   ExternalLink,
   GitFork,
   Github,
@@ -49,11 +50,14 @@ type Message = {
 export default function ChatPanel({
   project,
   onOpenIntegrations,
+  onOpenPreview,
   initialPrompt,
   onBuildSettled,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
+  /** Raises the preview sheet over the conversation. Phones only — see Workspace. */
+  onOpenPreview: () => void;
   /** What Home was asked for, when the workspace was opened by sending from it. */
   initialPrompt?: string | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
@@ -61,6 +65,10 @@ export default function ChatPanel({
 }) {
   const router = useRouter();
   const { create, build } = useProjects();
+  /* Written by the orchestrator by way of the projects row, so it is filtered
+     before it decides anything — the same rule the panel and the links above
+     follow. Null means there is nothing to announce. */
+  const previewUrl = safeHttpUrl(project?.preview_url);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -297,6 +305,25 @@ export default function ChatPanel({
           </p>
         )}
       </div>
+
+      {/* The moment the build has something to show.
+          
+          It sits above the composer rather than in the thread because it is not
+          a message — it stays put as the conversation scrolls under it, and it
+          is still there ten replies later when someone wants another look.
+          Phones only: from md up the preview is already on screen beside this,
+          so announcing it would be pointing at something visible. */}
+      {previewUrl && (
+        <div className="shrink-0 px-3 pb-1 md:hidden">
+          <button
+            onClick={onOpenPreview}
+            className="mx-auto flex h-11 items-center gap-2 rounded-full bg-solid px-5 text-[14px] font-medium text-onSolid shadow-[0_8px_28px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.97]"
+          >
+            <Eye className="h-4 w-4" />
+            Your Preview is ready
+          </button>
+        </div>
+      )}
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* Home's composer, brought over whole: the orbiting highlight outside,

@@ -957,19 +957,19 @@ const entryNote = sticky(
 );
 
 const classifierNote = sticky(
-  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type plus an "other" fallback so nothing is dropped silently. Temperature is 0 for stable routing.',
+  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type, an "other" fallback so nothing is dropped silently, and an error output so a model that cannot be reached returns a Failed payload instead of ending the run with no response.\n\nThe model is Anthropic (claude-opus-5), adaptive thinking at low effort. Not thinking-disabled: this node parses the model\'s output against a JSON schema, and with thinking off Opus 5 can leak reasoning tags into that text. No temperature - newer Anthropic models ignore it.',
   [intentClassifier, classifierModel],
   { color: 3 },
 );
 
 const branchNote = sticky(
-  '## 3 - Build branches\n\nEach branch writes its spec, calls the provisioning services, then normalizes to the same shape: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus. Fill in the placeholder URLs and connect the WordPress / Shopify / Supabase credentials.',
+  '## 3 - Build branches\n\nEach branch writes its spec, calls the provisioning services, then normalizes to the same shape: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus. artifacts.filesTouched is what the app prices a build from.\n\nStill to do: fill in the four placeholder URLs, and connect the Supabase credential on Sync Project Row.\n\nCreate Starter Page and Seed Shopify Catalog are DISABLED, not unconfigured. n8n\'s publish gate skips disabled nodes, so this is what lets the workflow go live without parking a junk credential to satisfy a presence check. Re-enable either one alongside a real credential.',
   [webappSpec, collectCommerceResult],
   { color: 5 },
 );
 
 const syncNote = sticky(
-  '## 4 - Status sync and response\n\nBranches fan into one Merge, get assembled into a single result, are written to the projects table in Supabase, and come back to the chat UI as preview links, config keys and artifacts.',
+  '## 4 - Status sync and response\n\nFive branches fan into one Merge - three build types, the unclassifiable prompt, and the classifier having failed outright. They are assembled into a single result, written to the projects table in Supabase, and returned to the chat UI as preview links, config keys and artifacts.\n\nBuild Chat Payload reads from Assemble Build Result rather than from Sync Project Row, so the chat still gets an answer when the Supabase step is not connected.',
   [collectBuildOutcome, respondToChatUi],
   { color: 6 },
 );
