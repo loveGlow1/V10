@@ -12,10 +12,11 @@
 /* The statuses that mean an app is live.
  *
  * Nothing writes either of them yet. The row's default is "Draft", /api/build
- * writes "Building" and "Failed", and the orchestrator writes "Building",
- * "Failed" or "Needs Clarification" — so isPublishedStatus is false for every
- * row that exists today, and the publish step that would set one of these has
- * not been built (see the credit model's REDEPLOY_COST, which is waiting on it).
+ * writes "Building" and "Failed", the orchestrator writes "Building" or
+ * "Failed", and a finished build writes "Built" — a page that exists but has
+ * not been put anywhere. So isPublishedStatus is false for every row that
+ * exists today, and the publish step that would set one of these has not been
+ * built (see the credit model's REDEPLOY_COST, which is waiting on it).
  *
  * Kept as the contract that step will satisfy rather than quietly removed: the
  * dashboard's "Published" filter, the Manage pane's Published row and the
