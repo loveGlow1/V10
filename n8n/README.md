@@ -27,7 +27,9 @@ WebApp / Landing    WordPress / Blog         E-Commerce          Manual Review
                                                Webhooks
   └───────┬───────────────┴───────────────────────┴──────────────────────┘
           ▼
-[ Collect Build Outcome ]  (Merge, append, 4 inputs)
+[ Collect Build Outcome ]  (Merge, append, 5 inputs)
+          │  the classifier's own error output is the fifth:
+          │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
           ▼
 [ Assemble Build Result ] → [ Sync Project Row ] (Supabase `projects`)
           ▼
@@ -109,16 +111,36 @@ so the chat UI has one response shape to render regardless of which branch ran.
 `status` is derived in `Assemble Build Result` and written straight to
 `projects.status`, which the dashboard already reads.
 
+`artifacts.filesTouched` is what `/api/build` prices the build from, so each
+branch reports it from its provisioning response (`filesTouched`, or `files`).
+A branch that reports neither prices at the action's floor.
+
+**The webhook always answers.** Every outbound call runs with
+`onError: continueRegularOutput`, and `Intent Classifier` — the one node every
+build passes through, and the only one that depends on an outside model — runs
+with `onError: continueErrorOutput` into `Flag Classifier Failure`. Without that
+error output a classifier failure ends the execution silently: the webhook never
+responds, and the app waits out its 60-second timeout before telling the user
+the build "may still finish", which is not true. Now it comes back as
+`status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
+bill a build that never ran.
+
+`Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
+that one is a prompt nobody could classify, which is a real answer and is
+charged for. This one is the classifier being unreachable.
+
 ## Before this can run for real
 
 The graph is wired and tested; the outbound integrations are not yet connected.
 
-1. **Header Auth on the webhook (do this first).** The Webhook node now requires
-   Header Auth and has no credential attached, so it fails closed. Create a
-   Header Auth credential named `QuickStark.Ai Build Webhook`, attach it, and set
-   the same value as `N8N_WEBHOOK_TOKEN` in the app — `src/lib/n8n.ts` sends it
-   as `Authorization: Bearer …`, so name the header `Authorization` and give it
-   the value `Bearer <your-token>`.
+1. **Header Auth on the webhook (do this first).** The Webhook node requires
+   Header Auth, and the `Header Auth account` credential is now attached to it —
+   its header name is `Authorization`, which is the header `src/lib/n8n.ts`
+   sends. What is left is to make the two sides agree: set that credential's
+   **value** to `Bearer <your-token>` and set `N8N_WEBHOOK_TOKEN=<your-token>`
+   in the app. If the credential currently holds a value for something else,
+   make a new Header Auth credential instead and attach that one — every call
+   from the app will 403 until the header value matches.
 
    This is not optional hardening. `Sync Project Row` writes with the
    service_role key, which bypasses RLS, and the row it writes to comes from the
@@ -171,9 +193,15 @@ The build columns live on `public.projects` and are created by
 ## Testing
 
 The whole path — webhook, normalize, branch, merge, assemble, sync, response —
-was verified end to end with pinned data (executions 177 and 178). To repeat it,
-pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
+was verified end to end with pinned data (executions 177, 178 and 183). To repeat
+it, pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
 `Sync Project Row`, then run from the webhook trigger.
+
+The failure path was verified without pinning the classifier, against the
+exhausted OpenAI credential (executions 181 and 182): the run now ends at
+`Return Payload to Chat UI` with `status: "Failed"` and the reason in
+`artifacts`, where execution 176 — the same input before the error output
+existed — ended at `Intent Classifier` having answered nothing at all.
 
 Pinning `Intent Classifier` is what lets the rest of the graph be tested while
 the OpenAI credential is exhausted; with a working credential, leave it unpinned

@@ -152,6 +152,13 @@ const intentClassifier = node({
       options: { multiClass: false, fallback: 'other' },
     },
     subnodes: { model: classifierModel },
+    /* Every build passes through this node, and it is the one that depends on
+       an outside model. Without an error output its failure ends the execution
+       with no response at all — the webhook never answers and the app sits out
+       its 60s timeout before saying the build "may still finish". It has not.
+       The error output turns that silence into a Failed payload the chat can
+       show, which is also what stops /api/build from billing for it. */
+    onError: 'continueErrorOutput',
   },
   output: [
     {
@@ -298,7 +305,7 @@ const collectWebappResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Next.js App Router + Tailwind CSS + Supabase", "schemaApplied": $("Apply Supabase Schema").item.json.schemaApplied ?? false, "tables": $("Apply Supabase Schema").item.json.tables ?? [] } }}',
+              '{{ { "stack": "Next.js App Router + Tailwind CSS + Supabase", "schemaApplied": $("Apply Supabase Schema").item.json.schemaApplied ?? false, "tables": $("Apply Supabase Schema").item.json.tables ?? [], "filesTouched": $("Scaffold Next.js App").item.json.filesTouched ?? $("Scaffold Next.js App").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -458,7 +465,7 @@ const collectWordpressResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Headless WordPress + custom theme", "plugins": $("Provision WordPress Site").item.json.pluginsInstalled ?? [], "starterPageUrl": $("Create Starter Page").item.json.link ?? "" } }}',
+              '{{ { "stack": "Headless WordPress + custom theme", "plugins": $("Provision WordPress Site").item.json.pluginsInstalled ?? [], "starterPageUrl": $("Create Starter Page").item.json.link ?? "", "filesTouched": $("Provision WordPress Site").item.json.filesTouched ?? $("Provision WordPress Site").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -622,7 +629,7 @@ const collectCommerceResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Shopify Admin API + Supabase Auth & DB", "seedProductId": $("Seed Shopify Catalog").item.json.id ?? null, "webhooks": $("Register Store Webhooks").item.json.webhooksRegistered ?? [] } }}',
+              '{{ { "stack": "Shopify Admin API + Supabase Auth & DB", "seedProductId": $("Seed Shopify Catalog").item.json.id ?? null, "webhooks": $("Register Store Webhooks").item.json.webhooksRegistered ?? [], "filesTouched": $("Register Store Webhooks").item.json.filesTouched ?? $("Register Store Webhooks").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -690,12 +697,65 @@ const flagForManualReview = node({
   ],
 });
 
+/* Where the classifier's error output lands.
+ *
+ * Not the same thing as Flag For Manual Review, which is a prompt nobody could
+ * classify — a normal answer, and one the account is charged for. This is the
+ * classifier itself being unreachable: nothing was built, so it reports
+ * `failed`, which becomes status "Failed" and is not billed. */
+const flagClassifierFailure = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Flag Classifier Failure',
+    position: [320, 1000],
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: false,
+      assignments: {
+        assignments: [
+          { id: 'intent', name: 'intent', type: 'string', value: 'unclassified' },
+          { id: 'preview-url', name: 'previewUrl', type: 'string', value: '' },
+          { id: 'repo-url', name: 'repoUrl', type: 'string', value: '' },
+          { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
+          { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
+          {
+            id: 'artifacts',
+            name: 'artifacts',
+            type: 'object',
+            value: expr(
+              '{{ { "reason": "The intent classifier could not be reached, so the build was never routed to a branch.", "error": String($json.error?.message ?? $json.error?.description ?? $json.error ?? "The classifier model failed."), "prompt": $("Normalize Build Request").item.json.prompt } }}',
+            ),
+          },
+          { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'failed' },
+        ],
+      },
+    },
+  },
+  output: [
+    {
+      intent: 'unclassified',
+      previewUrl: '',
+      repoUrl: '',
+      adminUrl: '',
+      configKeys: {},
+      artifacts: {
+        reason: 'The intent classifier could not be reached, so the build was never routed to a branch.',
+        error: 'Bad request - please check your parameters',
+      },
+      branchStatus: 'failed',
+    },
+  ],
+});
+
 const collectBuildOutcome = merge({
   version: 3.2,
   config: {
     name: 'Collect Build Outcome',
     position: [580, 380],
-    parameters: { mode: 'append', numberInputs: 4 },
+    /* Five: three build branches, the unclassifiable prompt, and the
+       classifier having failed outright. */
+    parameters: { mode: 'append', numberInputs: 5 },
   },
 });
 
@@ -837,7 +897,7 @@ const buildChatPayload = node({
             name: 'message',
             type: 'string',
             value: expr(
-              '{{ $("Assemble Build Result").item.json.status === "Needs Clarification" ? "I could not tell whether you want a web app, a WordPress site or a store. Could you say a little more about what you are building?" : "Your " + $("Assemble Build Result").item.json.intent + " build is underway - the preview link updates as it finishes." }}',
+              '{{ $("Assemble Build Result").item.json.status === "Failed" ? "The build could not be completed - " + ($("Assemble Build Result").item.json.artifacts?.reason ?? "a step in the build failed.") : $("Assemble Build Result").item.json.status === "Needs Clarification" ? "I could not tell whether you want a web app, a WordPress site or a store. Could you say a little more about what you are building?" : "Your " + $("Assemble Build Result").item.json.intent + " build is underway - the preview link updates as it finishes." }}',
             ),
           },
         ],
@@ -916,6 +976,8 @@ export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai - Build 
       .to(commerceSpec.to(seedShopifyCatalog.to(registerStoreWebhooks.to(collectCommerceResult.to(collectBuildOutcome.input(2)))))),
   )
   .add(intentClassifier.output(3).to(flagForManualReview.to(collectBuildOutcome.input(3))))
+  /* Output 4 is the error output added by onError: 'continueErrorOutput'. */
+  .add(intentClassifier.output(4).to(flagClassifierFailure.to(collectBuildOutcome.input(4))))
   .add(collectBuildOutcome)
   .to(assembleBuildResult)
   .to(syncProjectRow)
