@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 
-/* A stand-in for the provisioning service the orchestrator's branches call.
+/* A stand-in for the provisioning service the orchestrator's build branch calls.
  *
- * The four HTTP Request nodes in the n8n workflow — Scaffold Next.js App, Apply
- * Supabase Schema, Provision WordPress Site, Register Store Webhooks — point at
- * a service that does not exist yet. Until it does, every build comes back
- * Failed, and the half of the product that is finished (the chat, the routing,
- * the status sync, the preview panel, the pricing) cannot be seen working at
- * all, because it never gets a successful build to show.
+ * The two HTTP Request nodes in the n8n workflow — Scaffold Next.js App and
+ * Apply Supabase Schema — point at a service that does not exist yet. Until it
+ * does, every build comes back Failed, and the half of the product that is
+ * finished (the chat, the routing, the status sync, the preview panel, the
+ * pricing) cannot be seen working at all, because it never gets a successful
+ * build to show.
  *
- * This answers those four calls in the shape each branch reads, so the loop can
- * be watched end to end before the expensive half is written. It builds
- * nothing. Every reply says so, in a `stub: true` field and in a preview page
+ * This answers those calls in the shape the branch reads, so the loop can be
+ * watched end to end before the expensive half is written. It builds nothing.
+ * Every reply says so, in a `stub: true` field and in a preview page
  * that describes itself as a placeholder, so a stubbed build cannot be mistaken
  * for a real one by a person or by anything downstream.
  *
@@ -56,10 +56,13 @@ function previewUrl(origin: string, kind: string, body: StubRequest): string {
   return `${origin}/preview/stub?${query}`;
 }
 
-/* One shape per branch, keyed by the path the n8n node calls. Each returns
-   exactly the fields that branch's Collect node reads — miss one and the chat
-   shows a build with no preview rather than an error, which is the confusing
-   kind of wrong.
+/* One shape per step, keyed by the path the n8n node calls. Each returns exactly
+   the fields Collect WebApp Result reads — miss one and the chat shows a build
+   with no preview rather than an error, which is the confusing kind of wrong.
+
+   Web apps and landing pages are the only build type for now; the WordPress and
+   E-Commerce branches were removed from the workflow, so the steps that served
+   them are gone from here too. Git has them when they come back.
 
    None of them may return an `error` key: the Collect nodes read
    `$json.error ? "failed" : "provisioned"`, so an error field here is the
@@ -81,29 +84,6 @@ const STEPS: Record<string, (origin: string, body: StubRequest) => Record<string
     anonKey: "",
     schemaApplied: true,
     tables: ["profiles", "products", "orders"],
-  }),
-
-  /* → Collect WordPress Result */
-  "wordpress/provision": (origin, body) => ({
-    siteUrl: previewUrl(origin, "wordpress", body),
-    themeRepoUrl: "https://github.com/example/stub-theme",
-    adminUrl: "https://example.com/wp-admin",
-    restApiUrl: "https://example.com/wp-json/wp/v2",
-    graphqlUrl: "https://example.com/graphql",
-    pluginsInstalled: ["wp-graphql", "yoast-seo", "wp-super-cache"],
-    filesTouched: FILES_TOUCHED,
-  }),
-
-  /* → Collect E-Commerce Result */
-  "commerce/provision": (origin, body) => ({
-    storefrontUrl: previewUrl(origin, "ecommerce", body),
-    repoUrl: "https://github.com/example/stub-store",
-    adminUrl: "https://example.com/admin",
-    supabaseUrl: "",
-    supabaseAnonKey: "",
-    storeDomain: "example.myshopify.com",
-    webhooksRegistered: ["orders/create", "products/update", "inventory_levels/update"],
-    filesTouched: FILES_TOUCHED,
   }),
 };
 

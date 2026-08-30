@@ -15,20 +15,18 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
-[ Intent Classifier ]  (Text Classifier, temperature 0, 3 categories + "other")
+[ Intent Classifier ]  (Text Classifier, one category + "other" fallback)
           │
-  ┌───────┴───────────────┬───────────────────────┬──────────────────────┐
-  ▼                       ▼                       ▼                      ▼
-WebApp / Landing    WordPress / Blog         E-Commerce          Manual Review
-• Build Spec        • Build Spec             • Build Spec        (fallback — nothing
-• Scaffold Next.js  • Provision WP Site      • Seed Shopify        is dropped silently)
-• Apply Supabase    • Create Starter Page      Catalog
-  Schema                                     • Register Store
-                                               Webhooks
-  └───────┬───────────────┴───────────────────────┴──────────────────────┘
+  ┌───────┴────────────────────────┐
+  ▼                                ▼
+WebApp / Landing            Manual Review
+• Build Spec                (fallback — a prompt for something
+• Scaffold Next.js           not built yet is answered, not dropped)
+• Apply Supabase Schema
+  └───────┬────────────────────────┘
           ▼
-[ Collect Build Outcome ]  (Merge, append, 5 inputs)
-          │  the classifier's own error output is the fifth:
+[ Collect Build Outcome ]  (Merge, append, 3 inputs)
+          │  the classifier's own error output is the third:
           │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
           ▼
 [ Assemble Build Result ] → [ Sync Project Row ] (Supabase `projects`)
@@ -95,7 +93,7 @@ behave identically.
   "ok": true,
   "requestId": "req_01HZY",
   "projectId": "b2b1c0d9-…",
-  "intent": "webapp | wordpress | ecommerce | unclassified",
+  "intent": "webapp | unclassified",
   "status": "Building | Failed | Needs Clarification",
   "links":      { "preview": "…", "repo": "…", "admin": "…" },
   "configKeys": { "NEXT_PUBLIC_SUPABASE_URL": "…", "…": "…" },
@@ -173,14 +171,12 @@ that is gated on every enabled node having a credential attached.
    overwrite any project row in the database. `/api/build` checks ownership, but
    nothing forces a caller to go through `/api/build`.
 
-2. **The four build steps** now call a stub, not a real provisioning service:
+2. **The two build steps** now call a stub, not a real provisioning service:
 
    | Node | URL |
    | --- | --- |
    | `Scaffold Next.js App` | `/api/builder/webapp/scaffold` |
    | `Apply Supabase Schema` | `/api/builder/supabase/schema` |
-   | `Provision WordPress Site` | `/api/builder/wordpress/provision` |
-   | `Register Store Webhooks` | `/api/builder/commerce/provision` |
 
    Those are routes on the app itself (`src/app/api/builder/[...step]/route.ts`),
    answering in each branch's shape and **building nothing**. They exist so the
@@ -210,10 +206,6 @@ that is gated on every enabled node having a credential attached.
      RLS, so an anon key updates nothing and reports success. It updates the row
      matching the `projectId` the app sent, writing `status, intent,
      preview_url, repo_url, admin_url, last_build_at`.
-   - `WordPress` on `Create Starter Page` — **the node is currently disabled**,
-     so this is not blocking. Re-enable it when there is a real WordPress site.
-   - `Shopify Admin API` on `Seed Shopify Catalog` — **also disabled**, same
-     reasoning.
 4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
    `claude-opus-5`, replacing the OpenAI node that was bound to the shared
    "n8n free OpenAI API credits" pool (exhausted — it returned
@@ -231,21 +223,15 @@ that is gated on every enabled node having a credential attached.
    on every build, so `claude-sonnet-5` or `claude-haiku-4-5` would also serve
    and cost less — that is a cost/quality call to make deliberately, not a
    default to drift into.
-5. **Publish** — this is not a matter of choosing to wait. n8n refuses to publish
-   the workflow at all while step 3 is outstanding, and names the three nodes:
+5. **Publish** — and publish again after every change. n8n serves production
+   traffic from the *published* version, not from the draft, so an edit that is
+   saved but not published is invisible to the app. That is worth knowing
+   because the failure is silent and looks like the edit not working: the
+   webhook's header name was corrected in a draft once and every call kept
+   returning 403 against the old published version until it was published.
 
-   ```
-   Cannot publish workflow: 3 nodes have configuration issues:
-     Node "Create Starter Page":   Missing required credential: wordpressApi
-     Node "Seed Shopify Catalog":  Missing required credential: shopifyAccessTokenApi
-     Node "Sync Project Row":      Missing required credential: supabaseApi
-   ```
-
-
-   **The gate skips disabled nodes.** `Create Starter Page` and
-   `Seed Shopify Catalog` are disabled, which takes them off that list without
-   parking a junk credential in the account purely to satisfy a presence check.
-   What remains is:
+   n8n also refuses to publish while any enabled node is missing a credential,
+   and names them:
 
    ```
    Cannot publish workflow: 2 nodes have configuration issues:
@@ -257,14 +243,39 @@ that is gated on every enabled node having a credential attached.
    Until the workflow is published the production webhook answers 404, which the
    app reports as "the workflow is probably not published yet".
 
-   `supabaseApi` is the one that matters even if WordPress and Shopify never
-   get used: without it `Sync Project Row` writes nothing, every build stays
-   "Building" in the dashboard, and `/api/build` reads back a row the
-   orchestrator never touched.
+   Without it `Sync Project Row` writes nothing, every build stays "Building" in
+   the dashboard, and `/api/build` reads back a row the orchestrator never
+   touched.
 
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
+
+## Adding a build type back
+
+WordPress and E-Commerce were removed to get one branch working properly first.
+They are not gone — they are in this workflow's **version history**, which is
+where to restore them from rather than rebuilding eight nodes by hand.
+
+Bringing one back is three changes, and all three or none:
+
+1. A **category** on `Intent Classifier`, or nothing routes to it.
+2. The **branch** itself, ending in a Collect node that sets the same seven
+   fields (`intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts,
+   branchStatus`).
+3. A **Merge input** — raise `Collect Build Outcome`'s input count and connect
+   the Collect node to the new one.
+
+Miss the category and the branch is dead code. Miss the Merge input and the
+build runs and then vanishes, with the chat waiting out its 60-second timeout.
+
+The classifier's outputs are ordered: one per category, then the `other`
+fallback, then the error output. Adding a category shifts the last two along by
+one, so their connections have to move too.
+
+Then update `Build Chat Payload`'s Needs Clarification message, which names what
+is currently built, and the stub in `src/app/api/builder` if the new branch is
+to be demonstrated before its real service exists.
 
 ## "Waiting for the webhook call"
 
@@ -304,7 +315,7 @@ The build columns live on `public.projects` and are created by
 | --- | --- | --- |
 | `status` | app, then workflow | `Building` / `Failed` / `Needs Clarification` |
 | `prompt` | app | what was asked for |
-| `intent` | workflow | `webapp` / `wordpress` / `ecommerce` / `unclassified` |
+| `intent` | workflow | `webapp` / `unclassified` (older rows may hold `wordpress` or `ecommerce`) |
 | `preview_url` | workflow | where the built app can be seen |
 | `repo_url` | workflow | the repository holding its code |
 | `admin_url` | workflow | the CMS or store admin, where there is one |

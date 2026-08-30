@@ -11,10 +11,10 @@
 
 export const dynamic = "force-dynamic";
 
+/* One entry, because one build type. WordPress and e-commerce were removed from
+   the orchestrator; when a branch comes back, it gets a line here. */
 const KINDS: Record<string, { label: string; built: string }> = {
-  webapp: { label: "Web app", built: "Next.js App Router · Tailwind CSS · Supabase" },
-  wordpress: { label: "WordPress site", built: "Headless WordPress · custom block theme" },
-  ecommerce: { label: "Online store", built: "Shopify Admin API · Supabase Auth & DB" },
+  webapp: { label: "Web app or landing page", built: "Next.js App Router · Tailwind CSS · Supabase" },
 };
 
 export default async function StubPreview({

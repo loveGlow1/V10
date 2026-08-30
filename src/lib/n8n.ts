@@ -11,6 +11,10 @@
 
 import { safeHttpUrl } from "@/lib/safe-url";
 
+/* The orchestrator only builds web apps and landing pages now — its WordPress
+   and e-commerce branches were removed. Both stay in the union because
+   `projects.intent` is where this is read back from, and rows written before
+   that change still hold them. */
 export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
 
 /** Mirrors the status strings the orchestrator writes to projects.status. */
