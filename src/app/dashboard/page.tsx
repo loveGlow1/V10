@@ -62,6 +62,11 @@ import {
 const STARTERS = [
   {
     label: "Storefront",
+    /* The blue pill says what beta says: you can use this, and it may break.
+       It belongs on the one starter that builds the most of an app for you —
+       not on Mobile App at the end of this row, which cannot be used at all and
+       carries a coming-soon badge instead. */
+    beta: true,
     icon: Layers,
     prompt: "Build an online store with a product catalogue, cart and Stripe checkout.",
   },
@@ -97,10 +102,10 @@ const PROMPTS = [
 ];
 
 const projectTypes = [
-  /* The blue pill says what beta says: you can use this, and it may break. It
-     belongs on the one thing here that actually builds — not on Mobile App,
-     which cannot be used at all and carries a coming-soon badge instead. */
-  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe, beta: true },
+  /* No badge on any of these. The beta pill moved to the Storefront starter
+     under the composer, where it sits on the thing it is a claim about rather
+     than on the target this row is only switching between. */
+  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
   { id: "mobile", label: "Blog Post", icon: Smartphone, phoneIcon: Smartphone },
   { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
 ];
@@ -363,11 +368,6 @@ export default function DashboardPage() {
                   <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-ink" : "text-faint"}`} />
                   <Icon className={`hidden h-4 w-4 md:block ${active ? "text-ink" : "text-muted"}`} />
                   {type.label}
-                  {"beta" in type && type.beta ? (
-                    <span className="rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
-                      Beta
-                    </span>
-                  ) : null}
                 </button>
               );
             })}
@@ -748,6 +748,11 @@ export default function DashboardPage() {
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
                   {starter.label}
+                  {"beta" in starter && starter.beta ? (
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                      Beta
+                    </span>
+                  ) : null}
                   {"soon" in starter && starter.soon ? <ComingSoonBadge /> : null}
                 </button>
               );

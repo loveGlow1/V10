@@ -244,8 +244,11 @@ export default function ChatPanel({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
-      {/* h-[53px] on both halves so the two headers rule off at the same line. */}
-      <header className="flex h-[53px] shrink-0 items-center gap-2.5 border-b border-line/[0.06] px-4">
+      {/* From md up only. On a phone the bar above already names the app, beside
+          the way back out of it, and the same name a row under it is the word
+          twice. h-[53px] on both halves so the two headers rule off at the same
+          line. */}
+      <header className="hidden h-[53px] shrink-0 items-center gap-2.5 border-b border-line/[0.06] px-4 md:flex">
         <span
           className={`h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br ${avatarFor(project?.id)}`}
         />
