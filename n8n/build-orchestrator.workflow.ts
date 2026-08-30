@@ -108,17 +108,27 @@ const normalizeRequest = node({
   ],
 });
 
+/* Routing is the whole job here: pick one of three build branches, or say none
+   fit. That is a small call made on every build, so it runs at low effort.
+
+   Adaptive thinking rather than thinking disabled. The Text Classifier parses
+   this model's output against a JSON schema, and with thinking switched off
+   Opus 5 can leak reasoning tags into the visible response — which is the text
+   being parsed. Low effort is the cheap setting; off is the broken one.
+
+   No temperature: newer Anthropic models ignore it, so setting it to 0 would
+   look like determinism was configured when nothing had been. */
 const classifierModel = languageModel({
-  type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
-  version: 1.3,
+  type: '@n8n/n8n-nodes-langchain.lmChatAnthropic',
+  version: 1.6,
   config: {
     name: 'Intent Classifier Model',
     position: [-700, 640],
     parameters: {
-      model: { __rl: true, mode: 'list', value: 'gpt-5-mini' },
-      options: { temperature: 0, reasoningEffort: 'low' },
+      model: { __rl: true, mode: 'list', value: 'claude-opus-5', cachedResultName: 'Claude Opus 5' },
+      options: { thinkingMode: 'adaptive', effort: 'low' },
     },
-    credentials: { openAiApi: newCredential('OpenAI') },
+    credentials: { anthropicApi: newCredential('Anthropic') },
   },
 });
 
@@ -152,6 +162,13 @@ const intentClassifier = node({
       options: { multiClass: false, fallback: 'other' },
     },
     subnodes: { model: classifierModel },
+    /* Every build passes through this node, and it is the one that depends on
+       an outside model. Without an error output its failure ends the execution
+       with no response at all — the webhook never answers and the app sits out
+       its 60s timeout before saying the build "may still finish". It has not.
+       The error output turns that silence into a Failed payload the chat can
+       show, which is also what stops /api/build from billing for it. */
+    onError: 'continueErrorOutput',
   },
   output: [
     {
@@ -298,7 +315,7 @@ const collectWebappResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Next.js App Router + Tailwind CSS + Supabase", "schemaApplied": $("Apply Supabase Schema").item.json.schemaApplied ?? false, "tables": $("Apply Supabase Schema").item.json.tables ?? [] } }}',
+              '{{ { "stack": "Next.js App Router + Tailwind CSS + Supabase", "schemaApplied": $("Apply Supabase Schema").item.json.schemaApplied ?? false, "tables": $("Apply Supabase Schema").item.json.tables ?? [], "filesTouched": $("Scaffold Next.js App").item.json.filesTouched ?? $("Scaffold Next.js App").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -398,6 +415,11 @@ const createStarterPage = node({
   config: {
     name: 'Create Starter Page',
     position: [80, 240],
+    /* Disabled until there is a WordPress account to point it at. n8n's publish
+       gate skips disabled nodes, so this is what lets the workflow go live
+       without parking a junk credential in the account to satisfy a presence
+       check. Re-enable it alongside a real `wordpressApi` credential. */
+    disabled: true,
     onError: 'continueRegularOutput',
     parameters: {
       resource: 'page',
@@ -458,7 +480,7 @@ const collectWordpressResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Headless WordPress + custom theme", "plugins": $("Provision WordPress Site").item.json.pluginsInstalled ?? [], "starterPageUrl": $("Create Starter Page").item.json.link ?? "" } }}',
+              '{{ { "stack": "Headless WordPress + custom theme", "plugins": $("Provision WordPress Site").item.json.pluginsInstalled ?? [], "starterPageUrl": $("Create Starter Page").item.json.link ?? "", "filesTouched": $("Provision WordPress Site").item.json.filesTouched ?? $("Provision WordPress Site").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -527,6 +549,9 @@ const seedShopifyCatalog = node({
   config: {
     name: 'Seed Shopify Catalog',
     position: [-160, 500],
+    /* Disabled for the same reason as Create Starter Page. Re-enable it
+       alongside a real `shopifyAccessTokenApi` credential. */
+    disabled: true,
     onError: 'continueRegularOutput',
     parameters: {
       resource: 'product',
@@ -622,7 +647,7 @@ const collectCommerceResult = node({
             name: 'artifacts',
             type: 'object',
             value: expr(
-              '{{ { "stack": "Shopify Admin API + Supabase Auth & DB", "seedProductId": $("Seed Shopify Catalog").item.json.id ?? null, "webhooks": $("Register Store Webhooks").item.json.webhooksRegistered ?? [] } }}',
+              '{{ { "stack": "Shopify Admin API + Supabase Auth & DB", "seedProductId": $("Seed Shopify Catalog").item.json.id ?? null, "webhooks": $("Register Store Webhooks").item.json.webhooksRegistered ?? [], "filesTouched": $("Register Store Webhooks").item.json.filesTouched ?? $("Register Store Webhooks").item.json.files ?? 0 } }}',
             ),
           },
           {
@@ -690,12 +715,65 @@ const flagForManualReview = node({
   ],
 });
 
+/* Where the classifier's error output lands.
+ *
+ * Not the same thing as Flag For Manual Review, which is a prompt nobody could
+ * classify — a normal answer, and one the account is charged for. This is the
+ * classifier itself being unreachable: nothing was built, so it reports
+ * `failed`, which becomes status "Failed" and is not billed. */
+const flagClassifierFailure = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Flag Classifier Failure',
+    position: [320, 1000],
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: false,
+      assignments: {
+        assignments: [
+          { id: 'intent', name: 'intent', type: 'string', value: 'unclassified' },
+          { id: 'preview-url', name: 'previewUrl', type: 'string', value: '' },
+          { id: 'repo-url', name: 'repoUrl', type: 'string', value: '' },
+          { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
+          { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
+          {
+            id: 'artifacts',
+            name: 'artifacts',
+            type: 'object',
+            value: expr(
+              '{{ { "reason": "The intent classifier could not be reached, so the build was never routed to a branch.", "error": String($json.error?.message ?? $json.error?.description ?? $json.error ?? "The classifier model failed."), "prompt": $("Normalize Build Request").item.json.prompt } }}',
+            ),
+          },
+          { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'failed' },
+        ],
+      },
+    },
+  },
+  output: [
+    {
+      intent: 'unclassified',
+      previewUrl: '',
+      repoUrl: '',
+      adminUrl: '',
+      configKeys: {},
+      artifacts: {
+        reason: 'The intent classifier could not be reached, so the build was never routed to a branch.',
+        error: 'Bad request - please check your parameters',
+      },
+      branchStatus: 'failed',
+    },
+  ],
+});
+
 const collectBuildOutcome = merge({
   version: 3.2,
   config: {
     name: 'Collect Build Outcome',
     position: [580, 380],
-    parameters: { mode: 'append', numberInputs: 4 },
+    /* Five: three build branches, the unclassifiable prompt, and the
+       classifier having failed outright. */
+    parameters: { mode: 'append', numberInputs: 5 },
   },
 });
 
@@ -837,7 +915,7 @@ const buildChatPayload = node({
             name: 'message',
             type: 'string',
             value: expr(
-              '{{ $("Assemble Build Result").item.json.status === "Needs Clarification" ? "I could not tell whether you want a web app, a WordPress site or a store. Could you say a little more about what you are building?" : "Your " + $("Assemble Build Result").item.json.intent + " build is underway - the preview link updates as it finishes." }}',
+              '{{ $("Assemble Build Result").item.json.status === "Failed" ? "The build could not be completed - " + ($("Assemble Build Result").item.json.artifacts?.reason ?? "a step in the build failed.") : $("Assemble Build Result").item.json.status === "Needs Clarification" ? "I could not tell whether you want a web app, a WordPress site or a store. Could you say a little more about what you are building?" : "Your " + $("Assemble Build Result").item.json.intent + " build is underway - the preview link updates as it finishes." }}',
             ),
           },
         ],
@@ -879,19 +957,19 @@ const entryNote = sticky(
 );
 
 const classifierNote = sticky(
-  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type plus an "other" fallback so nothing is dropped silently. Temperature is 0 for stable routing.',
+  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type, an "other" fallback so nothing is dropped silently, and an error output so a model that cannot be reached returns a Failed payload instead of ending the run with no response.\n\nThe model is Anthropic (claude-opus-5), adaptive thinking at low effort. Not thinking-disabled: this node parses the model\'s output against a JSON schema, and with thinking off Opus 5 can leak reasoning tags into that text. No temperature - newer Anthropic models ignore it.',
   [intentClassifier, classifierModel],
   { color: 3 },
 );
 
 const branchNote = sticky(
-  '## 3 - Build branches\n\nEach branch writes its spec, calls the provisioning services, then normalizes to the same shape: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus. Fill in the placeholder URLs and connect the WordPress / Shopify / Supabase credentials.',
+  '## 3 - Build branches\n\nEach branch writes its spec, calls the provisioning services, then normalizes to the same shape: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus. artifacts.filesTouched is what the app prices a build from.\n\nStill to do: fill in the four placeholder URLs, and connect the Supabase credential on Sync Project Row.\n\nCreate Starter Page and Seed Shopify Catalog are DISABLED, not unconfigured. n8n\'s publish gate skips disabled nodes, so this is what lets the workflow go live without parking a junk credential to satisfy a presence check. Re-enable either one alongside a real credential.',
   [webappSpec, collectCommerceResult],
   { color: 5 },
 );
 
 const syncNote = sticky(
-  '## 4 - Status sync and response\n\nBranches fan into one Merge, get assembled into a single result, are written to the projects table in Supabase, and come back to the chat UI as preview links, config keys and artifacts.',
+  '## 4 - Status sync and response\n\nFive branches fan into one Merge - three build types, the unclassifiable prompt, and the classifier having failed outright. They are assembled into a single result, written to the projects table in Supabase, and returned to the chat UI as preview links, config keys and artifacts.\n\nBuild Chat Payload reads from Assemble Build Result rather than from Sync Project Row, so the chat still gets an answer when the Supabase step is not connected.',
   [collectBuildOutcome, respondToChatUi],
   { color: 6 },
 );
@@ -916,6 +994,8 @@ export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai - Build 
       .to(commerceSpec.to(seedShopifyCatalog.to(registerStoreWebhooks.to(collectCommerceResult.to(collectBuildOutcome.input(2)))))),
   )
   .add(intentClassifier.output(3).to(flagForManualReview.to(collectBuildOutcome.input(3))))
+  /* Output 4 is the error output added by onError: 'continueErrorOutput'. */
+  .add(intentClassifier.output(4).to(flagClassifierFailure.to(collectBuildOutcome.input(4))))
   .add(collectBuildOutcome)
   .to(assembleBuildResult)
   .to(syncProjectRow)

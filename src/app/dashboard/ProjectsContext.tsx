@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { isPublishedStatus } from "@/lib/project-status";
 
 export type Project = {
   id: string;
@@ -65,11 +66,13 @@ function describe(error: { code?: string; message: string }) {
   return error.message;
 }
 
-/** "Published" is a status the app can set; everything else is still being built. */
-export const PUBLISHED_STATUSES = ["Live", "Published"];
+/* The statuses themselves live in @/lib/project-status, because /api/credits/spend
+   needs the same answer and cannot import a "use client" module. Re-exported
+   here so existing callers keep their import. */
+export { PUBLISHED_STATUSES } from "@/lib/project-status";
 
 export function isPublished(project: Project) {
-  return PUBLISHED_STATUSES.includes(project.status);
+  return isPublishedStatus(project.status);
 }
 
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {

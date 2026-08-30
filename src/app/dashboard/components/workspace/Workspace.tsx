@@ -13,8 +13,10 @@ import SupportChat from "../SupportChat";
 import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
+import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
+import PreviewSheet from "./PreviewSheet";
 import WorkspaceTabs from "./WorkspaceTabs";
 import { openTab } from "./openTabs";
 
@@ -29,7 +31,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
   /* Home sends here with ?prompt=… when it opens a brand new app. That is the
      first thing the conversation should say, so it is handed to the chat panel
      to send rather than being dropped on the floor. */
-  const initialPrompt = useSearchParams().get("prompt");
+  const search = useSearchParams();
+  const initialPrompt = search.get("prompt");
+  /* "?view=preview" is how the apps list says "they wanted to look at it".
+     Read once on arrival rather than watched: closing the sheet must not be
+     undone by the parameter still sitting in the address bar. */
+  const openedOnPreview = search.get("view") === "preview";
   const { projects, loading, error, select } = useProjects();
   /* The account's own balance, not a constant. Refreshed after a build, which
      is the thing in this screen that spends. */
@@ -41,6 +48,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view, setView] = useState<"preview" | "chat">("chat");
   const [manageRequest, setManageRequest] = useState<ManageRequest | null>(null);
+  /* The preview sheet on a phone. Separate from `view`, which still switches
+     this pane between the conversation and the Manage panes — the sheet is a
+     layer over both rather than a third tab. */
+  const [previewSheetOpen, setPreviewSheetOpen] = useState(openedOnPreview);
   const requests = useRef(0);
 
   /* The composer's GitHub button belongs to the chat half but its answer lives
@@ -77,8 +88,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
-        view={view}
-        onViewChange={setView}
+        projectName={project?.name ?? "Loading…"}
+        onBack={() => router.push("/dashboard")}
       />
 
       <Sidebar
@@ -110,6 +121,15 @@ export default function Workspace({ projectId }: { projectId: string }) {
       />
       <SupportChat />
 
+      {/* Over everything, and only on a phone — the sheet hides itself from md
+          up, where the preview already has a column of its own. */}
+      <PreviewSheet
+        open={previewSheetOpen}
+        url={safeHttpUrl(project?.preview_url)}
+        title={project?.name ?? "App"}
+        onClose={() => setPreviewSheetOpen(false)}
+      />
+
       <WorkspaceTabs activeId={projectId} />
 
       {loading ? (
@@ -138,6 +158,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
             <ChatPanel
               project={project}
               onOpenIntegrations={openIntegrations}
+              onOpenPreview={() => setPreviewSheetOpen(true)}
+              previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}
               onBuildSettled={refreshCredits}
             />
@@ -147,6 +169,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               project={project}
               onUpgradeClick={() => setBillingOpen(true)}
               request={manageRequest}
+              onBackToChat={() => setView("chat")}
             />
           </div>
         </div>

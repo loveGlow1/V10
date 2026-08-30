@@ -143,3 +143,55 @@ The script creates it with the same owner-scoped policies.
 | `src/middleware.ts` | Refreshes the access token and writes the new cookies |
 | `src/app/auth/callback/route.ts` | Exchanges the OAuth/confirmation code for a session |
 | `src/app/dashboard/layout.tsx` | Redirects anyone without a session to `/` |
+
+## 7. Two things an audit of the live project turned up
+
+Both were found by checking the running database against what the code assumes,
+rather than by reading the code alone.
+
+### `spend_credits` takes the price from whoever calls it
+
+`spend_credits` is `SECURITY DEFINER` and `authenticated` holds `EXECUTE` on it,
+so any signed-in user can call `/rest/v1/rpc/spend_credits` straight from the
+browser and name their own `p_cost`. The function checks only that the cost is
+non-negative and that the balance covers it. Supabase's own linter flags this as
+`authenticated_security_definer_function_executable`.
+
+`grant_credits` is *not* exposed — `authenticated` has no `EXECUTE` on it — so
+nobody can credit themselves. The exposure is the price of a charge, not the
+creation of one.
+
+This contradicts what `/api/credits/spend` says about itself: that the browser
+says what happened and never what it costs. Today it is latent rather than
+exploitable for value, because the only client-priced actions are chat (which
+tops out at one credit) and publish (which nothing implements yet). It stops
+being latent the moment publishing ships at `PUBLISH_COST`, because charging
+yourself zero for it would then be worth doing.
+
+Closing it properly means the server calling the function as `service_role`
+rather than as the user, which needs three things together:
+
+1. `spend_credits` taking the user id as an argument — under `service_role`
+   there is no `auth.uid()` for it to read.
+2. A service-role Supabase client for `/api/credits/spend` and `/api/build`,
+   which needs `SUPABASE_SERVICE_ROLE_KEY` set in the deployment.
+3. `revoke execute on function public.spend_credits(...) from authenticated;`
+
+All three have to land together: revoking first breaks every charge the app
+makes, since it currently calls the function under the caller's own session.
+
+### Nothing ever marks a project published
+
+`PUBLISHED_STATUSES` is `["Live", "Published"]`, and no writer produces either.
+The column defaults to `Draft`; `/api/build` writes `Building` and `Failed`; the
+orchestrator writes `Building`, `Failed` or `Needs Clarification`. The live table
+holds only `Draft` and `Failed`.
+
+So `isPublished()` is false for every row, which makes the dashboard's
+"Published" filter permanently empty, the Manage pane's Published row always
+"Not yet", and `REDEPLOY_COST` unreachable — a publish would always price at
+`PUBLISH_COST`. All of that resolves when the publish step exists and writes one
+of these two statuses; there is no separate bug to fix.
+
+Worth knowing: `projects.status` has no `CHECK` constraint, so a typo in a status
+string is accepted and silently becomes a state nothing recognises.

@@ -238,7 +238,11 @@ export default function ProjectList() {
               className="flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03]"
             >
               <button
-                onClick={() => router.push(`/dashboard/project/${project.id}`)}
+                /* Straight to the preview. Opening an app from this list means
+                   wanting to look at it, not to talk about it — the conversation
+                   is one close away underneath, and the sheet is raised again
+                   from there whenever it is wanted. */
+                onClick={() => router.push(`/dashboard/project/${project.id}?view=preview`)}
                 className="flex min-w-0 flex-1 items-center gap-4 text-left"
               >
                 {/* Nothing screenshots a build yet, so the tile is the project's

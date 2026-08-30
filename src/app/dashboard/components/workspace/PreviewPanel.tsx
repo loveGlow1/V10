@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Blocks,
   Check,
+  ChevronLeft,
   CreditCard,
   Link2,
   Monitor,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { avatarFor } from "../../projectColours";
+import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -59,10 +61,16 @@ export default function PreviewPanel({
   project,
   onUpgradeClick,
   request,
+  onBackToChat,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
   request: ManageRequest | null;
+  /* The way out of this pane on a phone. The bar above no longer carries the
+     preview/chat pair — an open app names itself there instead — so without
+     this, arriving here from the composer's GitHub button would be a one-way
+     trip. Unused from md up, where both halves are on screen at once. */
+  onBackToChat: () => void;
 }) {
   const router = useRouter();
   const { rename, remove } = useProjects();
@@ -153,6 +161,19 @@ export default function PreviewPanel({
           yet, so the button says why instead of failing. */}
       <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
         Goes live once your first build finishes.
+      </p>
+      {/* The price belongs next to the button, not only on the pricing page: a
+          first publish is the largest single charge on the platform, and it is
+          the one action nobody should discover the cost of after taking it.
+
+          Which of the two prices applies is read from the project itself, so a
+          live app quotes the redeploy price rather than the provisioning one. */}
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        {project && isPublished(project)
+          ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`
+          : `Going live costs ${formatCredits(creditCostOf("publish"))} credits, then ${formatCredits(
+              creditCostOf("publish", { alreadyPublished: true }),
+            )} per deploy after that.`}
       </p>
       <button
         disabled
@@ -411,9 +432,9 @@ export default function PreviewPanel({
     return (
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-[53px] shrink-0 items-center gap-2 px-3">
-          <span
-            className={`h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br ${avatarFor(project?.id)}`}
-          />
+          <button onClick={onBackToChat} aria-label="Back to the conversation" className={glass}>
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
             {project?.name ?? "Loading…"}
           </p>

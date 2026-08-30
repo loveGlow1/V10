@@ -86,6 +86,19 @@ not connected rather than pretending to build.
 
 ### Deployment health check
 
-The app exposes `GET /api/health` with `supabaseConfigured` status.
-- In non-production, it also returns `missingSupabaseEnvVars`.
+The app exposes `GET /api/health` with `supabaseConfigured` and
+`builderConfigured` status. `builderConfigured` is `false` exactly when
+`N8N_WEBHOOK_URL` is unset — which is the deployment state where the chat
+answers "Building is not connected yet", and which is otherwise invisible from
+outside because the variable is server-side.
+- In non-production, it also returns `missingSupabaseEnvVars` and
+  `builderTokenSet`.
 - In production, detailed missing-var names are hidden by default; set `SUPABASE_HEALTH_INCLUDE_DETAILS=true` only when you explicitly need detailed diagnostics.
+
+### The orchestrator is not published yet
+
+`N8N_WEBHOOK_URL` on its own is not enough: the workflow behind it is
+deliberately left unpublished, and an unpublished n8n webhook answers 404 —
+which the app reports as "the workflow is probably not published yet". The
+remaining steps, and what still needs credentials, are in
+[`n8n/README.md`](./n8n/README.md).

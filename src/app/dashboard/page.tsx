@@ -62,15 +62,6 @@ import {
    facing an empty box. */
 const STARTERS = [
   {
-    label: "Mobile App",
-    /* Not beta — beta means you can use it and it may break, and this is the
-       opposite claim. Pressing it explains rather than filling the composer
-       with a prompt nothing can build yet. */
-    soon: true,
-    icon: Smartphone,
-    prompt: "Build a mobile app for iOS and Android with sign-in, a home feed and push notifications.",
-  },
-  {
     label: "Storefront",
     icon: Layers,
     prompt: "Build an online store with a product catalogue, cart and Stripe checkout.",
@@ -85,6 +76,16 @@ const STARTERS = [
     icon: Bot,
     prompt: "Build an AI agent that answers questions from my documents and emails me a daily summary.",
   },
+  {
+    label: "Mobile App",
+    /* Last, and not beta — beta means you can use it and it may break, and this
+       is the opposite claim. Pressing it explains rather than filling the
+       composer with a prompt nothing can build yet, so it sits at the end of the
+       row behind the three that do build something. */
+    soon: true,
+    icon: Smartphone,
+    prompt: "Build a mobile app for iOS and Android with sign-in, a home feed and push notifications.",
+  },
 ] as const;
 
 /* The bar suggests what to ask for by cycling its placeholder rather than
@@ -97,7 +98,10 @@ const PROMPTS = [
 ];
 
 const projectTypes = [
-  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
+  /* The blue pill says what beta says: you can use this, and it may break. It
+     belongs on the one thing here that actually builds — not on Mobile App,
+     which cannot be used at all and carries a coming-soon badge instead. */
+  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe, beta: true },
   { id: "mobile", label: "Blog Post", icon: Smartphone, phoneIcon: Smartphone },
   { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
 ];
@@ -279,10 +283,17 @@ export default function DashboardPage() {
         credits={credits}
       />
 
-      <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
+      <TopBar
+        onMenuClick={() => setSidebarOpen(true)}
+        onUpgradeClick={() => setBillingOpen(true)}
+        /* On a phone the open apps ride in the bar itself, on one line with the
+           hamburger and Upgrade. */
+        tabs={<WorkspaceTabs placement="inline" />}
+      />
 
-      {/* The apps open this sitting. It draws nothing until one is opened, so an
-          account that has never opened a project sees Home exactly as before. */}
+      {/* The same strip as its own row, from md up, where a browser's tabs go.
+          It draws nothing until an app is opened, so an account that has never
+          opened a project sees Home exactly as before. */}
       <WorkspaceTabs />
 
       <Sidebar
@@ -361,6 +372,11 @@ export default function DashboardPage() {
                   <PhoneIcon className={`h-4 w-4 shrink-0 md:hidden ${active ? "text-ink" : "text-faint"}`} />
                   <Icon className={`hidden h-4 w-4 md:block ${active ? "text-ink" : "text-muted"}`} />
                   {type.label}
+                  {"beta" in type && type.beta ? (
+                    <span className="rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                      Beta
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

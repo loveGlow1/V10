@@ -27,7 +27,9 @@ WebApp / Landing    WordPress / Blog         E-Commerce          Manual Review
                                                Webhooks
   └───────┬───────────────┴───────────────────────┴──────────────────────┘
           ▼
-[ Collect Build Outcome ]  (Merge, append, 4 inputs)
+[ Collect Build Outcome ]  (Merge, append, 5 inputs)
+          │  the classifier's own error output is the fifth:
+          │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
           ▼
 [ Assemble Build Result ] → [ Sync Project Row ] (Supabase `projects`)
           ▼
@@ -109,19 +111,46 @@ so the chat UI has one response shape to render regardless of which branch ran.
 `status` is derived in `Assemble Build Result` and written straight to
 `projects.status`, which the dashboard already reads.
 
+`artifacts.filesTouched` is what `/api/build` prices the build from, so each
+branch reports it from its provisioning response (`filesTouched`, or `files`).
+A branch that reports neither prices at the action's floor.
+
+**The webhook always answers.** Every outbound call runs with
+`onError: continueRegularOutput`, and `Intent Classifier` — the one node every
+build passes through, and the only one that depends on an outside model — runs
+with `onError: continueErrorOutput` into `Flag Classifier Failure`. Without that
+error output a classifier failure ends the execution silently: the webhook never
+responds, and the app waits out its 60-second timeout before telling the user
+the build "may still finish", which is not true. Now it comes back as
+`status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
+bill a build that never ran.
+
+`Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
+that one is a prompt nobody could classify, which is a real answer and is
+charged for. This one is the classifier being unreachable.
+
 ## Before this can run for real
 
 The graph is wired and tested; the outbound integrations are not yet connected.
 
-1. **Header Auth on the webhook (do this first).** The Webhook node now requires
-   Header Auth and has no credential attached, so it fails closed. Create a
-   Header Auth credential named `QuickStark.Ai Build Webhook`, attach it, and set
-   the same value as `N8N_WEBHOOK_TOKEN` in the app. Two fields, copied exactly:
+Two different questions are easy to conflate here. **Running** the workflow needs
+nothing — a manual execution works today, and did (see Testing). **Publishing**
+it is what the chat needs, because the app reaches the production webhook, and
+that is gated on every enabled node having a credential attached.
+
+1. **Header Auth on the webhook (do this first).** The Webhook node requires
+   Header Auth, and the credential it carries has to hold the header the app
+   actually sends. Two fields, copied exactly:
 
    | Field | Value |
    | --- | --- |
    | Name | `X-QuickStark-Token` |
-   | Value | the same string as `N8N_WEBHOOK_TOKEN` |
+   | Value | the same string as `N8N_WEBHOOK_TOKEN` in the app |
+
+   Set them on the `QuickStark.Ai Build Webhook` credential and attach it to the
+   node; if a Header Auth credential is already attached and holds a value for
+   something else, make a new one with these two fields and attach that instead.
+   Until the two sides agree, every call from the app is a 403.
 
    A dedicated header rather than `Authorization`: n8n's Header Auth compares
    the whole value, so `Authorization` would mean typing `Bearer <token>` into
@@ -142,19 +171,74 @@ The graph is wired and tested; the outbound integrations are not yet connected.
    - `Provision WordPress Site`
    - `Register Store Webhooks`
 3. **Credentials** — connect these in n8n:
-   - `Supabase QuickStark.Ai` on `Sync Project Row`. This needs the **service_role**
-     key, not the anon key: the node updates a row on the user's behalf with no
-     user session, and `projects` is owner-scoped by RLS, so an anon key updates
-     nothing and reports success. It updates the row matching the `projectId`
-     the app sent, writing `status, intent, preview_url, repo_url, admin_url,
-     last_build_at`.
-   - `WordPress` on `Create Starter Page`
-   - `Shopify Admin API` on `Seed Shopify Catalog`
-4. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
-   credential, which is currently **exhausted**. Swap in a real OpenAI credential or the
-   classifier returns `400 … used all your free n8n AI credits` and nothing routes.
-5. **Publish** — the workflow is deliberately left unpublished. Activating it exposes the
-   production webhook publicly, so do that only once 1–3 are done.
+   - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
+     **Supabase API**, with two fields:
+
+     | Field | Value |
+     | --- | --- |
+     | Host | `https://esuatccbicekcohzgcvd.supabase.co` |
+     | Service Role Secret | Supabase dashboard → Project Settings → API Keys → `service_role` |
+
+     That is the `loveGlow1's Project` database the app already runs against —
+     verified to hold `projects` with all six build columns, and the
+     `spend_credits` RPC with the signature `/api/build` calls.
+
+     It needs the **service_role** key, not the anon key: the node updates a row
+     on the user's behalf with no user session, and `projects` is owner-scoped by
+     RLS, so an anon key updates nothing and reports success. It updates the row
+     matching the `projectId` the app sent, writing `status, intent,
+     preview_url, repo_url, admin_url, last_build_at`.
+   - `WordPress` on `Create Starter Page` — **the node is currently disabled**,
+     so this is not blocking. Re-enable it when there is a real WordPress site.
+   - `Shopify Admin API` on `Seed Shopify Catalog` — **also disabled**, same
+     reasoning.
+4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
+   `claude-opus-5`, replacing the OpenAI node that was bound to the shared
+   "n8n free OpenAI API credits" pool (exhausted — it returned
+   `400 … used all your free n8n AI credits`, and nothing routed).
+
+   It needs an **Anthropic** credential (type `anthropicApi`): an API key from
+   console.anthropic.com. Until one is attached the classifier fails, which now
+   means every build takes the `Flag Classifier Failure` path rather than
+   hanging.
+
+   It runs adaptive thinking at **low** effort. Not thinking-disabled: the Text
+   Classifier parses this model's output against a JSON schema, and with
+   thinking off Opus 5 can leak reasoning tags into the visible response. Low
+   effort is the cheap setting; off is the broken one. Routing is a small call
+   on every build, so `claude-sonnet-5` or `claude-haiku-4-5` would also serve
+   and cost less — that is a cost/quality call to make deliberately, not a
+   default to drift into.
+5. **Publish** — this is not a matter of choosing to wait. n8n refuses to publish
+   the workflow at all while step 3 is outstanding, and names the three nodes:
+
+   ```
+   Cannot publish workflow: 3 nodes have configuration issues:
+     Node "Create Starter Page":   Missing required credential: wordpressApi
+     Node "Seed Shopify Catalog":  Missing required credential: shopifyAccessTokenApi
+     Node "Sync Project Row":      Missing required credential: supabaseApi
+   ```
+
+
+   **The gate skips disabled nodes.** `Create Starter Page` and
+   `Seed Shopify Catalog` are disabled, which takes them off that list without
+   parking a junk credential in the account purely to satisfy a presence check.
+   What remains is:
+
+   ```
+   Cannot publish workflow: 2 nodes have configuration issues:
+     Node "Sync Project Row":          Missing required credential: supabaseApi
+     Node "Intent Classifier Model":   Missing required credential: anthropicApi
+   ```
+
+   Both are credentials this account can supply, so those two are the real gate.
+   Until the workflow is published the production webhook answers 404, which the
+   app reports as "the workflow is probably not published yet".
+
+   `supabaseApi` is the one that matters even if WordPress and Shopify never
+   get used: without it `Sync Project Row` writes nothing, every build stays
+   "Building" in the dashboard, and `/api/build` reads back a row the
+   orchestrator never touched.
 
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
@@ -180,10 +264,48 @@ The build columns live on `public.projects` and are created by
 ## Testing
 
 The whole path — webhook, normalize, branch, merge, assemble, sync, response —
-was verified end to end with pinned data (executions 177 and 178). To repeat it,
-pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
+was verified end to end with pinned data (executions 177, 178 and 183). To repeat
+it, pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
 `Sync Project Row`, then run from the webhook trigger.
 
+The failure path was verified without pinning the classifier, against the
+exhausted OpenAI credential (executions 181 and 182): the run now ends at
+`Return Payload to Chat UI` with `status: "Failed"` and the reason in
+`artifacts`, where execution 176 — the same input before the error output
+existed — ended at `Intent Classifier` having answered nothing at all.
+
 Pinning `Intent Classifier` is what lets the rest of the graph be tested while
-the OpenAI credential is exhausted; with a working credential, leave it unpinned
-so the routing itself is exercised.
+the model credential is missing; with a working credential, leave it unpinned so
+the routing itself is exercised.
+
+### The error output does not catch a missing model credential
+
+Worth knowing before the Anthropic credential is attached, because it looks like
+correct behaviour and is not.
+
+`onError: continueErrorOutput` catches what the classifier throws while it runs —
+an exhausted quota, a rejected key, a rate limit. It does **not** catch a
+sub-node that fails to resolve at all. With no credential on
+`Intent Classifier Model`, n8n raises a `configuration-node` error before the
+classifier body executes, and the item leaves by **output 0** — the WebApp
+branch — rather than the error output.
+
+Execution 186 is that: "Build me an online store that sells handmade ceramics"
+came back with `intent: "webapp"`, `WebApp Build Spec` sourced from
+`previousNodeOutput: 0`, and `Flag Classifier Failure` never reached. It reported
+`Failed` only because the placeholder URL fails; with the placeholder URLs filled
+in, a store request would have been built as a Next.js app with nothing to say it
+had gone wrong.
+
+Two things keep this out of production. It needs the credential to be *absent*,
+not merely broken — a bad key fails inside the classifier and does reach the
+error output (executions 181 and 182). And n8n refuses to publish the workflow at
+all while `anthropicApi` is missing, so the state cannot reach the production
+webhook. Attaching the credential removes it.
+
+### Node versions
+
+Every node is on the current type version except the seven `Set` nodes, which are
+on 3.4 where 3.5 exists. The difference is binary-field handling, which this
+graph has none of, and n8n does not upgrade existing nodes in place — so they are
+left alone rather than churned for a version number.
