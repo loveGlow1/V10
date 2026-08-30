@@ -12,6 +12,9 @@ interface TopBarProps {
      of it. Home passes neither and keeps the layout it has. */
   projectName?: string;
   onBack?: () => void;
+  /* The open-apps strip, drawn in this row rather than under it. A phone has no
+     room for a second line of chrome above the app. */
+  tabs?: React.ReactNode;
 }
 
 /* The phone bar: the way into the drawer, and the way onto a plan. The brand,
@@ -26,6 +29,7 @@ export default function TopBar({
   onUpgradeClick,
   projectName,
   onBack,
+  tabs,
 }: TopBarProps) {
   const upgrade = (
     <button
@@ -60,10 +64,15 @@ export default function TopBar({
   }
 
   return (
-    <header className="relative z-30 flex w-full items-center justify-between px-4 pb-2 pt-[max(10px,env(safe-area-inset-top))] md:hidden">
+    <header className="relative z-30 flex w-full items-center gap-2.5 px-4 pb-2 pt-[max(10px,env(safe-area-inset-top))] md:hidden">
       <button onClick={onMenuClick} aria-label="Open menu" className={round}>
         <MenuMark className="h-4 w-4" />
       </button>
+
+      {/* Between them, taking whatever the two controls leave. It holds the room
+          whether or not anything is in it: with no app open the strip draws
+          nothing, and Upgrade still belongs against the right edge. */}
+      <div className="flex min-w-0 flex-1 items-center">{tabs}</div>
 
       {upgrade}
     </header>
