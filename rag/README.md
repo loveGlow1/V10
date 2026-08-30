@@ -1,7 +1,7 @@
 # Customer-support knowledge base
 
 `quickstark-support-kb.jsonl` is the retrieval corpus behind customer support:
-27 chunks covering what QuickStark.Ai is, what it builds, what it connects to,
+28 chunks covering what QuickStark.Ai is, what it builds, what it connects to,
 what every plan costs, how credits work, and the two sign-in failures support
 gets asked about most.
 
@@ -20,18 +20,22 @@ Do not re-scrape from `src/components/marketing/*`. Those files are an
 unused early scaffold — nothing imports them — and they carry a different
 product name ("Emergent V10") and different prices.
 
-## Two defects the corpus works around
+## Defects found while building this, and where they stand
 
-1. **The FAQ quotes the wrong Standard price.** `src/app/page.tsx` answers
-   "How does pricing work?" with "Standard is $15 a month", while the plan
-   data and the pricing card both say **$25**. A visitor sees both numbers on
-   one page. The corpus carries $25 only — a support bot must not quote a
-   price the customer will not be billed. Fixing the page is a separate
-   change; until it lands, expect customers who read the FAQ to arrive
-   believing $15.
-2. **Placeholder links.** The Company and Social footer links and the
-   "Workflow" nav item had no real destination at capture time. The `qs-nav-001`
-   chunk says so explicitly so support does not promise a working link.
+1. **The FAQ quoted the wrong Standard price — now fixed.** `src/app/page.tsx`
+   answered "How does pricing work?" with "Standard is $15 a month" while the
+   plan data and the pricing card both said **$25**; a visitor saw both numbers
+   on one page. The corpus was written with $25 only, and the page has since
+   been corrected to read its figures from `PLANS` rather than restate them.
+   Some customers will have read $15 before the fix — expect a few to arrive
+   believing it.
+2. **`/pricing` used different plan names — now fixed.** The standalone pricing
+   page offered "Hobbyist / Professional / Enterprise" while every other
+   surface said Free / Standard / Pro. Its names now come from `PLANS` too.
+3. **Placeholder links — still open.** The Company and Social footer links and
+   the "Workflow" nav item have no real destination. The `qs-nav-001` chunk
+   says so explicitly so support does not promise a working link. Re-check this
+   chunk once those links land.
 
 ## Chunk format
 
