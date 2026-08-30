@@ -22,6 +22,7 @@ import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { openTab } from "./openTabs";
+import { safeHttpUrl } from "@/lib/safe-url";
 
 type Message = {
   id: number;
@@ -49,11 +50,14 @@ export default function ChatPanel({
   project,
   onOpenIntegrations,
   initialPrompt,
+  onBuildSettled,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
   /** What Home was asked for, when the workspace was opened by sending from it. */
   initialPrompt?: string | null;
+  /** Called once a build has finished, win or lose — a build spends credits. */
+  onBuildSettled?: () => void;
 }) {
   const router = useRouter();
   const { create, build } = useProjects();
@@ -125,16 +129,18 @@ export default function ChatPanel({
 
     try {
       const outcome = await build(project.id, text);
-      /* Only offer a link the build actually returned. A branch whose
-         provisioning step is not connected yet comes back without one, and an
-         empty href would look like a preview that failed to open. */
-      const links = (
-        [
-          { label: "Open preview", href: outcome.links.preview },
-          { label: "View code", href: outcome.links.repo },
-          { label: "Open admin", href: outcome.links.admin },
-        ] as const
-      ).filter((link) => Boolean(link.href));
+      /* Only offer a link the build actually returned, and only if it is an
+         absolute http(s) address. A branch whose provisioning step is not
+         connected yet comes back without one, and an empty href would look
+         like a preview that failed to open. safeHttpUrl is what keeps a
+         `javascript:` address out of an anchor in this origin — the server
+         filters too, and this is the half that cannot be bypassed by anything
+         reaching the browser another way. */
+      const links = [
+        { label: "Open preview", href: safeHttpUrl(outcome.links.preview) },
+        { label: "View code", href: safeHttpUrl(outcome.links.repo) },
+        { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
+      ].filter((link): link is { label: string; href: string } => link.href !== null);
 
       setMessages((current) => [
         ...current,
@@ -142,7 +148,7 @@ export default function ChatPanel({
           id: nextId.current++,
           from: "system",
           text: outcome.message,
-          links: links.length ? [...links] : undefined,
+          links: links.length ? links : undefined,
           tone: outcome.status === "Failed" ? "error" : "normal",
         },
       ]);
@@ -158,6 +164,9 @@ export default function ChatPanel({
       ]);
     } finally {
       setBuilding(false);
+      /* Even a refused build is worth a refresh: "not enough credits" is the
+         one answer where the number in the header is the whole explanation. */
+      onBuildSettled?.();
     }
   }
 

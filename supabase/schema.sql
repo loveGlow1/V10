@@ -617,3 +617,25 @@ revoke all on function public.grant_credits(uuid, numeric, text, text) from publ
 -- /rest/v1/rpc/handle_new_user off the API surface.
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 revoke all on function public.set_updated_at() from public, anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Privilege tightening
+--
+-- Two things RLS does not cover, because neither is about which rows a caller
+-- may see.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- mcp_connections.api_key holds third-party keys. The app writes it and never
+-- reads it back (AccountSettingsModal selects server_id, name, url, enabled),
+-- so making it write-only over the API costs nothing and means a stored key
+-- cannot be fetched again through PostgREST. service_role still reads it.
+revoke select (api_key) on public.mcp_connections from anon, authenticated;
+
+-- rls_auto_enable() is SECURITY DEFINER maintenance tooling, and nothing in the
+-- app calls it. Postgres grants EXECUTE on a new function to PUBLIC, so
+-- revoking from anon and authenticated alone leaves it reachable through that
+-- default — PUBLIC has to go first, or it stays callable unauthenticated at
+-- /rest/v1/rpc/rls_auto_enable.
+revoke execute on function public.rls_auto_enable() from public;
+revoke execute on function public.rls_auto_enable() from anon, authenticated;
+grant execute on function public.rls_auto_enable() to service_role;

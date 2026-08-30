@@ -8,7 +8,7 @@ import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
-import { formatCredits, signupBalance, totalCredits } from "./credits";
+import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import { AgentMark, MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
@@ -55,7 +55,6 @@ import {
    figure and the one signup actually grants cannot differ. The panel does not
    yet fetch the account's real balance, so until it does every session shows a
    fresh account's. */
-const CREDITS = formatCredits(totalCredits(signupBalance()));
 
 /* The row under the composer. Each chip is a way into a build rather than a
    label: tapping one drops its prompt into the bar and puts the caret at the
@@ -153,6 +152,10 @@ export default function DashboardPage() {
   /* Why a send did not open an app. Held here rather than in the button so it
      can be shown under the composer, where the text that failed still is. */
   const [startError, setStartError] = useState<string | null>(null);
+  /* The account's own balance rather than a constant. useCredits reads
+     credit_balances directly, so it does not need the projects provider this
+     page renders below it. */
+  const { label: credits } = useCredits();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -273,7 +276,7 @@ export default function DashboardPage() {
           setAccountSettingsOpen(true);
         }}
         projectName={projectName ?? "No project yet"}
-        credits={CREDITS}
+        credits={credits}
       />
 
       <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
@@ -294,7 +297,7 @@ export default function DashboardPage() {
           setAccountSettingsOpen(true);
         }}
         onNewTask={focusComposer}
-        credits={CREDITS}
+        credits={credits}
       />
 
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
@@ -305,7 +308,7 @@ export default function DashboardPage() {
           setAccountSettingsOpen(false);
           setBillingOpen(true);
         }}
-        credits={CREDITS}
+        credits={credits}
         agents={AGENTS}
         selectedAgent={selectedAgent}
         initialSection={settingsSection}

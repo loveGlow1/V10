@@ -9,6 +9,8 @@
  * /api/build, which knows who is asking and which projects they own; putting
  * the URL in the browser bundle would let anyone POST builds directly. */
 
+import { safeHttpUrl } from "@/lib/safe-url";
+
 export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
 
 /** Mirrors the status strings the orchestrator writes to projects.status. */
@@ -74,10 +76,14 @@ function readResult(value: unknown, fallbackRequestId: string): BuildResult {
       status === "Building" || status === "Failed" || status === "Needs Clarification"
         ? status
         : "Building",
+    /* Filtered here rather than at the point of rendering as well as there:
+       these become href and iframe src, and the orchestrator is a workflow
+       anyone with n8n access can edit. Anything that is not an absolute
+       http(s) URL becomes "" and is simply not offered as a link. */
     links: {
-      preview: body.links?.preview ?? "",
-      repo: body.links?.repo ?? "",
-      admin: body.links?.admin ?? "",
+      preview: safeHttpUrl(body.links?.preview) ?? "",
+      repo: safeHttpUrl(body.links?.repo) ?? "",
+      admin: safeHttpUrl(body.links?.admin) ?? "",
     },
     configKeys: (body.configKeys ?? {}) as Record<string, string>,
     artifacts: (body.artifacts ?? {}) as Record<string, unknown>,

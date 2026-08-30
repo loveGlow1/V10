@@ -20,8 +20,15 @@ const buildWebhook = trigger({
       httpMethod: 'POST',
       path: 'api/v1/build',
       responseMode: 'responseNode',
-      options: { allowedOrigins: '*' },
+      /* Required, not optional. Sync Project Row writes with the service_role
+         key, which bypasses RLS, and this node's body carries the projectId it
+         writes to — so an open webhook here is a way to overwrite anyone's
+         project. The credential's value is the app's N8N_WEBHOOK_TOKEN. */
+      authentication: 'headerAuth',
+      /* Only the app's server calls this; a browser never should. */
+      options: { allowedOrigins: 'https://www.quickstark.tech' },
     },
+    credentials: { httpHeaderAuth: newCredential('QuickStark.Ai Build Webhook') },
   },
   output: [
     {
@@ -758,10 +765,15 @@ const syncProjectRow = node({
       operation: 'update',
       tableId: 'projects',
       filterType: 'manual',
+      /* Both conditions, not either: this runs with the service_role key, so
+         RLS is not going to stop a write to the wrong row. Matching user_id as
+         well as id means a leaked project UUID on its own is not enough to
+         reach someone's project. */
       matchType: 'allFilters',
       filters: {
         conditions: [
           { keyName: 'id', condition: 'eq', keyValue: expr('{{ $json.projectId }}') },
+          { keyName: 'user_id', condition: 'eq', keyValue: expr('{{ $json.userId }}') },
         ],
       },
       dataToSend: 'defineBelow',

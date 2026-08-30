@@ -19,6 +19,7 @@ import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import Popover from "./Popover";
 import { closeTab } from "./openTabs";
@@ -76,6 +77,13 @@ export default function PreviewPanel({
   const publishRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
+
+  /* These come from the build orchestrator by way of the projects row, so they
+     are checked before they reach an href or an iframe src — see
+     src/lib/safe-url.ts. Null means "do not render a link", never "render a
+     broken one". */
+  const previewUrl = safeHttpUrl(project?.preview_url);
+  const repoUrl = safeHttpUrl(project?.repo_url);
 
   useEffect(() => {
     if (!request) return;
@@ -164,14 +172,14 @@ export default function PreviewPanel({
      frame that reads as a build that rendered blank. */
   const preview = (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      {project?.preview_url ? (
+      {previewUrl ? (
         <div className="flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/[0.06] px-2.5">
             <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
-              {project.preview_url}
+              {previewUrl}
             </span>
             <a
-              href={project.preview_url}
+              href={previewUrl}
               target="_blank"
               rel="noreferrer"
               className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
@@ -180,9 +188,9 @@ export default function PreviewPanel({
             </a>
           </div>
           <iframe
-            key={project.preview_url}
-            src={project.preview_url}
-            title={`${project.name} preview`}
+            key={previewUrl}
+            src={previewUrl}
+            title={`${project?.name ?? "App"} preview`}
             sandbox="allow-scripts allow-forms allow-popups"
             className="min-h-0 flex-1 border-0 bg-white"
           />
@@ -272,28 +280,28 @@ export default function PreviewPanel({
               <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
               <Row label="Build type">{project?.intent ?? "—"}</Row>
               <Row label="Preview">
-                {project?.preview_url ? (
+                {previewUrl ? (
                   <a
-                    href={project.preview_url}
+                    href={previewUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="break-all text-accent hover:underline"
                   >
-                    {project.preview_url}
+                    {previewUrl}
                   </a>
                 ) : (
                   "—"
                 )}
               </Row>
               <Row label="Code">
-                {project?.repo_url ? (
+                {repoUrl ? (
                   <a
-                    href={project.repo_url}
+                    href={repoUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="break-all text-accent hover:underline"
                   >
-                    {project.repo_url}
+                    {repoUrl}
                   </a>
                 ) : (
                   "—"
