@@ -283,10 +283,17 @@ export default function DashboardPage() {
         credits={credits}
       />
 
-      <TopBar onMenuClick={() => setSidebarOpen(true)} onUpgradeClick={() => setBillingOpen(true)} />
+      <TopBar
+        onMenuClick={() => setSidebarOpen(true)}
+        onUpgradeClick={() => setBillingOpen(true)}
+        /* On a phone the open apps ride in the bar itself, on one line with the
+           hamburger and Upgrade. */
+        tabs={<WorkspaceTabs placement="inline" />}
+      />
 
-      {/* The apps open this sitting. It draws nothing until one is opened, so an
-          account that has never opened a project sees Home exactly as before. */}
+      {/* The same strip as its own row, from md up, where a browser's tabs go.
+          It draws nothing until an app is opened, so an account that has never
+          opened a project sees Home exactly as before. */}
       <WorkspaceTabs />
 
       <Sidebar

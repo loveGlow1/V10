@@ -14,13 +14,22 @@ import { closeTab, useOpenTabs } from "./openTabs";
    route as the Home tab two places to its left, so the row asked twice for one
    thing.
 
-   Padded to px-4 on a phone, matching the bar above, so the first tab's left
-   edge sits on the same line as the hamburger rather than four pixels outside
-   it.
+   Two placements. On a pointer it is its own strip under the header, the way a
+   browser draws tabs. On a phone there is no room for a second row of chrome
+   above the app, so it goes *inside* the bar — between the hamburger and
+   Upgrade — and scrolls there. Both are rendered and each hides itself at the
+   other's breakpoint; the list is four elements, and one component drawn twice
+   is cheaper than two that drift.
 
    It renders nothing when no app is open, which is what keeps a new account's
    Home exactly as it was. */
-export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
+export default function WorkspaceTabs({
+  activeId,
+  placement = "bar",
+}: {
+  activeId?: string;
+  placement?: "bar" | "inline";
+}) {
   const router = useRouter();
   const tabs = useOpenTabs();
 
@@ -55,7 +64,15 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-line/[0.06] md:bg-bar md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
+    <div
+      className={
+        placement === "inline"
+          ? /* In the bar: no padding of its own, and it takes the room left
+               between the hamburger and Upgrade rather than claiming a row. */
+            "flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
+          : "relative z-30 hidden w-full items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:flex md:gap-[3px] md:border-b md:border-line/[0.06] md:bg-bar md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden"
+      }
+    >
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
