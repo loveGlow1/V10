@@ -132,6 +132,7 @@ charged for. This one is the classifier being unreachable.
 ## Before this can run for real
 
 The graph is wired and tested; the outbound integrations are not yet connected.
+Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
 
 1. **Header Auth on the webhook (do this first).** The Webhook node requires
    Header Auth, and the `Header Auth account` credential is now attached to it —
@@ -166,8 +167,25 @@ The graph is wired and tested; the outbound integrations are not yet connected.
 4. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
    credential, which is currently **exhausted**. Swap in a real OpenAI credential or the
    classifier returns `400 … used all your free n8n AI credits` and nothing routes.
-5. **Publish** — the workflow is deliberately left unpublished. Activating it exposes the
-   production webhook publicly, so do that only once 1–3 are done.
+5. **Publish** — this is not a matter of choosing to wait. n8n refuses to publish
+   the workflow at all while step 3 is outstanding, and names the three nodes:
+
+   ```
+   Cannot publish workflow: 3 nodes have configuration issues:
+     Node "Create Starter Page":   Missing required credential: wordpressApi
+     Node "Seed Shopify Catalog":  Missing required credential: shopifyAccessTokenApi
+     Node "Sync Project Row":      Missing required credential: supabaseApi
+   ```
+
+   None of those three credentials exist in the n8n account yet, so creating them
+   is the gate on everything downstream. Until the workflow is published the
+   production webhook answers 404, which the app reports as "the workflow is
+   probably not published yet".
+
+   `supabaseApi` is the one that matters even if WordPress and Shopify never
+   get used: without it `Sync Project Row` writes nothing, every build stays
+   "Building" in the dashboard, and `/api/build` reads back a row the
+   orchestrator never touched.
 
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
