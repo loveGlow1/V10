@@ -88,8 +88,6 @@ export default function Workspace({ projectId }: { projectId: string }) {
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
-        view={view}
-        onViewChange={setView}
         projectName={project?.name ?? "Loading…"}
         onBack={() => router.push("/dashboard")}
       />
