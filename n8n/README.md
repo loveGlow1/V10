@@ -156,12 +156,23 @@ Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
    - `Provision WordPress Site`
    - `Register Store Webhooks`
 3. **Credentials** — connect these in n8n:
-   - `Supabase QuickStark.Ai` on `Sync Project Row`. This needs the **service_role**
-     key, not the anon key: the node updates a row on the user's behalf with no
-     user session, and `projects` is owner-scoped by RLS, so an anon key updates
-     nothing and reports success. It updates the row matching the `projectId`
-     the app sent, writing `status, intent, preview_url, repo_url, admin_url,
-     last_build_at`.
+   - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
+     **Supabase API**, with two fields:
+
+     | Field | Value |
+     | --- | --- |
+     | Host | `https://esuatccbicekcohzgcvd.supabase.co` |
+     | Service Role Secret | Supabase dashboard → Project Settings → API Keys → `service_role` |
+
+     That is the `loveGlow1's Project` database the app already runs against —
+     verified to hold `projects` with all six build columns, and the
+     `spend_credits` RPC with the signature `/api/build` calls.
+
+     It needs the **service_role** key, not the anon key: the node updates a row
+     on the user's behalf with no user session, and `projects` is owner-scoped by
+     RLS, so an anon key updates nothing and reports success. It updates the row
+     matching the `projectId` the app sent, writing `status, intent,
+     preview_url, repo_url, admin_url, last_build_at`.
    - `WordPress` on `Create Starter Page`
    - `Shopify Admin API` on `Seed Shopify Catalog`
 4. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
