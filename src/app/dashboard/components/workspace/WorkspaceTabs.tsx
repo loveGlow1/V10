@@ -2,15 +2,21 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, Plus, X } from "lucide-react";
+import { LayoutGrid, X } from "lucide-react";
 
 import { avatarFor } from "../../projectColours";
 import { closeTab, useOpenTabs } from "./openTabs";
 
 /* The strip under the header: Home on the left, then one tab per app that has
-   been opened this sitting, then the button that starts another. Home is a tab
-   like the rest, so getting back to the list of created apps is the same gesture
-   as moving between them.
+   been opened this sitting. Home is a tab like the rest, so getting back to the
+   list of created apps is the same gesture as moving between them — which is
+   also why there is no separate "new app" button on the end. It pushed the same
+   route as the Home tab two places to its left, so the row asked twice for one
+   thing.
+
+   Padded to px-4 on a phone, matching the bar above, so the first tab's left
+   edge sits on the same line as the hamburger rather than four pixels outside
+   it.
 
    It renders nothing when no app is open, which is what keeps a new account's
    Home exactly as it was. */
@@ -49,7 +55,7 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
   }
 
   return (
-    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-3 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-line/[0.06] md:bg-bar md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
+    <div className="relative z-30 flex w-full items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none] md:gap-[3px] md:border-b md:border-line/[0.06] md:bg-bar md:px-3.5 md:py-1.5 [&::-webkit-scrollbar]:hidden">
       <button
         onClick={() => router.push("/dashboard")}
         aria-current={activeId ? undefined : "page"}
@@ -97,14 +103,6 @@ export default function WorkspaceTabs({ activeId }: { activeId?: string }) {
           </div>
         );
       })}
-
-      <button
-        onClick={() => router.push("/dashboard")}
-        aria-label="New app"
-        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.02] text-muted transition-all hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-line/25 md:h-[30px] md:w-[30px] md:rounded-[9px] md:border-transparent md:bg-transparent md:hover:bg-layer/[0.035] md:hover:text-ink"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
     </div>
   );
 }
