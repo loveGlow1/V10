@@ -175,9 +175,23 @@ Steps 1–4 need secrets, and step 5 is refused by n8n until step 3 is done.
      preview_url, repo_url, admin_url, last_build_at`.
    - `WordPress` on `Create Starter Page`
    - `Shopify Admin API` on `Seed Shopify Catalog`
-4. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
-   credential, which is currently **exhausted**. Swap in a real OpenAI credential or the
-   classifier returns `400 … used all your free n8n AI credits` and nothing routes.
+4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
+   `claude-opus-5`, replacing the OpenAI node that was bound to the shared
+   "n8n free OpenAI API credits" pool (exhausted — it returned
+   `400 … used all your free n8n AI credits`, and nothing routed).
+
+   It needs an **Anthropic** credential (type `anthropicApi`): an API key from
+   console.anthropic.com. Until one is attached the classifier fails, which now
+   means every build takes the `Flag Classifier Failure` path rather than
+   hanging.
+
+   It runs adaptive thinking at **low** effort. Not thinking-disabled: the Text
+   Classifier parses this model's output against a JSON schema, and with
+   thinking off Opus 5 can leak reasoning tags into the visible response. Low
+   effort is the cheap setting; off is the broken one. Routing is a small call
+   on every build, so `claude-sonnet-5` or `claude-haiku-4-5` would also serve
+   and cost less — that is a cost/quality call to make deliberately, not a
+   default to drift into.
 5. **Publish** — this is not a matter of choosing to wait. n8n refuses to publish
    the workflow at all while step 3 is outstanding, and names the three nodes:
 

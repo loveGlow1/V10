@@ -108,17 +108,27 @@ const normalizeRequest = node({
   ],
 });
 
+/* Routing is the whole job here: pick one of three build branches, or say none
+   fit. That is a small call made on every build, so it runs at low effort.
+
+   Adaptive thinking rather than thinking disabled. The Text Classifier parses
+   this model's output against a JSON schema, and with thinking switched off
+   Opus 5 can leak reasoning tags into the visible response — which is the text
+   being parsed. Low effort is the cheap setting; off is the broken one.
+
+   No temperature: newer Anthropic models ignore it, so setting it to 0 would
+   look like determinism was configured when nothing had been. */
 const classifierModel = languageModel({
-  type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
-  version: 1.3,
+  type: '@n8n/n8n-nodes-langchain.lmChatAnthropic',
+  version: 1.6,
   config: {
     name: 'Intent Classifier Model',
     position: [-700, 640],
     parameters: {
-      model: { __rl: true, mode: 'list', value: 'gpt-5-mini' },
-      options: { temperature: 0, reasoningEffort: 'low' },
+      model: { __rl: true, mode: 'list', value: 'claude-opus-5', cachedResultName: 'Claude Opus 5' },
+      options: { thinkingMode: 'adaptive', effort: 'low' },
     },
-    credentials: { openAiApi: newCredential('OpenAI') },
+    credentials: { anthropicApi: newCredential('Anthropic') },
   },
 });
 
