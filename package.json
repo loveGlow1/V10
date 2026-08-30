@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:auth-domain": "node tools/check-auth-domain.mjs"
+    "check:auth-domain": "node tools/check-auth-domain.mjs",
+    "check:builder": "node tools/check-builder.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
