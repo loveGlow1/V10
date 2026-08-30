@@ -51,6 +51,7 @@ export default function ChatPanel({
   project,
   onOpenIntegrations,
   onOpenPreview,
+  previewOpen = false,
   initialPrompt,
   onBuildSettled,
 }: {
@@ -58,6 +59,8 @@ export default function ChatPanel({
   onOpenIntegrations: () => void;
   /** Raises the preview sheet over the conversation. Phones only — see Workspace. */
   onOpenPreview: () => void;
+  /** Whether that sheet is currently up, so the pill can stand down while it is. */
+  previewOpen?: boolean;
   /** What Home was asked for, when the workspace was opened by sending from it. */
   initialPrompt?: string | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
@@ -307,23 +310,38 @@ export default function ChatPanel({
       </div>
 
       {/* The moment the build has something to show.
-          
+
           It sits above the composer rather than in the thread because it is not
           a message — it stays put as the conversation scrolls under it, and it
           is still there ten replies later when someone wants another look.
           Phones only: from md up the preview is already on screen beside this,
-          so announcing it would be pointing at something visible. */}
-      {previewUrl && (
-        <div className="shrink-0 px-3 pb-1 md:hidden">
-          <button
-            onClick={onOpenPreview}
-            className="mx-auto flex h-11 items-center gap-2 rounded-full bg-solid px-5 text-[14px] font-medium text-onSolid shadow-[0_8px_28px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.97]"
+          so announcing it would be pointing at something visible.
+
+          It pops rather than fades in, and it stands down while the sheet is up
+          — which is what makes closing the sheet the moment it springs back.
+          That is the moment someone might think they have put the preview away
+          for good, and this is what says otherwise. Announcing a preview as
+          ready over the top of the preview itself would say nothing. */}
+      <AnimatePresence>
+        {previewUrl && !previewOpen && (
+          <motion.div
+            key="preview-ready"
+            initial={{ opacity: 0, y: 12, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 520, damping: 26, mass: 0.7 }}
+            className="shrink-0 px-3 pb-1 md:hidden"
           >
-            <Eye className="h-4 w-4" />
-            Your Preview is ready
-          </button>
-        </div>
-      )}
+            <button
+              onClick={onOpenPreview}
+              className="mx-auto flex h-11 items-center gap-2 rounded-full bg-solid px-5 text-[14px] font-medium text-onSolid shadow-[0_8px_28px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.97]"
+            >
+              <Eye className="h-4 w-4" />
+              Your Preview is ready
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* Home's composer, brought over whole: the orbiting highlight outside,
