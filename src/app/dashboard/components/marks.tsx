@@ -47,8 +47,15 @@ export function AgentMark({
   );
 }
 
-/* Three bars: 12 CSS pixels long on 4-pixel centres — shorter and heavier than
-   lucide's Menu, which is what makes the reference's read as a solid stack. */
+/* Three bars on 6-pixel centres, the bottom one half the length of the two
+   above it and left-aligned with them.
+
+   The short third bar is the whole character of the mark: an even stack is a
+   rectangle, and the eye reads a rectangle as a block rather than as a list.
+   Cutting one bar gives the stack a ragged edge, which is what a list of things
+   actually looks like, and it tells the top from the bottom at 16px without any
+   other cue. Round caps, because a square-ended half-bar reads as a bar that
+   got clipped rather than one drawn short. */
 export function MenuMark({ className }: MarkProps) {
   return (
     <svg
@@ -61,7 +68,7 @@ export function MenuMark({ className }: MarkProps) {
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M3 6h18M3 12h18M3 18h18" />
+      <path d="M3 6h18M3 12h18M3 18h9" />
     </svg>
   );
 }
