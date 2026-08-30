@@ -22,7 +22,6 @@ import { useProjects, type Project } from "../../ProjectsContext";
 import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
-import { openTab } from "./openTabs";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 type Message = {
@@ -191,7 +190,6 @@ export default function ChatPanel({
     setForking(false);
     setForkOpen(false);
     if (copy) {
-      openTab({ id: copy.id, name: copy.name });
       router.push(`/dashboard/project/${copy.id}`);
     }
   }

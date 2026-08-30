@@ -17,8 +17,6 @@ import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
 import PreviewSheet from "./PreviewSheet";
-import WorkspaceTabs from "./WorkspaceTabs";
-import { openTab } from "./openTabs";
 
 /* An opened app. The header and drawer are the ones Home carries, so moving
    between the two is a change of the area below the tabs and nothing else.
@@ -63,12 +61,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
     setView("preview");
   }
 
-  /* Opening the route is what opens the tab, so a link, a reload and a click in
-     the list all leave the strip in the same state. A rename flows through here
-     too, which keeps the tab's label honest. */
+  /* Opening the route is what selects the app, so a link, a reload and a click
+     in the list all leave the account on the same project. */
   useEffect(() => {
     if (!project) return;
-    openTab({ id: project.id, name: project.name });
     select(project.id);
   }, [project, select]);
 
@@ -129,8 +125,6 @@ export default function Workspace({ projectId }: { projectId: string }) {
         title={project?.name ?? "App"}
         onClose={() => setPreviewSheetOpen(false)}
       />
-
-      <WorkspaceTabs activeId={projectId} />
 
       {loading ? (
         <p className="flex flex-1 items-center justify-center text-sm text-muted">Opening…</p>

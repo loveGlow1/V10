@@ -24,7 +24,6 @@ import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import Popover from "./Popover";
-import { closeTab } from "./openTabs";
 
 type ManageSection = "settings" | "integrations" | "payments";
 
@@ -344,7 +343,6 @@ export default function PreviewPanel({
                     onClick={async () => {
                       if (!project) return;
                       if (await remove(project.id)) {
-                        closeTab(project.id);
                         router.push("/dashboard");
                       }
                     }}

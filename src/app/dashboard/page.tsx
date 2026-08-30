@@ -19,7 +19,6 @@ import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
 import { ComingSoonBadge, ComingSoonModal } from "./components/ComingSoon";
-import WorkspaceTabs from "./components/workspace/WorkspaceTabs";
 import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import { motion, AnimatePresence } from "framer-motion";
@@ -286,15 +285,7 @@ export default function DashboardPage() {
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
-        /* On a phone the open apps ride in the bar itself, on one line with the
-           hamburger and Upgrade. */
-        tabs={<WorkspaceTabs placement="inline" />}
       />
-
-      {/* The same strip as its own row, from md up, where a browser's tabs go.
-          It draws nothing until an app is opened, so an account that has never
-          opened a project sees Home exactly as before. */}
-      <WorkspaceTabs />
 
       <Sidebar
         open={sidebarOpen}

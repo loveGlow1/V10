@@ -126,10 +126,9 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
             </span>
           </a>
 
-          {/* No Home button here. The tab strip below carries Home as a tab —
-              one control, in the row where the apps you can switch to already
-              are — and the brand beside this is a link to the same place. Two
-              Homes a hairline apart is one too many to read. */}
+          {/* No Home button here. An app is opened from the work already on
+              Home, and the brand to the left is the way back out of it — a
+              second control a hairline away would say the same thing twice. */}
         </div>
 
         {/* Upgrade + avatar */}
