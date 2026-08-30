@@ -625,12 +625,16 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           </button>
                         )}
 
+                        {/* Hidden on a phone because the only thing it does is
+                            open the support widget, and that is desktop-only —
+                            see SupportChat. A button that opens nothing is worse
+                            than no button. */}
                         <button
                           onClick={() => {
                             onClose();
                             requestSupportChat();
                           }}
-                          className="h-10 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
+                          className="hidden h-10 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07] md:block"
                         >
                           Contact Support
                         </button>

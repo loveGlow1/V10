@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { avatarFor } from "../../projectColours";
+import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -153,6 +154,19 @@ export default function PreviewPanel({
           yet, so the button says why instead of failing. */}
       <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
         Goes live once your first build finishes.
+      </p>
+      {/* The price belongs next to the button, not only on the pricing page: a
+          first publish is the largest single charge on the platform, and it is
+          the one action nobody should discover the cost of after taking it.
+
+          Which of the two prices applies is read from the project itself, so a
+          live app quotes the redeploy price rather than the provisioning one. */}
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        {project && isPublished(project)
+          ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`
+          : `Going live costs ${formatCredits(creditCostOf("publish"))} credits, then ${formatCredits(
+              creditCostOf("publish", { alreadyPublished: true }),
+            )} per deploy after that.`}
       </p>
       <button
         disabled

@@ -6,6 +6,7 @@ import {
   type CreditActionId,
   type UsageSignal,
 } from "@/app/dashboard/credits";
+import { isPublishedStatus } from "@/lib/project-status";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Where a charge is actually taken.
@@ -21,9 +22,16 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * Generation now runs server-side, in /api/build, which prices a build from
  * what the orchestrator reports and charges it there. So "generate" is refused
  * here: it was the action worth under-reporting, and it no longer has any
- * reason to arrive from a browser. What is left is chat, whose band tops out at
- * a single credit, and the two free actions — under-reporting those buys a
- * caller nothing it could not already have. */
+ * reason to arrive from a browser.
+ *
+ * What is left is chat, whose band tops out at a single credit; runtime, which
+ * is free; and publish.
+ *
+ * Publish is the one that needs care. It is the largest charge on the platform,
+ * and it is fifty times cheaper for a project that is already live — so
+ * "alreadyPublished" is a signal a caller has every reason to assert and no
+ * right to. It is read from the project's stored status here, under the
+ * caller's own session, and whatever arrived in the body is discarded. */
 
 export const runtime = "nodejs";
 /* Charges must never be served from a cache. */
@@ -94,13 +102,45 @@ export async function POST(request: Request) {
 
   const outputTokens = readCount(body.outputTokens);
   const filesTouched = readCount(body.filesTouched);
-  const cost = creditCostOf(body.action, { outputTokens, filesTouched });
+  const projectId = typeof body.projectId === "string" ? body.projectId : null;
+
+  /* A publish is priced from the project's stored status, never from the body.
+     Read under the caller's own session, so RLS answers it: a project id that
+     is not theirs comes back empty and is refused rather than priced. */
+  let alreadyPublished = false;
+  if (body.action === "publish") {
+    if (!projectId) {
+      return NextResponse.json(
+        { error: "A publish needs a project to belong to." },
+        { status: 400 },
+      );
+    }
+
+    const { data: project, error: lookupError } = await supabase
+      .from("projects")
+      .select("id, status")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    if (lookupError) {
+      // eslint-disable-next-line no-console
+      console.error("spend: could not read the project:", lookupError);
+      return NextResponse.json({ error: "Could not read that project." }, { status: 500 });
+    }
+    if (!project) {
+      return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
+    }
+
+    alreadyPublished = isPublishedStatus(project.status);
+  }
+
+  const cost = creditCostOf(body.action, { outputTokens, filesTouched, alreadyPublished });
 
   const { data, error } = await supabase.rpc("spend_credits", {
     p_action: body.action,
     p_cost: cost,
     p_description: typeof body.description === "string" ? body.description.slice(0, 200) : null,
-    p_project_id: typeof body.projectId === "string" ? body.projectId : null,
+    p_project_id: projectId,
     p_output_tokens: outputTokens ?? null,
     p_files_touched: filesTouched ?? null,
   });
