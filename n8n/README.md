@@ -123,6 +123,14 @@ the build "may still finish", which is not true. Now it comes back as
 `status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
 bill a build that never ran.
 
+The classifier also **retries**: three tries, two seconds apart, on both the
+Text Classifier and the model node under it. Execution 215 is why — a build
+came back "the classifier could not be reached" on a bare
+`Service unavailable` from Anthropic, which is a passing outage rather than
+anything wrong with the setup, and the one node every build depends on. Three
+tries fit comfortably inside the app's 60-second timeout. The error output is
+not redundant with this: it is what answers once the retries are spent too.
+
 `Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
 that one is a prompt nobody could classify, which is a real answer and is
 charged for. This one is the classifier being unreachable.
