@@ -19,6 +19,7 @@ import {
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type Project } from "../../ProjectsContext";
+import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
@@ -67,6 +68,9 @@ export default function ChatPanel({
 }) {
   const router = useRouter();
   const { create, build } = useProjects();
+  /* A build running is what makes a session active. The tab strip shows it, so
+     a workspace left for another one still says it is working. */
+  const { setBusy } = useWorkspaceTabs();
   /* Written by the orchestrator by way of the projects row, so it is filtered
      before it decides anything — the same rule the panel and the links above
      follow. Null means there is nothing to announce. */
@@ -114,6 +118,16 @@ export default function ChatPanel({
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
   }, [messages]);
+
+  /* Told to the strip rather than to a tab of its own: another prompt in this
+     app is the same app. The cleanup clears the mark when the workspace is left
+     mid-build, so a tab cannot be left pulsing over a panel that is gone. */
+  const projectId = project?.id;
+  useEffect(() => {
+    if (!projectId) return;
+    setBusy(projectId, building);
+    return () => setBusy(projectId, false);
+  }, [projectId, building, setBusy]);
 
   // One handler for both popovers in the toolbar: an outside press closes
   // whichever is open, the way a menu behaves.

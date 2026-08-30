@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   CreditCard,
   Link2,
-  Monitor,
   Rocket,
   SlidersHorizontal,
   X,
@@ -23,6 +22,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
+import { ManageMark, PreviewMark } from "./panelMarks";
 import Popover from "./Popover";
 
 type ManageSection = "settings" | "integrations" | "payments";
@@ -134,9 +134,17 @@ export default function PreviewPanel({
     }
   }
 
+  /* The view switch, as a track with a chip riding in it rather than two pills
+     in a row. The track is sunk into the header and the chosen half is lifted
+     out of it — a hairline of light along its top, a soft shadow beneath — so
+     which view you are in is legible from the shape alone, before the labels
+     are read. The unchosen half carries no fill at all; two filled halves is
+     the arrangement that makes a segmented control read as two buttons. */
   const segment = (active: boolean) =>
-    `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors ${
-      active ? "bg-layer/[0.08] text-ink" : "text-muted hover:text-ink"
+    `relative flex h-[30px] items-center gap-1.5 rounded-[9px] px-3 text-[13px] font-medium transition-all ${
+      active
+        ? "bg-layer/[0.12] text-ink shadow-[0_1px_2px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12)]"
+        : "text-muted hover:text-ink"
     }`;
 
   /* Glass over the blue, the material every control in the phone header is made
@@ -445,7 +453,7 @@ export default function PreviewPanel({
             aria-label="Manage your app"
             className={glass}
           >
-            <SlidersHorizontal className="h-4 w-4" />
+            <ManageMark className="h-4 w-4" />
           </button>
           <div className="relative" ref={publishRef}>
             <button
@@ -497,14 +505,14 @@ export default function PreviewPanel({
         <div
           role="group"
           aria-label="Workspace view"
-          className="flex items-center gap-0.5 rounded-full border border-line/[0.07] bg-layer/[0.02] p-0.5"
+          className="flex items-center gap-1 rounded-xl border border-line/[0.07] bg-sunken/70 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]"
         >
           <button
             onClick={() => setView("preview")}
             aria-pressed={view === "preview"}
             className={segment(view === "preview")}
           >
-            <Monitor className="h-3.5 w-3.5" />
+            <PreviewMark className="h-[15px] w-[15px] shrink-0" />
             Preview
           </button>
           <button
@@ -512,7 +520,7 @@ export default function PreviewPanel({
             aria-pressed={view === "manage"}
             className={segment(view === "manage")}
           >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <ManageMark className="h-[15px] w-[15px] shrink-0" />
             Manage
           </button>
         </div>

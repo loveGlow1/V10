@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedStatus } from "@/lib/project-status";
 
 export type Project = {
@@ -214,6 +215,19 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
     return payload.build;
   }, []);
+
+  /* The open-workspace strip is a view of these rows, so it is reconciled here
+     rather than in the strip itself: an app renamed anywhere gets its tab
+     relabelled, and one deleted anywhere loses its tab, without the row above
+     having to know where the projects list came from.
+
+     Skipped while the first read is in flight — an empty list mid-flight would
+     close every tab in the strip and lose the session's work. */
+  const { sync: syncTabs } = useWorkspaceTabs();
+  useEffect(() => {
+    if (loading) return;
+    syncTabs(projects.map((project) => ({ id: project.id, name: project.name })));
+  }, [projects, loading, syncTabs]);
 
   const value = useMemo<ProjectsValue>(
     () => ({

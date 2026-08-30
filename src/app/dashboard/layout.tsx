@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { ThemeProvider } from './components/ThemeProvider';
+import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 
 export const metadata: Metadata = {
   title: "QuickStark.Ai | Dashboard",
@@ -27,6 +28,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <ThemeProvider>
+    {/* Above every dashboard screen, because the set of open workspaces has to
+        survive moving between them: a tab strip that reset on navigation would
+        be a list of one. */}
+    <WorkspaceTabsProvider>
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop.
@@ -38,6 +43,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
       {children}
     </div>
+    </WorkspaceTabsProvider>
     </ThemeProvider>
   );
 }

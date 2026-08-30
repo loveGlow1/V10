@@ -3,11 +3,16 @@
 import React from "react";
 import { MoreHorizontal, PanelLeftClose } from "lucide-react";
 
+import CreditPill from "./CreditPill";
 import { MenuMark } from "./marks";
 
 interface TopBarProps {
   onMenuClick: () => void;
   onUpgradeClick: () => void;
+  /* The account's balance, already formatted. Optional: the drawer this bar
+     opens carries it too, so a screen that has no room simply omits it rather
+     than showing a figure it cannot fit. */
+  credits?: string;
   /* An open app names itself in the bar, and the bar becomes the way back out
      of it. Home passes neither and keeps the layout it has. */
   projectName?: string;
@@ -24,6 +29,7 @@ interface TopBarProps {
 export default function TopBar({
   onMenuClick,
   onUpgradeClick,
+  credits,
   projectName,
   onBack,
 }: TopBarProps) {
@@ -42,6 +48,13 @@ export default function TopBar({
 
   const round =
     "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full border border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-layer/[0.12] active:scale-[0.98]";
+
+  /* The balance, beside the button that tops it up — the same pairing the
+     desktop header makes. On the app screen it stands down below 430px: the
+     row there also carries the app's name, and at 390 the pill cuts that name
+     to seven characters, which costs more than the figure gains. The drawer
+     this bar opens carries the balance on every width. */
+  const balance = credits ? <CreditPill credits={credits} onClick={onUpgradeClick} /> : null;
 
   /* The way out of an app, and the drawer's own collapse button brought up here:
      the same squircle and the same mark, so leaving a panel is one gesture with
@@ -65,6 +78,8 @@ export default function TopBar({
           {projectName}
         </p>
 
+        {balance && <span className="hidden min-[430px]:flex">{balance}</span>}
+
         {upgrade}
 
         <button onClick={onMenuClick} aria-label="Open menu" className={round}>
@@ -80,8 +95,10 @@ export default function TopBar({
         <MenuMark className="h-4 w-4" />
       </button>
 
-      {/* Nothing between them, so Upgrade keeps the right edge. */}
+      {/* Nothing between them but the balance, so Upgrade keeps the right edge. */}
       <div className="min-w-0 flex-1" />
+
+      {balance}
 
       {upgrade}
     </header>

@@ -10,6 +10,7 @@ import { AGENTS } from "./agents";
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import WorkspaceTabs from "./components/WorkspaceTabs";
 import { AgentMark, MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
@@ -285,9 +286,15 @@ export default function DashboardPage() {
         credits={credits}
       />
 
+      {/* Home is a tab in the same strip the workspaces are in, so leaving an
+          app for the composer and coming back is one row of switching rather
+          than a navigation. */}
+      <WorkspaceTabs />
+
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
+        credits={credits}
       />
 
       <Sidebar
