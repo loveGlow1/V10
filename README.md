@@ -117,17 +117,26 @@ and `Sync Project Row` matches no row and writes nothing.
 
 A build generates one complete, self-contained HTML page — markup, styles and
 its own interactivity in a single document — saved against the project and
-served at `/preview/<projectId>`. That is the artifact for now: a landing page
-or a small web app that really exists and can be looked at, not a description of
-one. A second message in the same workspace edits that page rather than
-replacing it.
+served at `/preview/<projectId>`. A landing page or a small web app that really
+exists. A second message in the same workspace passes the current page back to
+the model, so a follow-up edits it rather than replacing it.
 
-Two variables are required for it, beyond the orchestrator's own:
+**The chat is answered before the page is built.** Generating takes a minute or
+two; a serverless function is killed at sixty. So the orchestrator replies as
+soon as the prompt is classified, generates afterwards under its own Anthropic
+credential, and posts the finished page to `/api/builder/webapp/save`. The
+workspace polls the project row and shows the preview when it lands. Nothing
+holds an HTTP request open waiting for a model.
+
+One variable is required for it, beyond the orchestrator's own:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...          # what the page is generated with
-SUPABASE_SERVICE_ROLE_KEY=...          # what stores it; never NEXT_PUBLIC_
+SUPABASE_SERVICE_ROLE_KEY=...   # what a finished page is stored under
 ```
+
+Never `NEXT_PUBLIC_`. The save endpoint is called by n8n with no user session
+behind it, so the write has no `auth.uid()` for RLS to answer for. Nothing else
+uses this key. The app needs no Anthropic key — generation happens in n8n.
 
 The generated page is untrusted: it is model output shaped by whatever someone
 typed, and it has to run its own scripts to be a working page. It is served

@@ -21,18 +21,32 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
   ▼                                ▼
 WebApp / Landing            Manual Review
 • Build Spec                (fallback — a prompt for something
-• Generate Page              not built yet is answered, not dropped)
-  (Claude → stored page)
+                             not built yet is answered, not dropped)
   └───────┬────────────────────────┘
           ▼
 [ Collect Build Outcome ]  (Merge, append, 3 inputs)
           │  the classifier's own error output is the third:
           │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
           ▼
-[ Assemble Build Result ] → [ Sync Project Row ] (Supabase `projects`)
+[ Assemble Build Result ] → [ Sync Project Row ]  (status: Building)
           ▼
-[ Build Chat Payload ] → [ Return Payload to Chat UI ]
+[ Build Chat Payload ] → [ Return Payload to Chat UI ]   ← the chat is answered here
+          ▼
+[ If Webapp ] → [ Compose Page Prompt ] → [ Generate Page ] → [ Save Page ]
+                                          (Anthropic API)     (→ the app stores it
+                                                                 and sets preview_url)
 ```
+
+**The reply comes before the page.** Everything above the response line takes a
+few seconds — a classification, nothing more. Generating a page takes a minute
+or two, so it runs *after* the webhook has answered, and the app finds out it
+finished by watching the project row rather than by holding a request open.
+
+That is not a preference. A serverless function is killed at sixty seconds, and
+a page takes longer: execution 221 is the proof — `Generate Page` ran for
+60,673ms and came back `504 An error occurred with your deployment`, with
+nothing built. An n8n node has no such ceiling, which is the whole reason
+generation lives here and not in the app.
 
 ## How the app reaches it
 
@@ -182,31 +196,39 @@ that is gated on every enabled node having a credential attached.
    overwrite any project row in the database. `/api/build` checks ownership, but
    nothing forces a caller to go through `/api/build`.
 
-2. **The build step** calls the app, which is where a page is generated:
+2. **The build steps**, all of which run after the chat has been answered:
 
-   | Node | URL |
+   | Node | What it does |
    | --- | --- |
-   | `Generate Page` | `/api/builder/webapp/generate` |
+   | `If Webapp` | Only a web app build has anything left to do; the other two paths were answered in full. |
+   | `Compose Page Prompt` | Builds the system and user messages as plain strings. |
+   | `Generate Page` | POSTs the Anthropic Messages API directly, under the same credential the classifier uses. Ten-minute timeout, because nothing is waiting on it. |
+   | `Save Page` | POSTs the document to `/api/builder/webapp/save`. |
 
-   That route (`src/app/api/builder/webapp/generate/route.ts`) asks Claude for a
-   complete standalone HTML page, stores it in `project_builds`, and returns the
-   address it can be previewed at. It needs `ANTHROPIC_API_KEY` and
-   `SUPABASE_SERVICE_ROLE_KEY` in the app's environment.
+   `Generate Page` calls the API with an HTTP node rather than an LLM chain on
+   purpose: a generated page is full of `{` and `}`, and a chain reads those as
+   prompt template variables. Editing an existing page would corrupt it.
 
-   **It refuses anything unsigned.** `/api/build` signs `requestId`, `projectId`
-   and `userId` — the three it has already checked ownership of — and the
-   workflow carries that `signature` through as an opaque field. Knowing the URL
-   is not enough to spend model credit or write into someone's workspace. If
-   this step starts answering 401, the field is not reaching it: check that
-   `Normalize Build Request` sets `signature` and that `Generate Page` sends it.
+   With thinking on, the first content block is the thinking, not the page —
+   `Save Page` joins the `text` blocks rather than reading `content[0]`.
 
-   `Collect WebApp Result` reads `$json.error ? "failed" : "provisioned"`, so
-   the endpoint never returns an `error` key on success — a failure answers with
-   an HTTP status instead, which the HTTP node surfaces as a real error.
+   **`Save Page` refuses anything unsigned.** `/api/build` signs `requestId`,
+   `projectId` and `userId` — the three it has already checked ownership of —
+   and the workflow carries that `signature` through as an opaque field. Since
+   the page it stores is later served to its owner, an unsigned caller could put
+   their own HTML on someone's preview, which is the one thing here worth
+   attacking. If this step starts answering 401, the field is not reaching it:
+   check that `Normalize Build Request` sets `signature` and that `Save Page`
+   sends it.
 
-   There is no `Apply Supabase Schema` step any more. Provisioning a schema is
-   part of publishing, which is the owner's own paid choice, not something every
-   build should do.
+   These two run after the response, so a failure cannot reach the chat. That is
+   deliberate: they fail the execution instead, which shows up in the execution
+   list, and the workspace's own wait gives up with "the build is taking longer
+   than usual" rather than claiming a failure it cannot see.
+
+   There is no `Apply Supabase Schema` step. Provisioning a schema is part of
+   publishing, which is the owner's own paid choice, not something every build
+   should do.
 
 3. **Credentials** — connect these in n8n:
    - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
