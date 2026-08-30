@@ -10,7 +10,7 @@ documents into that same store.
 ## Shape
 
     When Chat Message Received ──> RAG Agent ──> (streamed reply)
-                                     ├── ai_languageModel  OpenAI Chat Model (gpt-5-mini)
+                                     ├── ai_languageModel  Anthropic Chat Model (claude-sonnet-5)
                                      ├── ai_memory         Postgres Chat Memory (last 10 turns)
                                      └── ai_tool           Company Knowledge Base
                                                              └── ai_embedding  Embeddings for Retrieval
@@ -23,6 +23,13 @@ documents into that same store.
 Retrieval and ingestion are deliberately two separate embeddings nodes rather than
 one shared one — a subnode feeds a single parent, and these have different parents.
 Both are pinned to `text-embedding-3-small`.
+
+The split across two vendors is deliberate, not an oversight. Anthropic does not
+make an embedding model — their own docs say so and point at Voyage AI — so the
+embeddings cannot follow the chat model onto the Anthropic credential. Chunking
+needs no provider at all: the Recursive Character Text Splitter is plain string
+splitting, kept over the Token Splitter because it breaks on paragraph and
+sentence boundaries and so leaves chunks semantically whole.
 
 ## Database
 
@@ -52,16 +59,18 @@ Verified end to end against the live project — insert, HNSW retrieval, and
 
 Three things need a human; none can be done through the API.
 
-### 1. OpenAI credit — blocks everything
+### 1. OpenAI credit — blocks retrieval and ingestion
 
-The workflow is on `n8n free OpenAI API credits`, and **those credits are spent**.
-A test run fails at the agent with:
+Both embeddings nodes are still on `n8n free OpenAI API credits`, and **those
+credits are spent**:
 
     400 It looks like you've used all your free n8n AI credits
 
-This blocks the agent *and* ingestion, since both embeddings nodes use the same
-credential. Add a real `openAiApi` credential and select it on **OpenAI Chat Model**,
-**Embeddings for Retrieval** and **Embeddings for Ingestion**.
+The chat model no longer depends on this — it runs on Claude — so the agent can
+think, but it cannot search the knowledge base or ingest a document until a real
+`openAiApi` credential is selected on **Embeddings for Retrieval** and
+**Embeddings for Ingestion**. `text-embedding-3-small` is about $0.02 per 1M
+tokens, so this is the cheap half of the bill.
 
 ### 2. Postgres credential — blocks chat memory
 
@@ -92,15 +101,16 @@ on the trigger.
 
 ## Already wired
 
+- `Anthropic account` on **Anthropic Chat Model** (`claude-sonnet-5`), which replaced
+  the OpenAI Chat Model. Verified with a live run: the agent answered through it.
 - `Supabase account` on **Company Knowledge Base** and **Insert Into Supabase Vector
   Store**. Confirmed to resolve to `esuatccbicekcohzgcvd` — it lists that project's
   tables, `documents` and `n8n_chat_histories` among them.
 - `Google Drive account` on **New File in Drive Folder** and **Download File**.
 - Both embeddings nodes pinned to `text-embedding-3-small`, so the default moving
   cannot silently desync them from `vector(1536)`.
-- Dropped an empty `builtInTools` from **OpenAI Chat Model**, which is only valid
-  alongside `responsesApiEnabled` and was raising a validation warning. The
-  workflow now validates clean.
+- The workflow validates clean (an empty `builtInTools` on the old OpenAI Chat Model
+  had been raising a warning; that node is gone).
 
 Check that the `Supabase account` credential holds the **service_role** secret and
 not the publishable key. Listing tables does not distinguish them, but every read
