@@ -24,16 +24,13 @@ import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
+import { appendToThread, loadThread, type ThreadMessage } from "@/lib/project-messages";
+import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
-type Message = {
-  id: number;
-  from: "you" | "system";
-  text: string;
-  /* A build that came back with somewhere to look. Rendered as links under the
-     reply rather than pasted into it, so the address stays clickable. */
-  links?: { label: string; href: string }[];
-  tone?: "normal" | "error";
-};
+/* What the panel renders, which is a stored message plus a key to render it by.
+   The shape itself lives in @/lib/project-messages, because the thread is now
+   read back from a table and the two must not drift. */
+type Message = ThreadMessage & { id: number };
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -76,6 +73,10 @@ export default function ChatPanel({
      follow. Null means there is nothing to announce. */
   const previewUrl = safeHttpUrl(project?.preview_url);
   const [messages, setMessages] = useState<Message[]>([]);
+  /* Whether this project's stored thread has arrived. Nothing may be sent
+     before it does, or an app with history would be built again on arrival. */
+  const [threadLoaded, setThreadLoaded] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -89,30 +90,73 @@ export default function ChatPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
-  // A new project is a new conversation; keeping the old one would attribute
-  // messages to the wrong app.
+  /* Who is writing, so a message can be stored against them. Read once: the
+     panel is inside an authenticated route, and a thread cannot be saved
+     without it. */
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    void createSupabaseBrowserClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setUserId(data.user?.id ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* A new project is a new conversation — and now it is that project's own
+     conversation, read back rather than started empty. Before this, reopening
+     an app showed a blank panel for something that had been built and discussed
+     at length.
+
+     `cancelled` because switching apps twice quickly would otherwise let the
+     first thread arrive after the second and paint the wrong conversation. */
   useEffect(() => {
     setMessages([]);
     setDraft("");
     nextId.current = 0;
+    setThreadLoaded(false);
+
+    const id = project?.id;
+    if (!id) return;
+
+    let cancelled = false;
+    void loadThread(id).then((thread) => {
+      if (cancelled) return;
+      setMessages(thread.map((message) => ({ id: nextId.current++, ...message })));
+      setThreadLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [project?.id]);
 
   /* The prompt Home arrived with, sent once. Guarded by a ref rather than by
      the message list: a re-render while the build is in flight would otherwise
      see an empty conversation and start it a second time.
 
+     It waits for the thread, and then refuses to send if there is one. The
+     prompt rides in the URL, so reloading a workspace re-delivers it — which
+     used to be the point, when nothing was stored and a reload would otherwise
+     open an empty conversation for an app that had never been built. Now that
+     the conversation is kept, re-sending it would run the same build a second
+     time and charge for it. An app with history has already been asked.
+
      Deliberately not in the dependency list — this is a one-shot on arrival,
      and re-running it whenever `send` is redefined is exactly the loop the
      ref is there to prevent. */
   const openingPrompt = useRef<string | null>(null);
   useEffect(() => {
-    if (!project || !initialPrompt) return;
+    if (!project || !initialPrompt || !threadLoaded) return;
     const key = `${project.id}:${initialPrompt}`;
     if (openingPrompt.current === key) return;
     openingPrompt.current = key;
+    if (messages.length > 0) return;
     void send(initialPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, initialPrompt]);
+  }, [project?.id, initialPrompt, threadLoaded]);
 
   useEffect(() => {
     const stream = streamRef.current;
@@ -143,11 +187,20 @@ export default function ChatPanel({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [modelOpen, forkOpen]);
 
+  /* Every message goes through here, so nothing can be shown without also being
+     kept. The write is not awaited and its failure is not raised: a message on
+     screen should stay on screen, and losing a row from the history is not
+     worth interrupting a build over. */
+  function say(message: ThreadMessage) {
+    setMessages((current) => [...current, { id: nextId.current++, ...message }]);
+    if (project?.id && userId) void appendToThread(project.id, userId, message);
+  }
+
   async function send(prompt?: string) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
 
-    setMessages((current) => [...current, { id: nextId.current++, from: "you", text }]);
+    say({ from: "you", text });
     if (prompt === undefined) setDraft("");
     setBuilding(true);
 
@@ -172,16 +225,12 @@ export default function ChatPanel({
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
       ].filter((link): link is { label: string; href: string } => link.href !== null);
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: nextId.current++,
-          from: "system",
-          text: outcome.message,
-          links: links.length ? links : undefined,
-          tone: outcome.status === "Failed" ? "error" : "normal",
-        },
-      ]);
+      say({
+        from: "system",
+        text: outcome.message,
+        links: links.length ? links : undefined,
+        tone: outcome.status === "Failed" ? "error" : "normal",
+      });
 
       /* The reply above arrives as soon as the prompt has been classified — the
          page itself is still being generated, which takes as long as it takes.
@@ -192,35 +241,33 @@ export default function ChatPanel({
         const finished = await watchBuild(project.id, startedAt);
         const preview = safeHttpUrl(finished?.preview_url);
 
-        setMessages((current) => [
-          ...current,
-          preview
-            ? {
-                id: nextId.current++,
-                from: "system",
-                text: "Your page is ready.",
-                links: [{ label: "Open preview", href: preview }],
-              }
-            : {
-                id: nextId.current++,
-                from: "system",
-                /* Not "it failed": nothing here knows that. The build may still
-                   land, and the workspace will show it when it does. */
-                text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
-                tone: "error",
-              },
-        ]);
+        if (preview) {
+          say({
+            from: "system",
+            text: "Your page is ready.",
+            links: [{ label: "Open preview", href: preview }],
+          });
+        } else if (finished?.status === "Failed") {
+          /* The build came back and said so. Generation happens after the reply,
+             so a failure there cannot travel in the response — it is written to
+             the row instead, which is the same row this was waiting on. */
+          say({
+            from: "system",
+            text: "The build did not finish. Try again, or describe a smaller page — a very large one can run past what a single build allows.",
+            tone: "error",
+          });
+        } else {
+          say({
+            from: "system",
+            /* Not "it failed": nothing here knows that. The build may still
+               land, and the workspace will show it when it does. */
+            text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
+            tone: "error",
+          });
+        }
       }
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: nextId.current++,
-          from: "system",
-          text: (error as Error).message,
-          tone: "error",
-        },
-      ]);
+      say({ from: "system", text: (error as Error).message, tone: "error" });
     } finally {
       setBuilding(false);
       /* Even a refused build is worth a refresh: "not enough credits" is the

@@ -221,10 +221,19 @@ that is gated on every enabled node having a credential attached.
    check that `Normalize Build Request` sets `signature` and that `Save Page`
    sends it.
 
-   These two run after the response, so a failure cannot reach the chat. That is
-   deliberate: they fail the execution instead, which shows up in the execution
-   list, and the workspace's own wait gives up with "the build is taking longer
-   than usual" rather than claiming a failure it cannot see.
+   These two run after the response, so a failure cannot travel back in it.
+   Both route their error output to `Flag Build Failure`, which marks the
+   project row `Failed` — the same row the workspace is polling — so the chat
+   says the build did not finish rather than waiting out its eight minutes in
+   silence.
+
+   **Truncation is the failure to expect.** A page cut off at the model's token
+   ceiling still begins `<!doctype html>` and renders as half a page with no
+   error anywhere, so `/api/builder/webapp/save` refuses a document with no
+   closing tag (execution 224 is that: three minutes of generation, no closing
+   tag, 422). `max_tokens` is 32,000 and the prompt tells the model to finish
+   what it starts and to prefer Tailwind over long stylesheets, because output
+   length is the budget being spent.
 
    There is no `Apply Supabase Schema` step. Provisioning a schema is part of
    publishing, which is the owner's own paid choice, not something every build
