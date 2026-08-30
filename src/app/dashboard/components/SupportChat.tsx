@@ -17,6 +17,7 @@ import {
 import ChatMark from "./ChatMark";
 import { useSupportChatRequests } from "../supportChat";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 type Message = { id: number; from: "support" | "user"; text: string };
 
@@ -25,6 +26,15 @@ const GREETING =
 
 export default function SupportChat() {
   useKeyboardInset();
+  /* Desktop only. On a phone the launcher sits on top of the composer's send
+     button and the panel covers most of the screen, so the widget competes with
+     the thing the visitor came to use.
+
+     The rule lives in the component rather than at the mount site, so it holds
+     wherever this is rendered. useMediaQuery's server snapshot is false, which
+     means a handset never paints the widget at all — only a desktop pays for the
+     second render that brings it in. */
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [open, setOpen] = useState(false);
   /* Contact Support, wherever it is pressed, lands here. The count only ever
      goes up, so the effect below runs once per request and never on mount. */
@@ -82,6 +92,10 @@ export default function SupportChat() {
     setMessages((current) => [...current, { id: current.length, from: "user", text: body }]);
     setDraft("");
   }
+
+  /* After the hooks, never before: an early return above them would change the
+     hook order between a phone and a desktop as the viewport crosses 768px. */
+  if (!isDesktop) return null;
 
   return (
     <>
