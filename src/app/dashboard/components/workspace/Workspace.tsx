@@ -11,15 +11,12 @@ import BillingModal from "../billing/BillingModal";
 import AccountSettingsModal from "../AccountSettingsModal";
 import SupportChat from "../SupportChat";
 import { AGENTS } from "../../agents";
-import { formatCredits, signupBalance, totalCredits } from "../../credits";
+import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
 import WorkspaceTabs from "./WorkspaceTabs";
 import { openTab } from "./openTabs";
-
-/* Same figure Home shows, read from the credit economy rather than repeated. */
-const CREDITS = formatCredits(totalCredits(signupBalance()));
 
 /* An opened app. The header and drawer are the ones Home carries, so moving
    between the two is a change of the area below the tabs and nothing else.
@@ -34,6 +31,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
      to send rather than being dropped on the floor. */
   const initialPrompt = useSearchParams().get("prompt");
   const { projects, loading, error, select } = useProjects();
+  /* The account's own balance, not a constant. Refreshed after a build, which
+     is the thing in this screen that spends. */
+  const { label: credits, refresh: refreshCredits } = useCredits();
   const project = projects.find((candidate) => candidate.id === projectId) ?? null;
 
   const [billingOpen, setBillingOpen] = useState(false);
@@ -71,7 +71,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
         projectName={project?.name ?? "No project yet"}
-        credits={CREDITS}
+        credits={credits}
       />
 
       <TopBar
@@ -93,7 +93,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           setSidebarOpen(false);
           router.push("/dashboard");
         }}
-        credits={CREDITS}
+        credits={credits}
       />
 
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
@@ -104,7 +104,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           setAccountSettingsOpen(false);
           setBillingOpen(true);
         }}
-        credits={CREDITS}
+        credits={credits}
         agents={AGENTS}
         selectedAgent="Q1"
       />
@@ -139,6 +139,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               project={project}
               onOpenIntegrations={openIntegrations}
               initialPrompt={initialPrompt}
+              onBuildSettled={refreshCredits}
             />
           </div>
           <div className={`${view === "preview" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex`}>

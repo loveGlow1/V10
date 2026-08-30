@@ -68,10 +68,15 @@ N8N_WEBHOOK_URL=https://<your-instance>.app.n8n.cloud/webhook/api/v1/build
 ```
 
 It is not `NEXT_PUBLIC_`. Builds go through `POST /api/build`, which reads the
-session, checks the project belongs to the caller, and only then calls n8n — an
-n8n webhook has no idea who is calling it, so that check cannot live on the
-other side. Set `N8N_WEBHOOK_TOKEN` as well and turn on Header Auth on the
-Webhook node; an n8n webhook is public by default.
+session, checks the project belongs to the caller, prices and charges the build,
+and only then calls n8n — an n8n webhook has no idea who is calling it, so those
+checks cannot live on the other side.
+
+`N8N_WEBHOOK_TOKEN` is required too, not optional: the workflow writes to the
+`projects` table with the service_role key, which bypasses RLS, so an
+unauthenticated webhook is a way to overwrite any project row. The Webhook node
+requires Header Auth and fails closed until a matching credential is attached —
+see [`n8n/README.md`](./n8n/README.md).
 
 Without `N8N_WEBHOOK_URL` the app runs normally and the chat says building is
 not connected rather than pretending to build.

@@ -59,6 +59,15 @@ The app creates the `projects` row before the build starts and passes its `id`,
 so `Sync Project Row` **updates** that row — it does not insert. Two rows per
 build was the bug that change fixed.
 
+The update matches on **both** `id` and `user_id`. Because this node runs with
+the service_role key, RLS will not stop a write to the wrong row, so a leaked
+project UUID on its own must not be enough to reach someone's project.
+
+`/api/build` also prices the build and charges `spend_credits` once the
+orchestrator answers, using what the build itself reports — never anything the
+caller sends. Report `filesTouched` in a branch's artifacts and it is billed
+accordingly; report nothing and it prices at the floor.
+
 ## Request
 
 `POST https://neauraissystems.app.n8n.cloud/webhook/api/v1/build`
@@ -104,13 +113,26 @@ so the chat UI has one response shape to render regardless of which branch ran.
 
 The graph is wired and tested; the outbound integrations are not yet connected.
 
-1. **Placeholder URLs** — four HTTP Request nodes point at your provisioning service.
+1. **Header Auth on the webhook (do this first).** The Webhook node now requires
+   Header Auth and has no credential attached, so it fails closed. Create a
+   Header Auth credential named `QuickStark.Ai Build Webhook`, attach it, and set
+   the same value as `N8N_WEBHOOK_TOKEN` in the app — `src/lib/n8n.ts` sends it
+   as `Authorization: Bearer …`, so name the header `Authorization` and give it
+   the value `Bearer <your-token>`.
+
+   This is not optional hardening. `Sync Project Row` writes with the
+   service_role key, which bypasses RLS, and the row it writes to comes from the
+   request body. An open webhook here is a way for anyone who learns the URL to
+   overwrite any project row in the database. `/api/build` checks ownership, but
+   nothing forces a caller to go through `/api/build`.
+
+2. **Placeholder URLs** — four HTTP Request nodes point at your provisioning service.
    Open each and fill in the URL:
    - `Scaffold Next.js App`
    - `Apply Supabase Schema`
    - `Provision WordPress Site`
    - `Register Store Webhooks`
-2. **Credentials** — connect these in n8n:
+3. **Credentials** — connect these in n8n:
    - `Supabase QuickStark.Ai` on `Sync Project Row`. This needs the **service_role**
      key, not the anon key: the node updates a row on the user's behalf with no
      user session, and `projects` is owner-scoped by RLS, so an anon key updates
@@ -119,10 +141,10 @@ The graph is wired and tested; the outbound integrations are not yet connected.
      last_build_at`.
    - `WordPress` on `Create Starter Page`
    - `Shopify Admin API` on `Seed Shopify Catalog`
-3. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
+4. **OpenAI** — `Intent Classifier Model` is bound to the shared "n8n free OpenAI API credits"
    credential, which is currently **exhausted**. Swap in a real OpenAI credential or the
    classifier returns `400 … used all your free n8n AI credits` and nothing routes.
-4. **Publish** — the workflow is deliberately left unpublished. Activating it exposes the
+5. **Publish** — the workflow is deliberately left unpublished. Activating it exposes the
    production webhook publicly, so do that only once 1–3 are done.
 
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured

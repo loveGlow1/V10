@@ -16,11 +16,14 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * locked transaction, so two requests racing cannot both spend the last credit.
  *
  * The client is not trusted with the cost, but it is not trusted with the usage
- * either: a caller could understate its own token count. That is only closed
- * once generation runs server-side too (roadmap phase 1), at which point this
- * route's caller becomes the generation handler rather than the page, and the
- * usage comes off the model response instead of the request body. The shape
- * here does not change when that happens. */
+ * either: a caller could understate its own token count.
+ *
+ * Generation now runs server-side, in /api/build, which prices a build from
+ * what the orchestrator reports and charges it there. So "generate" is refused
+ * here: it was the action worth under-reporting, and it no longer has any
+ * reason to arrive from a browser. What is left is chat, whose band tops out at
+ * a single credit, and the two free actions — under-reporting those buys a
+ * caller nothing it could not already have. */
 
 export const runtime = "nodejs";
 /* Charges must never be served from a cache. */
@@ -35,6 +38,10 @@ type SpendRequest = {
 function isCreditAction(value: unknown): value is CreditActionId {
   return typeof value === "string" && value in CREDIT_ACTIONS;
 }
+
+/* Actions a browser may still price for itself. Deliberately excludes
+   "generate": that is charged by /api/build from the build's own report. */
+const CLIENT_PRICED_ACTIONS: CreditActionId[] = ["chat", "publish", "runtime"];
 
 /** A non-negative integer, or undefined for anything else a caller sends. */
 function readCount(value: unknown): number | undefined {
@@ -72,6 +79,16 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: `Unknown action. Expected one of: ${Object.keys(CREDIT_ACTIONS).join(", ")}.` },
       { status: 400 },
+    );
+  }
+
+  if (!CLIENT_PRICED_ACTIONS.includes(body.action)) {
+    return NextResponse.json(
+      {
+        error: `"${body.action}" is charged where the work happens, not from the browser. Builds go through /api/build.`,
+        code: "server_priced_action",
+      },
+      { status: 403 },
     );
   }
 
