@@ -96,7 +96,7 @@ export async function POST(request: Request) {
 
   if (!supabase) {
     return NextResponse.json(
-      { error: "Building is unavailable because Supabase is not configured." },
+      { error: "I can't build anything yet — this workspace has no Supabase configured." },
       { status: 503 },
     );
   }
@@ -106,30 +106,30 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Sign in to build." }, { status: 401 });
+    return NextResponse.json({ error: "You'll need to sign in before I can build." }, { status: 401 });
   }
 
   let body: BuildRequestBody;
   try {
     body = (await request.json()) as BuildRequestBody;
   } catch {
-    return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
+    return NextResponse.json({ error: "That message didn't arrive in a form I could read. Try sending it again." }, { status: 400 });
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
-    return NextResponse.json({ error: "Describe what you want built." }, { status: 400 });
+    return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
   if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
-      { error: `Keep the description under ${MAX_PROMPT} characters.` },
+      { error: `That's longer than I can take in one message — keep it under ${MAX_PROMPT} characters and send it again.` },
       { status: 400 },
     );
   }
   if (!projectId) {
-    return NextResponse.json({ error: "A build needs a project to belong to." }, { status: 400 });
+    return NextResponse.json({ error: "I don't know which app that belongs to. Open one and try again." }, { status: 400 });
   }
 
   /* Reads under the caller's own session, so RLS answers this: a project id
@@ -144,10 +144,10 @@ export async function POST(request: Request) {
   if (lookupError) {
     // eslint-disable-next-line no-console
     console.error("build: could not read the project:", lookupError);
-    return NextResponse.json({ error: "Could not read that project." }, { status: 500 });
+    return NextResponse.json({ error: "I couldn't read that app just now. Try again in a moment." }, { status: 500 });
   }
   if (!project) {
-    return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
+    return NextResponse.json({ error: "That app isn't in your account, so I can't open it." }, { status: 404 });
   }
 
   /* Writing a build row, and taking payment for one, both need the service key:
@@ -431,7 +431,7 @@ export async function POST(request: Request) {
   if (intent === "edit" && currentHtml) {
     if (!service) {
       return NextResponse.json(
-        { error: "Edits cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
+        { error: "I can make the edit but not save it — this workspace has no SUPABASE_SERVICE_ROLE_KEY set." },
         { status: 503 },
       );
     }
@@ -543,7 +543,7 @@ export async function POST(request: Request) {
   if ((recentBuilds ?? 0) >= BUILDS_PER_HOUR) {
     return NextResponse.json(
       {
-        error: `That is ${BUILDS_PER_HOUR} builds in an hour. Give it a few minutes before the next one.`,
+        error: `That's ${BUILDS_PER_HOUR} builds inside an hour, which is the limit here. Give it a few minutes and I'll carry on.`,
         code: "rate_limited",
       },
       { status: 429 },
