@@ -14,7 +14,6 @@ import {
   MicOff,
   Paperclip,
   Shuffle,
-  Sparkles,
   X,
 } from "lucide-react";
 
@@ -22,6 +21,7 @@ import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../m
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
@@ -623,7 +623,20 @@ export default function ChatPanel({
             than addressing a blank. */}
         <div className="pb-1">
           <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
-            <Sparkles className="h-5 w-5 shrink-0 text-accent" aria-hidden />
+            {/* The mark itself, not a stand-in for one. This was a generic
+                four-point sparkle — the glyph every assistant on the internet
+                uses — which said "an AI" where it should have said whose. */}
+            <QMark
+              finish="flat"
+              /* The viewBox is derived from the hero camera, which frames the
+                 mark at about half the box — correct there, because the 3D one
+                 has to line up with it through a cross-fade. Inline at 22px
+                 that leaves a mark half the height of the words beside it, so
+                 the frame is tightened until the ring and its tail fill it. */
+              scale={1.85}
+              className="mark-drift h-[26px] w-[26px] shrink-0 text-accent"
+              aria-hidden
+            />
             <span>
               {greeting}
               {firstName && (
@@ -647,7 +660,6 @@ export default function ChatPanel({
           <MessageRow
             key={message.id}
             message={message}
-            avatarClass={avatarFor(project?.id)}
             onOpenPreview={onOpenPreview}
           />
         ))}
@@ -659,13 +671,9 @@ export default function ChatPanel({
         {building && runStartedAt !== null && (
           <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
             <div className="flex items-center gap-2">
-              <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-onSolid ${avatarFor(project?.id)}`}
-              >
-                <Sparkles className="h-3 w-3" />
-              </span>
+              <QMark finish="flat" scale={1.85} className="h-5 w-5 shrink-0 text-soft" aria-hidden />
               <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-                QuickStark AI
+                QuickStark<span className="text-accent">.Ai</span>
               </p>
             </div>
             <div className="mt-2.5">
