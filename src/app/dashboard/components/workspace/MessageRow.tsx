@@ -89,7 +89,11 @@ export default function MessageRow({
             "You"
           ) : (
             <>
-              QuickStark<span className="text-accent">.Ai</span>
+              {/* The same green the landing page gives it. Not the shimmer
+                  beside it: that sweeps every seven seconds, and twenty rows
+                  each catching the light on their own schedule is a thread
+                  that will not sit still. */}
+              QuickStark<span className="wordmark-ai">.Ai</span>
             </>
           )}
         </p>
