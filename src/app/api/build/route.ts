@@ -234,7 +234,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   /* Reads under the caller's own session, so RLS answers this: a project id
      belonging to someone else comes back empty and is refused here, and never
      reaches n8n — which runs with a service key and would happily write it. */
-  steps.begin("open", "Opening your app");
+  steps.begin("open", "Opening your app", "checking it's yours to open…");
   const { data: project, error: lookupError } = await supabase
     .from("projects")
     .select("id, name")
@@ -289,7 +289,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      is not enough to reach someone else's page. */
   steps.mark("open", `Opened ${project.name}`);
 
-  steps.begin("page", "Reading the page as it stands");
+  steps.begin("page", "Reading the page as it stands", "fetching the last version you built…");
   const { data: lastBuild } = await supabase
     .from("project_builds")
     .select("id, html")
@@ -335,7 +335,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const attachmentIds = Array.isArray(body.attachmentIds)
     ? (body.attachmentIds.filter((id) => typeof id === "string") as string[])
     : [];
-  if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached");
+  if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached", "opening the files from Storage…");
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
   if (attachments.length > 0) {
     steps.mark(
@@ -348,7 +348,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   /* Announced before the call, not after it. Classifying is a round trip when
      the rules cannot settle it, and this is the line someone reads while that
      round trip is happening. */
-  steps.begin("intent", "Reading your message", "working out what it asks for…");
+  steps.begin("intent", "Reading your message", "working out whether this is a change, a question or a new build…");
 
   const decision = await classifyIntent({
     message: prompt,
@@ -380,7 +380,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   if (intent === "revert") {
-    steps.begin("history", "Looking up the previous version");
+    steps.begin("history", "Looking up the previous version", "reading back through what you've built…");
     const { data: history2 } = await supabase
       .from("project_builds")
       .select("id, html, prompt")
@@ -466,7 +466,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
-      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page to find what's missing…`);
       const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "clarify",
@@ -515,7 +515,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      steps.begin("answer", "Reading the page to answer you", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
       const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "answer",
@@ -600,7 +600,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      steps.begin("edit", "Changing the page", `${EDIT_MODEL} is writing the change…`);
+      steps.begin("edit", "Making the change", `${EDIT_MODEL} is working out exactly what to rewrite…`);
       edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "edit",
@@ -621,7 +621,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       throw error;
     }
 
-    steps.begin("version", "Saving the new version");
+    steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
@@ -761,7 +761,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      the orchestrator is given nothing to edit. */
   let result: BuildResult;
   try {
-    steps.running("orchestrator", "Generating the page", "handed to the build orchestrator");
+    steps.running(
+      "orchestrator",
+      "Building your page",
+      "handed to the orchestrator — this one takes minutes, not seconds…",
+    );
     result = await startBuild({
       prompt,
       projectName: project.name,

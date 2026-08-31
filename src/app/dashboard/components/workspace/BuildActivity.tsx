@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown, ExternalLink } from "lucide-react";
 
@@ -19,6 +19,10 @@ export type ActivityStep = {
       currently running — its duration is not known until it ends. */
   ms?: number;
 };
+
+/* How long a step has to have been running before its live counter appears.
+   Under this it is a flicker of digits on a row that is about to be replaced. */
+const LIVE_AFTER_MS = 700;
 
 /* Seconds as a person reads them: "38s" under a minute, "1m 4s" over it. */
 export function formatDuration(seconds: number): string {
@@ -95,13 +99,32 @@ export default function BuildActivity({
 
   /* A second hand, not an animation: it reads the clock rather than counting
      its own ticks, so a tab left in the background comes back with the right
-     number instead of however many intervals the browser chose to run. */
+     number instead of however many intervals the browser chose to run.
+
+     Twice a second rather than once, because it now also drives the counter on
+     the running row, and a step that finishes in 1.4s should not have spent all
+     of it reading "1s". */
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!running) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(id);
   }, [running]);
+
+  /* When each step was first seen here. The server measures a finished step and
+     sends the duration with it; this is the other half — how long the one that
+     has not finished has been going. Without it a forty-second generation is a
+     pulsing dot and nothing else, which reads the same whether it is working or
+     stuck.
+
+     Held in a ref rather than state because writing it must not itself cause a
+     render, and read only while `running`: a stored timeline on an old message
+     is a record, and a clock ticking inside it would be counting from the
+     moment someone scrolled past. */
+  const firstSeen = useRef<Record<string, number>>({});
+  for (const step of steps) {
+    if (firstSeen.current[step.id] === undefined) firstSeen.current[step.id] = Date.now();
+  }
 
   const elapsed = ((finishedAt ?? (running ? now : startedAt)) - startedAt) / 1000;
 
@@ -143,6 +166,21 @@ export default function BuildActivity({
                      saying what is happening right now, and hiding that behind
                      a click would be hiding the only live thing on the panel. */
                   const showDetail = step.detail !== undefined && (isOpen || step.state === "running");
+
+                  /* How long this one has been going, for the row that has not
+                     finished. Null everywhere else: a finished step carries the
+                     server's own measurement, which is the better number, and a
+                     step in a stored timeline is not going anywhere. */
+                  const since =
+                    running && step.state === "running" && firstSeen.current[step.id] !== undefined
+                      ? now - firstSeen.current[step.id]
+                      : null;
+                  /* Held back until there is something to report. A row that
+                     appears carrying "0ms" reads as a measurement rather than
+                     as a counter starting, and most steps are gone again before
+                     this threshold — which is the right answer for them: they
+                     were quick, and the finished row says exactly how quick. */
+                  const live = since !== null && since >= LIVE_AFTER_MS ? since : null;
 
                   return (
                     <li key={step.id}>
@@ -189,10 +227,16 @@ export default function BuildActivity({
                             >
                               {step.label}
                             </span>
-                            {typeof step.ms === "number" && (
+                            {typeof step.ms === "number" ? (
                               <span className="shrink-0 text-[12px] tabular-nums text-muted">
                                 {formatStepDuration(step.ms)}
                               </span>
+                            ) : (
+                              live !== null && (
+                                <span className="shrink-0 text-[12px] tabular-nums text-muted/70">
+                                  {formatStepDuration(live)}
+                                </span>
+                              )
                             )}
                           </span>
                         )}
