@@ -104,6 +104,54 @@ export default function PreviewPanel({
   const previewUrl = safeHttpUrl(project?.preview_url);
   const repoUrl = safeHttpUrl(project?.repo_url);
 
+  /* The page is fetched here and handed to the frame as srcdoc, rather than
+     pointed at with src.
+     A build's page is private: /preview/<id> reads it under the caller's own
+     session so RLS answers for it. But the frame is sandboxed without
+     allow-same-origin — it has to be, because the page runs scripts a prompt
+     asked for — and a frame in an opaque origin is a fragile place to depend on
+     a cookie reaching. Fetching from the panel is an ordinary same-origin
+     request that certainly carries the session, and srcdoc keeps the result
+     opaque exactly as before.
+
+     By path rather than by the stored address: preview_url is absolute and
+     points at the canonical site, which is not necessarily the host this is
+     being browsed on — a preview deployment would fetch cross-origin and get
+     nothing. The link below still uses the stored address, because opening it
+     in a tab is a real navigation and should land on the real site. */
+  const previewPath = project?.id ? `/preview/${project.id}` : null;
+  const [pageHtml, setPageHtml] = useState<string | null>(null);
+  const [pageFailed, setPageFailed] = useState(false);
+
+  useEffect(() => {
+    if (!previewUrl || !previewPath) {
+      setPageHtml(null);
+      setPageFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPageHtml(null);
+    setPageFailed(false);
+
+    void fetch(previewPath, { cache: "no-store" })
+      .then((response) => (response.ok ? response.text() : null))
+      .then((html) => {
+        if (cancelled) return;
+        setPageHtml(html);
+        setPageFailed(html === null);
+      })
+      .catch(() => {
+        if (!cancelled) setPageFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    /* `reloads` is a dependency on purpose: the refresh button rebuilds the
+       page rather than only remounting a frame around the same copy. */
+  }, [previewUrl, previewPath, reloads]);
+
   useEffect(() => {
     if (!request) return;
     setView("manage");
@@ -258,13 +306,27 @@ export default function PreviewPanel({
               Open
             </a>
           </div>
-          <iframe
-            key={`${previewUrl}#${reloads}`}
-            src={previewUrl}
-            title={`${project?.name ?? "App"} preview`}
-            sandbox="allow-scripts allow-forms allow-popups"
-            className="min-h-0 flex-1 border-0 bg-white"
-          />
+          {pageHtml !== null ? (
+            <iframe
+              key={`${previewUrl}#${reloads}`}
+              srcDoc={pageHtml}
+              title={`${project?.name ?? "App"} preview`}
+              /* No allow-same-origin, deliberately: this document was written by
+                 a model from someone's prompt, and it runs its own scripts. An
+                 opaque origin is what keeps it away from the session cookie and
+                 the API routes on this domain. */
+              sandbox="allow-scripts allow-forms allow-popups"
+              className="min-h-0 flex-1 border-0 bg-white"
+            />
+          ) : (
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-white px-6 text-center">
+              <p className="text-[13px] leading-relaxed text-slate-500">
+                {pageFailed
+                  ? "This page could not be loaded. Try refreshing."
+                  : "Loading the page…"}
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">

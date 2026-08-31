@@ -120,11 +120,17 @@ export async function POST(request: Request) {
   /* The row the workspace is watching. This is the moment the spinner in the
      chat becomes a preview, so it is written here rather than left to a later
      step that might not run: a stored page nothing points at is a build that
-     silently did not happen. */
+     silently did not happen.
+
+     "Built", not "Building": the page exists. Leaving it Building was a real
+     bug — the workspace reads that status to decide whether to show a spinner
+     or a preview, so a finished app sat under "Building…" forever with its own
+     page already stored behind it. Not "Live" either, which means published,
+     which this is not. */
   const { error: updateError } = await supabase
     .from("projects")
     .update({
-      status: "Building",
+      status: "Built",
       intent: "webapp",
       preview_url: previewUrl,
       last_build_at: new Date().toISOString(),

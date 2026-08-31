@@ -4,8 +4,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, LayoutGrid, Laptop, MoreHorizontal, Radio } from "lucide-react";
 
-import { avatarFor } from "../projectColours";
 import { isPublished, useProjects, type Project } from "../ProjectsContext";
+import PageThumbnail from "./PageThumbnail";
+import { safeHttpUrl } from "@/lib/safe-url";
 
 type Filter = "all" | "apps" | "published";
 
@@ -245,15 +246,14 @@ export default function ProjectList() {
                 onClick={() => router.push(`/dashboard/project/${project.id}?view=preview`)}
                 className="flex min-w-0 flex-1 items-center gap-4 text-left"
               >
-                {/* Nothing screenshots a build yet, so the tile is the project's
-                    own colour and initial rather than a stand-in preview. */}
-                <span
-                  className={`flex h-[70px] w-[110px] shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-lg font-semibold text-ink/90 ${avatarFor(
-                    project.id,
-                  )}`}
-                >
-                  {project.name.charAt(0).toUpperCase()}
-                </span>
+                {/* The page itself, drawn small — not a screenshot and not a
+                    stand-in. An app that has never been built has nothing to
+                    draw, so it keeps the colour and initial it always had. */}
+                <PageThumbnail
+                  projectId={project.id}
+                  hasPage={Boolean(safeHttpUrl(project.preview_url))}
+                  name={project.name}
+                />
                 <span className="min-w-0">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[15px] text-ink">{project.name}</span>
