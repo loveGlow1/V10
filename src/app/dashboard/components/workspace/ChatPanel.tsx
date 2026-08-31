@@ -8,32 +8,94 @@ import {
   Check,
   ChevronDown,
   Eye,
-  ExternalLink,
   GitFork,
   Github,
   MicOff,
   Paperclip,
   Shuffle,
+  Sparkles,
 } from "lucide-react";
 
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
+import BuildActivity, { type ActivityStep } from "./BuildActivity";
+import MessageRow, { type Message } from "./MessageRow";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
 
-type Message = {
-  id: number;
-  from: "you" | "system";
-  text: string;
-  /* A build that came back with somewhere to look. Rendered as links under the
-     reply rather than pasted into it, so the address stays clickable. */
-  links?: { label: string; href: string }[];
-  tone?: "normal" | "error";
+/* What the orchestrator decided this build was. Its own words, in ours — the
+   raw value is a key ("webapp"), and an unrecognised one is passed through
+   rather than dropped, because a branch added to the workflow later should
+   show up here as itself instead of vanishing. */
+const INTENT_LABEL: Record<string, string> = {
+  webapp: "a web app",
+  wordpress: "a WordPress site",
+  ecommerce: "an online store",
 };
+
+/* How many files the build says it touched, if it said. Read defensively: this
+   comes out of a workflow that can be edited in a browser, so anything but a
+   real count is treated as "it did not say". */
+function filesTouchedFrom(artifacts: Record<string, unknown> | undefined): number | null {
+  const reported = artifacts?.filesTouched;
+  return typeof reported === "number" && Number.isFinite(reported) && reported >= 0
+    ? Math.floor(reported)
+    : null;
+}
+
+/* The step list for a build that has come back, built from what it actually
+   reported. Every line here is evidence: the request was sent, the classifier
+   answered, and each address that exists is one the orchestrator returned.
+
+   There are no per-step durations, because there are none to have — /api/build
+   is one call and the orchestrator does not report its internal timings. The
+   run's own elapsed time is measured and shown under the list; inventing a
+   number for each line would be the one dishonest thing on the panel. */
+function stepsFor(outcome: {
+  intent: string;
+  status: string;
+  links: { preview: string; repo: string; admin: string };
+}): ActivityStep[] {
+  const steps: ActivityStep[] = [
+    { id: "sent", label: "Sent to the build orchestrator", state: "done" },
+  ];
+
+  steps.push({
+    id: "intent",
+    label:
+      outcome.intent && outcome.intent !== "unclassified"
+        ? `Classified as ${INTENT_LABEL[outcome.intent] ?? outcome.intent}`
+        : "Could not classify the request",
+    state: "done",
+  });
+
+  const built: [string, string | null, string][] = [
+    ["preview", safeHttpUrl(outcome.links.preview), "Preview deployed"],
+    ["repo", safeHttpUrl(outcome.links.repo), "Repository written"],
+    ["admin", safeHttpUrl(outcome.links.admin), "Admin provisioned"],
+  ];
+  for (const [id, href, label] of built) {
+    if (href) steps.push({ id, label, state: "done" });
+  }
+
+  steps.push({
+    id: "status",
+    label:
+      outcome.status === "Failed"
+        ? "The build reported a failure"
+        : outcome.status === "Needs Clarification"
+          ? "The build needs more detail before it can finish"
+          : "Changes applied",
+    state: "done",
+  });
+
+  return steps;
+}
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -83,6 +145,17 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* When the build in flight was sent. The tracker counts from it, so it is
+     state rather than a ref — the panel has to re-render when it changes. */
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  /* Whose workspace this is. Empty until the session answers, and empty for
+     good on an account that never gave a name — the greeting handles both. */
+  const { firstName } = useAccountName();
+  /* Read after mount rather than during render: this component is server
+     rendered too, and the server's hour is not the reader's. A neutral opener
+     until then, so the first paint is never wrong about the time of day. */
+  const [greeting, setGreeting] = useState("Welcome back");
+  useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -94,6 +167,7 @@ export default function ChatPanel({
   useEffect(() => {
     setMessages([]);
     setDraft("");
+    setStartedAt(null);
     nextId.current = 0;
   }, [project?.id]);
 
@@ -114,10 +188,12 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt]);
 
+  /* Also on `building`, not only on `messages`: the tracker appearing is a
+     change in the stream's height that no new message accounts for. */
   useEffect(() => {
     const stream = streamRef.current;
     if (stream) stream.scrollTop = stream.scrollHeight;
-  }, [messages]);
+  }, [messages, building]);
 
   /* Told to the strip rather than to a tab of its own: another prompt in this
      app is the same app. The cleanup clears the mark when the workspace is left
@@ -147,9 +223,14 @@ export default function ChatPanel({
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
 
-    setMessages((current) => [...current, { id: nextId.current++, from: "you", text }]);
+    const sentAt = Date.now();
+    setMessages((current) => [
+      ...current,
+      { id: nextId.current++, from: "you", text, at: sentAt },
+    ]);
     if (prompt === undefined) setDraft("");
     setBuilding(true);
+    setStartedAt(sentAt);
 
     try {
       const outcome = await build(project.id, text);
@@ -160,34 +241,57 @@ export default function ChatPanel({
          `javascript:` address out of an anchor in this origin — the server
          filters too, and this is the half that cannot be bypassed by anything
          reaching the browser another way. */
+      /* The preview is not among these: the tracker below the reply carries it,
+         and offering the same address twice in one card reads as two different
+         destinations. These are the two it does not carry. */
       const links = [
-        { label: "Open preview", href: safeHttpUrl(outcome.links.preview) },
         { label: "View code", href: safeHttpUrl(outcome.links.repo) },
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
       ].filter((link): link is { label: string; href: string } => link.href !== null);
 
+      /* Measured, not estimated: the clock started when the request went out
+         and stops here. `files touched` is the orchestrator's own figure — the
+         same one the build was priced from — and is left off entirely when it
+         did not report one, rather than shown as zero. */
+      const touched = filesTouchedFrom(outcome.artifacts);
       setMessages((current) => [
         ...current,
         {
           id: nextId.current++,
           from: "system",
           text: outcome.message,
+          at: Date.now(),
           links: links.length ? links : undefined,
           tone: outcome.status === "Failed" ? "error" : "normal",
+          activity: {
+            steps: stepsFor(outcome),
+            startedAt: sentAt,
+            finishedAt: Date.now(),
+            failed: outcome.status === "Failed",
+            note:
+              touched === null
+                ? undefined
+                : `${touched} ${touched === 1 ? "file" : "files"} touched`,
+            previewHref: safeHttpUrl(outcome.links.preview),
+          },
         },
       ]);
     } catch (error) {
+      /* A build that never reached the orchestrator has no steps to show — the
+         message is the whole of what is known, so no tracker is attached. */
       setMessages((current) => [
         ...current,
         {
           id: nextId.current++,
           from: "system",
           text: (error as Error).message,
+          at: Date.now(),
           tone: "error",
         },
       ]);
     } finally {
       setBuilding(false);
+      setStartedAt(null);
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
@@ -275,52 +379,73 @@ export default function ChatPanel({
         ref={streamRef}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
       >
-        {messages.length === 0 ? (
-          <p className="pt-8 text-center text-sm text-muted">
+        {/* Who this is and what it is for, at the top of the thread rather than
+            floating in the middle of it — so it scrolls away as the
+            conversation grows instead of competing with it. The name is the
+            one on the account; without one the greeting simply stops after the
+            time of day rather than addressing a blank. */}
+        <div className="pb-1">
+          <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
+            <Sparkles className="h-5 w-5 shrink-0 text-accent" aria-hidden />
+            <span>
+              {greeting}
+              {firstName && (
+                <>
+                  , <span className="text-accent">{firstName}</span>
+                </>
+              )}
+            </span>
+            <span aria-hidden>👋</span>
+          </h2>
+          <p className="mt-1 text-[13px] text-muted">How can I help you build today?</p>
+        </div>
+
+        {messages.length === 0 && !building && (
+          <p className="pt-6 text-center text-sm text-muted">
             Describe a change and it will appear here.
           </p>
-        ) : (
-          messages.map((message) =>
-            message.from === "you" ? (
-              <p
-                key={message.id}
-                className="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-layer/[0.08] px-3.5 py-2.5 text-[14px] leading-relaxed text-ink"
-              >
-                {message.text}
-              </p>
-            ) : (
-              <div key={message.id} className="max-w-[88%]">
-                <p
-                  className={`text-[13px] leading-relaxed ${
-                    message.tone === "error" ? "text-danger" : "text-muted"
-                  }`}
-                >
-                  {message.text}
-                </p>
-                {message.links && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {message.links.map((link) => (
-                      <a
-                        key={link.href}
-                        href={link.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
-                      >
-                        {link.label}
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          )
         )}
-        {building && (
-          <p className="max-w-[88%] animate-pulse text-[13px] leading-relaxed text-muted">
-            Building…
-          </p>
+
+        {messages.map((message) => (
+          <MessageRow
+            key={message.id}
+            message={message}
+            avatarClass={avatarFor(project?.id)}
+            onOpenPreview={onOpenPreview}
+          />
+        ))}
+
+        {/* The build in flight. One step, because one is all that is known
+            while /api/build is out — see BuildActivity for why it is not five.
+            The clock under it is real and ticking. */}
+        {building && startedAt !== null && (
+          <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-onSolid ${avatarFor(project?.id)}`}
+              >
+                <Sparkles className="h-3 w-3" />
+              </span>
+              <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                QuickStark AI
+              </p>
+            </div>
+            <div className="mt-2.5">
+              <BuildActivity
+                running
+                startedAt={startedAt}
+                steps={[
+                  { id: "sent", label: "Sent to the build orchestrator", state: "done" },
+                  {
+                    id: "building",
+                    label: "Building your app",
+                    detail: "Waiting on the orchestrator…",
+                    state: "running",
+                  },
+                ]}
+              />
+            </div>
+          </div>
         )}
       </div>
 

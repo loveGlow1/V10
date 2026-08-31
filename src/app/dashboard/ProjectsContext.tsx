@@ -28,6 +28,13 @@ export type BuildOutcome = {
   intent: string;
   links: { preview: string; repo: string; admin: string };
   configKeys: Record<string, string>;
+  /* Whatever the branch that ran reported making — stack, plugins, tables,
+     files touched. /api/build already passes this through (it is what the
+     build is priced from); declaring it here is what lets the workspace report
+     the real figure rather than a decorative one. Unknown shape on purpose: it
+     is written by a workflow someone can edit in a browser, so anything read
+     out of it is checked at the point of reading. */
+  artifacts?: Record<string, unknown>;
 };
 
 /* Every read asks for the same columns. Written once so a column added to the
