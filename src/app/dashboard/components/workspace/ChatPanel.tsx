@@ -660,15 +660,28 @@ export default function ChatPanel({
                 comes from the same camera, so the fraction of the frame it
                 fills is the fraction the 3D one fills. */}
             <Q3DCanvas scale={1.1} spinAxisTiltDeg={90} className="h-14 w-14 shrink-0" />
+            {/* The landing page's own wordmark treatment, brought across so the
+                greeting is in the brand's voice rather than in plain white and
+                a flat green. The time of day takes the silver gradient and its
+                sweep — a band of light at 100 degrees crossing the letters
+                every seven seconds, which is the slant — and the name takes the
+                green one, which carries a glow of its own. Both classes are the
+                ones page.tsx already uses on QuickStark.Ai; this is not a
+                second set that would drift from them. */}
+            {/* The wave sits inside this span rather than beside it as a third
+                flex item. As a sibling it was its own wrap opportunity, so a
+                long name and a 56px mark could push it alone onto the next
+                line — a greeting on one line and a hand on the next. Inline,
+                it travels with the words it belongs to. */}
             <span>
-              {greeting}
+              <span className="wordmark-quickstart metal-shimmer">{greeting}</span>
               {firstName && (
                 <>
-                  , <span className="text-accent">{firstName}</span>
+                  , <span className="wordmark-ai">{firstName}</span>
                 </>
-              )}
+              )}{" "}
+              <span aria-hidden>👋</span>
             </span>
-            <span aria-hidden>👋</span>
           </h2>
           <p className="mt-1 text-[13px] text-muted">How can I help you build today?</p>
         </div>
@@ -696,7 +709,7 @@ export default function ChatPanel({
             <div className="flex items-center gap-2">
               <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
               <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-                QuickStark<span className="text-accent">.Ai</span>
+                QuickStark<span className="wordmark-ai">.Ai</span>
               </p>
             </div>
             <div className="mt-2.5">
