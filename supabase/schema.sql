@@ -850,3 +850,69 @@ drop policy if exists "Owners delete their messages" on public.project_messages;
 create policy "Owners delete their messages"
   on public.project_messages for delete
   using (auth.uid() = user_id);
+
+-- ── Attachments ────────────────────────────────────────────────────────────
+--
+-- Files someone attaches to a message, so a build has more to go on than a
+-- sentence: a screenshot to match, a logo to use, a page of copy to lay out.
+--
+-- The bytes live in Storage, not in a column. A logo is a hundred kilobytes and
+-- a screenshot is often a megabyte; putting those in a row means reading them
+-- on every query that touches the table.
+insert into storage.buckets (id, name, public)
+values ('attachments', 'attachments', false)
+on conflict (id) do nothing;
+
+-- Private. Every read is a signed URL or a server-side read under the service
+-- key: an attachment is someone's brand asset or their unreleased design, and a
+-- public bucket makes every one of them a guessable URL.
+--
+-- The path is <user_id>/<project_id>/<file>, so the first segment is the owner
+-- and the policies are a comparison against it.
+drop policy if exists "Owners read their attachments" on storage.objects;
+create policy "Owners read their attachments"
+  on storage.objects for select
+  using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners upload their attachments" on storage.objects;
+create policy "Owners upload their attachments"
+  on storage.objects for insert
+  with check (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners delete their attachments" on storage.objects;
+create policy "Owners delete their attachments"
+  on storage.objects for delete
+  using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create table if not exists public.project_attachments (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  -- Path within the attachments bucket: <user_id>/<project_id>/<file>.
+  path       text not null unique,
+  -- What the person called it, which is what the chat shows.
+  name       text not null,
+  mime       text not null default 'application/octet-stream',
+  bytes      integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists project_attachments_project_created_idx
+  on public.project_attachments (project_id, created_at desc);
+
+alter table public.project_attachments enable row level security;
+
+drop policy if exists "Owners read their attachment rows" on public.project_attachments;
+create policy "Owners read their attachment rows"
+  on public.project_attachments for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners write their attachment rows" on public.project_attachments;
+create policy "Owners write their attachment rows"
+  on public.project_attachments for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners delete their attachment rows" on public.project_attachments;
+create policy "Owners delete their attachment rows"
+  on public.project_attachments for delete
+  using (auth.uid() = user_id);

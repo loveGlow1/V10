@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf } from "@/app/dashboard/credits";
+import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
@@ -46,6 +47,9 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Files uploaded with this message: a screenshot to match, a logo to use, a
+     page of copy to lay out. Ids only — the bytes are read on the server. */
+  attachmentIds?: unknown;
 };
 
 /* An edit is billed as generation, like a build, but priced from how many
@@ -185,6 +189,14 @@ export async function POST(request: Request) {
     .reverse()
     .map((row) => ({ from: row.role, text: row.body }));
 
+  /* Whatever was attached to this message, resolved to rows the server can
+     read. Restricted to this project and this owner: the ids came from the
+     caller, and the read behind them uses the service key. */
+  const attachmentIds = Array.isArray(body.attachmentIds)
+    ? (body.attachmentIds.filter((id) => typeof id === "string") as string[])
+    : [];
+  const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+
   const decision = await classifyIntent({
     message: prompt,
     hasPage: Boolean(currentHtml),
@@ -277,7 +289,7 @@ export async function POST(request: Request) {
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      const answer = await answerQuestion(prompt, currentHtml);
+      const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
       return NextResponse.json({
         intent: "question",
         build: {
@@ -339,7 +351,7 @@ export async function POST(request: Request) {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      edited = await editPage(prompt, currentHtml);
+      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
     } catch (error) {
       if (error instanceof EditError) {
         /* The page is untouched. Said plainly, and with the prompt left in the
@@ -481,6 +493,10 @@ export async function POST(request: Request) {
       userId: user.id,
       projectId: project.id,
       requestId,
+      /* What was attached, in the two forms a workflow can carry: signed
+         addresses for images, and text already read for everything else. */
+      attachmentUrls: await signedImageUrls(attachments),
+      attachmentText: await attachmentText(attachments),
     });
   } catch (error) {
     if (error instanceof BuilderError) {

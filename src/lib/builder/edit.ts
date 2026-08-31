@@ -43,6 +43,10 @@ async function ask(
   system: string,
   prompt: string,
   maxTokens: number,
+  /* Files the person attached, as blocks. They go BEFORE the text, because the
+     text refers to them — "match this screenshot" reads as an instruction only
+     once the screenshot is already in view. */
+  attachments: Anthropic.ContentBlockParam[] = [],
 ): Promise<Anthropic.Message> {
   try {
     return await client().messages.create({
@@ -54,7 +58,15 @@ async function ask(
       thinking: { type: "adaptive" },
       output_config: { effort: "low" },
       system,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "user",
+          content:
+            attachments.length > 0
+              ? [...attachments, { type: "text" as const, text: prompt }]
+              : prompt,
+        },
+      ],
     });
   } catch (error) {
     if (error instanceof EditError) throw error;
@@ -82,8 +94,12 @@ export type EditOutcome = {
  * Applies a described change to a page. Throws {@link EditError} when nothing
  * could be applied — and in that case the page is left exactly as it was.
  */
-export async function editPage(userMessage: string, html: string): Promise<EditOutcome> {
-  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000);
+export async function editPage(
+  userMessage: string,
+  html: string,
+  attachments: Anthropic.ContentBlockParam[] = [],
+): Promise<EditOutcome> {
+  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments);
 
   if (first.stop_reason === "refusal") {
     throw new EditError("The model declined to make that change.", 422);
@@ -99,7 +115,12 @@ export async function editPage(userMessage: string, html: string): Promise<EditO
       ? describeFailures(result.failures)
       : "You returned no search/replace blocks.";
 
-    const second = await ask(EDIT_SYSTEM, retryPrompt(userMessage, html, reason), 8_000);
+    const second = await ask(
+      EDIT_SYSTEM,
+      retryPrompt(userMessage, html, reason),
+      8_000,
+      attachments,
+    );
     result = applyPatches(html, textOf(second));
 
     if (result.applied === 0) {
@@ -118,8 +139,12 @@ export async function editPage(userMessage: string, html: string): Promise<EditO
 }
 
 /** Answers a question about a page. Changes nothing. */
-export async function answerQuestion(userMessage: string, html: string): Promise<string> {
-  const message = await ask(QUESTION_SYSTEM, questionPrompt(userMessage, html), 1_500);
+export async function answerQuestion(
+  userMessage: string,
+  html: string,
+  attachments: Anthropic.ContentBlockParam[] = [],
+): Promise<string> {
+  const message = await ask(QUESTION_SYSTEM, questionPrompt(userMessage, html), 1_500, attachments);
 
   if (message.stop_reason === "refusal") {
     throw new EditError("The model declined to answer that.", 422);

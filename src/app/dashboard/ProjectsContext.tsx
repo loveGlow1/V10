@@ -50,6 +50,8 @@ export type BuildOptions = {
   intentOverride?: BuildIntent | null;
   /** The second press of "Replace project". */
   confirmNewProject?: boolean;
+  /** Files uploaded with this message. Ids only — the bytes stay in Storage. */
+  attachmentIds?: string[];
 };
 
 /* How the workspace waits for a page. Generation is not bounded by an HTTP
@@ -230,6 +232,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           prompt,
           intentOverride: options.intentOverride ?? null,
           confirmNewProject: options.confirmNewProject === true,
+          attachmentIds: options.attachmentIds ?? [],
         }),
       });
 

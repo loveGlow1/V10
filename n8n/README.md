@@ -9,9 +9,18 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
 
 ## Shape
 
+**Only new builds reach this workflow.** The app classifies every message
+first — edit, new_project, question or revert — and handles three of the four
+itself: an edit is a search/replace patch applied in the app in seconds, and a
+question or a revert never leaves it. A build that would replace a page someone
+already has is confirmed with them before it is sent. See
+`src/lib/builder/intent.ts`.
+
+So the page here is always generated fresh, and there is no `previousHtml`.
+
 ```
 [ QuickStark.Ai Chat UI ]
-          │  POST /webhook/api/v1/build
+          │  POST /webhook/api/v1/build  (new builds only)
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
@@ -205,6 +214,14 @@ that is gated on every enabled node having a credential attached.
    | `Generate Page` | POSTs the Anthropic Messages API directly, under the same credential the classifier uses. Ten-minute timeout, because nothing is waiting on it. |
    | `Save Page` | POSTs the document to `/api/builder/webapp/save`. |
 
+   **Attachments.** A build can be given files. Images arrive as signed URLs in
+   `attachmentUrls` and become image blocks in the request — URLs rather than
+   base64, because pushing megabytes through a webhook to say the same thing is
+   the version that falls over. They are signed for an hour, comfortably longer
+   than a build. Text files are read on the app's side and arrive already inside
+   `attachmentText`. Both are optional; with nothing attached the request is
+   exactly what it was.
+
    `Generate Page` calls the API with an HTTP node rather than an LLM chain on
    purpose: a generated page is full of `{` and `}`, and a chain reads those as
    prompt template variables. Editing an existing page would corrupt it.
@@ -301,6 +318,12 @@ that is gated on every enabled node having a credential attached.
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
+
+## What the classifier decides now
+
+A narrower question than it once answered. The app has already decided the
+message is a build; this decides whether it is a build of something we make —
+a web app or a landing page, or something to be answered with "not yet".
 
 ## Adding a build type back
 

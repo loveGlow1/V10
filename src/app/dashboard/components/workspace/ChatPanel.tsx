@@ -14,6 +14,7 @@ import {
   MicOff,
   Paperclip,
   Shuffle,
+  X,
 } from "lucide-react";
 
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
@@ -26,6 +27,12 @@ import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
 import { appendToThread, loadThread, type ThreadMessage } from "@/lib/project-messages";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import {
+  ACCEPT,
+  MAX_ATTACHMENTS,
+  uploadAttachment,
+  type Attachment,
+} from "@/lib/project-attachments";
 
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
@@ -87,6 +94,10 @@ export default function ChatPanel({
   /* A message that would replace the page, waiting to be confirmed. Held whole
      so the same text can be sent again either way. */
   const [pendingConfirm, setPendingConfirm] = useState<{ text: string } | null>(null);
+  /* Files chosen for the message being written. They belong to the message, not
+     to the project, so they are cleared once it is sent. */
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -197,6 +208,36 @@ export default function ChatPanel({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [modelOpen, forkOpen]);
 
+  async function attachFiles(files: FileList) {
+    if (!project || !userId) return;
+
+    const room = MAX_ATTACHMENTS - attached.length;
+    if (room <= 0) {
+      say({
+        from: "system",
+        text: `A message can carry ${MAX_ATTACHMENTS} files. Send these first.`,
+        tone: "error",
+      });
+      return;
+    }
+
+    setUploading(true);
+    /* One at a time and reported one at a time: a rejected file should say
+       which file and why, rather than failing the whole selection. */
+    for (const file of Array.from(files).slice(0, room)) {
+      const result = await uploadAttachment(file, project.id, userId);
+      if (result.error) {
+        say({ from: "system", text: result.error, tone: "error" });
+        continue;
+      }
+      if (result.attachment) {
+        const added = result.attachment;
+        setAttached((current) => [...current, added]);
+      }
+    }
+    setUploading(false);
+  }
+
   /* Every message goes through here, so nothing can be shown without also being
      kept. The write is not awaited and its failure is not raised: a message on
      screen should stay on screen, and losing a row from the history is not
@@ -210,9 +251,20 @@ export default function ChatPanel({
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
 
+    /* Taken before the send and put back if it fails, so a refused message
+       keeps its files as well as its words — re-attaching four screenshots to
+       retry a sentence is the kind of thing that makes people give up. */
+    const sent = attached;
+
     /* `silent` is the re-send behind a confirmation: the message is already in
        the conversation, and saying it twice would read as sending it twice. */
-    if (!options.silent) say({ from: "you", text });
+    if (!options.silent) {
+      say({
+        from: "you",
+        text: sent.length > 0 ? `${text}\n\n(${sent.map((f) => f.name).join(", ")})` : text,
+      });
+    }
+    setAttached([]);
     if (prompt === undefined) setDraft("");
     setBuilding(true);
 
@@ -226,6 +278,7 @@ export default function ChatPanel({
       const reply = await build(project.id, text, {
         intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
         confirmNewProject: options.confirmNewProject === true,
+        attachmentIds: sent.map((file) => file.id),
       });
 
       /* Nothing was changed. The page is exactly as it was, so this is a
@@ -234,6 +287,7 @@ export default function ChatPanel({
       if (reply.error || !reply.outcome) {
         say({ from: "system", text: reply.error ?? "The message could not be sent.", tone: "error" });
         if (prompt === undefined) setDraft(text);
+        setAttached(sent);
         return;
       }
 
@@ -242,6 +296,8 @@ export default function ChatPanel({
       if (reply.needsConfirmation) {
         say({ from: "system", text: reply.outcome.message, tone: "error" });
         setPendingConfirm({ text });
+        /* Nothing ran, so the files are still this message's. */
+        setAttached(sent);
         return;
       }
 
@@ -476,6 +532,32 @@ export default function ChatPanel({
       </AnimatePresence>
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        {/* What is going with this message. Named rather than counted: "logo.svg,
+            hero.png" is the difference between knowing what you attached and
+            trusting that two files are the right two. */}
+        {(attached.length > 0 || uploading) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1">
+            {attached.map((file) => (
+              <span
+                key={file.id}
+                className="flex max-w-[220px] items-center gap-1.5 rounded-md border border-line/[0.1] bg-layer/[0.04] py-1 pl-2 pr-1 text-[12px] text-ink"
+              >
+                <Paperclip className="h-3 w-3 shrink-0 -rotate-45 text-muted" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttached((current) => current.filter((f) => f.id !== file.id))}
+                  aria-label={`Remove ${file.name}`}
+                  className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-ink"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {uploading && <span className="text-[12px] text-muted">Attaching…</span>}
+          </div>
+        )}
+
         {/* What the next message will be taken to mean, and a way to say
             otherwise. Only once a page exists: before that every message is the
             first build, and there is nothing a chip could change. */}
@@ -583,9 +665,15 @@ export default function ChatPanel({
                   type="file"
                   ref={fileInputRef}
                   multiple
+                  accept={ACCEPT}
                   className="sr-only"
                   onChange={(event) => {
-                    console.log(event.target.files);
+                    const files = event.target.files;
+                    if (files?.length) void attachFiles(files);
+                    /* Cleared so choosing the same file twice still fires a
+                       change — which is what happens when the first attempt was
+                       rejected and the second is the same file. */
+                    event.target.value = "";
                   }}
                 />
                 <button
