@@ -98,10 +98,35 @@ export function usePacedSteps(): PacedSteps {
 
   const show = useCallback(
     (step: ActivityStep) => {
+      /* A running step re-announcing itself is not a new row — it is the row on
+         screen saying something newer about itself, which is what the model's
+         own reasoning arrives as while a long call runs.
+         
+         Queueing those would be wrong twice over: the line would lag the work
+         by however many updates were waiting, and the queue would grow all
+         through the call only to flush a backlog of stale sentences at the end.
+         So a refinement of the row already showing is applied at once, and a
+         refinement of one still queued replaces it where it stands. */
+      if (step.state === "running") {
+        const showing = run.current[run.current.length - 1];
+        if (showing?.id === step.id && showing.state === "running") {
+          set(step);
+          return;
+        }
+
+        const queued = queue.current.findIndex(
+          (waiting) => waiting.id === step.id && waiting.state === "running",
+        );
+        if (queued !== -1) {
+          queue.current[queued] = step;
+          return;
+        }
+      }
+
       queue.current.push(step);
       void drain();
     },
-    [drain],
+    [drain, set],
   );
 
   const reset = useCallback(() => {

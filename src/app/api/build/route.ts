@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { EDIT_MODEL, EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
+import {
+  EDIT_MODEL,
+  EditError,
+  answerQuestion,
+  askClarifying,
+  editPage,
+  type OnProgress,
+} from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
@@ -207,6 +214,26 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      reads before that point are quick but they are not free, and a panel that
      begins at the classifier is silent for whatever they cost. */
   const steps = stepRecorder(emit);
+
+  /* Turns what the model reports about itself into the line under a step.
+   *
+   * This is the difference between a tracker that narrates and one that
+   * decorates. "claude-opus-5 is writing the change…" is written here — the
+   * same words whatever was asked for, true of every edit and specific to
+   * none. What goes through this instead is Claude's own summarised reasoning
+   * as it works, and then the count of patch blocks as they are written.
+   *
+   * Re-announcing the same id is what makes it a live line rather than a new
+   * row: the panel merges by id, so each of these replaces the last. */
+  const narrate = (id: string, label: string): OnProgress => (progress) => {
+    steps.begin(
+      id,
+      label,
+      progress.kind === "reasoning"
+        ? progress.text
+        : `writing the change — ${progress.blocks} ${progress.blocks === 1 ? "edit" : "edits"} so far…`,
+    );
+  };
 
   let body: BuildRequestBody;
   try {
@@ -466,8 +493,13 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
-      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page to find what's missing…`);
-      const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
+      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
+      const question = await askClarifying(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        narrate("clarify", "Working out what to ask you"),
+      );
       steps.mark(
         "clarify",
         "Wrote one question back",
@@ -516,7 +548,12 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   if (intent === "question" && currentHtml) {
     try {
       steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
-      const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+      const answer = await answerQuestion(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        narrate("answer", "Looking through the page for your answer"),
+      );
       steps.mark(
         "answer",
         "Answered from the page",
@@ -600,8 +637,13 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      steps.begin("edit", "Making the change", `${EDIT_MODEL} is working out exactly what to rewrite…`);
-      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
+      steps.begin("edit", "Making the change", `${EDIT_MODEL} is reading the page…`);
+      edited = await editPage(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        narrate("edit", "Making the change"),
+      );
       steps.mark(
         "edit",
         edited.failures.length > 0
