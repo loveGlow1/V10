@@ -30,6 +30,28 @@ export type BuildOutcome = {
   configKeys: Record<string, string>;
 };
 
+/** What a message was taken to mean. See src/lib/builder/intent.ts. */
+export type BuildIntent = "edit" | "new_project" | "question" | "revert";
+
+/* One reply to one message. Not every message is a build any more, so this
+   carries which of the four things happened — and, for the one that would
+   replace someone's page, a request to be asked again rather than an outcome. */
+export type BuildReply = {
+  intent?: BuildIntent;
+  /** A new build over an existing page. Nothing has happened yet. */
+  needsConfirmation?: boolean;
+  outcome?: BuildOutcome;
+  /** Set when nothing was changed. The page is exactly as it was. */
+  error?: string;
+};
+
+export type BuildOptions = {
+  /** Overrides the classifier. What the composer's mode chip says. */
+  intentOverride?: BuildIntent | null;
+  /** The second press of "Replace project". */
+  confirmNewProject?: boolean;
+};
+
 /* How the workspace waits for a page. Generation is not bounded by an HTTP
    request any more, so these are patience, not timeouts: three seconds between
    polls is often enough to feel immediate, and eight minutes is longer than any
@@ -55,8 +77,8 @@ type ProjectsValue = {
   create: (name: string) => Promise<Project | null>;
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
-  /** Runs a build for a project and folds the result back into the list. */
-  build: (id: string, prompt: string) => Promise<BuildOutcome>;
+  /** Sends one message for a project and folds any result back into the list. */
+  build: (id: string, prompt: string, options?: BuildOptions) => Promise<BuildReply>;
   /** Waits for a started build to land its page. See {@link watchBuild}. */
   watchBuild: (id: string, since: number) => Promise<Project | null>;
 };
@@ -198,32 +220,52 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      Errors are thrown rather than swallowed into `error` — the chat panel shows
      a failed build in the conversation, next to the message that caused it,
      rather than as a banner over the whole list. */
-  const build = useCallback(async (id: string, prompt: string): Promise<BuildOutcome> => {
-    const response = await fetch("/api/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: id, prompt }),
-    });
+  const build = useCallback(
+    async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
+      const response = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: id,
+          prompt,
+          intentOverride: options.intentOverride ?? null,
+          confirmNewProject: options.confirmNewProject === true,
+        }),
+      });
 
-    const payload = (await response.json().catch(() => null)) as {
-      build?: BuildOutcome;
-      project?: Project | null;
-      error?: string;
-    } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        intent?: BuildIntent;
+        needsConfirmation?: boolean;
+        build?: BuildOutcome;
+        project?: Project | null;
+        error?: string;
+      } | null;
 
-    if (!response.ok || !payload?.build) {
-      throw new Error(payload?.error ?? "The build could not be started.");
-    }
+      /* Returned rather than thrown. A refused edit is an ordinary answer —
+         the page is untouched and the person needs to read why — and throwing
+         made it indistinguishable in the chat from the app falling over. */
+      if (!response.ok || !payload?.build) {
+        return {
+          intent: payload?.intent,
+          error: payload?.error ?? "The message could not be sent.",
+        };
+      }
 
-    if (payload.project) {
-      const row = payload.project;
-      setProjects((current) =>
-        current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
-      );
-    }
+      if (payload.project) {
+        const row = payload.project;
+        setProjects((current) =>
+          current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
+        );
+      }
 
-    return payload.build;
-  }, []);
+      return {
+        intent: payload.intent,
+        needsConfirmation: payload.needsConfirmation === true,
+        outcome: payload.build,
+      };
+    },
+    [],
+  );
 
   /* A build answers before it has finished.
      Generation runs in the orchestrator, which takes as long as the model takes
