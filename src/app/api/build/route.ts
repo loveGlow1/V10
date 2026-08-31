@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
+import { EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
@@ -310,6 +310,56 @@ export async function POST(request: Request) {
     });
   }
 
+  // ── CLARIFY ──────────────────────────────────────────────────────────────
+  /* A change was asked for, but the message names nothing to change. Answered
+     with one question rather than a guess: guessing produced either an edit
+     nobody asked for or "that could not be applied cleanly", and both cost a
+     round trip to discover anyway.
+
+     Nothing is written and no build is started, so the page is untouched — this
+     branch is a sentence, and it is placed above the others because it must not
+     fall through into one that edits. */
+  if (intent === "clarify" && currentHtml) {
+    try {
+      const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
+
+      /* Billed as chat, like a question, because that is what it is: one short
+         model call with the page in it. Charging a build rate for a sentence
+         that changed nothing would be charging for the classifier's caution. */
+      if (service) {
+        await chargeCredits(service, {
+          userId: user.id,
+          action: "chat",
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens }),
+          description: `Clarify: ${project.name}`,
+          projectId: project.id,
+          outputTokens: question.outputTokens,
+        });
+      }
+
+      return NextResponse.json({
+        intent: "clarify",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: previewUrl, repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: question.text,
+        },
+        project: null,
+      });
+    } catch (error) {
+      /* A clarifier that cannot run must not block the message. Falling through
+         to the edit path below is the old behaviour, which was survivable — an
+         unanswerable question is not. */
+      if (!(error instanceof EditError)) throw error;
+    }
+  }
+
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
@@ -461,6 +511,10 @@ export async function POST(request: Request) {
           edited.failures.length > 0
             ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
             : "Done.",
+          /* The model's own next step, when it had one. It came back on the
+             edit call, so it costs nothing extra and it is about the page as it
+             now stands rather than as it was. */
+          edited.note ? `Next: ${edited.note}` : null,
           /* Said here rather than discovered on the next attempt: running out
              mid-sentence is a worse surprise than being told. */
           charge && charge.remaining <= 0

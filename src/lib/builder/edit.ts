@@ -1,7 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { applyPatches, describeFailures, type PatchFailure } from "./patch";
-import { EDIT_SYSTEM, QUESTION_SYSTEM, editPrompt, questionPrompt, retryPrompt } from "./prompts";
+import { applyPatches, describeFailures, noteAfterPatches, type PatchFailure } from "./patch";
+import {
+  CLARIFY_SYSTEM,
+  EDIT_SYSTEM,
+  QUESTION_SYSTEM,
+  clarifyPrompt,
+  editPrompt,
+  questionPrompt,
+  retryPrompt,
+} from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
  *
@@ -88,6 +96,11 @@ export type EditOutcome = {
   applied: number;
   /** Blocks that were refused even though others landed. Worth surfacing. */
   failures: PatchFailure[];
+  /* The one next step the model was allowed to offer after its blocks, when it
+     had one worth offering. It rides on the edit call rather than costing a
+     second one — the model has just read the page closely enough to patch it,
+     which is exactly when it knows what is now inconsistent with the change. */
+  note: string | null;
 };
 
 /**
@@ -105,7 +118,8 @@ export async function editPage(
     throw new EditError("The model declined to make that change.", 422);
   }
 
-  let result = applyPatches(html, textOf(first));
+  let output = textOf(first);
+  let result = applyPatches(html, output);
 
   /* One retry, and only when nothing at all landed. A partial success is left
      alone: re-running it would apply the blocks that already worked a second
@@ -121,7 +135,8 @@ export async function editPage(
       8_000,
       attachments,
     );
-    result = applyPatches(html, textOf(second));
+    output = textOf(second);
+    result = applyPatches(html, output);
 
     if (result.applied === 0) {
       /* Nothing was written, and saying so is the whole point: an edit that
@@ -135,7 +150,34 @@ export async function editPage(
     }
   }
 
-  return { html: result.html, applied: result.applied, failures: result.failures };
+  return {
+    html: result.html,
+    applied: result.applied,
+    failures: result.failures,
+    /* Read from the output that actually landed, so a retry's note replaces the
+       first attempt's rather than both being in play. */
+    note: noteAfterPatches(output),
+  };
+}
+
+/** Asks one question back, for a message with nothing in it to act on. */
+export async function askClarifying(
+  userMessage: string,
+  html: string,
+  attachments: Anthropic.ContentBlockParam[] = [],
+): Promise<Answer> {
+  /* 300 tokens and low effort: this is one sentence, and it is on the path of
+     someone who has already waited once for the classifier. */
+  const message = await ask(CLARIFY_SYSTEM, clarifyPrompt(userMessage, html), 300, attachments);
+
+  if (message.stop_reason === "refusal") {
+    throw new EditError("The model declined to answer that.", 422);
+  }
+
+  const question = textOf(message).trim();
+  if (!question) throw new EditError("The model returned nothing.", 502);
+
+  return { text: question, outputTokens: message.usage?.output_tokens ?? 0 };
 }
 
 export type Answer = {
