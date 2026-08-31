@@ -659,7 +659,7 @@ export default function ChatPanel({
                 like it was giving. Measured off the vector mark, whose viewBox
                 comes from the same camera, so the fraction of the frame it
                 fills is the fraction the 3D one fills. */}
-            <Q3DCanvas scale={1.1} className="h-14 w-14 shrink-0" />
+            <Q3DCanvas scale={1.1} spinAxisTiltDeg={60} className="h-14 w-14 shrink-0" />
             <span>
               {greeting}
               {firstName && (
