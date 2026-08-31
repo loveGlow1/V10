@@ -645,12 +645,21 @@ export default function ChatPanel({
                 the frame is. At 0.62 in a 32px box the mark drew 9.5px against
                 22px words — a logo with more padding around it than logo.
 
-                0.95 in a 44px box draws 20.5, which is 93% of the text's
-                height: a peer of the words rather than a speck beside them.
-                Measured off the vector mark, whose viewBox comes from the same
-                camera, so the fraction of the frame it fills is the fraction
-                the 3D one fills. */}
-            <Q3DCanvas scale={0.95} className="h-11 w-11 shrink-0" />
+                It is sized larger than a still mark would need, and that is
+                the point rather than an overshoot. This one turns about Y, so
+                what anyone actually sees is its width times |cos t| — the mean
+                of |cos| over a revolution is 2/pi, about 0.64, and it passes
+                through zero twice every sixteen seconds. Sizing it by its
+                face-on width, the way you would size a static logo, is what
+                made three rounds of "still too small" look like it should have
+                been big enough on paper.
+
+                1.1 in a 56px box measures 30.3px face-on, so it averages about
+                19 while turning — roughly what 0.95 in a 44px box only looked
+                like it was giving. Measured off the vector mark, whose viewBox
+                comes from the same camera, so the fraction of the frame it
+                fills is the fraction the 3D one fills. */}
+            <Q3DCanvas scale={1.1} className="h-14 w-14 shrink-0" />
             <span>
               {greeting}
               {firstName && (
