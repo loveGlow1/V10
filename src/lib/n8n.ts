@@ -19,7 +19,7 @@ import { safeHttpUrl } from "@/lib/safe-url";
 export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
 
 /** Mirrors the status strings the orchestrator writes to projects.status. */
-export type BuildStatus = "Building" | "Failed" | "Needs Clarification";
+export type BuildStatus = "Building" | "Built" | "Failed" | "Needs Clarification";
 
 export type BuildRequest = {
   /** What the person asked for, in their words. Drives the classifier. */
@@ -31,8 +31,6 @@ export type BuildRequest = {
   projectId: string;
   /** Ties a reply to the message that asked for it. */
   requestId: string;
-  /** The page as it stands, when this build is a change to an existing one. */
-  previousHtml?: string | null;
 };
 
 export type BuildResult = {
@@ -87,7 +85,10 @@ function readResult(value: unknown, fallbackRequestId: string): BuildResult {
     projectId: typeof body.projectId === "string" ? body.projectId : "",
     intent: (body.intent ?? "unclassified") as BuildIntent,
     status:
-      status === "Building" || status === "Failed" || status === "Needs Clarification"
+      status === "Building" ||
+      status === "Built" ||
+      status === "Failed" ||
+      status === "Needs Clarification"
         ? status
         : "Building",
     /* Filtered here rather than at the point of rendering as well as there:

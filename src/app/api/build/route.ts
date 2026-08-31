@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf } from "@/app/dashboard/credits";
+import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
+import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
+import { SITE_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Where a build is started.
  *
@@ -35,7 +39,21 @@ type BuildRequestBody = {
   projectId?: unknown;
   prompt?: unknown;
   requestId?: unknown;
+  /* What the composer says this message is, when it says anything. An explicit
+     choice always wins over the classifier — the person knows, and the
+     classifier is guessing. */
+  intentOverride?: unknown;
+  /* Set only by the second press of "Replace project". A brand-new build
+     discards a page someone has, so it is never done on a guess. */
+  confirmNewProject?: unknown;
 };
+
+/* An edit is billed as generation, like a build, but priced from how many
+   patches actually landed rather than from the size of the page. A one-line
+   change costs the floor, which is what it should cost. */
+function editUsage(applied: number): { filesTouched: number } {
+  return { filesTouched: Math.max(1, applied) };
+}
 
 /* Long enough for a real description, short enough that the prompt cannot be
    used to push a large payload through to the orchestrator. */
@@ -125,6 +143,276 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
   }
 
+  /* ── What is this message asking for? ───────────────────────────────────
+     Every message used to be a build. "Make the header darker", "undo that"
+     and "build me a law firm site" all ran the same path, which meant an edit
+     cost a full rebuild and a careless sentence could replace someone's work.
+
+     The page as it stands is read first, because it decides almost everything:
+     with nothing built there is nothing to edit and nothing to lose, and with
+     something built, editing is the default and replacing it needs saying so.
+
+     Read under the caller's own session, so RLS answers for it — a project id
+     is not enough to reach someone else's page. */
+  const { data: lastBuild } = await supabase
+    .from("project_builds")
+    .select("id, html")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const currentHtml = (lastBuild?.html as string | undefined) ?? null;
+
+  const override =
+    body.intentOverride === "edit" ||
+    body.intentOverride === "new_project" ||
+    body.intentOverride === "question" ||
+    body.intentOverride === "revert"
+      ? (body.intentOverride as Intent)
+      : null;
+
+  /* A little conversation, so "make it darker too" is read against what came
+     before it rather than on its own. */
+  const { data: recent } = await supabase
+    .from("project_messages")
+    .select("role, body")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const history = ((recent ?? []) as { role: string; body: string }[])
+    .reverse()
+    .map((row) => ({ from: row.role, text: row.body }));
+
+  const decision = await classifyIntent({
+    message: prompt,
+    hasPage: Boolean(currentHtml),
+    history,
+    override,
+  });
+
+  /* Nothing to edit, revert or answer about. Whatever it looked like, the only
+     thing that can happen is a first build. */
+  const intent: Intent = currentHtml ? decision.intent : "new_project";
+
+  const previewUrl = `${SITE_URL}/preview/${project.id}`;
+
+  /* Writing a build row needs the service key: project_builds is read-only to
+     the browser on purpose, so that a client cannot put its own HTML on a
+     preview. Ownership was settled above, under the session. */
+  const service = createSupabaseServiceClient();
+
+  // ── REVERT ───────────────────────────────────────────────────────────────
+  if (intent === "revert") {
+    const { data: history2 } = await supabase
+      .from("project_builds")
+      .select("id, html, prompt")
+      .eq("project_id", project.id)
+      .order("created_at", { ascending: false })
+      .limit(2);
+
+    const previous = (history2 ?? [])[1] as { html: string } | undefined;
+
+    if (!previous || !service) {
+      return NextResponse.json({
+        intent: "revert",
+        build: {
+          ok: false,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: previous
+            ? "That cannot be undone right now."
+            : "There is nothing to undo — this is the first version of the page.",
+        },
+        project: null,
+      });
+    }
+
+    /* Restored by putting the old page back on top as a new version, never by
+       deleting the newer one. Undo should be undoable. */
+    await service.from("project_builds").insert({
+      project_id: project.id,
+      user_id: user.id,
+      prompt: `Reverted: ${prompt}`.slice(0, 500),
+      html: previous.html,
+      model: null,
+      files_touched: 0,
+    });
+
+    await service
+      .from("projects")
+      .update({ status: "Built", preview_url: previewUrl, last_build_at: new Date().toISOString() })
+      .eq("id", project.id)
+      .eq("user_id", user.id);
+
+    const { data: reverted } = await supabase
+      .from("projects")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .eq("id", project.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      intent: "revert",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: "Put the previous version back.",
+      },
+      project: reverted ?? null,
+    });
+  }
+
+  // ── QUESTION ─────────────────────────────────────────────────────────────
+  if (intent === "question" && currentHtml) {
+    try {
+      const answer = await answerQuestion(prompt, currentHtml);
+      return NextResponse.json({
+        intent: "question",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: previewUrl, repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: answer,
+        },
+        project: null,
+      });
+    } catch (error) {
+      if (error instanceof EditError) {
+        return NextResponse.json({ error: error.message }, { status: error.status });
+      }
+      throw error;
+    }
+  }
+
+  // ── NEW PROJECT, over something that exists ──────────────────────────────
+  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true) {
+    /* Nothing has happened yet and nothing will until this comes back
+       confirmed. Replacing a page someone spent real time and credits on is
+       not a thing to do on a classifier's say-so. */
+    return NextResponse.json({
+      intent: "new_project",
+      needsConfirmation: true,
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message:
+          "That reads like a brand-new build, which would replace the page you have. Do you want to start over, or change the current page?",
+      },
+      project: null,
+    });
+  }
+
+  // ── EDIT ─────────────────────────────────────────────────────────────────
+  if (intent === "edit" && currentHtml) {
+    if (!service) {
+      return NextResponse.json(
+        { error: "Edits cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
+        { status: 503 },
+      );
+    }
+
+    let edited;
+    try {
+      /* Seconds, not minutes: the model returns a handful of search/replace
+         blocks rather than the whole document, which is why this can run here
+         at all. A full build still goes to the orchestrator below. */
+      edited = await editPage(prompt, currentHtml);
+    } catch (error) {
+      if (error instanceof EditError) {
+        /* The page is untouched. Said plainly, and with the prompt left in the
+           composer, so it can be rephrased rather than retyped. */
+        return NextResponse.json(
+          { error: error.message, intent: "edit", code: "edit_failed" },
+          { status: error.status },
+        );
+      }
+      throw error;
+    }
+
+    await service.from("project_builds").insert({
+      project_id: project.id,
+      user_id: user.id,
+      prompt,
+      html: edited.html,
+      model: null,
+      files_touched: edited.applied,
+    });
+
+    await service
+      .from("projects")
+      .update({
+        prompt,
+        status: "Built",
+        intent: "webapp",
+        preview_url: previewUrl,
+        last_build_at: new Date().toISOString(),
+      })
+      .eq("id", project.id)
+      .eq("user_id", user.id);
+
+    const cost = creditCostOf(BUILD_ACTION, editUsage(edited.applied));
+    const { error: chargeError } = await supabase.rpc("spend_credits", {
+      p_action: BUILD_ACTION,
+      p_cost: cost,
+      p_description: `Edit: ${project.name}`.slice(0, 200),
+      p_project_id: project.id,
+      p_output_tokens: null,
+      p_files_touched: edited.applied,
+    });
+    if (chargeError) {
+      // eslint-disable-next-line no-console
+      console.error("build: the edit applied but could not be charged:", chargeError);
+    }
+
+    const { data: after } = await supabase
+      .from("projects")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .eq("id", project.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      intent: "edit",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: { applied: edited.applied },
+        message:
+          edited.failures.length > 0
+            ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+            : "Done.",
+      },
+      project: after ?? null,
+    });
+  }
+
   /* How many builds this account has been billed for in the last hour. Only
      charged builds leave a ledger row, so a run of failures is not throttled by
      this — the balance is untouched by those too, and the orchestrator's own
@@ -182,22 +470,9 @@ export async function POST(request: Request) {
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
 
-  /* The page as it stands, sent along so a second message edits the app rather
-     than replacing it — "make the header darker" has to mean the page that is
-     already there. Read here rather than in the orchestrator because this is the
-     one place with the caller's session: RLS answers it, so a project id cannot
-     be used to read someone else's page.
-
-     Absent on a first build, and absent if the read fails, which degrades to
-     generating afresh rather than failing the build. */
-  const { data: lastBuild } = await supabase
-    .from("project_builds")
-    .select("html")
-    .eq("project_id", project.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+  /* Only a full build reaches here, and a full build is a fresh page: whatever
+     was there is being replaced, deliberately and with the person's say-so, so
+     the orchestrator is given nothing to edit. */
   let result: BuildResult;
   try {
     result = await startBuild({
@@ -206,7 +481,6 @@ export async function POST(request: Request) {
       userId: user.id,
       projectId: project.id,
       requestId,
-      previousHtml: lastBuild?.html ?? null,
     });
   } catch (error) {
     if (error instanceof BuilderError) {
@@ -252,5 +526,5 @@ export async function POST(request: Request) {
     .eq("id", project.id)
     .maybeSingle();
 
-  return NextResponse.json({ build: result, project: synced ?? null });
+  return NextResponse.json({ intent: "new_project", build: result, project: synced ?? null });
 }

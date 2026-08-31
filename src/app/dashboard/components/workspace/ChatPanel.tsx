@@ -18,7 +18,7 @@ import {
 
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
-import { useProjects, type Project } from "../../ProjectsContext";
+import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
@@ -72,11 +72,21 @@ export default function ChatPanel({
      before it decides anything — the same rule the panel and the links above
      follow. Null means there is nothing to announce. */
   const previewUrl = safeHttpUrl(project?.preview_url);
+  /* A page exists, so a message is ambiguous in a way it cannot be before one
+     does — and only then is there anything for "New project" to replace. */
+  const hasPage = Boolean(previewUrl);
   const [messages, setMessages] = useState<Message[]>([]);
   /* Whether this project's stored thread has arrived. Nothing may be sent
      before it does, or an app with history would be built again on arrival. */
   const [threadLoaded, setThreadLoaded] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  /* What the composer says the next message is. "auto" leaves it to the
+     classifier; anything else is the person telling it outright, which always
+     wins. */
+  const [mode, setMode] = useState<"auto" | "new_project">("auto");
+  /* A message that would replace the page, waiting to be confirmed. Held whole
+     so the same text can be sent again either way. */
+  const [pendingConfirm, setPendingConfirm] = useState<{ text: string } | null>(null);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -196,11 +206,13 @@ export default function ChatPanel({
     if (project?.id && userId) void appendToThread(project.id, userId, message);
   }
 
-  async function send(prompt?: string) {
+  async function send(prompt?: string, options: { intentOverride?: BuildIntent | null; confirmNewProject?: boolean; silent?: boolean } = {}) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
 
-    say({ from: "you", text });
+    /* `silent` is the re-send behind a confirmation: the message is already in
+       the conversation, and saying it twice would read as sending it twice. */
+    if (!options.silent) say({ from: "you", text });
     if (prompt === undefined) setDraft("");
     setBuilding(true);
 
@@ -211,7 +223,30 @@ export default function ChatPanel({
     const startedAt = Date.now();
 
     try {
-      const outcome = await build(project.id, text);
+      const reply = await build(project.id, text, {
+        intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
+        confirmNewProject: options.confirmNewProject === true,
+      });
+
+      /* Nothing was changed. The page is exactly as it was, so this is a
+         sentence to read rather than a failure to recover from — and the text
+         goes back in the composer so it can be reworded, not retyped. */
+      if (reply.error || !reply.outcome) {
+        say({ from: "system", text: reply.error ?? "The message could not be sent.", tone: "error" });
+        if (prompt === undefined) setDraft(text);
+        return;
+      }
+
+      /* A build that would replace the page. Nothing has happened yet, and
+         nothing will until one of the two buttons is pressed. */
+      if (reply.needsConfirmation) {
+        say({ from: "system", text: reply.outcome.message, tone: "error" });
+        setPendingConfirm({ text });
+        return;
+      }
+
+      setPendingConfirm(null);
+      const outcome = reply.outcome;
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
@@ -441,6 +476,67 @@ export default function ChatPanel({
       </AnimatePresence>
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        {/* What the next message will be taken to mean, and a way to say
+            otherwise. Only once a page exists: before that every message is the
+            first build, and there is nothing a chip could change. */}
+        {hasPage && !pendingConfirm && (
+          <div className="mb-2 flex items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => setMode(mode === "new_project" ? "auto" : "new_project")}
+              className={`rounded-md border px-2 py-1 transition-colors ${
+                mode === "new_project"
+                  ? "border-line/[0.16] bg-layer/[0.06] text-ink"
+                  : "border-line/[0.08] text-muted hover:text-ink"
+              }`}
+            >
+              {mode === "new_project" ? "New project" : "Editing this app"}
+            </button>
+            {mode === "new_project" && (
+              <span className="text-muted">The next message replaces this page.</span>
+            )}
+          </div>
+        )}
+
+        {/* The one question worth interrupting for. Nothing has happened yet,
+            and neither button is the quiet default: replacing a page someone
+            paid for is not something to fall into by pressing return. */}
+        {pendingConfirm && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => {
+                const { text } = pendingConfirm;
+                setPendingConfirm(null);
+                setMode("auto");
+                void send(text, { confirmNewProject: true, intentOverride: "new_project", silent: true });
+              }}
+              className="rounded-md border border-danger/40 px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+            >
+              Replace this page
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const { text } = pendingConfirm;
+                setPendingConfirm(null);
+                setMode("auto");
+                void send(text, { intentOverride: "edit", silent: true });
+              }}
+              className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+            >
+              Change the current page instead
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingConfirm(null)}
+              className="px-1 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* Home's composer, brought over whole: the orbiting highlight outside,
             the graphite glass inside. */}
         <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
