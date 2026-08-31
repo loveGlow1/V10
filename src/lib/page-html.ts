@@ -9,6 +9,8 @@
  * Nothing here trusts the input. It is model output shaped by a user's prompt,
  * arriving over HTTP from a workflow anyone with n8n access can edit. */
 
+import { hasConflictMarkers } from "@/lib/builder/patch";
+
 /* A page has to be finishable and storable. Past this it is not a landing page
    any more, and it is worth refusing rather than putting a megabyte of
    something into a row that is read on every preview. */
@@ -52,6 +54,20 @@ export function readGeneratedDocument(value: unknown): string {
   if (!/<\/html\s*>\s*$/i.test(html)) {
     throw new PageHtmlError(
       "The page came out longer than one build allows, so it arrived unfinished. Try asking for something simpler, or for one section at a time.",
+      422,
+    );
+  }
+
+  /* Edit-format delimiters, in a document that has just been generated whole.
+   *
+   * They mean the generator was handed a conversation containing search/replace
+   * blocks and copied them through into the page — and a page that arrives with
+   * them is a page nobody can repair by editing, because a SEARCH that quotes a
+   * delimiter mis-parses into more delimiters. Refusing it here costs one build.
+   * Storing it costs every edit afterwards. */
+  if (hasConflictMarkers(html)) {
+    throw new PageHtmlError(
+      "The page came back with edit markers in it, which means it was not generated cleanly. Try that again.",
       422,
     );
   }

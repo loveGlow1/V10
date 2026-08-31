@@ -4,6 +4,7 @@ import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/da
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
+import { stripConflictMarkers } from "@/lib/builder/patch";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
@@ -313,7 +314,12 @@ export async function POST(request: Request) {
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+      const answer = await answerQuestion(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        history,
+      );
 
       /* Billed as chat, on what it said. Asking about a page is a model call
          with the whole page in it, so it is not free — but the chat band starts
@@ -386,13 +392,62 @@ export async function POST(request: Request) {
       );
     }
 
+    /* Leftover edit markers come out of the page before the model is shown it,
+       on every edit, whether or not this message mentioned them.
+     *
+     * They are wreckage, never content — the format's delimiters written into
+     * the document by an edit that mis-parsed — and the model cannot take them
+     * out, because a SEARCH quoting a delimiter is itself a mis-parse. That is
+     * how one stray marker became eighteen on a real project: each attempt to
+     * clean it up added more. Doing it here costs nothing, needs no model call,
+     * and means the next thing anyone types heals the page as a side effect. */
+    const repair = stripConflictMarkers(currentHtml);
+    const baseHtml = repair.html;
+
     let edited;
     try {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
+      edited = await editPage(prompt, baseHtml, await attachmentBlocks(attachments), history);
     } catch (error) {
+      /* A repair is worth storing even when the edit around it failed. The
+         person asked for something else and did not get it — but the markers
+         were on their page before this message and would still be there after,
+         and there is no reason to hand the wreckage back with the refusal. */
+      if (repair.removed > 0 && error instanceof EditError) {
+        await service.from("project_builds").insert({
+          project_id: project.id,
+          user_id: user.id,
+          prompt,
+          html: baseHtml,
+          model: null,
+          files_touched: 0,
+        });
+
+        await service
+          .from("projects")
+          .update({
+            status: "Built",
+            intent: "webapp",
+            preview_url: previewUrl,
+            last_build_at: new Date().toISOString(),
+          })
+          .eq("id", project.id)
+          .eq("user_id", user.id);
+
+        return NextResponse.json(
+          {
+            error: `Removed ${repair.removed} leftover edit ${
+              repair.removed === 1 ? "marker" : "markers"
+            } from the page. ${error.message}`,
+            intent: "edit",
+            code: "edit_failed",
+          },
+          { status: error.status },
+        );
+      }
+
       if (error instanceof EditError) {
         /* The page is untouched. Said plainly, and with the prompt left in the
            composer, so it can be rephrased rather than retyped. */
@@ -461,6 +516,13 @@ export async function POST(request: Request) {
           edited.failures.length > 0
             ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
             : "Done.",
+          /* Not silent: the page changed in a way this message did not ask for,
+             so it is said rather than left to be noticed. */
+          repair.removed > 0
+            ? `Also cleaned up ${repair.removed} leftover edit ${
+                repair.removed === 1 ? "marker" : "markers"
+              } that an earlier edit had left in the page.`
+            : null,
           /* Said here rather than discovered on the next attempt: running out
              mid-sentence is a worse surprise than being told. */
           charge && charge.remaining <= 0

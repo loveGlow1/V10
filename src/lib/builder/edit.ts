@@ -1,7 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { applyPatches, describeFailures, type PatchFailure } from "./patch";
-import { EDIT_SYSTEM, QUESTION_SYSTEM, editPrompt, questionPrompt, retryPrompt } from "./prompts";
+import { applyPatches, describeFailures, hasConflictMarkers, type PatchFailure } from "./patch";
+import {
+  EDIT_SYSTEM,
+  QUESTION_SYSTEM,
+  editPrompt,
+  questionPrompt,
+  retryPrompt,
+  type Turn,
+} from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
  *
@@ -98,8 +105,12 @@ export async function editPage(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
+  /* The last few turns of the workspace conversation. A message like "delete
+     this out" names nothing on its own; what it points at was said one message
+     ago, and without that the model is choosing rather than following. */
+  history: Turn[] = [],
 ): Promise<EditOutcome> {
-  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments);
+  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html, history), 8_000, attachments);
 
   if (first.stop_reason === "refusal") {
     throw new EditError("The model declined to make that change.", 422);
@@ -117,7 +128,7 @@ export async function editPage(
 
     const second = await ask(
       EDIT_SYSTEM,
-      retryPrompt(userMessage, html, reason),
+      retryPrompt(userMessage, html, reason, history),
       8_000,
       attachments,
     );
@@ -135,6 +146,22 @@ export async function editPage(
     }
   }
 
+  /* The last gate before an edited page is handed back to be stored.
+   *
+   * applyPatches refuses a replacement carrying a delimiter and its parser
+   * refuses malformed output, so reaching here with markers in the document
+   * should be impossible — which is exactly why it is worth checking. The cost
+   * of being wrong is not a bad edit but an unrepairable page: markers cannot
+   * be edited out afterwards, because every SEARCH that quotes one mis-parses
+   * into more of them. Refusing costs this one edit. Storing costs the page. */
+  if (hasConflictMarkers(result.html) && !hasConflictMarkers(html)) {
+    throw new EditError(
+      "That change came back malformed and was not applied, so the page is unchanged. Try describing it differently.",
+      422,
+      result.failures,
+    );
+  }
+
   return { html: result.html, applied: result.applied, failures: result.failures };
 }
 
@@ -149,8 +176,14 @@ export async function answerQuestion(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
+  history: Turn[] = [],
 ): Promise<Answer> {
-  const message = await ask(QUESTION_SYSTEM, questionPrompt(userMessage, html), 1_500, attachments);
+  const message = await ask(
+    QUESTION_SYSTEM,
+    questionPrompt(userMessage, html, history),
+    1_500,
+    attachments,
+  );
 
   if (message.stop_reason === "refusal") {
     throw new EditError("The model declined to answer that.", 422);
