@@ -121,7 +121,14 @@ served at `/preview/<projectId>`. A landing page or a small web app that really
 exists. A second message in the same workspace passes the current page back to
 the model, so a follow-up edits it rather than replacing it.
 
-**The chat is answered before the page is built.** Generating takes a minute or
+A message is classified before anything runs — edit, new build, question or
+revert. Only a new build goes to the orchestrator. An **edit** is a
+search/replace patch applied in the app in seconds, leaving everything the
+request did not name byte-identical; a **question** is answered without
+touching the page; a **revert** puts the previous version back on top as a new
+one. A build that would replace an existing page stops and asks first.
+
+**A new build is answered before the page is built.** Generating takes a minute or
 two; a serverless function is killed at sixty. So the orchestrator replies as
 soon as the prompt is classified, generates afterwards under its own Anthropic
 credential, and posts the finished page to `/api/builder/webapp/save`. The
