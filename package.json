@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "check:auth-domain": "node tools/check-auth-domain.mjs",
-    "check:builder": "node tools/check-builder.mjs"
+    "check:builder": "node tools/check-builder.mjs",
+    "check:intent": "node tools/check-intent.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
