@@ -105,9 +105,9 @@ begin
     from public.credit_plans where id = 'free';
   v_bonus := public.signup_bonus_credits();
 
-  -- The bonus goes to the top-up bucket, which is the one that never expires
-  -- and is spent last: a gift should still be there tomorrow, and the day's
-  -- free allowance should be used before it.
+  -- Into the top-up bucket, which is the one that neither expires nor refills.
+  -- On Free that bucket is the entire balance: v_daily and v_monthly are both
+  -- zero, so this is the only credit the account ever receives without paying.
   insert into public.credit_balances (user_id, plan_id, daily, monthly, top_up)
   values (new.id, 'free', v_daily, v_monthly, v_bonus)
   on conflict (user_id) do nothing;
@@ -298,9 +298,14 @@ create table if not exists public.credit_plans (
   rollover_cycles   integer not null default 0
 );
 
+-- Free gets no daily grant. A refilling allowance means an account that never
+-- pays can build forever at whatever rate the refill sets — wait a day, get
+-- five more, indefinitely — which is a free product with a rate limit rather
+-- than a free tier. A Free account opens with signup_bonus_credits() and that
+-- is the whole of it. Kept in step with PLANS in src/app/dashboard/credits.ts.
 insert into public.credit_plans (id, name, monthly_price_usd, daily_credits, monthly_credits, rollover_cycles)
 values
-  ('free',     'Free',       0,   5, 0,   0),
+  ('free',     'Free',       0,   0, 0,   0),
   ('standard', 'Standard',  25,   5, 100, 1),
   ('pro',      'Pro',      150,   5, 600, 1)
 on conflict (id) do update set
@@ -337,13 +342,22 @@ grant select on public.credit_plans to authenticated;
 -- Read by handle_new_user() above, which runs after this file has been applied
 -- in full, so the definition order here does not matter at runtime.
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Everything a new account ever gets for free: five credits, once.
+--
+-- It lands in the top-up bucket, which is what makes it a one-time balance
+-- rather than an allowance — top-ups never expire and nothing refills them.
+-- The free plan's daily_credits is 0 for the same reason: a refilling daily
+-- grant means an account that never pays can build forever at whatever rate
+-- the refill sets, which is not a free tier but a free product.
+--
+-- Keep in step with SIGNUP_CREDITS in src/app/dashboard/credits.ts.
 create or replace function public.signup_bonus_credits()
 returns numeric
 language sql
 immutable
 set search_path = ''
 as $$
-  select 10::numeric(10,2);
+  select 5::numeric(10,2);
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────

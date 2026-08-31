@@ -28,9 +28,15 @@ import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 export type PlanId = "free" | "standard" | "pro";
 
-/* Both plans get the same daily grant — the spec gives Free "5 daily build
-   credits" and Pro "100 monthly credits + daily allowances", so the daily
-   allowance is a platform-wide floor rather than a per-plan figure. */
+/* The daily grant on the paid plans, on top of their monthly credits.
+ *
+ * Free does NOT get one, which is the whole point of the number below being
+ * separate from SIGNUP_CREDITS. A refilling daily allowance means an account
+ * that never pays can build forever at whatever rate the refill sets — wait a
+ * day, get five more, indefinitely. That is not a free tier, it is a free
+ * product with a rate limit. Free gets a one-time opening balance instead: real
+ * enough to see what the platform does, finite enough that continuing means
+ * topping up. */
 export const DAILY_ALLOWANCE = 5;
 
 /* Going live the first time. This is the charge that pays for provisioning —
@@ -51,12 +57,27 @@ export const PUBLISH_COST = 50;
    a build, so it is priced like one. */
 export const REDEPLOY_COST = 1;
 
+/* Everything a new account ever gets for free: five credits, once, at signup.
+ *
+ * They land in the top-up bucket rather than the daily one, which is what makes
+ * them a one-time balance instead of an allowance — top-ups never expire and
+ * are never refilled. Nothing puts credits back afterwards but a purchase.
+ *
+ * Written in credits rather than dollars because credits are what the account
+ * holds and what every screen counts in; at the top-up pack's rate of fifty
+ * credits for ten dollars, five credits is a dollar's worth.
+ *
+ * Keep this in step with public.signup_bonus_credits() in supabase/schema.sql,
+ * which is the copy that actually runs at signup. */
+export const SIGNUP_CREDITS = 5;
+
 export type Plan = {
   id: PlanId;
   name: string;
   /** What the plan costs per month, in whole dollars. Free is 0. */
   monthlyPriceUsd: number;
-  /** Granted every day and never carried forward — use it or lose it. */
+  /** Granted every day and never carried forward — use it or lose it. Zero on
+   * Free, which is granted once at signup and not again. */
   dailyCredits: number;
   /** Granted at the start of each billing cycle. */
   monthlyCredits: number;
@@ -78,9 +99,10 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "free",
     name: "Free",
     monthlyPriceUsd: 0,
-    dailyCredits: DAILY_ALLOWANCE,
+    /* Nothing recurring. A Free account opens with SIGNUP_CREDITS and that is
+       the whole of it — see DAILY_ALLOWANCE above for why. */
+    dailyCredits: 0,
     monthlyCredits: 0,
-    /* Daily credits are explicitly non-rolling: an unused day is gone. */
     rolloverCycles: 0,
     publishing: {
       subdomain: PUBLISH_SUBDOMAIN,
@@ -89,14 +111,13 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Standard community support",
     features: [
-      `${DAILY_ALLOWANCE} daily build credits`,
-      "Unlimited sandbox iteration",
-      /* Not "publish to a subdomain": the daily grant does not roll over, so a
-         Free account cannot reach the publish price however long it saves.
-         Advertising a subdomain it can never reach is the kind of promise a
-         pricing page should not make. */
+      `${SIGNUP_CREDITS} credits to start, on the house`,
+      "Build and change pages in your workspace",
+      /* Said plainly rather than left to be discovered. A Free balance does not
+         refill, so "what happens when it runs out" is the question the card has
+         to answer, not one a person should hit mid-build. */
+      "Credits do not refill — top up or upgrade to keep going",
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
-      "Standard community support",
     ],
   },
   standard: {
@@ -151,12 +172,6 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
 /* Bought mid-cycle when the pool runs dry. Top-ups are the only credits with
    no expiry, which is why they are spent last. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
-
-/* Every new account opens with this much credit, on the house. Written in
-   credits rather than dollars because credits are what the account actually
-   holds and what every screen counts in — at the top-up pack's rate of fifty
-   credits for ten dollars, ten credits is two dollars' worth. */
-export const SIGNUP_BONUS_CREDITS = 10;
 
 /* ── The consumption matrix ────────────────────────────────────────────────
    Every billable thing the platform does is one of these four. `min`/`max`
@@ -322,15 +337,12 @@ export function startingBalance(planId: PlanId): CreditBalance {
 }
 
 /**
- * What a brand-new account holds the moment it is created: the Free plan's
- * opening allowance plus the signup bonus.
- *
- * The bonus lands in the top-up bucket rather than the daily one, so it behaves
- * the way a gift should — it does not expire tonight, and it is spent only once
- * the day's free allowance is gone.
+ * What a brand-new account holds the moment it is created, and the most it will
+ * ever hold without paying: the signup credits, in the bucket that neither
+ * expires nor refills.
  */
 export function signupBalance(): CreditBalance {
-  return { ...startingBalance("free"), topUp: SIGNUP_BONUS_CREDITS };
+  return { ...startingBalance("free"), topUp: SIGNUP_CREDITS };
 }
 
 export function totalCredits(balance: CreditBalance): number {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, Suspense, useRef, type ReactNode } from "react";
+import { Component, Suspense, useRef, type CSSProperties, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
@@ -227,6 +227,8 @@ export default function Q3DCanvasScene({
   scale = 1,
   className = "",
   withBackdrop = false,
+  style,
+  onPainted,
 }: {
   scale?: number;
   className?: string;
@@ -234,11 +236,24 @@ export default function Q3DCanvasScene({
    *  (kept off by default so the small inline logo instances — nav, footer, login
    *  modal — stay transparent and blend into the page behind them). */
   withBackdrop?: boolean;
+  style?: CSSProperties;
+  /** Called once the first frame is actually on screen, so the flat placeholder
+   *  can be faded out against something that exists rather than against a
+   *  renderer that has merely been constructed. */
+  onPainted?: () => void;
 }) {
   return (
     <Canvas
       className={className}
-      style={{ width: "100%", height: "100%" }}
+      style={{ width: "100%", height: "100%", ...style }}
+      /* onCreated fires when the renderer exists, which is one frame before it
+         has drawn anything. Waiting for the rAF after it means the fade starts
+         against a painted mark rather than against an empty canvas — otherwise
+         the placeholder disappears into a blank box for a frame, which is the
+         flash this was added to remove. */
+      onCreated={() => {
+        if (onPainted) requestAnimationFrame(() => requestAnimationFrame(onPainted));
+      }}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
       dpr={[1, 2]}
       // Slight three-quarter angle: raised and shifted to the right of center so
