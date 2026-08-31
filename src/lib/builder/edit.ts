@@ -138,12 +138,18 @@ export async function editPage(
   return { html: result.html, applied: result.applied, failures: result.failures };
 }
 
-/** Answers a question about a page. Changes nothing. */
+export type Answer = {
+  text: string;
+  /** What the answer cost to produce, which is what it is billed on. */
+  outputTokens: number;
+};
+
+/** Answers a question about a page. Changes nothing about the page. */
 export async function answerQuestion(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
-): Promise<string> {
+): Promise<Answer> {
   const message = await ask(QUESTION_SYSTEM, questionPrompt(userMessage, html), 1_500, attachments);
 
   if (message.stop_reason === "refusal") {
@@ -152,5 +158,9 @@ export async function answerQuestion(
 
   const answer = textOf(message).trim();
   if (!answer) throw new EditError("The model returned nothing.", 502);
-  return answer;
+
+  /* Reported by the API rather than guessed from the string: a question about a
+     page sends the whole page, and it is a real model call whatever the answer
+     ends up looking like. */
+  return { text: answer, outputTokens: message.usage?.output_tokens ?? 0 };
 }

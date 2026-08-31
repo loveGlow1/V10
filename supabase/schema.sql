@@ -569,6 +569,117 @@ begin
 end;
 $$;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- charge_credits — billing work that has already been delivered.
+--
+-- spend_credits refuses when the pool cannot cover the price, and for a publish
+-- that is exactly right: nothing has happened yet, so nothing is owed.
+--
+-- For a build it is wrong, and it was the bug. By the time a build or an edit
+-- is priced, the model has already run and the page already exists; refusing
+-- the charge does not undo any of that, it only leaves the charge unrecorded
+-- and the balance where it was. An account sitting at 0.50 could ask for edit
+-- after edit, each priced above 0.50, each refused by spend_credits, each
+-- delivered anyway — and the balance stayed at 0.50 forever, so the gate that
+-- reads it never refused either. Unlimited work, frozen number.
+--
+-- So this one never refuses. It takes what it can, records what it took, and
+-- reports the shortfall. An account that overdraws lands at exactly zero, which
+-- is the state /api/build's gate reads, so the overdraft is bounded to the one
+-- action that caused it instead of repeating without limit.
+--
+-- Takes the account as an argument and is granted to service_role alone: the
+-- caller has already established whose work this was, and a browser must never
+-- be able to name someone else.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.charge_credits(
+  p_user_id       uuid,
+  p_action        text,
+  p_cost          numeric,
+  p_description   text default null,
+  p_project_id    uuid default null,
+  p_output_tokens integer default null,
+  p_files_touched integer default null
+)
+returns table (charged numeric, shortfall numeric, remaining numeric)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance     public.credit_balances;
+  v_available   numeric(10,2);
+  v_charged     numeric(10,2);
+  v_outstanding numeric(10,2);
+  v_taken       numeric(10,2);
+begin
+  if p_user_id is null then
+    raise exception 'charge_credits needs an account' using errcode = '22023';
+  end if;
+
+  if p_cost < 0 then
+    raise exception 'a charge cannot be negative' using errcode = '22023';
+  end if;
+
+  -- Locks the row for the rest of the transaction, so two builds finishing at
+  -- once cannot both read the same balance and both charge against it.
+  v_balance := public.ensure_credit_balance(p_user_id);
+
+  v_available := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+  v_charged   := least(p_cost, v_available);
+
+  -- Soonest to expire first, in the same order spend_credits drains them.
+  v_outstanding := v_charged;
+
+  v_taken := least(v_balance.daily, v_outstanding);
+  v_balance.daily := v_balance.daily - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.rollover, v_outstanding);
+  v_balance.rollover := v_balance.rollover - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.monthly, v_outstanding);
+  v_balance.monthly := v_balance.monthly - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_balance.top_up := v_balance.top_up - v_outstanding;
+
+  update public.credit_balances set
+    daily    = v_balance.daily,
+    rollover = v_balance.rollover,
+    monthly  = v_balance.monthly,
+    top_up   = v_balance.top_up
+  where user_id = p_user_id
+  returning * into v_balance;
+
+  -- What was taken, not what was owed. The ledger has to sum to the balance or
+  -- it stops being the thing a disputed charge can be settled from; the price
+  -- that could not be met is written into the description instead.
+  insert into public.credit_ledger
+    (user_id, action, credits, description, project_id, output_tokens, files_touched)
+  values
+    (p_user_id, p_action, -v_charged,
+     case
+       when v_charged < p_cost then
+         left(coalesce(p_description, 'Charge')
+              || format(' - priced %s, only %s left', p_cost, v_available), 300)
+       else p_description
+     end,
+     p_project_id, p_output_tokens, p_files_touched);
+
+  charged   := v_charged;
+  shortfall := p_cost - v_charged;
+  remaining := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+  return next;
+end;
+$$;
+
+revoke all on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+  from public, anon, authenticated;
+grant execute on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+  to service_role;
+
 -- Adds bought credits to the pool. Called by a payment webhook once a charge
 -- has settled — never from the browser, which is why it takes the account as an
 -- argument instead of reading auth.uid(), and why execute is not granted below.

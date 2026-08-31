@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { creditCostOf } from "@/app/dashboard/credits";
 import { verifyBuildClaim } from "@/lib/build-signature";
+import { chargeCredits } from "@/lib/credits-server";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { SITE_URL } from "@/lib/site";
@@ -16,6 +18,13 @@ import { SITE_URL } from "@/lib/site";
  * The chat was answered long before this: the workflow replies "Building" as
  * soon as the prompt is classified, and the workspace watches the project row
  * for the preview this writes. Nobody is waiting on this request.
+ *
+ * It is also where a full build is paid for. /api/build cannot bill one: by the
+ * time it answers, the page has not been generated yet, so there is nothing to
+ * price it from — it fell back to the floor and every build, however large,
+ * cost the same 0.50 as a one-word edit. Here the document exists and can be
+ * measured. A build that never arrives is never charged, which is the right
+ * answer for a build nobody got.
  *
  * Who may call it: n8n, carrying a signature this app made in /api/build over
  * the three ids it had already checked ownership of. Without it, anyone who
@@ -146,6 +155,26 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  /* Priced from the page, and only now that there is a page. filesTouchedFor
+     reads the document rather than trusting a field in the request, so a
+     workflow anyone with n8n access can edit cannot talk the price down.
+
+     charge_credits rather than spend_credits: the build has happened and the
+     model has been paid for, so a refusal here would not undo it — it would
+     just leave the work unrecorded and the balance where it was, which is the
+     bug this replaces. It takes what the account holds and reports the rest,
+     so an overdraft lands at zero and the next build is turned away at the
+     door. The result is not returned to n8n: what an account owes is between
+     the app and its owner. */
+  await chargeCredits(supabase, {
+    userId: claim.userId,
+    action: "generate",
+    cost: creditCostOf("generate", { filesTouched }),
+    description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
+    projectId: project.id,
+    filesTouched,
+  });
 
   return NextResponse.json({ previewUrl, filesTouched });
 }

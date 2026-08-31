@@ -86,10 +86,15 @@ The update matches on **both** `id` and `user_id`. Because this node runs with
 the service_role key, RLS will not stop a write to the wrong row, so a leaked
 project UUID on its own must not be enough to reach someone's project.
 
-`/api/build` also prices the build and charges `spend_credits` once the
-orchestrator answers, using what the build itself reports — never anything the
-caller sends. Report `filesTouched` in a branch's artifacts and it is billed
-accordingly; report nothing and it prices at the floor.
+Billing does **not** happen when the webhook answers, and this is worth knowing
+before adding a field to make it. When the orchestrator replies, the page has
+not been generated yet — there is nothing to price a build from, and pricing it
+anyway meant every build, however large, cost the same as a one-word edit.
+
+A full build is charged in `/api/builder/webapp/save`, from the document that
+arrives there, counted by the app rather than reported by the workflow. Nothing
+this workflow sends decides what anyone is charged. A build that never reaches
+save is never billed, which is the right answer for a build nobody got.
 
 ## Request
 
@@ -132,9 +137,9 @@ so the chat UI has one response shape to render regardless of which branch ran.
 `status` is derived in `Assemble Build Result` and written straight to
 `projects.status`, which the dashboard already reads.
 
-`artifacts.filesTouched` is what `/api/build` prices the build from. The
-generate step derives it from the page it produced; a branch that reports
-nothing prices at the action's floor.
+`artifacts` is descriptive only — the stack, and whatever a branch wants to say
+about what it did. It is not read for billing (see above), so a field added
+here cannot move anyone's balance in either direction.
 
 `configKeys` is empty for now. It carried the environment a provisioned backend
 would need, and there is no provisioning until publishing exists.
