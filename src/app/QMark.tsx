@@ -17,14 +17,7 @@ import { useId, type CSSProperties } from "react";
  *
  * The geometry is taken from Q3DCanvasScene rather than eyeballed, so the two
  * line up through the fade: same ring radii, same tail angle and reach, and a
- * viewBox derived from the same camera. Change one and change the other.
- *
- * Two finishes. "lit" is the default and the one the hero needs — a bevel
- * gradient matching the 3D mark's key light, so the cross-fade is a change of
- * material rather than a jump. "flat" draws the same silhouette in currentColor
- * for the places the mark is 20px on a dark ground: that gradient runs to
- * near-black at the lower left, which at avatar size is a logo that disappears.
- * Same geometry either way — there is one mark, drawn two ways. */
+ * viewBox derived from the same camera. Change one and change the other. */
 
 /* Mirrors Q3DCanvasScene. */
 const RING_OUTER_RADIUS = 2.0;
@@ -55,14 +48,11 @@ export default function QMark({
   scale = 1,
   className = "",
   style,
-  finish = "lit",
 }: {
   /** The same scale passed to the 3D mark, so both are framed alike. */
   scale?: number;
   className?: string;
   style?: CSSProperties;
-  /** "lit" matches the 3D mark; "flat" takes the colour it is given. */
-  finish?: "lit" | "flat";
 }) {
   /* Unique per instance: two marks on one page must not share a gradient id.
      The colons React puts in an id are legal in an attribute but not in a CSS
@@ -91,11 +81,7 @@ export default function QMark({
         </linearGradient>
       </defs>
 
-      <g
-        fill="none"
-        stroke={finish === "flat" ? "currentColor" : `url(#${gradientId})`}
-        strokeLinecap="butt"
-      >
+      <g fill="none" stroke={`url(#${gradientId})`} strokeLinecap="butt">
         <circle cx="0" cy="0" r={RING_MID_RADIUS} strokeWidth={RING_STROKE_WIDTH} />
         <line
           x1={TAIL_INNER_REACH * DIAGONAL}
