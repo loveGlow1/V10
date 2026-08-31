@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown, ExternalLink } from "lucide-react";
 
+import { TerminalMark } from "./panelMarks";
+
 /* One line in the tracker below. A step is something that actually happened, so
    a label is not enough on its own — `state` is what separates a step that has
    finished from the one running now from one that has not been reached. */
@@ -84,6 +86,13 @@ export default function BuildActivity({
     if (running) setOpen(true);
   }, [running]);
 
+  /* Which operations have been opened. A step's detail is the concrete result
+     — the model that answered, what it cost, whether the classifier needed one
+     — and it is worth a click rather than always being on screen: five rows
+     each carrying two lines is a wall, and the labels are what someone reads
+     first. Open one and it reads back like the command it was. */
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+
   /* A second hand, not an animation: it reads the clock rather than counting
      its own ticks, so a tab left in the background comes back with the right
      number instead of however many intervals the browser chose to run. */
@@ -103,6 +112,11 @@ export default function BuildActivity({
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.03]"
       >
+        {/* The mark before the words, because the list under it is a record of
+            operations that ran on a server rather than a description of a wait.
+            It is the shorthand a shell has used for forty years, and it says so
+            before the labels are read. */}
+        <TerminalMark className="h-[15px] w-[15px] shrink-0 text-muted" />
         <span className="min-w-0 flex-1 truncate text-[13px] text-soft">
           {running ? "Working on your request…" : failed ? "This build failed" : "Done"}
         </span>
@@ -123,54 +137,93 @@ export default function BuildActivity({
           >
             <div className="px-3 pb-3">
               <ol className="space-y-2">
-                {steps.map((step) => (
-                  <li key={step.id} className="flex items-start gap-2.5">
-                    {/* The marker carries the state on its own, so the list can
-                        be read down the left edge without reading the labels. */}
-                    <span className="mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                      {step.state === "done" ? (
-                        <Check className="h-3.5 w-3.5 stroke-[3] text-accent" />
-                      ) : step.state === "running" ? (
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-                      ) : (
-                        <span className="h-2 w-2 rounded-full bg-layer/[0.18]" />
-                      )}
-                    </span>
+                {steps.map((step) => {
+                  const isOpen = opened[step.id] === true;
+                  /* The running step always shows its detail: it is the line
+                     saying what is happening right now, and hiding that behind
+                     a click would be hiding the only live thing on the panel. */
+                  const showDetail = step.detail !== undefined && (isOpen || step.state === "running");
 
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline gap-2">
-                        <span
-                          className={`min-w-0 flex-1 text-[13px] leading-snug ${
-                            step.state === "pending" ? "text-muted" : "text-ink"
-                          }`}
-                        >
-                          {step.label}
+                  return (
+                    <li key={step.id}>
+                      <div className="flex items-start gap-2.5">
+                        {/* The marker carries the state on its own, so the list
+                            can be read down the left edge without reading the
+                            labels. */}
+                        <span className="mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                          {step.state === "done" ? (
+                            <Check className="h-3.5 w-3.5 stroke-[3] text-accent" />
+                          ) : step.state === "running" ? (
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+                          ) : (
+                            <span className="h-2 w-2 rounded-full bg-layer/[0.18]" />
+                          )}
                         </span>
-                        {typeof step.ms === "number" && (
-                          <span className="shrink-0 text-[12px] tabular-nums text-muted">
-                            {formatStepDuration(step.ms)}
+
+                        {/* A row with nothing more to say is not a button. An
+                            affordance that opens an empty panel is worse than
+                            no affordance. */}
+                        {step.detail !== undefined && step.state !== "running" ? (
+                          <button
+                            onClick={() =>
+                              setOpened((current) => ({ ...current, [step.id]: !current[step.id] }))
+                            }
+                            aria-expanded={isOpen}
+                            className="group flex min-w-0 flex-1 items-baseline gap-2 text-left"
+                          >
+                            <span className="min-w-0 flex-1 text-[13px] leading-snug text-ink underline decoration-line/[0.18] decoration-dotted underline-offset-[3px] transition-colors group-hover:decoration-line/[0.4]">
+                              {step.label}
+                            </span>
+                            {typeof step.ms === "number" && (
+                              <span className="shrink-0 text-[12px] tabular-nums text-muted">
+                                {formatStepDuration(step.ms)}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                            <span
+                              className={`min-w-0 flex-1 text-[13px] leading-snug ${
+                                step.state === "pending" ? "text-muted" : "text-ink"
+                              }`}
+                            >
+                              {step.label}
+                            </span>
+                            {typeof step.ms === "number" && (
+                              <span className="shrink-0 text-[12px] tabular-nums text-muted">
+                                {formatStepDuration(step.ms)}
+                              </span>
+                            )}
                           </span>
                         )}
-                      </span>
-                      {/* Shown on finished steps as well as the running one.
-                          The detail is what the step actually did — which model
-                          answered, what it cost, whether the classifier needed
-                          one at all — and hiding it once the step completed
-                          left the list naming operations without their
-                          results. Muted when done, accent while running, so
-                          the live line still reads as the live one. */}
-                      {step.detail && (
-                        <span
-                          className={`mt-0.5 block text-[12px] leading-snug ${
-                            step.state === "running" ? "text-accent" : "text-muted"
-                          }`}
-                        >
-                          {step.detail}
-                        </span>
+                      </div>
+
+                      {/* Opened, it reads back as the operation it was: a prompt
+                          mark and the result, in the mono face, on its own
+                          ground. The indent lines it up under the label rather
+                          than under the state marker. */}
+                      {showDetail && (
+                        <div className="ml-6 mt-1 flex items-start gap-1.5 rounded-md border border-line/[0.06] bg-layer/[0.03] px-2 py-1.5">
+                          <span
+                            aria-hidden
+                            className={`shrink-0 font-mono text-[11px] leading-[1.45] ${
+                              step.state === "running" ? "text-accent" : "text-muted"
+                            }`}
+                          >
+                            ›
+                          </span>
+                          <span
+                            className={`min-w-0 font-mono text-[11px] leading-[1.45] ${
+                              step.state === "running" ? "text-accent" : "text-soft"
+                            }`}
+                          >
+                            {step.detail}
+                          </span>
+                        </div>
                       )}
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ol>
 
               {/* The clock, and whatever the build reported alongside it. Both
