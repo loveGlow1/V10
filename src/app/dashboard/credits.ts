@@ -28,16 +28,22 @@ import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 export type PlanId = "free" | "standard" | "pro";
 
-/* The daily grant on the paid plans, on top of their monthly credits.
+/* No plan has a daily grant. Every `dailyCredits` below is zero, and that is
+ * deliberate rather than unfinished.
  *
- * Free does NOT get one, which is the whole point of the number below being
- * separate from SIGNUP_CREDITS. A refilling daily allowance means an account
- * that never pays can build forever at whatever rate the refill sets — wait a
- * day, get five more, indefinitely. That is not a free tier, it is a free
- * product with a rate limit. Free gets a one-time opening balance instead: real
- * enough to see what the platform does, finite enough that continuing means
- * topping up. */
-export const DAILY_ALLOWANCE = 5;
+ * A refilling daily allowance means an account can build at whatever rate the
+ * refill sets, forever, without the balance ever being the thing that stops it
+ * — wait a day, get five more, indefinitely. On Free that is a free product
+ * with a rate limit rather than a free tier. On the paid plans it is the same
+ * hole with a smaller entrance: the monthly grant is what the subscription buys
+ * and what the pricing page names, and a daily top-up beside it makes the real
+ * allowance a number nobody quoted.
+ *
+ * So credits arrive in exactly three ways, all of them countable: the one-time
+ * signup grant, the monthly grant on a paid plan, and a purchase. The
+ * `dailyCredits` field and renewDaily() stay because the mechanism is sound and
+ * the column exists — turning a daily grant back on should be a number, not a
+ * redesign. */
 
 /* Going live the first time. This is the charge that pays for provisioning —
    a repository, a subdomain, hosting — which happens once per project and is
@@ -77,7 +83,7 @@ export type Plan = {
   /** What the plan costs per month, in whole dollars. Free is 0. */
   monthlyPriceUsd: number;
   /** Granted every day and never carried forward — use it or lose it. Zero on
-   * Free, which is granted once at signup and not again. */
+   * every plan: see the note above the plans for why nothing refills daily. */
   dailyCredits: number;
   /** Granted at the start of each billing cycle. */
   monthlyCredits: number;
@@ -99,8 +105,8 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "free",
     name: "Free",
     monthlyPriceUsd: 0,
-    /* Nothing recurring. A Free account opens with SIGNUP_CREDITS and that is
-       the whole of it — see DAILY_ALLOWANCE above for why. */
+    /* Nothing recurring at all. A Free account opens with SIGNUP_CREDITS and
+       that is the whole of it. */
     dailyCredits: 0,
     monthlyCredits: 0,
     rolloverCycles: 0,
@@ -124,7 +130,7 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "standard",
     name: "Standard",
     monthlyPriceUsd: 25,
-    dailyCredits: DAILY_ALLOWANCE,
+    dailyCredits: 0,
     monthlyCredits: 100,
     rolloverCycles: 1,
     publishing: {
@@ -134,7 +140,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "100 credits/month, plus daily allowances",
+      "100 credits every month",
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "GitHub integration",
@@ -144,7 +150,7 @@ export const PLANS: Record<PlanId, Plan> = {
     id: "pro",
     name: "Pro",
     monthlyPriceUsd: 150,
-    dailyCredits: DAILY_ALLOWANCE,
+    dailyCredits: 0,
     /* The one allowance the specification does not state. Held at Standard's
        rate of four credits per dollar, so the step up in price is a step up in
        capacity rather than a change of deal. Change this line, not the UI, if
@@ -158,7 +164,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "600 credits/month, plus daily allowances",
+      "600 credits every month",
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "Priority support",

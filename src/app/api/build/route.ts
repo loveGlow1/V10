@@ -4,7 +4,7 @@ import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/da
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { EDIT_MODEL, EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
-import { stepRecorder } from "@/lib/builder/steps";
+import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
@@ -101,7 +101,85 @@ const INTENT_WORDS: Record<string, string> = {
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
 
+/* The wire format between this route and the workspace.
+ *
+ * One JSON object per line, which is all a progress stream needs: a step the
+ * moment it is known, and one final object carrying what used to be the whole
+ * response. Newline-delimited rather than Server-Sent Events because there is
+ * nothing here that SSE's reconnection and event names would earn — this is a
+ * single request that answers once and ends.
+ *
+ * The status code moves into the last line. A stream commits its headers before
+ * the work begins, so an HTTP status cannot describe an outcome that has not
+ * happened yet; every branch below still returns a NextResponse and the wrapper
+ * unwraps it, so the statuses are written where they were always written. */
+type StreamLine =
+  | { type: "step"; step: BuildStep }
+  | { type: "result"; status: number; body: unknown };
+
+/**
+ * Where a build is started, and the only thing exported from this module that
+ * anything outside it calls.
+ *
+ * It is a wrapper rather than the work itself, because the work has a dozen
+ * exits and every one of them wants to say something different. `handle` keeps
+ * those exactly as they were — a NextResponse with a status — and this unwraps
+ * whichever one it took, after the steps it emitted on the way there have
+ * already reached the browser.
+ */
 export async function POST(request: Request) {
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      /* Guarded because a reader that goes away mid-build — the tab closed, the
+         person navigated — closes the controller under us, and an enqueue after
+         that throws. The build itself is unaffected: the orchestrator has the
+         work and the row is written whatever happens to this connection. */
+      let open = true;
+      const write = (line: StreamLine) => {
+        if (!open) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+        } catch {
+          open = false;
+        }
+      };
+
+      let response: NextResponse;
+      try {
+        response = await handle(request, (step) => write({ type: "step", step }));
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("build: the request failed outright:", error);
+        response = NextResponse.json(
+          { error: "Something went wrong on my side. Try that again." },
+          { status: 500 },
+        );
+      }
+
+      /* The body is read back out of the response rather than threaded
+         separately, so the branches below stay the plain `return
+         NextResponse.json(...)` they have always been. */
+      const body = await response.json().catch(() => null);
+      write({ type: "result", status: response.status, body });
+
+      if (open) controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-store, no-transform",
+      /* Proxies that buffer a response to measure it would hold every line
+         until the last one, which is the whole of what this is for. */
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
+async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
@@ -118,6 +196,17 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "You'll need to sign in before I can build." }, { status: 401 });
   }
+
+  /* From here on, every operation is recorded with what it cost and what it
+     produced, and streamed the moment it happens rather than held until the
+     reply. The list still rides back with that reply — a finished message keeps
+     its timeline — but the panel fills in while the work runs, which is the
+     difference between naming the work and naming the wait.
+
+     Opened here rather than beside the classifier, where it used to be: the
+     reads before that point are quick but they are not free, and a panel that
+     begins at the classifier is silent for whatever they cost. */
+  const steps = stepRecorder(emit);
 
   let body: BuildRequestBody;
   try {
@@ -145,6 +234,7 @@ export async function POST(request: Request) {
   /* Reads under the caller's own session, so RLS answers this: a project id
      belonging to someone else comes back empty and is refused here, and never
      reaches n8n — which runs with a service key and would happily write it. */
+  steps.begin("open", "Opening your app");
   const { data: project, error: lookupError } = await supabase
     .from("projects")
     .select("id, name")
@@ -197,6 +287,9 @@ export async function POST(request: Request) {
 
      Read under the caller's own session, so RLS answers for it — a project id
      is not enough to reach someone else's page. */
+  steps.mark("open", `Opened ${project.name}`);
+
+  steps.begin("page", "Reading the page as it stands");
   const { data: lastBuild } = await supabase
     .from("project_builds")
     .select("id, html")
@@ -206,6 +299,14 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
+
+  steps.mark(
+    "page",
+    currentHtml ? "Read the current page" : "There is no page yet",
+    currentHtml
+      ? `${currentHtml.length.toLocaleString("en-US")} characters`
+      : "so this message can only be a first build",
+  );
 
   const override =
     body.intentOverride === "edit" ||
@@ -234,19 +335,20 @@ export async function POST(request: Request) {
   const attachmentIds = Array.isArray(body.attachmentIds)
     ? (body.attachmentIds.filter((id) => typeof id === "string") as string[])
     : [];
-  /* From here on, every operation is recorded with what it cost and what it
-     produced. The reply carries the list, and the workspace draws it — which
-     is the difference between a panel that names the work and one that only
-     names the wait. */
-  const steps = stepRecorder();
-
+  if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached");
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
   if (attachments.length > 0) {
     steps.mark(
       "attachments",
       `Read ${attachments.length} ${attachments.length === 1 ? "attachment" : "attachments"}`,
+      attachments.map((row) => row.name).join(", "),
     );
   }
+
+  /* Announced before the call, not after it. Classifying is a round trip when
+     the rules cannot settle it, and this is the line someone reads while that
+     round trip is happening. */
+  steps.begin("intent", "Reading your message", "working out what it asks for…");
 
   const decision = await classifyIntent({
     message: prompt,
@@ -278,6 +380,7 @@ export async function POST(request: Request) {
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   if (intent === "revert") {
+    steps.begin("history", "Looking up the previous version");
     const { data: history2 } = await supabase
       .from("project_builds")
       .select("id, html, prompt")
@@ -363,6 +466,7 @@ export async function POST(request: Request) {
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
+      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
       const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "clarify",
@@ -411,6 +515,7 @@ export async function POST(request: Request) {
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
+      steps.begin("answer", "Reading the page to answer you", `${EDIT_MODEL} is reading the page…`);
       const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "answer",
@@ -495,6 +600,7 @@ export async function POST(request: Request) {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
+      steps.begin("edit", "Changing the page", `${EDIT_MODEL} is writing the change…`);
       edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
       steps.mark(
         "edit",
@@ -515,6 +621,7 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    steps.begin("version", "Saving the new version");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
