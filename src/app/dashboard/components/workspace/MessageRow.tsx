@@ -59,7 +59,17 @@ export default function MessageRow({
   const you = message.from === "you";
 
   return (
-    <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
+    /* A reply that reports a problem is still a reply. It gets the same
+       typography as every other one and a thin rule down its edge — amber
+       rather than red, because almost none of these are alarms: a change that
+       could not be applied, a build still running, a file too large. Colouring
+       the sentence itself made every one of them read as a crash, and made the
+       three that matter indistinguishable from the ones that do not. */
+    <div
+      className={`rounded-xl border border-line/[0.06] bg-layer/[0.02] py-2.5 pr-3 ${
+        message.tone === "error" ? "border-l-2 border-l-warn/50 pl-[10px]" : "pl-3"
+      }`}
+    >
       <div className="flex items-center gap-2">
         <span
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
@@ -81,11 +91,7 @@ export default function MessageRow({
         )}
       </div>
 
-      <p
-        className={`mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed ${
-          message.tone === "error" ? "text-danger" : "text-soft"
-        }`}
-      >
+      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-soft">
         {message.text}
       </p>
 

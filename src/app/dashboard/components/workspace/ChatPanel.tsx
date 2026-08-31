@@ -257,7 +257,7 @@ export default function ChatPanel({
     if (room <= 0) {
       say({
         from: "system",
-        text: `A message can carry ${MAX_ATTACHMENTS} files. Send these first.`,
+        text: `I can take ${MAX_ATTACHMENTS} files with one message. Send these, then attach the rest.`,
         tone: "error",
       });
       return;
@@ -373,7 +373,20 @@ export default function ChatPanel({
          sentence to read rather than a failure to recover from — and the text
          goes back in the composer so it can be reworded, not retyped. */
       if (reply.error || !reply.outcome) {
-        say({ from: "system", text: reply.error ?? "The message could not be sent.", tone: "error" });
+        if (reply.steps?.length) {
+          run.current = [];
+          for (const step of reply.steps) setPhase(step);
+        }
+        say(
+          {
+            from: "system",
+            text: reply.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
+            tone: "error",
+          },
+          /* The steps it did get through are worth keeping: they say how far it
+             got before it stopped. */
+          reply.steps?.length ? { activity: timelineOf(runStarted, true) } : undefined,
+        );
         if (prompt === undefined) setDraft(text);
         setAttached(sent);
         return;
@@ -382,7 +395,11 @@ export default function ChatPanel({
       /* A build that would replace the page. Nothing has happened yet, and
          nothing will until one of the two buttons is pressed. */
       if (reply.needsConfirmation) {
-        say({ from: "system", text: reply.outcome.message, tone: "error" });
+        /* Asked, not warned. This is the panel checking before it replaces a
+           page — the two buttons under it are the whole point, and marking the
+           sentence as a problem made a question look like something had already
+           gone wrong. */
+        say({ from: "system", text: reply.outcome.message });
         setPendingConfirm({ text });
         /* Nothing ran, so the files are still this message's. */
         setAttached(sent);
@@ -391,14 +408,21 @@ export default function ChatPanel({
 
       setPendingConfirm(null);
       const outcome = reply.outcome;
-      /* The classifier has answered, and what it decided is worth showing: it
-         is the difference between a page being edited and a page being
-         replaced, which is the one thing here someone would want to catch. */
-      setPhase({
-        id: "classify",
-        label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
-        state: "done",
-      });
+      /* The server's own account of what it did, which replaces the one this
+         panel was guessing at. It names the operations and what each cost —
+         which classifier answered, how many patch blocks landed, what the model
+         call was billed at — none of which the browser can know. The inferred
+         step stays only as the fallback for a reply that carries no list. */
+      if (reply.steps?.length) {
+        run.current = [];
+        for (const step of reply.steps) setPhase(step);
+      } else {
+        setPhase({
+          id: "classify",
+          label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
+          state: "done",
+        });
+      }
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
@@ -472,7 +496,7 @@ export default function ChatPanel({
              the row instead, which is the same row this was waiting on. */
           say({
             from: "system",
-            text: "The build did not finish. Try again, or describe a smaller page — a very large one can run past what a single build allows.",
+            text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
             tone: "error",
           });
         } else {
@@ -487,14 +511,16 @@ export default function ChatPanel({
           say({
             from: "system",
             /* Not "it failed": nothing here knows that. The build may still
-               land, and the workspace will show it when it does. */
-            text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
-            tone: "error",
+               land, and the workspace will show it when it does — so it is not
+               marked as a problem either. */
+            text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
           });
         }
       }
     } catch (error) {
       say({ from: "system", text: (error as Error).message, tone: "error" });
+      /* The text comes from wherever it was thrown, so the wording lives with
+         the throw — see src/lib/builder/edit.ts and the route. */
     } finally {
       setBuilding(false);
       setRunStartedAt(null);

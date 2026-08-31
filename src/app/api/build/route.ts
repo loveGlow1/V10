@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
+import { EDIT_MODEL, EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
+import { stepRecorder } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
@@ -78,6 +79,15 @@ const BUILDS_PER_HOUR = 20;
    files and stands up services. */
 const BUILD_ACTION = "generate" as const;
 
+/* How each intent is named in the step list. The raw values are keys. */
+const INTENT_WORDS: Record<string, string> = {
+  edit: "an edit to the page",
+  new_project: "a new page",
+  question: "a question about the page",
+  revert: "an undo",
+  clarify: "needing one more detail",
+};
+
 /* What must be in the pool before anything is allowed to run.
  *
  * Two figures, because two very different things happen here. An edit is one
@@ -96,7 +106,7 @@ export async function POST(request: Request) {
 
   if (!supabase) {
     return NextResponse.json(
-      { error: "Building is unavailable because Supabase is not configured." },
+      { error: "I can't build anything yet — this workspace has no Supabase configured." },
       { status: 503 },
     );
   }
@@ -106,30 +116,30 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Sign in to build." }, { status: 401 });
+    return NextResponse.json({ error: "You'll need to sign in before I can build." }, { status: 401 });
   }
 
   let body: BuildRequestBody;
   try {
     body = (await request.json()) as BuildRequestBody;
   } catch {
-    return NextResponse.json({ error: "Expected a JSON body." }, { status: 400 });
+    return NextResponse.json({ error: "That message didn't arrive in a form I could read. Try sending it again." }, { status: 400 });
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
-    return NextResponse.json({ error: "Describe what you want built." }, { status: 400 });
+    return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
   if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
-      { error: `Keep the description under ${MAX_PROMPT} characters.` },
+      { error: `That's longer than I can take in one message — keep it under ${MAX_PROMPT} characters and send it again.` },
       { status: 400 },
     );
   }
   if (!projectId) {
-    return NextResponse.json({ error: "A build needs a project to belong to." }, { status: 400 });
+    return NextResponse.json({ error: "I don't know which app that belongs to. Open one and try again." }, { status: 400 });
   }
 
   /* Reads under the caller's own session, so RLS answers this: a project id
@@ -144,10 +154,10 @@ export async function POST(request: Request) {
   if (lookupError) {
     // eslint-disable-next-line no-console
     console.error("build: could not read the project:", lookupError);
-    return NextResponse.json({ error: "Could not read that project." }, { status: 500 });
+    return NextResponse.json({ error: "I couldn't read that app just now. Try again in a moment." }, { status: 500 });
   }
   if (!project) {
-    return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
+    return NextResponse.json({ error: "That app isn't in your account, so I can't open it." }, { status: 404 });
   }
 
   /* Writing a build row, and taking payment for one, both need the service key:
@@ -224,7 +234,19 @@ export async function POST(request: Request) {
   const attachmentIds = Array.isArray(body.attachmentIds)
     ? (body.attachmentIds.filter((id) => typeof id === "string") as string[])
     : [];
+  /* From here on, every operation is recorded with what it cost and what it
+     produced. The reply carries the list, and the workspace draws it — which
+     is the difference between a panel that names the work and one that only
+     names the wait. */
+  const steps = stepRecorder();
+
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+  if (attachments.length > 0) {
+    steps.mark(
+      "attachments",
+      `Read ${attachments.length} ${attachments.length === 1 ? "attachment" : "attachments"}`,
+    );
+  }
 
   const decision = await classifyIntent({
     message: prompt,
@@ -236,6 +258,21 @@ export async function POST(request: Request) {
   /* Nothing to edit, revert or answer about. Whatever it looked like, the only
      thing that can happen is a first build. */
   const intent: Intent = currentHtml ? decision.intent : "new_project";
+
+  /* How the reading was reached, not just what it was. "heuristic" means the
+     free pass settled it and no model was called at all, which is worth being
+     able to see — it is the difference between an instant answer and a
+     round trip, and between a message that was understood and one that was
+     guessed at. */
+  steps.mark(
+    "intent",
+    `Read the message as ${INTENT_WORDS[intent] ?? intent}`,
+    decision.source === "heuristic"
+      ? "rules only, no model call"
+      : decision.source === "override"
+        ? "you chose this mode"
+        : `claude-haiku-4-5, confidence ${decision.confidence.toFixed(2)}`,
+  );
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
 
@@ -252,6 +289,7 @@ export async function POST(request: Request) {
 
     if (!previous || !service) {
       return NextResponse.json({
+        steps: steps.list(),
         intent: "revert",
         build: {
           ok: false,
@@ -272,6 +310,7 @@ export async function POST(request: Request) {
 
     /* Restored by putting the old page back on top as a new version, never by
        deleting the newer one. Undo should be undoable. */
+    steps.mark("history", "Read the last two versions");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
@@ -287,6 +326,8 @@ export async function POST(request: Request) {
       .eq("id", project.id)
       .eq("user_id", user.id);
 
+    steps.mark("restore", "Put the previous version back on top");
+
     const { data: reverted } = await supabase
       .from("projects")
       .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
@@ -294,6 +335,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     return NextResponse.json({
+      steps: steps.list(),
       intent: "revert",
       build: {
         ok: true,
@@ -322,6 +364,11 @@ export async function POST(request: Request) {
   if (intent === "clarify" && currentHtml) {
     try {
       const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
+      steps.mark(
+        "clarify",
+        "Wrote one question back",
+        `${EDIT_MODEL}, ${question.outputTokens} output tokens`,
+      );
 
       /* Billed as chat, like a question, because that is what it is: one short
          model call with the page in it. Charging a build rate for a sentence
@@ -338,6 +385,7 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({
+        steps: steps.list(),
         intent: "clarify",
         build: {
           ok: true,
@@ -364,6 +412,11 @@ export async function POST(request: Request) {
   if (intent === "question" && currentHtml) {
     try {
       const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+      steps.mark(
+        "answer",
+        "Answered from the page",
+        `${EDIT_MODEL}, ${answer.outputTokens} output tokens`,
+      );
 
       /* Billed as chat, on what it said. Asking about a page is a model call
          with the whole page in it, so it is not free — but the chat band starts
@@ -381,6 +434,7 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({
+        steps: steps.list(),
         intent: "question",
         build: {
           ok: true,
@@ -431,7 +485,7 @@ export async function POST(request: Request) {
   if (intent === "edit" && currentHtml) {
     if (!service) {
       return NextResponse.json(
-        { error: "Edits cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
+        { error: "I can make the edit but not save it — this workspace has no SUPABASE_SERVICE_ROLE_KEY set." },
         { status: 503 },
       );
     }
@@ -442,6 +496,13 @@ export async function POST(request: Request) {
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
       edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
+      steps.mark(
+        "edit",
+        edited.failures.length > 0
+          ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
+          : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
+        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}`,
+      );
     } catch (error) {
       if (error instanceof EditError) {
         /* The page is untouched. Said plainly, and with the prompt left in the
@@ -462,6 +523,7 @@ export async function POST(request: Request) {
       model: null,
       files_touched: edited.applied,
     });
+    steps.mark("version", "Saved a new version of the page");
 
     await service
       .from("projects")
@@ -490,6 +552,10 @@ export async function POST(request: Request) {
       filesTouched: edited.applied,
     });
 
+    if (charge) {
+      steps.mark("charge", `Charged ${formatCredits(charge.charged)} credits`);
+    }
+
     const { data: after } = await supabase
       .from("projects")
       .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
@@ -497,6 +563,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     return NextResponse.json({
+      steps: steps.list(),
       intent: "edit",
       build: {
         ok: true,
@@ -543,7 +610,7 @@ export async function POST(request: Request) {
   if ((recentBuilds ?? 0) >= BUILDS_PER_HOUR) {
     return NextResponse.json(
       {
-        error: `That is ${BUILDS_PER_HOUR} builds in an hour. Give it a few minutes before the next one.`,
+        error: `That's ${BUILDS_PER_HOUR} builds inside an hour, which is the limit here. Give it a few minutes and I'll carry on.`,
         code: "rate_limited",
       },
       { status: 429 },
@@ -587,6 +654,7 @@ export async function POST(request: Request) {
      the orchestrator is given nothing to edit. */
   let result: BuildResult;
   try {
+    steps.running("orchestrator", "Generating the page", "handed to the build orchestrator");
     result = await startBuild({
       prompt,
       projectName: project.name,
@@ -632,5 +700,10 @@ export async function POST(request: Request) {
     .eq("id", project.id)
     .maybeSingle();
 
-  return NextResponse.json({ intent: "new_project", build: result, project: synced ?? null });
+  return NextResponse.json({
+    steps: steps.list(),
+    intent: "new_project",
+    build: result,
+    project: synced ?? null,
+  });
 }

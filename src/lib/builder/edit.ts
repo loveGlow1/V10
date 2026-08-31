@@ -42,7 +42,7 @@ function textOf(message: Anthropic.Message): string {
 
 function client(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new EditError("Editing is not connected yet — ANTHROPIC_API_KEY is not set.", 503);
+    throw new EditError("I can't make edits yet — this workspace has no ANTHROPIC_API_KEY set.", 503);
   }
   return new Anthropic();
 }
@@ -79,15 +79,15 @@ async function ask(
   } catch (error) {
     if (error instanceof EditError) throw error;
     if (error instanceof Anthropic.AuthenticationError) {
-      throw new EditError("ANTHROPIC_API_KEY was rejected.", 502);
+      throw new EditError("The ANTHROPIC_API_KEY this workspace is using was rejected — it will need replacing before I can edit.", 502);
     }
     if (error instanceof Anthropic.RateLimitError) {
-      throw new EditError("The model is busy — try that again in a moment.", 429);
+      throw new EditError("I'm rate limited at the moment. Send that again in a few seconds and it should go through.", 429);
     }
     if (error instanceof Anthropic.APIError) {
-      throw new EditError(`The model could not be reached (${error.status}).`, 502);
+      throw new EditError(`I couldn't reach the model (HTTP ${error.status}). Nothing was changed — try that again.`, 502);
     }
-    throw new EditError("The model could not be reached.", 502);
+    throw new EditError("I couldn't reach the model, so nothing was changed. Try that again.", 502);
   }
 }
 
@@ -96,6 +96,10 @@ export type EditOutcome = {
   applied: number;
   /** Blocks that were refused even though others landed. Worth surfacing. */
   failures: PatchFailure[];
+  /** What the call cost, reported by the API rather than guessed. */
+  outputTokens: number;
+  /** Whether the first attempt had to be retried. Real, and worth showing. */
+  retried: boolean;
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -115,11 +119,13 @@ export async function editPage(
   const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments);
 
   if (first.stop_reason === "refusal") {
-    throw new EditError("The model declined to make that change.", 422);
+    throw new EditError("I wasn't able to make that change. If you can say which part of the page you mean, I'll try again.", 422);
   }
 
   let output = textOf(first);
   let result = applyPatches(html, output);
+  let outputTokens = first.usage?.output_tokens ?? 0;
+  let retried = false;
 
   /* One retry, and only when nothing at all landed. A partial success is left
      alone: re-running it would apply the blocks that already worked a second
@@ -137,13 +143,15 @@ export async function editPage(
     );
     output = textOf(second);
     result = applyPatches(html, output);
+    outputTokens += second.usage?.output_tokens ?? 0;
+    retried = true;
 
     if (result.applied === 0) {
       /* Nothing was written, and saying so is the whole point: an edit that
          silently did nothing is indistinguishable from one that worked until
          someone looks closely. */
       throw new EditError(
-        "That change could not be applied cleanly, so the page is unchanged. Try describing it differently, or naming the part of the page you mean.",
+        "I couldn't place that change in the page, so I've left it exactly as it was. Naming the section you mean — the hero, the nav, the footer — usually sorts it.",
         422,
         result.failures,
       );
@@ -157,6 +165,8 @@ export async function editPage(
     /* Read from the output that actually landed, so a retry's note replaces the
        first attempt's rather than both being in play. */
     note: noteAfterPatches(output),
+    outputTokens,
+    retried,
   };
 }
 
@@ -171,11 +181,11 @@ export async function askClarifying(
   const message = await ask(CLARIFY_SYSTEM, clarifyPrompt(userMessage, html), 300, attachments);
 
   if (message.stop_reason === "refusal") {
-    throw new EditError("The model declined to answer that.", 422);
+    throw new EditError("I wasn't able to answer that one. Try asking it a different way.", 422);
   }
 
   const question = textOf(message).trim();
-  if (!question) throw new EditError("The model returned nothing.", 502);
+  if (!question) throw new EditError("I came back with nothing there, which is a fault my end. Try that again.", 502);
 
   return { text: question, outputTokens: message.usage?.output_tokens ?? 0 };
 }
