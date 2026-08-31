@@ -36,13 +36,30 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 /* What kind of thing a task is, from the intent a build recorded. The keys are
-   the orchestrator's own; anything it has not classified shows no kind rather
-   than a guessed one. */
+   the orchestrator's own (src/lib/n8n.ts). Only "webapp" appears in the data
+   today; the other two are branches it can take, kept so a WordPress or store
+   build names itself the day one lands rather than falling through to nothing. */
 const TASK_KIND: Record<string, string> = {
   webapp: "Web app",
   wordpress: "WordPress site",
   ecommerce: "Online store",
 };
+
+/* The line under a task's name.
+ *
+ * Status comes first, and that ordering is the whole of this function. In the
+ * live table `intent` is null on exactly the rows whose status is "Draft" — a
+ * project nobody has built yet has nothing to have classified — and that is
+ * nine of nineteen. Reading the kind first would leave half the drawer with a
+ * blank line, and blank on precisely the rows worth telling apart.
+ *
+ * It also puts the states that matter where they can be seen: a build that
+ * failed or is still running says so, which is more use than "Web app". Only
+ * an ordinary finished project falls through to its kind. */
+function taskKind(project: { status: string; intent: string | null }) {
+  if (project.status && project.status !== "Built") return project.status;
+  return project.intent ? TASK_KIND[project.intent] : undefined;
+}
 
 /* How many recent tasks the drawer carries before "View all". Enough to
    recognise what you were last doing, short enough that the list below it —
@@ -329,7 +346,7 @@ export default function Sidebar({
                 ) : (
                   <div className="space-y-1.5">
                     {recent.map((project) => {
-                      const kind = project.intent ? TASK_KIND[project.intent] : undefined;
+                      const kind = taskKind(project);
                       return (
                         <div
                           key={project.id}
