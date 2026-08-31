@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import { Check, ExternalLink, Sparkles, User } from "lucide-react";
+import { Check, ExternalLink, User } from "lucide-react";
+
+import QLogo from "../../../QLogo";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 
@@ -48,12 +50,9 @@ export function timeOf(at: number): string {
    which stay legible at any width. */
 export default function MessageRow({
   message,
-  avatarClass,
   onOpenPreview,
 }: {
   message: Message;
-  /** The project's own gradient, so the assistant is marked as this app's. */
-  avatarClass: string;
   onOpenPreview?: () => void;
 }) {
   const you = message.from === "you";
@@ -71,15 +70,28 @@ export default function MessageRow({
       }`}
     >
       <div className="flex items-center gap-2">
-        <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-            you ? "bg-layer/[0.10] text-soft" : `bg-gradient-to-br text-onSolid ${avatarClass}`
-          }`}
-        >
-          {you ? <User className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
-        </span>
+        {/* The person gets a chip, the assistant gets the mark. Not symmetry for
+            its own sake: a logo boxed inside a coloured square reads as an app
+            icon, and this is a signature. Still rather than turning, and in the
+            quiet colour rather than the brand green — it repeats down the whole
+            thread, and twenty spinning green marks is a fairground. The green
+            lives in the wordmark instead, once per row, exactly as the header
+            above does it. */}
+        {you ? (
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-layer/[0.10] text-soft">
+            <User className="h-3 w-3" />
+          </span>
+        ) : (
+          <QLogo size={22} />
+        )}
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-          {you ? "You" : "QuickStark AI"}
+          {you ? (
+            "You"
+          ) : (
+            <>
+              QuickStark<span className="text-accent">.Ai</span>
+            </>
+          )}
         </p>
         {typeof message.at === "number" && (
           <time
