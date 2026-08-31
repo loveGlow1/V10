@@ -350,10 +350,15 @@ export default function ChatPanel({
     const runStarted = Date.now();
     setRunStartedAt(runStarted);
     run.current = [];
+    /* The one step this panel reports itself, and the only one it can: the
+       request is in the browser's hands until the server answers, so nothing
+       else knows it is happening. Everything after it is streamed — see the
+       onStep below — and this row closes the moment the first of those
+       arrives, timed by the clock that measured it. */
     setPhase({
-      id: "classify",
-      label: "Reading your message",
-      detail: "Working out what it asks for…",
+      id: "send",
+      label: "Sending your message",
+      detail: "waiting for the server to pick it up…",
       state: "running",
     });
 
@@ -364,20 +369,45 @@ export default function ChatPanel({
     const startedAt = Date.now();
 
     try {
+      /* Closed by the first step that comes back, because that is the moment
+         the server demonstrably has the message. Its duration is the round trip
+         as this machine measured it, which is the one number here the server
+         could not have told us. */
+      let picked = false;
+
       const reply = await build(project.id, text, {
         intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
+        /* Live. Each operation lands here as the server finishes announcing or
+           completing it, and setPhase merges by id — so a row that says
+           "Changing the page" becomes the same row saying how many changes
+           landed and what it took, rather than a second line below it. */
+        onStep: (step) => {
+          if (!picked) {
+            picked = true;
+            setPhase({
+              id: "send",
+              label: "Sent your message",
+              state: "done",
+              ms: Date.now() - runStarted,
+            });
+          }
+          setPhase(step);
+        },
       });
 
       /* Nothing was changed. The page is exactly as it was, so this is a
          sentence to read rather than a failure to recover from — and the text
          goes back in the composer so it can be reworded, not retyped. */
       if (reply.error || !reply.outcome) {
-        if (reply.steps?.length) {
-          run.current = [];
-          for (const step of reply.steps) setPhase(step);
-        }
+        /* Merged, not replaced. The stream already delivered these as they
+           happened; replaying the list over the top only fills in anything the
+           connection dropped, and clearing first would throw away the row this
+           panel timed itself as well as any operation that began and never got
+           to finish — which is exactly the row worth keeping when a request
+           stops in the middle. */
+        for (const step of reply.steps ?? []) setPhase(step);
         say(
           {
             from: "system",
@@ -385,8 +415,10 @@ export default function ChatPanel({
             tone: "error",
           },
           /* The steps it did get through are worth keeping: they say how far it
-             got before it stopped. */
-          reply.steps?.length ? { activity: timelineOf(runStarted, true) } : undefined,
+             got before it stopped. Read off the run rather than off the reply,
+             because a request that died mid-operation has steps on screen that
+             never made it into the reply's list. */
+          run.current.length > 0 ? { activity: timelineOf(runStarted, true) } : undefined,
         );
         if (prompt === undefined) setDraft(text);
         setAttached(sent);
@@ -415,7 +447,6 @@ export default function ChatPanel({
          call was billed at — none of which the browser can know. The inferred
          step stays only as the fallback for a reply that carries no list. */
       if (reply.steps?.length) {
-        run.current = [];
         for (const step of reply.steps) setPhase(step);
       } else {
         setPhase({
