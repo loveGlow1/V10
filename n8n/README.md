@@ -222,6 +222,25 @@ that is gated on every enabled node having a credential attached.
    `attachmentText`. Both are optional; with nothing attached the request is
    exactly what it was.
 
+   **The system prompt** lives on `Compose Page Prompt`, and is mirrored in
+   [`page-prompt.md`](./page-prompt.md) so it can be reviewed and diffed — a
+   prompt that exists only inside a workflow is one nobody can see change. Edit
+   both; if they disagree, n8n is what ran.
+
+   It covers **sign-in and dashboards**: a build asked for accounts produces a
+   working demo in the one file — views shown and hidden by script, real
+   validation, a protected dashboard, sign out. Two rules make that usable
+   rather than a locked door:
+
+   - a seeded demo account, **with its credentials printed on the sign-in
+     screen**, because whoever opens the preview will not guess the password
+     the model invented; and
+   - **no localStorage, sessionStorage or cookies**. The preview frame has an
+     opaque origin, where those APIs throw a `SecurityError` on access — a page
+     that keeps its session there does not degrade, it crashes blank on load.
+     State lives in ordinary variables, so accounts last as long as the tab,
+     and the page says so quietly rather than implying otherwise.
+
    `Generate Page` calls the API with an HTTP node rather than an LLM chain on
    purpose: a generated page is full of `{` and `}`, and a chain reads those as
    prompt template variables. Editing an existing page would corrupt it.
