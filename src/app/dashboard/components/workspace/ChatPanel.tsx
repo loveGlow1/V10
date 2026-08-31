@@ -14,6 +14,7 @@ import {
   MicOff,
   Paperclip,
   Shuffle,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -21,7 +22,10 @@ import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../m
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
+import BuildActivity, { type ActivityStep } from "./BuildActivity";
+import MessageRow, { type Activity } from "./MessageRow";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -37,7 +41,24 @@ import {
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
    read back from a table and the two must not drift. */
-type Message = ThreadMessage & { id: number };
+/* What the classifier decided, in words for the tracker. Its own keys are
+   edit / new_project / question / revert — see src/lib/builder/intent.ts. */
+const INTENT_LABEL: Record<string, string> = {
+  edit: "Read your message — an edit to the page",
+  new_project: "Read your message — a new page",
+  question: "Read your message — a question about the page",
+  revert: "Read your message — undo the last change",
+};
+
+type Message = ThreadMessage & {
+  id: number;
+  /* View-only, never written to the thread table. A message reloaded from a
+     previous visit has none of these, which is why all three are optional —
+     see MessageRow. */
+  at?: number;
+  applied?: boolean;
+  activity?: Activity;
+};
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -105,6 +126,18 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* The phases of the message in flight, and the clock they run against. Both
+     are drawn from what this panel genuinely observes — the classifier's answer
+     and the wait for the page — rather than from a script. */
+  const [phases, setPhases] = useState<ActivityStep[]>([]);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  /* Whose workspace this is. Empty until the session answers, and empty for
+     good on an account that never gave a name — the greeting handles both. */
+  const { firstName } = useAccountName();
+  /* Read after mount rather than during render: this component is server
+     rendered too, and the server's hour is not the reader's. */
+  const [greeting, setGreeting] = useState("Welcome back");
+  useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -179,10 +212,18 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt, threadLoaded]);
 
+  /* Follows the conversation, but only while the reader is already at the foot
+     of it. Phases land one at a time during a build, so this fires repeatedly
+     — and yanking the view back down while someone reads an earlier reply is
+     the one thing that would make live updates worse than no updates.
+
+     80px of slack rather than an exact match: a list can settle a pixel or two
+     off the bottom on its own, and that must still count as being at it. */
+  const pinned = useRef(true);
   useEffect(() => {
     const stream = streamRef.current;
-    if (stream) stream.scrollTop = stream.scrollHeight;
-  }, [messages]);
+    if (stream && pinned.current) stream.scrollTop = stream.scrollHeight;
+  }, [messages, building, phases]);
 
   /* Told to the strip rather than to a tab of its own: another prompt in this
      app is the same app. The cleanup clears the mark when the workspace is left
@@ -242,9 +283,46 @@ export default function ChatPanel({
      kept. The write is not awaited and its failure is not raised: a message on
      screen should stay on screen, and losing a row from the history is not
      worth interrupting a build over. */
-  function say(message: ThreadMessage) {
-    setMessages((current) => [...current, { id: nextId.current++, ...message }]);
+  function say(message: ThreadMessage, view?: { applied?: boolean; activity?: Activity }) {
+    setMessages((current) => [
+      ...current,
+      { id: nextId.current++, at: Date.now(), ...message, ...view },
+    ]);
+    /* Only the stored half is written. The clock and the applied mark are this
+       session's view of the message, not part of the record. */
     if (project?.id && userId) void appendToThread(project.id, userId, message);
+  }
+
+  /* The phases of the run in flight, kept in a ref as well as in state. The
+     state is what the live tracker draws; the ref is what the finished message
+     keeps, and reading state back inside the same async function would only
+     ever see the value it closed over. */
+  const run = useRef<ActivityStep[]>([]);
+
+  /* Merges a phase in by id, so a step that was running becomes the same step
+     finished rather than a second line saying the same thing. */
+  function setPhase(step: ActivityStep) {
+    const at = run.current.findIndex((existing) => existing.id === step.id);
+    if (at === -1) run.current = [...run.current, step];
+    else {
+      const next = [...run.current];
+      next[at] = step;
+      run.current = next;
+    }
+    setPhases(run.current);
+  }
+
+  /* The run as it stands, for the message that ends it. `failed` is read from
+     the reply rather than from the steps: a page that generated fine can still
+     come back with a status that says otherwise. */
+  function timelineOf(startedAt: number, failed: boolean): Activity {
+    return {
+      steps: run.current,
+      startedAt,
+      finishedAt: Date.now(),
+      failed,
+      previewHref: null,
+    };
   }
 
   async function send(prompt?: string, options: { intentOverride?: BuildIntent | null; confirmNewProject?: boolean; silent?: boolean } = {}) {
@@ -267,6 +345,15 @@ export default function ChatPanel({
     setAttached([]);
     if (prompt === undefined) setDraft("");
     setBuilding(true);
+    const runStarted = Date.now();
+    setRunStartedAt(runStarted);
+    run.current = [];
+    setPhase({
+      id: "classify",
+      label: "Reading your message",
+      detail: "Working out what it asks for…",
+      state: "running",
+    });
 
     /* Noted before the build starts, because it is what tells a page that has
        just been built from the one that was already there: the build's save
@@ -303,6 +390,14 @@ export default function ChatPanel({
 
       setPendingConfirm(null);
       const outcome = reply.outcome;
+      /* The classifier has answered, and what it decided is worth showing: it
+         is the difference between a page being edited and a page being
+         replaced, which is the one thing here someone would want to catch. */
+      setPhase({
+        id: "classify",
+        label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
+        state: "done",
+      });
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
@@ -316,12 +411,23 @@ export default function ChatPanel({
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
       ].filter((link): link is { label: string; href: string } => link.href !== null);
 
-      say({
-        from: "system",
-        text: outcome.message,
-        links: links.length ? links : undefined,
-        tone: outcome.status === "Failed" ? "error" : "normal",
-      });
+      say(
+        {
+          from: "system",
+          text: outcome.message,
+          links: links.length ? links : undefined,
+          tone: outcome.status === "Failed" ? "error" : "normal",
+        },
+        /* An edit is finished the moment it answers. A full build is not — its
+           page is still being generated, so both the mark and the timeline wait
+           for the row. */
+        outcome.status === "Building"
+          ? {}
+          : {
+              applied: outcome.status !== "Failed",
+              activity: timelineOf(runStarted, outcome.status === "Failed"),
+            },
+      );
 
       /* The reply above arrives as soon as the prompt has been classified — the
          page itself is still being generated, which takes as long as it takes.
@@ -329,16 +435,29 @@ export default function ChatPanel({
          message said the preview link updates as it finishes, and this is what
          makes that true without a reload. */
       if (outcome.status === "Building") {
+        setPhase({
+          id: "generate",
+          label: "Generating the page",
+          detail: "This runs in the orchestrator and takes as long as it takes…",
+          state: "running",
+        });
         const finished = await watchBuild(project.id, startedAt);
         const preview = safeHttpUrl(finished?.preview_url);
 
         if (preview) {
-          say({
-            from: "system",
-            text: "Your page is ready.",
-            links: [{ label: "Open preview", href: preview }],
-          });
+          setPhase({ id: "generate", label: "Page generated", state: "done" });
+          say(
+            { from: "system", text: "Your page is ready." },
+            {
+              applied: true,
+              /* The address rides on the tracker rather than as a link chip
+                 beside it — offering the same page twice in one card reads as
+                 two destinations. */
+              activity: { ...timelineOf(runStarted, false), previewHref: preview },
+            },
+          );
         } else if (finished?.status === "Failed") {
+          setPhase({ id: "generate", label: "The build did not finish", state: "done" });
           /* The build came back and said so. Generation happens after the reply,
              so a failure there cannot travel in the response — it is written to
              the row instead, which is the same row this was waiting on. */
@@ -348,6 +467,14 @@ export default function ChatPanel({
             tone: "error",
           });
         } else {
+          /* Left running rather than ticked: the wait gave up, the build did
+             not. Marking it done would say this panel knows an outcome it does
+             not have. */
+          setPhase({
+            id: "generate",
+            label: "Still generating when the wait gave up",
+            state: "running",
+          });
           say({
             from: "system",
             /* Not "it failed": nothing here knows that. The build may still
@@ -361,6 +488,8 @@ export default function ChatPanel({
       say({ from: "system", text: (error as Error).message, tone: "error" });
     } finally {
       setBuilding(false);
+      setRunStartedAt(null);
+      setPhases([]);
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
@@ -446,54 +575,68 @@ export default function ChatPanel({
 
       <div
         ref={streamRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
       >
-        {messages.length === 0 ? (
-          <p className="pt-8 text-center text-sm text-muted">
+        {/* Who this is and what it is for, at the top of the thread rather than
+            floating in the middle of it — so it scrolls away as the
+            conversation grows instead of competing with it. Without a name on
+            the account the greeting simply stops after the time of day rather
+            than addressing a blank. */}
+        <div className="pb-1">
+          <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
+            <Sparkles className="h-5 w-5 shrink-0 text-accent" aria-hidden />
+            <span>
+              {greeting}
+              {firstName && (
+                <>
+                  , <span className="text-accent">{firstName}</span>
+                </>
+              )}
+            </span>
+            <span aria-hidden>👋</span>
+          </h2>
+          <p className="mt-1 text-[13px] text-muted">How can I help you build today?</p>
+        </div>
+
+        {messages.length === 0 && !building && (
+          <p className="pt-6 text-center text-sm text-muted">
             Describe a change and it will appear here.
           </p>
-        ) : (
-          messages.map((message) =>
-            message.from === "you" ? (
-              <p
-                key={message.id}
-                className="ml-auto w-fit max-w-[88%] rounded-2xl rounded-br-md bg-layer/[0.08] px-3.5 py-2.5 text-[14px] leading-relaxed text-ink"
-              >
-                {message.text}
-              </p>
-            ) : (
-              <div key={message.id} className="max-w-[88%]">
-                <p
-                  className={`text-[13px] leading-relaxed ${
-                    message.tone === "error" ? "text-danger" : "text-muted"
-                  }`}
-                >
-                  {message.text}
-                </p>
-                {message.links && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {message.links.map((link) => (
-                      <a
-                        key={link.href}
-                        href={link.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
-                      >
-                        {link.label}
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          )
         )}
-        {building && (
-          <p className="max-w-[88%] animate-pulse text-[13px] leading-relaxed text-muted">
-            Building…
-          </p>
+
+        {messages.map((message) => (
+          <MessageRow
+            key={message.id}
+            message={message}
+            avatarClass={avatarFor(project?.id)}
+            onOpenPreview={onOpenPreview}
+          />
+        ))}
+
+        {/* The message in flight. Its phases are the ones this panel actually
+            watches happen — the classifier answering, and the wait for a page
+            that is generated after the reply — so the list grows as they land
+            rather than on a timer. The clock is the real one. */}
+        {building && runStartedAt !== null && (
+          <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-onSolid ${avatarFor(project?.id)}`}
+              >
+                <Sparkles className="h-3 w-3" />
+              </span>
+              <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                QuickStark AI
+              </p>
+            </div>
+            <div className="mt-2.5">
+              <BuildActivity running startedAt={runStartedAt} steps={phases} />
+            </div>
+          </div>
         )}
       </div>
 

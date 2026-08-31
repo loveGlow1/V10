@@ -22,7 +22,11 @@ documents into that same store.
 
 Retrieval and ingestion are deliberately two separate embeddings nodes rather than
 one shared one — a subnode feeds a single parent, and these have different parents.
-Both are pinned to `text-embedding-3-small`.
+Both run `text-embedding-3-small`, which is the node's own default rather than a
+setting written into the workflow: n8n strips any parameter left at its default, so
+naming the model explicitly does not survive a save. The coupling to
+`vector(1536)` is therefore a convention held by this note, not something the file
+enforces.
 
 The split across two vendors is deliberate, not an oversight. Anthropic does not
 make an embedding model — their own docs say so and point at Voyage AI — so the
@@ -57,7 +61,7 @@ Verified end to end against the live project — insert, HNSW retrieval, and
 
 ## Before this can run for real
 
-Three things need a human; none can be done through the API.
+Two things need a human; neither can be done through the API.
 
 ### 1. OpenAI credit — blocks retrieval and ingestion
 
@@ -93,12 +97,6 @@ Two traps, both of which fail in ways that do not name the real cause:
 - Port `6543` is transaction mode, which does not hold the session state chat
   memory needs. Use `5432`.
 
-### 3. A Drive folder — blocks ingestion
-
-**New File in Drive Folder** has no folder set, and the connected Drive account
-currently has no folders at all. Create one, put the documents in it, then pick it
-on the trigger.
-
 ## Already wired
 
 - `Anthropic account` on **Anthropic Chat Model** (`claude-sonnet-5`), which replaced
@@ -106,9 +104,10 @@ on the trigger.
 - `Supabase account` on **Company Knowledge Base** and **Insert Into Supabase Vector
   Store**. Confirmed to resolve to `esuatccbicekcohzgcvd` — it lists that project's
   tables, `documents` and `n8n_chat_histories` among them.
-- `Google Drive account` on **New File in Drive Folder** and **Download File**.
-- Both embeddings nodes pinned to `text-embedding-3-small`, so the default moving
-  cannot silently desync them from `vector(1536)`.
+- `Google Drive account` on **New File in Drive Folder** and **Download File**, and
+  the trigger now watches a real folder: **n8n Knowledge Base**
+  (`1o5XNAG80jnLl7zlf3eo16Aoj-YQdQBYx`). This was the third human blocker and it is
+  cleared.
 - The workflow validates clean (an empty `builtInTools` on the old OpenAI Chat Model
   had been raising a warning; that node is gone).
 
@@ -119,12 +118,61 @@ will come back empty with the wrong one — RLS is on with no policies by design
 The workflow is inactive. Activating it is what puts the Drive trigger on its
 one-minute poll; the chat trigger works from the editor either way.
 
+## The Drive trigger's Watch For setting
+
+Leave **New File in Drive Folder** on **File Updated** (`fileUpdated`). It was
+briefly set to **Watch Folder Updated** (`watchFolderUpdated`), which breaks the
+ingestion branch outright, and the reason is not visible from the editor. Reading
+the node's poll query:
+
+- Under `watchFolderUpdated` the node drops the `'<folder>' in parents` clause,
+  filters to `mimeType = application/vnd.google-apps.folder`, and then keeps only
+  the row whose id is the watched folder. So the item it emits is **the folder
+  itself**, never a file in it. **Download File** reads `{{ $json.id }}`, so it
+  would be handed the folder's ID and fail — a folder has no binary content.
+- Under `fileUpdated` the query is `'<folder>' in parents AND mimeType != folder
+  AND modifiedTime > lastPoll`. A brand-new file's `modifiedTime` equals its
+  `createdTime`, so this catches creations as well as edits — it is a strict
+  superset of `fileCreated`, which is what the node was on before and which misses
+  edits to an already-indexed file.
+
+`fileUpdated` is therefore both the correct setting and the one that closes the
+old "edits are never picked up" gap. Fixed in the live workflow.
+
 ## Known gaps
 
-- Re-adding the same Drive file inserts duplicate chunks. There is no dedupe, and
-  `file_id` is written to metadata but nothing deletes by it. A Supabase node
-  deleting `metadata->>file_id` ahead of the insert would make ingestion idempotent.
-- The Drive trigger fires on `fileCreated` only, so edits to an indexed file are
-  never picked up.
-- Nothing backfills. Files already in the folder are invisible to a `fileCreated`
-  trigger; run the branch manually or swap in a Drive *Search* node once.
+- **Duplicate chunks on re-index.** Nothing dedupes, and under `fileUpdated` this
+  is now certain rather than hypothetical: every edit re-inserts the whole file
+  alongside its old chunks. `file_id` is written to metadata but nothing deletes
+  by it.
+
+  The obvious fix — a Supabase **Delete** node in front of the insert — does not
+  work as drawn, for two reasons found by reading the node:
+
+  - `supabaseApiRequest` always sends `Prefer: return=representation`, and the
+    delete branch returns `returnJsonArray(rows)`. A delete that matches nothing
+    returns `[]`, so the node emits **zero items** and the branch stalls — on
+    every first-time ingest, which is the common case. It needs *Always Output
+    Data* switched on.
+  - the node rebuilds items from JSON only, so it drops binary. It cannot sit
+    between **Download File** and the insert, where the binary is still needed.
+    It has to go ahead of **Download File**, which then needs
+    `{{ $('New File in Drive Folder').item.json.id }}` in place of
+    `{{ $json.id }}`.
+
+  The filter itself is fine: field `metadata->>file_id`, condition Equals.
+  PostgREST takes the JSON path, and n8n only quotes key names containing one of
+  `,.():"&?=\`, none of which appear in it.
+
+  Left undone deliberately: the branch cannot be run end to end while the
+  embeddings are blocked on OpenAI credit, so this would be an unverifiable
+  structural change to a live workflow.
+
+- **No backfill.** The query is `modifiedTime > lastPoll`, so files already in the
+  folder before the first poll are invisible. Touch each one, or run the branch
+  manually once.
+- **Subfolders are never watched.** The node says so itself; the query only matches
+  direct children of the watched folder.
+- **The splitter is character-based.** For line-oriented files such as `.jsonl`,
+  chunks cut across record boundaries, which hurts retrieval. Worth revisiting if
+  the knowledge base turns out to be mostly JSONL.
