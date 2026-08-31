@@ -169,7 +169,7 @@ export async function POST(request: Request) {
   if (balance && !canAfford(balance, ENTRY_COST)) {
     return NextResponse.json(
       {
-        error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Your daily credits come back tomorrow.`,
+        error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Top up to keep building.`,
         code: "insufficient_credits",
       },
       { status: 402 },
@@ -464,7 +464,7 @@ export async function POST(request: Request) {
           /* Said here rather than discovered on the next attempt: running out
              mid-sentence is a worse surprise than being told. */
           charge && charge.remaining <= 0
-            ? "That used the last of your credits — your daily credits come back tomorrow."
+            ? "That used the last of your credits. Top up to keep building."
             : null,
         ]
           .filter(Boolean)
@@ -511,7 +511,7 @@ export async function POST(request: Request) {
       {
         error: `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
           beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
-        )}. Ask for a change to the page instead, or wait for tomorrow's credits.`,
+        )}. Ask for a change to the page instead — an edit costs far less — or top up.`,
         code: "insufficient_credits",
       },
       { status: 402 },

@@ -50,11 +50,9 @@ import {
   Triangle,
 } from "lucide-react";
 
-/* What a new account holds — the Free tier's daily allowance plus the welcome
-   credit — read from the credit economy rather than written out here, so this
-   figure and the one signup actually grants cannot differ. The panel does not
-   yet fetch the account's real balance, so until it does every session shows a
-   fresh account's. */
+/* What a new account holds — the one-time signup credit, which on Free is the
+   whole of it — read from the credit economy rather than written out here, so
+   this figure and the one signup actually grants cannot differ. */
 
 /* The row under the composer. Each chip is a way into a build rather than a
    label: tapping one drops its prompt into the bar and puts the caret at the
