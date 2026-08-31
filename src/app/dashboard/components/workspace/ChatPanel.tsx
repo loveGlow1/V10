@@ -642,11 +642,15 @@ export default function ChatPanel({
 
                 `scale` is the other half, and the half that was making it look
                 tiny: it sets how much of the frame the mark fills, not how big
-                the frame is. At 0.62 in a 32px box the mark drew 9.5px beside
-                22px words. At 0.78 in 36 it draws 13.8 — measured off the
-                vector mark, whose viewBox comes from the same camera, so what
-                fills the frame there fills it here. */}
-            <Q3DCanvas scale={0.78} className="h-9 w-9 shrink-0" />
+                the frame is. At 0.62 in a 32px box the mark drew 9.5px against
+                22px words — a logo with more padding around it than logo.
+
+                0.95 in a 44px box draws 20.5, which is 93% of the text's
+                height: a peer of the words rather than a speck beside them.
+                Measured off the vector mark, whose viewBox comes from the same
+                camera, so the fraction of the frame it fills is the fraction
+                the 3D one fills. */}
+            <Q3DCanvas scale={0.95} className="h-11 w-11 shrink-0" />
             <span>
               {greeting}
               {firstName && (

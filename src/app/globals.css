@@ -573,26 +573,3 @@ body {
   }
 }
 
-/* The mark, turning.
- *
- * Twelve seconds, not the 0.8 the spinner above uses, and the difference is the
- * whole point: a fast rotation means "waiting", and this one is beside a
- * greeting where nothing is being waited for. At this speed it reads as the
- * mark being alive rather than as the page being busy — you notice it when you
- * look at it and not before.
- *
- * Linear rather than eased, because an eased loop has a visible seam where it
- * slows into the joint and speeds out of it. A circle has no seam to hide.
- */
-.mark-drift {
-  animation: spin-loop 12s linear infinite;
-  transform-origin: 50% 50%;
-}
-
-/* Someone who has asked for less motion has asked for this too. The mark stays,
-   it simply stops — it is the logo, not the animation, that carries the brand. */
-@media (prefers-reduced-motion: reduce) {
-  .mark-drift {
-    animation: none;
-  }
-}
