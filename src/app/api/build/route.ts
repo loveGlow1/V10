@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { CREDIT_ACTIONS, canAfford, creditCostOf } from "@/app/dashboard/credits";
+import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
+import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -77,16 +78,18 @@ const BUILDS_PER_HOUR = 20;
    files and stands up services. */
 const BUILD_ACTION = "generate" as const;
 
-/* How much work the build reported doing. Read from the orchestrator's own
-   answer, not from the request body — the caller has every reason to
-   understate it and no way to be checked. Anything missing prices at the
-   action's floor, which is the honest reading of "it ran but said nothing". */
-function usageFrom(result: BuildResult): { filesTouched?: number } {
-  const reported = (result.artifacts as { filesTouched?: unknown })?.filesTouched;
-  return typeof reported === "number" && Number.isFinite(reported) && reported >= 0
-    ? { filesTouched: Math.floor(reported) }
-    : {};
-}
+/* What must be in the pool before anything is allowed to run.
+ *
+ * Two figures, because two very different things happen here. An edit is one
+ * short model call and prices between the floor and about a credit, so the
+ * floor is a fair thing to ask for up front. A full build is minutes of
+ * generation and prices up to the ceiling, and letting someone start one on
+ * 0.60 credits is how an account ends up owing more than it ever held.
+ *
+ * Neither is a reservation — the charge is taken afterwards, from what the work
+ * actually did. They are the door: below the floor, nothing runs at all. */
+const ENTRY_COST = CREDIT_ACTIONS.generate.min;
+const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
@@ -145,6 +148,32 @@ export async function POST(request: Request) {
   }
   if (!project) {
     return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
+  }
+
+  /* Writing a build row, and taking payment for one, both need the service key:
+     project_builds and credit_balances are read-only to the browser on purpose,
+     so that a client can neither put its own HTML on a preview nor decide what
+     it owes. Ownership was settled just above, under the caller's session. */
+  const service = createSupabaseServiceClient();
+
+  /* ── Can this account pay for anything at all? ──────────────────────────
+     Before the classifier, not after it. Classifying is itself a model call,
+     and so is every branch below it: an empty account that gets as far as here
+     has already been given work for free.
+
+     Read through ensure_credit_balance rather than straight off the table, so
+     that today's refill has landed and an account that has never been charged
+     is not read as having nothing. */
+  const balance = service ? await currentBalance(service, user.id) : null;
+
+  if (balance && !canAfford(balance, ENTRY_COST)) {
+    return NextResponse.json(
+      {
+        error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Your daily credits come back tomorrow.`,
+        code: "insufficient_credits",
+      },
+      { status: 402 },
+    );
   }
 
   /* ── What is this message asking for? ───────────────────────────────────
@@ -209,11 +238,6 @@ export async function POST(request: Request) {
   const intent: Intent = currentHtml ? decision.intent : "new_project";
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
-
-  /* Writing a build row needs the service key: project_builds is read-only to
-     the browser on purpose, so that a client cannot put its own HTML on a
-     preview. Ownership was settled above, under the session. */
-  const service = createSupabaseServiceClient();
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   if (intent === "revert") {
@@ -290,6 +314,22 @@ export async function POST(request: Request) {
   if (intent === "question" && currentHtml) {
     try {
       const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+
+      /* Billed as chat, on what it said. Asking about a page is a model call
+         with the whole page in it, so it is not free — but the chat band starts
+         at zero and reaches one credit only at a full page of answer, which is
+         what keeps troubleshooting from feeling metered. */
+      if (service) {
+        await chargeCredits(service, {
+          userId: user.id,
+          action: "chat",
+          cost: creditCostOf("chat", { outputTokens: answer.outputTokens }),
+          description: `Question: ${project.name}`,
+          projectId: project.id,
+          outputTokens: answer.outputTokens,
+        });
+      }
+
       return NextResponse.json({
         intent: "question",
         build: {
@@ -301,7 +341,7 @@ export async function POST(request: Request) {
           links: { preview: previewUrl, repo: "", admin: "" },
           configKeys: {},
           artifacts: {},
-          message: answer,
+          message: answer.text,
         },
         project: null,
       });
@@ -385,19 +425,20 @@ export async function POST(request: Request) {
       .eq("id", project.id)
       .eq("user_id", user.id);
 
-    const cost = creditCostOf(BUILD_ACTION, editUsage(edited.applied));
-    const { error: chargeError } = await supabase.rpc("spend_credits", {
-      p_action: BUILD_ACTION,
-      p_cost: cost,
-      p_description: `Edit: ${project.name}`.slice(0, 200),
-      p_project_id: project.id,
-      p_output_tokens: null,
-      p_files_touched: edited.applied,
+    /* Charged, not attempted. The edit is already in the page — refusing the
+       charge now would not take it back, it would only leave the work unpaid
+       and the balance unchanged, which is precisely how an account came to sit
+       at 0.50 forever while the edits kept arriving. charge_credits takes what
+       is there and reports what it could not, so an account that overdraws
+       lands at zero and the gate above turns the next one away. */
+    const charge = await chargeCredits(service, {
+      userId: user.id,
+      action: BUILD_ACTION,
+      cost: creditCostOf(BUILD_ACTION, editUsage(edited.applied)),
+      description: `Edit: ${project.name}`,
+      projectId: project.id,
+      filesTouched: edited.applied,
     });
-    if (chargeError) {
-      // eslint-disable-next-line no-console
-      console.error("build: the edit applied but could not be charged:", chargeError);
-    }
 
     const { data: after } = await supabase
       .from("projects")
@@ -416,10 +457,18 @@ export async function POST(request: Request) {
         links: { preview: previewUrl, repo: "", admin: "" },
         configKeys: {},
         artifacts: { applied: edited.applied },
-        message:
+        message: [
           edited.failures.length > 0
             ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
             : "Done.",
+          /* Said here rather than discovered on the next attempt: running out
+             mid-sentence is a worse surprise than being told. */
+          charge && charge.remaining <= 0
+            ? "That used the last of your credits — your daily credits come back tomorrow."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
       },
       project: after ?? null,
     });
@@ -447,25 +496,22 @@ export async function POST(request: Request) {
     );
   }
 
-  /* Checked before the orchestrator is called: running a build the account
-     cannot pay for spends real money to produce a refusal. The floor is used
-     because the true cost is not known until the build reports back. */
-  const { data: balanceRow } = await supabase
-    .from("credit_balances")
-    .select("daily, rollover, monthly, top_up")
-    .maybeSingle();
+  /* Checked again, and against a bigger number than the door upstairs.
+     Building a whole page is minutes of generation and prices anywhere up to
+     the ceiling of the band, so what has to be in the pool is the ceiling —
+     not the floor, which was the old check and which let an account start a
+     2.50 build holding 0.50.
 
-  const balance = {
-    daily: Number(balanceRow?.daily ?? 0),
-    rollover: Number(balanceRow?.rollover ?? 0),
-    monthly: Number(balanceRow?.monthly ?? 0),
-    topUp: Number(balanceRow?.top_up ?? 0),
-  };
+     Read fresh rather than reusing the balance from the top of the request: an
+     edit or another build may have been charged in between. */
+  const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
-  if (balanceRow && !canAfford(balance, CREDIT_ACTIONS[BUILD_ACTION].min)) {
+  if (beforeBuild && !canAfford(beforeBuild, FULL_BUILD_ENTRY_COST)) {
     return NextResponse.json(
       {
-        error: "Not enough credits to start a build.",
+        error: `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
+          beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
+        )}. Ask for a change to the page instead, or wait for tomorrow's credits.`,
         code: "insufficient_credits",
       },
       { status: 402 },
@@ -508,30 +554,20 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  /* Billed once the build has actually answered. A failed build is not
-     charged: the orchestrator's failure path returns "Failed" without having
-     provisioned anything, and billing it would charge for nothing.
-
-     spend_credits does the deduction inside one locked transaction, so two
-     builds racing cannot both spend the last credit. A charge that cannot be
-     covered is logged rather than raised — the build has already happened, and
-     failing the response here would hide a finished build from its owner. */
-  if (result.status !== "Failed") {
-    const cost = creditCostOf(BUILD_ACTION, usageFrom(result));
-    const { error: chargeError } = await supabase.rpc("spend_credits", {
-      p_action: BUILD_ACTION,
-      p_cost: cost,
-      p_description: `Build: ${project.name}`.slice(0, 200),
-      p_project_id: project.id,
-      p_output_tokens: null,
-      p_files_touched: usageFrom(result).filesTouched ?? null,
-    });
-
-    if (chargeError) {
-      // eslint-disable-next-line no-console
-      console.error("build: the build ran but could not be charged:", chargeError);
-    }
-  }
+  /* Deliberately not charged here.
+   *
+   * This used to bill the build the moment the orchestrator answered — but
+   * since generation moved into n8n, all it answers with is "Building". The
+   * page does not exist yet, so there is nothing to price it from, and
+   * creditCostOf fell back to the floor: every full build, however large, cost
+   * 0.50. A whole generated dashboard priced the same as a one-word edit.
+   *
+   * The page arrives at /api/builder/webapp/save a few minutes later, and that
+   * is where the charge is taken now — from the document itself, counted by
+   * filesTouchedFor, which is a number the workflow cannot inflate because the
+   * app derives it rather than reading it. It also means a build that never
+   * finishes is never billed, which is the right answer for a build nobody
+   * got. */
 
   /* What the orchestrator persisted, read back rather than assumed. If its
      Supabase step is not connected yet the row still says "Building", and the

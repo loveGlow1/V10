@@ -121,6 +121,12 @@ served at `/preview/<projectId>`. A landing page or a small web app that really
 exists. A second message in the same workspace passes the current page back to
 the model, so a follow-up edits it rather than replacing it.
 
+A build asked for accounts produces a working sign-in and a dashboard behind
+it — validation, protected views, sign out, and a seeded demo account whose
+credentials are printed on the sign-in screen so the preview can actually be
+opened. It is a demo, not security: there is no backend, state lives in memory,
+and accounts last as long as the tab. The page says so.
+
 A message is classified before anything runs — edit, new build, question or
 revert. Only a new build goes to the orchestrator. An **edit** is a
 search/replace patch applied in the app in seconds, leaving everything the
