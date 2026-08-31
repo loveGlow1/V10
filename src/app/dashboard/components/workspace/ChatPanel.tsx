@@ -21,7 +21,8 @@ import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../m
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
-import QLogo from "../../../QLogo";
+import Q3DCanvas from "../../../Q3DCanvas";
+import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
@@ -626,11 +627,19 @@ export default function ChatPanel({
             {/* The mark itself, not a stand-in for one. This was a generic
                 four-point sparkle — the glyph every assistant on the internet
                 uses — which said "an AI" where it should have said whose. */}
-            {/* The rendered mark, turning. Above the 22px words beside it
-                because the file keeps a ring of halo around the glyph — 32 of
-                image is about 28 of logo, which is where the Q stops reading
-                as a dark blob and starts reading as a Q. */}
-            <QLogo size={32} spin />
+            {/* The logo itself, live — the same component the top bar, the
+                sidebar, the sign-in panel and the hero all mount, rather than a
+                picture of it. It carries its own rotation: the scene turns on Y
+                once every sixteen seconds, linear, which is why there is no CSS
+                animation on this. Adding one would spin the canvas as well as
+                the mark inside it and read as two motions fighting.
+
+                Given its size directly, the way the drawer gives it one. The
+                canvas fills its wrapper, and a wrapper with no height of its
+                own leaves it free to take whatever height it likes — measured
+                at 32 wide by 150 tall, cropped back to a square by an
+                overflow-hidden that hid the mistake rather than fixing it. */}
+            <Q3DCanvas scale={0.62} className="h-8 w-8 shrink-0" />
             <span>
               {greeting}
               {firstName && (
@@ -665,7 +674,7 @@ export default function ChatPanel({
         {building && runStartedAt !== null && (
           <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
             <div className="flex items-center gap-2">
-              <QLogo size={22} />
+              <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
               <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
                 QuickStark<span className="text-accent">.Ai</span>
               </p>
