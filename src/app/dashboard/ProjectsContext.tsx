@@ -31,7 +31,7 @@ export type BuildOutcome = {
 };
 
 /** What a message was taken to mean. See src/lib/builder/intent.ts. */
-export type BuildIntent = "edit" | "new_project" | "question" | "revert";
+export type BuildIntent = "edit" | "new_project" | "question" | "revert" | "clarify";
 
 /* One reply to one message. Not every message is a build any more, so this
    carries which of the four things happened — and, for the one that would

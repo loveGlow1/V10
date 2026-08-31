@@ -48,6 +48,7 @@ const INTENT_LABEL: Record<string, string> = {
   new_project: "Read your message — a new page",
   question: "Read your message — a question about the page",
   revert: "Read your message — undo the last change",
+  clarify: "Read your message — needs one detail",
 };
 
 type Message = ThreadMessage & {
@@ -420,11 +421,19 @@ export default function ChatPanel({
         },
         /* An edit is finished the moment it answers. A full build is not — its
            page is still being generated, so both the mark and the timeline wait
-           for the row. */
+           for the row.
+
+           "Applied" is only ever said about a message that changed the page. A
+           question and a clarifying question both answer without touching it,
+           and marking those applied would put a green tick under a sentence
+           that did nothing — the one thing the mark is there to rule out. */
         outcome.status === "Building"
           ? {}
           : {
-              applied: outcome.status !== "Failed",
+              applied:
+                outcome.status !== "Failed" &&
+                reply.intent !== "question" &&
+                reply.intent !== "clarify",
               activity: timelineOf(runStarted, outcome.status === "Failed"),
             },
       );

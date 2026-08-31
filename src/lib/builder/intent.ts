@@ -10,9 +10,22 @@ import Anthropic from "@anthropic-ai/sdk";
  * Heuristics first, because they are free, instant and right almost always. The
  * model is asked only when the heuristics decline to guess — and every failure
  * path, including the model being unreachable, resolves to "edit". Failing safe
- * here means changing a page, never wiping one. */
+ * here means changing a page, never wiping one.
+ *
+ * "clarify" is the fifth case, and it is deliberately the rarest. A message can
+ * ask for a change and still not say enough to make one — "make it better" names
+ * no part of the page and no property of it. Guessing at those produced either a
+ * wrong edit or the unhelpful "that could not be applied cleanly", so they are
+ * answered with a question instead.
+ *
+ * It is kept narrow on purpose. A builder that asks what you meant every other
+ * message is worse than one that picks a sensible reading and shows it: a wrong
+ * edit is visible and undoable, a question costs a round trip before anything
+ * happens. So it is reached only by the short list of genuinely contentless
+ * requests below, or by the router deciding so — and it never comes from the
+ * fallback, which stays "edit". */
 
-export type Intent = "edit" | "new_project" | "question" | "revert";
+export type Intent = "edit" | "new_project" | "question" | "revert" | "clarify";
 
 export type IntentResult = {
   intent: Intent;
@@ -34,6 +47,12 @@ const EDIT_VERBS =
 const BACKREF =
   /\b(it|that|this|the (button|hero|nav|navbar|header|footer|card|section|form|modal|sidebar|text|title|heading|logo|background|colour|color|font|spacing|padding|margin|layout|page))\b/i;
 
+/* Requests that name nothing: no part of the page, no property, no direction.
+   Matched whole rather than loosely — "make it better" is contentless, while
+   "make the hero better" names a target and is an ordinary edit. */
+const VAGUE =
+  /^\s*(please\s+)?(can you\s+|could you\s+)?(make|do|fix|change|improve|update|redo|sort)\s*(it|this|that|the page|the site|everything)?\s*(better|nicer|good|great|prettier|beautiful|professional|modern|pop|work|right|properly)?\s*[.!]?\s*$/i;
+
 const COMPARATIVE =
   /\b(bigger|smaller|darker|lighter|wider|narrower|taller|shorter|bolder|thinner|closer|further|more|less)\b/i;
 
@@ -49,6 +68,11 @@ export function heuristicIntent(message: string, hasPage: boolean): IntentResult
     if (QUESTION.test(m)) return { intent: "question", confidence: 0.8, source: "heuristic" };
     return { intent: "new_project", confidence: 0.9, source: "heuristic" };
   }
+
+  /* Checked before the edit rules below, which would otherwise claim it: a
+     contentless request matches EDIT_VERBS ("make", "fix") and the short-message
+     rule, and both would send it to an editor with nothing to act on. */
+  if (VAGUE.test(m)) return { intent: "clarify", confidence: 0.8, source: "heuristic" };
 
   if (NEW_BUILD.test(m)) return { intent: "new_project", confidence: 0.8, source: "heuristic" };
 
@@ -82,8 +106,11 @@ intent is exactly one of:
 - "new_project": abandon the current page and build something entirely different.
 - "question": asking about the page, not asking for a change.
 - "revert": undo the last change.
+- "clarify": wants a change, but names no part of the page and no property to change. Reserved for messages with nothing to act on at all.
 
-Choose "new_project" only when the user clearly wants to throw the current page away. Ambiguity always resolves to "edit".`;
+Choose "new_project" only when the user clearly wants to throw the current page away.
+Choose "clarify" only when you could not begin the edit — if any reasonable reading gives you something to change, that is "edit".
+Ambiguity between anything else resolves to "edit".`;
 
 /** Classifies a message. Never throws — an unreachable model resolves to "edit". */
 export async function classifyIntent(opts: {
@@ -134,7 +161,10 @@ export async function classifyIntent(opts: {
 
     return {
       intent:
-        intent === "new_project" || intent === "question" || intent === "revert"
+        intent === "new_project" ||
+        intent === "question" ||
+        intent === "revert" ||
+        intent === "clarify"
           ? intent
           : "edit",
       confidence: Number(parsed.confidence ?? 0.5),
