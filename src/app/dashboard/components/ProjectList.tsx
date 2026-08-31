@@ -253,6 +253,10 @@ export default function ProjectList() {
                   projectId={project.id}
                   hasPage={Boolean(safeHttpUrl(project.preview_url))}
                   name={project.name}
+                  /* The build that drew it. Holding the tile still between
+                     visits and redrawing it when a build lands are the same
+                     question, and this is the answer to both. */
+                  stamp={project.last_build_at}
                 />
                 <span className="min-w-0">
                   <span className="flex items-center gap-2">

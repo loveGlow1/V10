@@ -572,3 +572,13 @@ body {
     margin-top: 1.75rem;
   }
 }
+
+
+/* The sweep is decoration, and someone who has asked for less motion has asked
+   for this too. The gradient stays — it is the brand's colour, not its
+   animation — and only the band of light stops travelling. */
+@media (prefers-reduced-motion: reduce) {
+  .metal-shimmer {
+    animation: none;
+  }
+}

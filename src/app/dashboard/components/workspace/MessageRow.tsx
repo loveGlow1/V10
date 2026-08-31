@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import { Check, ExternalLink, Sparkles, User } from "lucide-react";
+import { Check, ExternalLink, User } from "lucide-react";
+
+import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 
@@ -48,28 +50,52 @@ export function timeOf(at: number): string {
    which stay legible at any width. */
 export default function MessageRow({
   message,
-  avatarClass,
   onOpenPreview,
 }: {
   message: Message;
-  /** The project's own gradient, so the assistant is marked as this app's. */
-  avatarClass: string;
   onOpenPreview?: () => void;
 }) {
   const you = message.from === "you";
 
   return (
-    <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
+    /* A reply that reports a problem is still a reply. It gets the same
+       typography as every other one and a thin rule down its edge — amber
+       rather than red, because almost none of these are alarms: a change that
+       could not be applied, a build still running, a file too large. Colouring
+       the sentence itself made every one of them read as a crash, and made the
+       three that matter indistinguishable from the ones that do not. */
+    <div
+      className={`rounded-xl border border-line/[0.06] bg-layer/[0.02] py-2.5 pr-3 ${
+        message.tone === "error" ? "border-l-2 border-l-warn/50 pl-[10px]" : "pl-3"
+      }`}
+    >
       <div className="flex items-center gap-2">
-        <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-            you ? "bg-layer/[0.10] text-soft" : `bg-gradient-to-br text-onSolid ${avatarClass}`
-          }`}
-        >
-          {you ? <User className="h-3 w-3" /> : <Sparkles className="h-3 w-3" />}
-        </span>
+        {/* The person gets a chip, the assistant gets the mark. Not symmetry for
+            its own sake: a logo boxed inside a coloured square reads as an app
+            icon, and this is a signature. Still rather than turning, and in the
+            quiet colour rather than the brand green — it repeats down the whole
+            thread, and twenty spinning green marks is a fairground. The green
+            lives in the wordmark instead, once per row, exactly as the header
+            above does it. */}
+        {you ? (
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-layer/[0.10] text-soft">
+            <User className="h-3 w-3" />
+          </span>
+        ) : (
+          <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
+        )}
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-          {you ? "You" : "QuickStark AI"}
+          {you ? (
+            "You"
+          ) : (
+            <>
+              {/* The same green the landing page gives it. Not the shimmer
+                  beside it: that sweeps every seven seconds, and twenty rows
+                  each catching the light on their own schedule is a thread
+                  that will not sit still. */}
+              QuickStark<span className="wordmark-ai">.Ai</span>
+            </>
+          )}
         </p>
         {typeof message.at === "number" && (
           <time
@@ -81,11 +107,7 @@ export default function MessageRow({
         )}
       </div>
 
-      <p
-        className={`mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed ${
-          message.tone === "error" ? "text-danger" : "text-soft"
-        }`}
-      >
+      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-soft">
         {message.text}
       </p>
 

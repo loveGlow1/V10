@@ -14,7 +14,6 @@ import {
   MicOff,
   Paperclip,
   Shuffle,
-  Sparkles,
   X,
 } from "lucide-react";
 
@@ -22,6 +21,8 @@ import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../m
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import Q3DCanvas from "../../../Q3DCanvas";
+import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
@@ -48,6 +49,7 @@ const INTENT_LABEL: Record<string, string> = {
   new_project: "Read your message — a new page",
   question: "Read your message — a question about the page",
   revert: "Read your message — undo the last change",
+  clarify: "Read your message — needs one detail",
 };
 
 type Message = ThreadMessage & {
@@ -256,7 +258,7 @@ export default function ChatPanel({
     if (room <= 0) {
       say({
         from: "system",
-        text: `A message can carry ${MAX_ATTACHMENTS} files. Send these first.`,
+        text: `I can take ${MAX_ATTACHMENTS} files with one message. Send these, then attach the rest.`,
         tone: "error",
       });
       return;
@@ -372,7 +374,20 @@ export default function ChatPanel({
          sentence to read rather than a failure to recover from — and the text
          goes back in the composer so it can be reworded, not retyped. */
       if (reply.error || !reply.outcome) {
-        say({ from: "system", text: reply.error ?? "The message could not be sent.", tone: "error" });
+        if (reply.steps?.length) {
+          run.current = [];
+          for (const step of reply.steps) setPhase(step);
+        }
+        say(
+          {
+            from: "system",
+            text: reply.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
+            tone: "error",
+          },
+          /* The steps it did get through are worth keeping: they say how far it
+             got before it stopped. */
+          reply.steps?.length ? { activity: timelineOf(runStarted, true) } : undefined,
+        );
         if (prompt === undefined) setDraft(text);
         setAttached(sent);
         return;
@@ -381,7 +396,11 @@ export default function ChatPanel({
       /* A build that would replace the page. Nothing has happened yet, and
          nothing will until one of the two buttons is pressed. */
       if (reply.needsConfirmation) {
-        say({ from: "system", text: reply.outcome.message, tone: "error" });
+        /* Asked, not warned. This is the panel checking before it replaces a
+           page — the two buttons under it are the whole point, and marking the
+           sentence as a problem made a question look like something had already
+           gone wrong. */
+        say({ from: "system", text: reply.outcome.message });
         setPendingConfirm({ text });
         /* Nothing ran, so the files are still this message's. */
         setAttached(sent);
@@ -390,14 +409,21 @@ export default function ChatPanel({
 
       setPendingConfirm(null);
       const outcome = reply.outcome;
-      /* The classifier has answered, and what it decided is worth showing: it
-         is the difference between a page being edited and a page being
-         replaced, which is the one thing here someone would want to catch. */
-      setPhase({
-        id: "classify",
-        label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
-        state: "done",
-      });
+      /* The server's own account of what it did, which replaces the one this
+         panel was guessing at. It names the operations and what each cost —
+         which classifier answered, how many patch blocks landed, what the model
+         call was billed at — none of which the browser can know. The inferred
+         step stays only as the fallback for a reply that carries no list. */
+      if (reply.steps?.length) {
+        run.current = [];
+        for (const step of reply.steps) setPhase(step);
+      } else {
+        setPhase({
+          id: "classify",
+          label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
+          state: "done",
+        });
+      }
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
@@ -420,11 +446,19 @@ export default function ChatPanel({
         },
         /* An edit is finished the moment it answers. A full build is not — its
            page is still being generated, so both the mark and the timeline wait
-           for the row. */
+           for the row.
+
+           "Applied" is only ever said about a message that changed the page. A
+           question and a clarifying question both answer without touching it,
+           and marking those applied would put a green tick under a sentence
+           that did nothing — the one thing the mark is there to rule out. */
         outcome.status === "Building"
           ? {}
           : {
-              applied: outcome.status !== "Failed",
+              applied:
+                outcome.status !== "Failed" &&
+                reply.intent !== "question" &&
+                reply.intent !== "clarify",
               activity: timelineOf(runStarted, outcome.status === "Failed"),
             },
       );
@@ -463,7 +497,7 @@ export default function ChatPanel({
              the row instead, which is the same row this was waiting on. */
           say({
             from: "system",
-            text: "The build did not finish. Try again, or describe a smaller page — a very large one can run past what a single build allows.",
+            text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
             tone: "error",
           });
         } else {
@@ -478,14 +512,16 @@ export default function ChatPanel({
           say({
             from: "system",
             /* Not "it failed": nothing here knows that. The build may still
-               land, and the workspace will show it when it does. */
-            text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
-            tone: "error",
+               land, and the workspace will show it when it does — so it is not
+               marked as a problem either. */
+            text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
           });
         }
       }
     } catch (error) {
       say({ from: "system", text: (error as Error).message, tone: "error" });
+      /* The text comes from wherever it was thrown, so the wording lives with
+         the throw — see src/lib/builder/edit.ts and the route. */
     } finally {
       setBuilding(false);
       setRunStartedAt(null);
@@ -588,16 +624,64 @@ export default function ChatPanel({
             than addressing a blank. */}
         <div className="pb-1">
           <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
-            <Sparkles className="h-5 w-5 shrink-0 text-accent" aria-hidden />
+            {/* The mark itself, not a stand-in for one. This was a generic
+                four-point sparkle — the glyph every assistant on the internet
+                uses — which said "an AI" where it should have said whose. */}
+            {/* The logo itself, live — the same component the top bar, the
+                sidebar, the sign-in panel and the hero all mount, rather than a
+                picture of it. It carries its own rotation: the scene turns on Y
+                once every sixteen seconds, linear, which is why there is no CSS
+                animation on this. Adding one would spin the canvas as well as
+                the mark inside it and read as two motions fighting.
+
+                Given its size directly, the way the drawer gives it one. The
+                canvas fills its wrapper, and a wrapper with no height of its
+                own leaves it free to take whatever height it likes — measured
+                at 32 wide by 150 tall, cropped back to a square by an
+                overflow-hidden that hid the mistake rather than fixing it.
+
+                `scale` is the other half, and the half that was making it look
+                tiny: it sets how much of the frame the mark fills, not how big
+                the frame is. At 0.62 in a 32px box the mark drew 9.5px against
+                22px words — a logo with more padding around it than logo.
+
+                It is sized larger than a still mark would need, and that is
+                the point rather than an overshoot. This one turns about Y, so
+                what anyone actually sees is its width times |cos t| — the mean
+                of |cos| over a revolution is 2/pi, about 0.64, and it passes
+                through zero twice every sixteen seconds. Sizing it by its
+                face-on width, the way you would size a static logo, is what
+                made three rounds of "still too small" look like it should have
+                been big enough on paper.
+
+                1.1 in a 56px box measures 30.3px face-on, so it averages about
+                19 while turning — roughly what 0.95 in a 44px box only looked
+                like it was giving. Measured off the vector mark, whose viewBox
+                comes from the same camera, so the fraction of the frame it
+                fills is the fraction the 3D one fills. */}
+            <Q3DCanvas scale={1.1} spinAxisTiltDeg={90} className="h-14 w-14 shrink-0" />
+            {/* The landing page's own wordmark treatment, brought across so the
+                greeting is in the brand's voice rather than in plain white and
+                a flat green. The time of day takes the silver gradient and its
+                sweep — a band of light at 100 degrees crossing the letters
+                every seven seconds, which is the slant — and the name takes the
+                green one, which carries a glow of its own. Both classes are the
+                ones page.tsx already uses on QuickStark.Ai; this is not a
+                second set that would drift from them. */}
+            {/* The wave sits inside this span rather than beside it as a third
+                flex item. As a sibling it was its own wrap opportunity, so a
+                long name and a 56px mark could push it alone onto the next
+                line — a greeting on one line and a hand on the next. Inline,
+                it travels with the words it belongs to. */}
             <span>
-              {greeting}
+              <span className="wordmark-quickstart metal-shimmer">{greeting}</span>
               {firstName && (
                 <>
-                  , <span className="text-accent">{firstName}</span>
+                  , <span className="wordmark-ai">{firstName}</span>
                 </>
-              )}
+              )}{" "}
+              <span aria-hidden>👋</span>
             </span>
-            <span aria-hidden>👋</span>
           </h2>
           <p className="mt-1 text-[13px] text-muted">How can I help you build today?</p>
         </div>
@@ -612,7 +696,6 @@ export default function ChatPanel({
           <MessageRow
             key={message.id}
             message={message}
-            avatarClass={avatarFor(project?.id)}
             onOpenPreview={onOpenPreview}
           />
         ))}
@@ -624,13 +707,9 @@ export default function ChatPanel({
         {building && runStartedAt !== null && (
           <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
             <div className="flex items-center gap-2">
-              <span
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-onSolid ${avatarFor(project?.id)}`}
-              >
-                <Sparkles className="h-3 w-3" />
-              </span>
+              <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
               <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-                QuickStark AI
+                QuickStark<span className="wordmark-ai">.Ai</span>
               </p>
             </div>
             <div className="mt-2.5">

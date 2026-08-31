@@ -305,3 +305,27 @@ export function describeFailures(failures: PatchFailure[]): string {
     })
     .join("\n");
 }
+
+/* The one optional line the edit prompt allows after the last block.
+ *
+ * Read from what follows the final REPLACE marker rather than from the whole
+ * output, which matters: a page can contain the word NEXT, and a replacement
+ * block containing it would otherwise be mistaken for the model's own note.
+ *
+ * Everything about it is optional. A model that ignores the instruction, or
+ * writes something rambling instead of a line, costs nothing — the note is
+ * dropped and the edit is unaffected, because the patches were parsed before
+ * this was ever looked at. */
+const NOTE_LIMIT = 240;
+
+export function noteAfterPatches(modelOutput: string): string | null {
+  const end = modelOutput.lastIndexOf(">>>>>>> REPLACE");
+  if (end === -1) return null;
+
+  const tail = modelOutput.slice(end + ">>>>>>> REPLACE".length).trim();
+  const line = tail.split(/\r?\n/).find((candidate) => /^NEXT:/i.test(candidate.trim()));
+  if (!line) return null;
+
+  const note = line.trim().replace(/^NEXT:\s*/i, "").trim();
+  return note && note.length <= NOTE_LIMIT ? note : null;
+}

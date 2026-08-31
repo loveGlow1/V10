@@ -9,6 +9,7 @@
     "lint": "next lint",
     "check:auth-domain": "node tools/check-auth-domain.mjs",
     "check:builder": "node tools/check-builder.mjs",
+    "check:intent": "node tools/check-intent.mjs",
     "check:patch": "node --experimental-strip-types tools/check-patch.mjs"
   },
   "dependencies": {

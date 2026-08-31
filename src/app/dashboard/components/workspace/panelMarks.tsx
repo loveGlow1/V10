@@ -58,3 +58,33 @@ export function ManageMark({ className }: MarkProps) {
     </svg>
   );
 }
+
+/* A terminal: a prompt chevron and a cursor rule, in a frame.
+
+   The tracker lists operations that ran on a server, and this is the mark that
+   says so before a word of it is read — the same shorthand a shell has used for
+   forty years. Drawn on the same 24 grid as the two above, so it sits on the
+   whole pixel at 14px like everything else in this row.
+
+   The chevron sits left of centre and the rule beside it rather than under it,
+   which is what makes the pair read as a prompt awaiting input instead of as a
+   greater-than sign next to a dash. */
+export function TerminalMark({ className }: MarkProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="2.25" y="3.75" width="19.5" height="16.5" rx="3.75" />
+      <path d="M6.75 9.75 9.75 12l-3 2.25" />
+      <path d="M12.75 15h4.5" />
+    </svg>
+  );
+}
