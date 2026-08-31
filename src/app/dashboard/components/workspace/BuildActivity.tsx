@@ -13,8 +13,9 @@ export type ActivityStep = {
   /** A second line, shown while this step is the one running. */
   detail?: string;
   state: "done" | "running" | "pending";
-  /** How long this step took. Only set on steps that were really timed. */
-  seconds?: number;
+  /** How long this step really took, in milliseconds. Absent on the step
+      currently running — its duration is not known until it ends. */
+  ms?: number;
 };
 
 /* Seconds as a person reads them: "38s" under a minute, "1m 4s" over it. */
@@ -22,6 +23,15 @@ export function formatDuration(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   if (whole < 60) return `${whole}s`;
   return `${Math.floor(whole / 60)}m ${whole % 60}s`;
+}
+
+/* A single step, which is usually milliseconds and occasionally a minute. The
+   sub-second ones are the honest majority — a session check is 12ms — and
+   flooring those to "0s" would read as untimed rather than as fast. */
+export function formatStepDuration(ms: number): string {
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return formatDuration(ms / 1000);
 }
 
 /* What a build is doing, while it does it.
@@ -136,9 +146,9 @@ export default function BuildActivity({
                         >
                           {step.label}
                         </span>
-                        {typeof step.seconds === "number" && (
+                        {typeof step.ms === "number" && (
                           <span className="shrink-0 text-[12px] tabular-nums text-muted">
-                            {formatDuration(step.seconds)}
+                            {formatStepDuration(step.ms)}
                           </span>
                         )}
                       </span>

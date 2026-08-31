@@ -48,53 +48,13 @@ function filesTouchedFrom(artifacts: Record<string, unknown> | undefined): numbe
     : null;
 }
 
-/* The step list for a build that has come back, built from what it actually
-   reported. Every line here is evidence: the request was sent, the classifier
-   answered, and each address that exists is one the orchestrator returned.
-
-   There are no per-step durations, because there are none to have — /api/build
-   is one call and the orchestrator does not report its internal timings. The
-   run's own elapsed time is measured and shown under the list; inventing a
-   number for each line would be the one dishonest thing on the panel. */
-function stepsFor(outcome: {
-  intent: string;
-  status: string;
-  links: { preview: string; repo: string; admin: string };
-}): ActivityStep[] {
-  const steps: ActivityStep[] = [
-    { id: "sent", label: "Sent to the build orchestrator", state: "done" },
-  ];
-
-  steps.push({
-    id: "intent",
-    label:
-      outcome.intent && outcome.intent !== "unclassified"
-        ? `Classified as ${INTENT_LABEL[outcome.intent] ?? outcome.intent}`
-        : "Could not classify the request",
-    state: "done",
-  });
-
-  const built: [string, string | null, string][] = [
-    ["preview", safeHttpUrl(outcome.links.preview), "Preview deployed"],
-    ["repo", safeHttpUrl(outcome.links.repo), "Repository written"],
-    ["admin", safeHttpUrl(outcome.links.admin), "Admin provisioned"],
-  ];
-  for (const [id, href, label] of built) {
-    if (href) steps.push({ id, label, state: "done" });
-  }
-
-  steps.push({
-    id: "status",
-    label:
-      outcome.status === "Failed"
-        ? "The build reported a failure"
-        : outcome.status === "Needs Clarification"
-          ? "The build needs more detail before it can finish"
-          : "Changes applied",
-    state: "done",
-  });
-
-  return steps;
+/* What the orchestrator decided this build was, for the line under the clock.
+   Its own words, in ours — the raw value is a key ("webapp"), and one this list
+   does not know is passed through as itself rather than dropped, so a branch
+   added to the workflow later still reads. */
+function intentNote(intent: string): string | null {
+  if (!intent || intent === "unclassified") return null;
+  return `built ${INTENT_LABEL[intent] ?? intent}`;
 }
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
@@ -148,6 +108,10 @@ export default function ChatPanel({
   /* When the build in flight was sent. The tracker counts from it, so it is
      state rather than a ref — the panel has to re-render when it changes. */
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  /* The phases /api/build has reported for the build in flight. Replaced by
+     id rather than appended to, so the orchestrator's `running` step becomes
+     its own `done` step with a duration instead of appearing twice. */
+  const [liveSteps, setLiveSteps] = useState<ActivityStep[]>([]);
   /* Whose workspace this is. Empty until the session answers, and empty for
      good on an account that never gave a name — the greeting handles both. */
   const { firstName } = useAccountName();
@@ -168,6 +132,7 @@ export default function ChatPanel({
     setMessages([]);
     setDraft("");
     setStartedAt(null);
+    setLiveSteps([]);
     nextId.current = 0;
   }, [project?.id]);
 
@@ -188,12 +153,19 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt]);
 
-  /* Also on `building`, not only on `messages`: the tracker appearing is a
-     change in the stream's height that no new message accounts for. */
+  /* Follows the conversation, but only while the reader is already at the foot
+     of it. A build now reports a phase at a time, so this fires repeatedly
+     during one — and yanking the view back down mid-stream, while someone is
+     reading an earlier reply, is the one thing that would make the live updates
+     worse than the silence they replaced.
+
+     80px of slack rather than an exact match: a list can settle a pixel or two
+     off the bottom on its own, and that must still count as being at it. */
+  const pinned = useRef(true);
   useEffect(() => {
     const stream = streamRef.current;
-    if (stream) stream.scrollTop = stream.scrollHeight;
-  }, [messages, building]);
+    if (stream && pinned.current) stream.scrollTop = stream.scrollHeight;
+  }, [messages, building, liveSteps]);
 
   /* Told to the strip rather than to a tab of its own: another prompt in this
      app is the same app. The cleanup clears the mark when the workspace is left
@@ -231,9 +203,27 @@ export default function ChatPanel({
     if (prompt === undefined) setDraft("");
     setBuilding(true);
     setStartedAt(sentAt);
+    setLiveSteps([]);
+
+    /* Collected here as well as rendered, so the finished message keeps the
+       real timeline the build reported rather than a summary written after
+       the fact. */
+    const reported: ActivityStep[] = [];
 
     try {
-      const outcome = await build(project.id, text);
+      const outcome = await build(project.id, text, (step) => {
+        const next: ActivityStep = {
+          id: step.id,
+          label: step.label,
+          detail: step.detail,
+          state: step.state,
+          ms: step.ms,
+        };
+        const at = reported.findIndex((existing) => existing.id === next.id);
+        if (at === -1) reported.push(next);
+        else reported[at] = next;
+        setLiveSteps([...reported]);
+      });
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
@@ -254,6 +244,9 @@ export default function ChatPanel({
          same one the build was priced from — and is left off entirely when it
          did not report one, rather than shown as zero. */
       const touched = filesTouchedFrom(outcome.artifacts);
+      const note = [intentNote(outcome.intent), touched === null ? null : `${touched} ${touched === 1 ? "file" : "files"} touched`]
+        .filter(Boolean)
+        .join(" · ");
       setMessages((current) => [
         ...current,
         {
@@ -264,14 +257,11 @@ export default function ChatPanel({
           links: links.length ? links : undefined,
           tone: outcome.status === "Failed" ? "error" : "normal",
           activity: {
-            steps: stepsFor(outcome),
+            steps: reported,
             startedAt: sentAt,
             finishedAt: Date.now(),
             failed: outcome.status === "Failed",
-            note:
-              touched === null
-                ? undefined
-                : `${touched} ${touched === 1 ? "file" : "files"} touched`,
+            note: note || undefined,
             previewHref: safeHttpUrl(outcome.links.preview),
           },
         },
@@ -292,6 +282,7 @@ export default function ChatPanel({
     } finally {
       setBuilding(false);
       setStartedAt(null);
+      setLiveSteps([]);
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
@@ -377,6 +368,10 @@ export default function ChatPanel({
 
       <div
         ref={streamRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
       >
         {/* Who this is and what it is for, at the top of the thread rather than
@@ -434,15 +429,14 @@ export default function ChatPanel({
               <BuildActivity
                 running
                 startedAt={startedAt}
-                steps={[
-                  { id: "sent", label: "Sent to the build orchestrator", state: "done" },
-                  {
-                    id: "building",
-                    label: "Building your app",
-                    detail: "Waiting on the orchestrator…",
-                    state: "running",
-                  },
-                ]}
+                steps={
+                  liveSteps.length
+                    ? liveSteps
+                    : /* Before the first frame lands. The request really has
+                         been sent, and saying so is better than an empty list
+                         under a heading that says work is happening. */
+                      [{ id: "sent", label: "Sending the build", state: "running" }]
+                }
               />
             </div>
           </div>

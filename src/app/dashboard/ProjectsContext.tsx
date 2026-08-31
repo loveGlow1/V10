@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedStatus } from "@/lib/project-status";
+import { readSseFrames } from "@/lib/sse";
 
 export type Project = {
   id: string;
@@ -19,6 +20,17 @@ export type Project = {
   repo_url: string | null;
   admin_url: string | null;
   last_build_at: string | null;
+};
+
+/* One phase of a build, as /api/build reports it while it runs. `ms` is the
+   measured duration and is absent on the phase currently running — it is not
+   known until it ends. */
+export type BuildStep = {
+  id: string;
+  label: string;
+  detail?: string;
+  ms?: number;
+  state: "done" | "running" | "pending";
 };
 
 /* The orchestrator's answer to one build, as /api/build passes it on. */
@@ -55,8 +67,10 @@ type ProjectsValue = {
   create: (name: string) => Promise<Project | null>;
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
-  /** Runs a build for a project and folds the result back into the list. */
-  build: (id: string, prompt: string) => Promise<BuildOutcome>;
+  /** Runs a build for a project and folds the result back into the list.
+      `onStep` is called as each phase lands, which is what lets the workspace
+      report progress instead of waiting out the whole minute in silence. */
+  build: (id: string, prompt: string, onStep?: (step: BuildStep) => void) => Promise<BuildOutcome>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -196,32 +210,56 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      Errors are thrown rather than swallowed into `error` — the chat panel shows
      a failed build in the conversation, next to the message that caused it,
      rather than as a banner over the whole list. */
-  const build = useCallback(async (id: string, prompt: string): Promise<BuildOutcome> => {
-    const response = await fetch("/api/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId: id, prompt }),
-    });
+  const build = useCallback(
+    async (id: string, prompt: string, onStep?: (step: BuildStep) => void): Promise<BuildOutcome> => {
+      const response = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: id, prompt }),
+      });
 
-    const payload = (await response.json().catch(() => null)) as {
-      build?: BuildOutcome;
-      project?: Project | null;
-      error?: string;
-    } | null;
+      /* Everything the route decides before it commits to a build still answers
+         with a status code and a JSON body — not signed in, not your app, rate
+         limited, out of credits. Those are read here, exactly as before. */
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "The build could not be started.");
+      }
+      if (!response.body) {
+        throw new Error("The build could not be started.");
+      }
 
-    if (!response.ok || !payload?.build) {
-      throw new Error(payload?.error ?? "The build could not be started.");
-    }
+      /* From here it is a stream of frames — see src/lib/sse.ts for why the
+         reading is buffered rather than chunk-by-chunk. */
+      let outcome: BuildOutcome | null = null;
+      let failure: string | null = null;
 
-    if (payload.project) {
-      const row = payload.project;
-      setProjects((current) =>
-        current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
-      );
-    }
+      await readSseFrames(response.body, (event) => {
+        if (event.type === "step") {
+          onStep?.(event as unknown as BuildStep);
+        } else if (event.type === "result") {
+          outcome = event.build as BuildOutcome;
+          const row = event.project as Project | null;
+          if (row) {
+            setProjects((current) =>
+              current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
+            );
+          }
+        } else if (event.type === "error") {
+          failure = typeof event.error === "string" ? event.error : null;
+        }
+      });
 
-    return payload.build;
-  }, []);
+      if (failure) throw new Error(failure);
+      /* A stream that ended without a result is a build whose answer was lost —
+         the connection dropped, or the route died mid-phase. Saying so is the
+         honest reading; inventing a success from a truncated stream is not. */
+      if (!outcome) throw new Error("The build ended without reporting a result.");
+
+      return outcome;
+    },
+    [],
+  );
 
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab

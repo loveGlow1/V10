@@ -22,7 +22,23 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * unbounded. Affordability is checked before the orchestrator is called and the
  * charge is taken after it answers, so a build that never ran is not billed.
  * The cost is priced here from what the build reports, never from anything the
- * caller sends. */
+ * caller sends.
+ *
+ * The answer is streamed rather than returned in one piece, because a build
+ * takes up to a minute and a workspace that says nothing for a minute reads as
+ * broken. Each phase below is timed as it runs and sent the moment it finishes,
+ * so the panel on the other end is reporting this route's real progress rather
+ * than animating a guess at it.
+ *
+ * The split is deliberate. Everything that decides an HTTP status — who is
+ * asking, whether the app is theirs, the rate limit, the balance — runs first
+ * and still answers with a status code, because those are the errors a caller
+ * has to be able to tell apart and they cost a few database round trips. The
+ * stream opens only once the build is committed to running; it carries those
+ * finished phases with their measured durations as its first frames, then the
+ * long one live. From that point the response is a 200 whatever happens, and a
+ * failure arrives as an `error` frame — which is why the pre-flight is not
+ * folded into it. */
 
 export const runtime = "nodejs";
 /* A build is a side effect; it must never be served from a cache. */
@@ -63,8 +79,23 @@ function usageFrom(result: BuildResult): { filesTouched?: number } {
     : {};
 }
 
+/* One completed phase of this route, with how long it really took. Sent to the
+   caller as the tracker's step list — measured, never estimated. */
+type Phase = { id: string; label: string; ms: number };
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
+
+  /* A stopwatch that laps. Each call closes the phase that just ran and opens
+     the next, so the durations are contiguous and add up to the request — no
+     gap between them where time went unaccounted for. */
+  const phases: Phase[] = [];
+  let lap = Date.now();
+  const phase = (id: string, label: string) => {
+    const now = Date.now();
+    phases.push({ id, label, ms: now - lap });
+    lap = now;
+  };
 
   if (!supabase) {
     return NextResponse.json(
@@ -80,6 +111,7 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Sign in to build." }, { status: 401 });
   }
+  phase("session", "Session verified");
 
   let body: BuildRequestBody;
   try {
@@ -121,6 +153,7 @@ export async function POST(request: Request) {
   if (!project) {
     return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
   }
+  phase("project", "Confirmed the app is yours");
 
   /* How many builds this account has been billed for in the last hour. Only
      charged builds leave a ledger row, so a run of failures is not throttled by
@@ -143,6 +176,7 @@ export async function POST(request: Request) {
       { status: 429 },
     );
   }
+  phase("limits", "Rate limit checked");
 
   /* Checked before the orchestrator is called: running a build the account
      cannot pay for spends real money to produce a refusal. The floor is used
@@ -168,6 +202,7 @@ export async function POST(request: Request) {
       { status: 402 },
     );
   }
+  phase("credits", "Credits checked");
 
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. */
@@ -175,62 +210,163 @@ export async function POST(request: Request) {
     .from("projects")
     .update({ prompt, status: "Building" })
     .eq("id", project.id);
+  phase("marked", "Marked as building");
 
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
 
-  let result: BuildResult;
-  try {
-    result = await startBuild({
-      prompt,
-      projectName: project.name,
-      userId: user.id,
-      projectId: project.id,
-      requestId,
-    });
-  } catch (error) {
-    if (error instanceof BuilderError) {
-      /* The row was moved to Building a moment ago; leaving it there would show
-         a build that is not running. */
-      await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    throw error;
-  }
+  const encoder = new TextEncoder();
 
-  /* Billed once the build has actually answered. A failed build is not
-     charged: the orchestrator's failure path returns "Failed" without having
-     provisioned anything, and billing it would charge for nothing.
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      /* Closing the tab mid-build makes every later enqueue throw. That is not
+         an error worth surfacing — the build is already provisioning and will
+         finish — so the frames are dropped and the work runs to completion.
+         Tearing it down here would leave half-made services behind. */
+      let listening = true;
+      const send = (frame: Record<string, unknown>) => {
+        if (!listening) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+        } catch {
+          listening = false;
+        }
+      };
+      const close = () => {
+        if (!listening) return;
+        listening = false;
+        try {
+          controller.close();
+        } catch {
+          // Already torn down by the disconnect.
+        }
+      };
 
-     spend_credits does the deduction inside one locked transaction, so two
-     builds racing cannot both spend the last credit. A charge that cannot be
-     covered is logged rather than raised — the build has already happened, and
-     failing the response here would hide a finished build from its owner. */
-  if (result.status !== "Failed") {
-    const cost = creditCostOf(BUILD_ACTION, usageFrom(result));
-    const { error: chargeError } = await supabase.rpc("spend_credits", {
-      p_action: BUILD_ACTION,
-      p_cost: cost,
-      p_description: `Build: ${project.name}`.slice(0, 200),
-      p_project_id: project.id,
-      p_output_tokens: null,
-      p_files_touched: usageFrom(result).filesTouched ?? null,
-    });
+      /* The pre-flight, which is over by the time anything can be sent. It is
+         reported rather than hidden: those checks are the reason a build starts
+         at all, and each one carries the milliseconds it actually cost. */
+      for (const done of phases) {
+        send({ type: "step", id: done.id, label: done.label, ms: done.ms, state: "done" });
+      }
 
-    if (chargeError) {
-      // eslint-disable-next-line no-console
-      console.error("build: the build ran but could not be charged:", chargeError);
-    }
-  }
+      /* The long one. Sent as `running` before it is awaited, which is the
+         whole point of streaming this route — everything above arrives in the
+         first few milliseconds and this is what the reader waits on. */
+      send({
+        type: "step",
+        id: "orchestrator",
+        label: "Building your app",
+        detail: "Waiting on the orchestrator…",
+        state: "running",
+      });
 
-  /* What the orchestrator persisted, read back rather than assumed. If its
-     Supabase step is not connected yet the row still says "Building", and the
-     reply says so too instead of promising a row that was never written. */
-  const { data: synced } = await supabase
-    .from("projects")
-    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
-    .eq("id", project.id)
-    .maybeSingle();
+      let result: BuildResult;
+      try {
+        result = await startBuild({
+          prompt,
+          projectName: project.name,
+          userId: user.id,
+          projectId: project.id,
+          requestId,
+        });
+      } catch (error) {
+        if (error instanceof BuilderError) {
+          /* The row was moved to Building a moment ago; leaving it there would
+             show a build that is not running. */
+          await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+          send({ type: "error", error: error.message, status: error.status });
+          close();
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.error("build: the orchestrator call threw:", error);
+        await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+        send({ type: "error", error: "The build could not be started.", status: 500 });
+        close();
+        return;
+      }
+      phase("orchestrator", "Building your app");
+      const orchestrator = phases[phases.length - 1];
+      send({
+        type: "step",
+        id: "orchestrator",
+        label: "Building your app",
+        ms: orchestrator.ms,
+        state: "done",
+      });
 
-  return NextResponse.json({ build: result, project: synced ?? null });
+      /* Billed once the build has actually answered. A failed build is not
+         charged: the orchestrator's failure path returns "Failed" without having
+         provisioned anything, and billing it would charge for nothing.
+
+         spend_credits does the deduction inside one locked transaction, so two
+         builds racing cannot both spend the last credit. A charge that cannot be
+         covered is logged rather than raised — the build has already happened,
+         and failing the response here would hide a finished build from its
+         owner. */
+      if (result.status !== "Failed") {
+        const cost = creditCostOf(BUILD_ACTION, usageFrom(result));
+        const { error: chargeError } = await supabase.rpc("spend_credits", {
+          p_action: BUILD_ACTION,
+          p_cost: cost,
+          p_description: `Build: ${project.name}`.slice(0, 200),
+          p_project_id: project.id,
+          p_output_tokens: null,
+          p_files_touched: usageFrom(result).filesTouched ?? null,
+        });
+
+        if (chargeError) {
+          // eslint-disable-next-line no-console
+          console.error("build: the build ran but could not be charged:", chargeError);
+        }
+        phase("billed", "Credits charged");
+        const billed = phases[phases.length - 1];
+        /* Only claimed when the charge went through. A step that says "charged"
+           over a failed deduction would be this route lying about the balance
+           the header is about to show. */
+        send({
+          type: "step",
+          id: "billed",
+          label: chargeError ? "Could not charge for this build" : "Credits charged",
+          ms: billed.ms,
+          state: "done",
+        });
+      }
+
+      /* What the orchestrator persisted, read back rather than assumed. If its
+         Supabase step is not connected yet the row still says "Building", and
+         the reply says so too instead of promising a row that was never
+         written. */
+      const { data: synced } = await supabase
+        .from("projects")
+        .select(
+          "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at",
+        )
+        .eq("id", project.id)
+        .maybeSingle();
+      phase("synced", "Read the result back");
+      const synced_phase = phases[phases.length - 1];
+      send({
+        type: "step",
+        id: "synced",
+        label: "Read the result back",
+        ms: synced_phase.ms,
+        state: "done",
+      });
+
+      send({ type: "result", build: result, project: synced ?? null });
+      close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      /* nginx buffers proxied responses by default, which would hold every
+         frame until the build finished and undo the whole point of this. */
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
