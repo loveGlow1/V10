@@ -20,9 +20,16 @@ const ROTATION_PERIOD_SECONDS = 16; // one full revolution every 16s, constant/l
  * much. With the axis at t degrees from Y toward Z, the face normal traces a
  * cone about it and the fraction of face turned toward the viewer never falls
  * below cos(2 * (90 - t)). Below t = 45 that is still negative — the mark goes
- * fully edge-on whatever the tilt — and at t = 60 it bottoms out at 0.5: half
- * the face, always. Which is why the small instances pass 60 and everything
- * else passes nothing. */
+ * fully edge-on whatever the tilt — and at t = 60 it bottoms out at 0.5.
+ *
+ * At t = 90 the cone closes entirely: the axis is the face normal, so the mark
+ * holds the orientation the flat one has and simply turns within its own plane,
+ * like a wheel. Nothing is ever foreshortened. That is what the small instances
+ * use; everything large passes nothing and keeps the original Y turn.
+ *
+ * The axis takes -sin rather than +sin so that turn runs clockwise — the top of
+ * the mark travelling left to right. At t = 0 the term vanishes and the axis is
+ * plain Y, so the sign costs the large instances nothing. */
 const DEFAULT_SPIN_AXIS_TILT_DEG = 0;
 
 /* Where the turn begins. Face-on to this camera the key lights rake straight past the
@@ -206,13 +213,22 @@ function QLogo({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   /* The turn is tracked here rather than read back off the group, because the
-     quaternion below overwrites the group's rotation every frame. */
-  const angleRef = useRef(START_ROTATION_Y);
+     quaternion below overwrites the group's rotation every frame.
 
-  const spinAxis = useMemo(() => {
-    const tilt = THREE.MathUtils.degToRad(spinAxisTiltDeg);
-    return new THREE.Vector3(0, Math.cos(tilt), Math.sin(tilt)).normalize();
-  }, [spinAxisTiltDeg]);
+     The head start is scaled by cos(tilt), which is the whole of why it exists:
+     START_ROTATION_Y is there to bring the extruded side wall into the light
+     before the first frame, and a tilt turns that wall away at exactly that
+     rate. At 90 there is no side wall in view to present, so the mark begins
+     square-on — the same position the flat mark holds, which is what the
+     cross-fade between them wants. */
+  const angleRef = useRef(START_ROTATION_Y * Math.cos(THREE.MathUtils.degToRad(spinAxisTiltDeg)));
+
+  const tilt = THREE.MathUtils.degToRad(spinAxisTiltDeg);
+
+  const spinAxis = useMemo(
+    () => new THREE.Vector3(0, Math.cos(tilt), -Math.sin(tilt)).normalize(),
+    [tilt],
+  );
 
   const obsidianMirrorMaterial = getObsidianMirrorMaterial();
   const logoGeometry = getLogoGeometry();
