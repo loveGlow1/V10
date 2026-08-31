@@ -31,6 +31,13 @@ export type BuildRequest = {
   projectId: string;
   /** Ties a reply to the message that asked for it. */
   requestId: string;
+  /* Signed addresses for any images attached to the message. URLs rather than
+     bytes: the orchestrator hands these straight to the model, and pushing
+     megabytes of base64 through a webhook to do the same job is the version
+     that falls over. */
+  attachmentUrls?: string[];
+  /** The text of any non-image attachments, already read. */
+  attachmentText?: string;
 };
 
 export type BuildResult = {

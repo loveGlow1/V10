@@ -214,6 +214,14 @@ that is gated on every enabled node having a credential attached.
    | `Generate Page` | POSTs the Anthropic Messages API directly, under the same credential the classifier uses. Ten-minute timeout, because nothing is waiting on it. |
    | `Save Page` | POSTs the document to `/api/builder/webapp/save`. |
 
+   **Attachments.** A build can be given files. Images arrive as signed URLs in
+   `attachmentUrls` and become image blocks in the request — URLs rather than
+   base64, because pushing megabytes through a webhook to say the same thing is
+   the version that falls over. They are signed for an hour, comfortably longer
+   than a build. Text files are read on the app's side and arrive already inside
+   `attachmentText`. Both are optional; with nothing attached the request is
+   exactly what it was.
+
    `Generate Page` calls the API with an HTTP node rather than an LLM chain on
    purpose: a generated page is full of `{` and `}`, and a chain reads those as
    prompt template variables. Editing an existing page would corrupt it.

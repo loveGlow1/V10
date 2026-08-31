@@ -17,9 +17,10 @@ import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseC
  * missing in any way a hosting dashboard shows you — it is simply never read,
  * and the first sign is a build that fails for no visible reason.
  *
- * There is no `generationConfigured`: the page is generated in the orchestrator
- * now, under n8n's own Anthropic credential, and this app has no key to report
- * on. Claiming otherwise would be worse than saying nothing. */
+ * `editingConfigured` is the same question for the key the app needs again.
+ * Generating a whole page still happens in the orchestrator under n8n's own
+ * credential — but editing one, answering a question about it and routing an
+ * ambiguous message all run here, and all three need a key of this app's own. */
 
 /* Never prerendered. This answers about the running deployment's environment,
    and a statically rendered copy would freeze whatever was set at build time. */
@@ -39,9 +40,12 @@ export async function GET() {
        even the fact that a token is set is more than a health check owes an
        anonymous caller. */
     builderConfigured: isBuilderConfigured,
-    /* What a finished page needs to be kept: read by name, so false means the
-       name in the environment is not the name the code looks for. */
+    /* What a finished page needs to be kept, and what an edit needs to happen.
+       Both read by name, so a false here means the name in the environment is
+       not the name the code looks for — which is invisible in a hosting
+       dashboard and otherwise shows up only as a feature that quietly refuses. */
     storageConfigured: isServiceRoleConfigured,
+    editingConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
   });
