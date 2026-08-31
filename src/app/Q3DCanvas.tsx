@@ -26,10 +26,14 @@ export default function Q3DCanvas({
   scale = 1,
   className = "",
   withBackdrop = false,
+  spinAxisTiltDeg,
 }: {
   scale?: number;
   className?: string;
   withBackdrop?: boolean;
+  /** Tilts the spin axis toward the camera so the mark never turns edge-on.
+   *  For the small instances; see Q3DCanvasScene for why 60 is the number. */
+  spinAxisTiltDeg?: number;
 }) {
   const [mounted, setMounted] = useState(false);
   /* Three states, not two: `painted` starts the cross-fade, `retired` ends it.
@@ -66,6 +70,7 @@ export default function Q3DCanvas({
         <Q3DCanvasScene
           scale={scale}
           withBackdrop={withBackdrop}
+          spinAxisTiltDeg={spinAxisTiltDeg}
           className="h-full w-full"
           style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
           onPainted={() => setPainted(true)}

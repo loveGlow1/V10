@@ -1,12 +1,36 @@
 "use client";
 
-import { Component, Suspense, useRef, type CSSProperties, type ReactNode } from "react";
+import { Component, Suspense, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 const ROTATION_PERIOD_SECONDS = 16; // one full revolution every 16s, constant/linear
+
+/* Which way the body turns.
+ *
+ * Spinning about Y sweeps the face through edge-on twice a revolution, and the
+ * mark is a flat extrusion — so at those moments there is nothing to see but
+ * the side wall. On the hero at 500px that is the point: the extrude catches
+ * the light and the mark reads as a solid object. In a 56px slot it is a logo
+ * that keeps vanishing into a two-pixel bar.
+ *
+ * Tilting the axis toward the camera fixes it, and the geometry says by how
+ * much. With the axis at t degrees from Y toward Z, the face normal traces a
+ * cone about it and the fraction of face turned toward the viewer never falls
+ * below cos(2 * (90 - t)). Below t = 45 that is still negative — the mark goes
+ * fully edge-on whatever the tilt — and at t = 60 it bottoms out at 0.5.
+ *
+ * At t = 90 the cone closes entirely: the axis is the face normal, so the mark
+ * holds the orientation the flat one has and simply turns within its own plane,
+ * like a wheel. Nothing is ever foreshortened. That is what the small instances
+ * use; everything large passes nothing and keeps the original Y turn.
+ *
+ * The axis takes -sin rather than +sin so that turn runs clockwise — the top of
+ * the mark travelling left to right. At t = 0 the term vanishes and the axis is
+ * plain Y, so the sign costs the large instances nothing. */
+const DEFAULT_SPIN_AXIS_TILT_DEG = 0;
 
 /* Where the turn begins. Face-on to this camera the key lights rake straight past the
    bevels and the extruded side wall is hidden, so the first frame would render as a flat
@@ -180,23 +204,48 @@ function getLogoGeometry(): THREE.BufferGeometry {
   return sharedLogoGeometry;
 }
 
-function QLogo({ scale = 1 }: { scale?: number }) {
+function QLogo({
+  scale = 1,
+  spinAxisTiltDeg = DEFAULT_SPIN_AXIS_TILT_DEG,
+}: {
+  scale?: number;
+  spinAxisTiltDeg?: number;
+}) {
   const groupRef = useRef<THREE.Group>(null);
+  /* The turn is tracked here rather than read back off the group, because the
+     quaternion below overwrites the group's rotation every frame.
+
+     The head start is scaled by cos(tilt), which is the whole of why it exists:
+     START_ROTATION_Y is there to bring the extruded side wall into the light
+     before the first frame, and a tilt turns that wall away at exactly that
+     rate. At 90 there is no side wall in view to present, so the mark begins
+     square-on — the same position the flat mark holds, which is what the
+     cross-fade between them wants. */
+  const angleRef = useRef(START_ROTATION_Y * Math.cos(THREE.MathUtils.degToRad(spinAxisTiltDeg)));
+
+  const tilt = THREE.MathUtils.degToRad(spinAxisTiltDeg);
+
+  const spinAxis = useMemo(
+    () => new THREE.Vector3(0, Math.cos(tilt), -Math.sin(tilt)).normalize(),
+    [tilt],
+  );
 
   const obsidianMirrorMaterial = getObsidianMirrorMaterial();
   const logoGeometry = getLogoGeometry();
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
-    // Continuous linear Y-axis rotation only — no easing, no acceleration.
-    groupRef.current.rotation.y += (delta * (Math.PI * 2)) / ROTATION_PERIOD_SECONDS;
+    // Continuous and linear — no easing, no acceleration. Set from an axis and
+    // an angle rather than incremented on .rotation.y, so the axis can be
+    // tilted; at a tilt of zero the two are the same rotation.
+    angleRef.current += (delta * (Math.PI * 2)) / ROTATION_PERIOD_SECONDS;
+    groupRef.current.quaternion.setFromAxisAngle(spinAxis, angleRef.current);
   });
 
   return (
     <group
       ref={groupRef}
       position={[-0.12, 0.12, 0]}
-      rotation={[0, START_ROTATION_Y, 0]}
       scale={[scale, scale, scale]}
     >
       <mesh geometry={logoGeometry} material={obsidianMirrorMaterial} frustumCulled={false} />
@@ -227,11 +276,15 @@ export default function Q3DCanvasScene({
   scale = 1,
   className = "",
   withBackdrop = false,
+  spinAxisTiltDeg = DEFAULT_SPIN_AXIS_TILT_DEG,
   style,
   onPainted,
 }: {
   scale?: number;
   className?: string;
+  /** Degrees to tilt the spin axis from Y toward the camera. Zero — the default
+   *  everywhere the mark is large — keeps the original Y-axis turn. */
+  spinAxisTiltDeg?: number;
   /** Pitch-black background + faint ambient particles, for standalone/hero display
    *  (kept off by default so the small inline logo instances — nav, footer, login
    *  modal — stay transparent and blend into the page behind them). */
@@ -298,7 +351,7 @@ export default function Q3DCanvasScene({
       {/* Front-lower fill light — added alongside the raised ambient above. */}
       <directionalLight position={[4, -5, 5]} intensity={0.8} color="#ffffff" />
       <GlintLight />
-      <QLogo scale={scale} />
+      <QLogo scale={scale} spinAxisTiltDeg={spinAxisTiltDeg} />
     </Canvas>
   );
 }
