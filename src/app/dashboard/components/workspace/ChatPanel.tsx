@@ -535,10 +535,16 @@ export default function ChatPanel({
   /* A fork is a second app you can change without touching this one. Until a
      build exists there is nothing to copy but the name, which the panel says
      before you press it rather than after. */
+  /* Same synchronous guard as the send button: `forking` is state, so a double
+     press on Create the fork made two copies. */
+  const forkInFlight = useRef(false);
+
   async function fork() {
-    if (!project || forking) return;
+    if (!project || forkInFlight.current) return;
+    forkInFlight.current = true;
     setForking(true);
     const copy = await create(`${project.name} copy`);
+    forkInFlight.current = false;
     setForking(false);
     setForkOpen(false);
     if (copy) {

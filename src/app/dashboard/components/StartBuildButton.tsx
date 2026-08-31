@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useImperativeHandle, useState } from "react";
+import React, { useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp } from "lucide-react";
 
 import { useProjects } from "../ProjectsContext";
+import { nameFromPrompt } from "../projectName";
 import { SendArrow } from "./marks";
 
 /* Home's send button.
@@ -25,17 +26,6 @@ import { SendArrow } from "./marks";
  * handle, and both ways in share one guard — no double-send, no second app
  * opened by a key pressed while the first is still being created. */
 
-/* A name from the first thing someone typed. Cut at a word so a project is not
-   called "Build me an online sto", and short enough for a tab. */
-export function nameFromPrompt(prompt: string): string {
-  const cleaned = prompt.trim().replace(/\s+/g, " ");
-  if (cleaned.length <= 40) return cleaned || "Untitled app";
-
-  const cut = cleaned.slice(0, 40);
-  const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 12 ? cut.slice(0, lastSpace) : cut).trim();
-}
-
 /** What Home can do to this button from the outside: send, as if it were pressed. */
 export type StartBuildHandle = { start: () => void };
 
@@ -52,6 +42,12 @@ export default function StartBuildButton({
   const router = useRouter();
   const { create } = useProjects();
   const [starting, setStarting] = useState(false);
+  /* The guard that actually holds. `starting` is state, so the button and the
+     Enter key behind it both read it as false in the same tick and both go
+     through — which is how this account ended up with two projects from one
+     press. A ref is written and read synchronously, so the second call sees
+     the first. */
+  const inFlight = useRef(false);
 
   const ready = Boolean(prompt.trim()) && !starting;
 
@@ -63,15 +59,17 @@ export default function StartBuildButton({
 
   async function start() {
     const text = prompt.trim();
-    if (!text || starting) return;
+    if (!text || inFlight.current) return;
 
+    inFlight.current = true;
     setStarting(true);
     onError(null);
 
     const project = await create(nameFromPrompt(text));
-    setStarting(false);
 
     if (!project) {
+      inFlight.current = false;
+      setStarting(false);
       /* create() puts its own reason on the projects error — usually a session
          still loading or a table that was never created. Saying "could not"
          here as well would be the second half of a sentence the list already
@@ -80,7 +78,11 @@ export default function StartBuildButton({
       return;
     }
 
-    /* The prompt travels in the URL rather than in a store: a reload of the
+    /* inFlight is deliberately still held: the push takes this component off
+       screen, and releasing it in the gap before that lands is exactly the
+       window a second press slips through.
+
+       The prompt travels in the URL rather than in a store: a reload of the
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
     router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(text)}`);
