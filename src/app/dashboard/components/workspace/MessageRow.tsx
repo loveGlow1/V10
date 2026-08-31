@@ -16,18 +16,22 @@ export type Activity = {
   previewHref: string | null;
 };
 
+/* What this row draws. The stored half — who said it, the words, its links and
+   tone — is ThreadMessage, which lives in @/lib/project-messages because it is
+   read back out of a table. Everything below it is view-only and deliberately
+   optional: a thread loaded from a previous visit has no clock reading and no
+   tracker, and inventing either would be this panel claiming to know when a
+   message from last week was sent. */
 export type Message = {
   id: number;
   from: "you" | "system";
   text: string;
-  /** When it was said, for the time beside the name. Real clock, set once. */
-  at: number;
-  /* A build that came back with somewhere to look. Rendered as links under the
-     reply rather than pasted into it, so the address stays clickable. */
   links?: { label: string; href: string }[];
   tone?: "normal" | "error";
-  /* The build behind this reply. Absent on anything that was not one — an
-     error thrown before the orchestrator was reached has nothing to show. */
+  /** When it was said, on messages this session saw sent. */
+  at?: number;
+  /** Set on a reply whose work actually landed. */
+  applied?: boolean;
   activity?: Activity;
 };
 
@@ -67,12 +71,14 @@ export default function MessageRow({
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
           {you ? "You" : "QuickStark AI"}
         </p>
-        <time
-          dateTime={new Date(message.at).toISOString()}
-          className="shrink-0 text-[12px] tabular-nums text-muted"
-        >
-          {timeOf(message.at)}
-        </time>
+        {typeof message.at === "number" && (
+          <time
+            dateTime={new Date(message.at).toISOString()}
+            className="shrink-0 text-[12px] tabular-nums text-muted"
+          >
+            {timeOf(message.at)}
+          </time>
+        )}
       </div>
 
       <p
@@ -83,10 +89,10 @@ export default function MessageRow({
         {message.text}
       </p>
 
-      {/* Said only where it is true: a build the orchestrator did not fail.
-          "Applied" over a failure would be the panel disagreeing with the
+      {/* Said only where it is true: work that actually landed. "Applied" over
+          a refusal or a failure would be the panel disagreeing with the
           sentence directly above it. */}
-      {message.activity && !message.activity.failed && (
+      {message.applied && (
         <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-accent">
           <Check className="h-3.5 w-3.5 stroke-[3]" />
           Applied

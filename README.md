@@ -95,10 +95,72 @@ outside because the variable is server-side.
   `builderTokenSet`.
 - In production, detailed missing-var names are hidden by default; set `SUPABASE_HEALTH_INCLUDE_DETAILS=true` only when you explicitly need detailed diagnostics.
 
-### The orchestrator is not published yet
+### Checking the wiring
 
-`N8N_WEBHOOK_URL` on its own is not enough: the workflow behind it is
-deliberately left unpublished, and an unpublished n8n webhook answers 404 —
-which the app reports as "the workflow is probably not published yet". The
-remaining steps, and what still needs credentials, are in
-[`n8n/README.md`](./n8n/README.md).
+```bash
+npm run check:builder
+```
+
+Four things have to agree before a chat message becomes an n8n execution: the
+URL the app holds, the token it sends, the header name the Webhook node's
+credential compares, and the workflow being published. From the browser all four
+fail the same way — nothing happens — and from n8n's side a call that never
+arrives leaves no trace at all, which is why the canvas can sit on "waiting for
+the webhook call" indefinitely while the app looks healthy.
+
+`npm run check:builder` makes the call the app would make and names which of the
+four is wrong. It POSTs one real build request with no `projectId` and no
+`userId`, so it runs one execution — the classifier bills an Anthropic call —
+and `Sync Project Row` matches no row and writes nothing.
+
+### What a build makes
+
+A build generates one complete, self-contained HTML page — markup, styles and
+its own interactivity in a single document — saved against the project and
+served at `/preview/<projectId>`. A landing page or a small web app that really
+exists. A second message in the same workspace passes the current page back to
+the model, so a follow-up edits it rather than replacing it.
+
+A build asked for accounts produces a working sign-in and a dashboard behind
+it — validation, protected views, sign out, and a seeded demo account whose
+credentials are printed on the sign-in screen so the preview can actually be
+opened. It is a demo, not security: there is no backend, state lives in memory,
+and accounts last as long as the tab. The page says so.
+
+A message is classified before anything runs — edit, new build, question or
+revert. Only a new build goes to the orchestrator. An **edit** is a
+search/replace patch applied in the app in seconds, leaving everything the
+request did not name byte-identical; a **question** is answered without
+touching the page; a **revert** puts the previous version back on top as a new
+one. A build that would replace an existing page stops and asks first.
+
+**A new build is answered before the page is built.** Generating takes a minute or
+two; a serverless function is killed at sixty. So the orchestrator replies as
+soon as the prompt is classified, generates afterwards under its own Anthropic
+credential, and posts the finished page to `/api/builder/webapp/save`. The
+workspace polls the project row and shows the preview when it lands. Nothing
+holds an HTTP request open waiting for a model.
+
+One variable is required for it, beyond the orchestrator's own:
+
+```bash
+SUPABASE_SERVICE_ROLE_KEY=...   # what a finished page is stored under
+```
+
+Never `NEXT_PUBLIC_`. The save endpoint is called by n8n with no user session
+behind it, so the write has no `auth.uid()` for RLS to answer for. Nothing else
+uses this key. The app needs no Anthropic key — generation happens in n8n.
+
+The generated page is untrusted: it is model output shaped by whatever someone
+typed, and it has to run its own scripts to be a working page. It is served
+under `Content-Security-Policy: sandbox`, which puts it in an opaque origin —
+scripts run, but they cannot reach the session cookie or the API routes on this
+domain. Previews are private to their owner; RLS decides that, and making a page
+public is what publishing will be for.
+
+**Publishing, custom domains, a provisioned Supabase schema and Stripe are
+deliberately not part of a build.** A build saves work into the workspace; going
+live is a separate step the owner chooses and spends credits on. None of it is
+built yet.
+
+See [`n8n/README.md`](./n8n/README.md).

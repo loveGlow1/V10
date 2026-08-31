@@ -193,6 +193,14 @@ function formatPrice(value: number) {
   return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
 }
 
+/* The discount written as a percentage, for the copy that quotes it. Derived from
+   the same constant the card arithmetic uses: the two were written out separately
+   before, which is exactly how a page ends up advertising a saving it does not
+   apply. */
+const ANNUAL_DISCOUNT_PCT = Number.isInteger(ANNUAL_DISCOUNT * 100)
+  ? String(ANNUAL_DISCOUNT * 100)
+  : (ANNUAL_DISCOUNT * 100).toFixed(1);
+
 const PRICING_TIERS = [
   {
     name: "Free",
@@ -274,8 +282,12 @@ const FAQS = [
   },
   {
     question: "How does pricing work?",
+    /* Every figure and plan name here is read from the credit economy rather than
+       written out. This answer said "$15 a month" while the card beside it charged
+       $25 — a visitor could see both numbers without scrolling, and the one they
+       would actually be billed was the one they had not read. */
     answer:
-      "Free lets you start building at no cost. Standard is $15 a month for people shipping real products, and Pro is $150 a month for teams running larger systems. Billing is monthly for now, with annual plans on the way.",
+      `${PLANS.free.name} lets you start building at no cost. ${PLANS.standard.name} is $${PLANS.standard.monthlyPriceUsd} a month for people shipping real products, and ${PLANS.pro.name} is $${PLANS.pro.monthlyPriceUsd} a month for teams running larger systems. Billing is monthly, or annual for ${ANNUAL_DISCOUNT_PCT}% less.`,
   },
 ] as const;
 
@@ -947,7 +959,7 @@ export default function LandingPage() {
               {/* Replaces the old section-wide "Annual Soon" placeholder: the switch now lives on
                   each paid card, so this line only has to say what those switches do. */}
               <p className="inline-flex shrink-0 items-center gap-2 self-start rounded-pill border border-brandBorder bg-brandSurface px-4 py-2 text-sm font-semibold text-brandTextSec lg:self-auto">
-                <span className="text-brandGreen">Save 20%</span>
+                <span className="text-brandGreen">Save {ANNUAL_DISCOUNT_PCT}%</span>
                 <span className="whitespace-nowrap">with annual billing</span>
               </p>
             </Reveal>
@@ -1039,7 +1051,7 @@ export default function LandingPage() {
                           {!canBillAnnually
                             ? "Free forever — no card required"
                             : isAnnual
-                              ? `Billed annually at ${formatPrice(yearlyTotal)} — save 20%`
+                              ? `Billed annually at ${formatPrice(yearlyTotal)} — save ${ANNUAL_DISCOUNT_PCT}%`
                               : "Billed monthly"}
                         </p>
                       </div>

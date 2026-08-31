@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { ThemeProvider } from './components/ThemeProvider';
+import { CreditsProvider } from './useCredits';
+import type { CreditBalance } from './credits';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 
 export const metadata: Metadata = {
@@ -26,12 +28,35 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     redirect('/');
   }
 
+  /* The balance, read here so it is in the HTML rather than fetched after
+     hydration. The header used to show a made-up figure while that fetch was in
+     flight — the signup balance, which was 15 — and then correct itself, so
+     every load flashed a number the account did not have. Read on the server it
+     is right at first paint and there is nothing to correct.
+
+     RLS answers this: the select runs under the person's own session, so it can
+     only return their row. */
+  const { data: balanceRow } = await supabase
+    .from('credit_balances')
+    .select('daily, rollover, monthly, top_up')
+    .maybeSingle();
+
+  const balance: CreditBalance | null = balanceRow
+    ? {
+        daily: Number(balanceRow.daily ?? 0),
+        rollover: Number(balanceRow.rollover ?? 0),
+        monthly: Number(balanceRow.monthly ?? 0),
+        topUp: Number(balanceRow.top_up ?? 0),
+      }
+    : null;
+
   return (
     <ThemeProvider>
     {/* Above every dashboard screen, because the set of open workspaces has to
         survive moving between them: a tab strip that reset on navigation would
         be a list of one. */}
     <WorkspaceTabsProvider>
+    <CreditsProvider initial={balance}>
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop.
@@ -43,6 +68,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
       {children}
     </div>
+    </CreditsProvider>
     </WorkspaceTabsProvider>
     </ThemeProvider>
   );

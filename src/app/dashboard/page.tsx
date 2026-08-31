@@ -14,7 +14,7 @@ import WorkspaceTabs from "./components/WorkspaceTabs";
 import { AgentMark, MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
-import StartBuildButton from "./components/StartBuildButton";
+import StartBuildButton, { type StartBuildHandle } from "./components/StartBuildButton";
 import DashboardFooter from "./components/DashboardFooter";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
@@ -50,11 +50,9 @@ import {
   Triangle,
 } from "lucide-react";
 
-/* What a new account holds — the Free tier's daily allowance plus the welcome
-   credit — read from the credit economy rather than written out here, so this
-   figure and the one signup actually grants cannot differ. The panel does not
-   yet fetch the account's real balance, so until it does every session shows a
-   fresh account's. */
+/* What a new account holds — the one-time signup credit, which on Free is the
+   whole of it — read from the credit economy rather than written out here, so
+   this figure and the one signup actually grants cannot differ. */
 
 /* The row under the composer. Each chip is a way into a build rather than a
    label: tapping one drops its prompt into the bar and puts the caret at the
@@ -164,6 +162,10 @@ export default function DashboardPage() {
      page renders below it. */
   const { label: credits } = useCredits();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  /* The send button, reachable from the box above it. Home renders the provider
+     the button reads from, so it cannot start a build itself — Enter goes
+     through this instead. */
+  const sendRef = useRef<StartBuildHandle>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -454,6 +456,17 @@ export default function DashboardPage() {
                     setIsModelPopoverOpen(false);
                   }}
                   onBlur={() => setComposerFocused(false)}
+                  onKeyDown={(event) => {
+                    // Enter sends, Shift+Enter breaks the line — the same
+                    // convention the workspace composer follows, so the box that
+                    // starts an app and the box that changes it behave alike.
+                    // isComposing is why an IME's Enter does not send: confirming
+                    // a candidate would otherwise name an app mid-word.
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      sendRef.current?.start();
+                    }
+                  }}
                   aria-label="Describe what you want to build"
                   rows={3}
                   value={transcript}
@@ -621,7 +634,7 @@ export default function DashboardPage() {
                       and only lifts once there is something to send. It names a
                       new app from what was typed and opens it; the build runs
                       in the workspace it opens. */}
-                  <StartBuildButton prompt={transcript} onError={setStartError} />
+                  <StartBuildButton ref={sendRef} prompt={transcript} onError={setStartError} />
                 </div>
               </div>
             </div>

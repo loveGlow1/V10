@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useImperativeHandle, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp } from "lucide-react";
 
@@ -17,7 +17,13 @@ import { SendArrow } from "./marks";
  * app and it opens one. The build itself is not run here — the workspace runs
  * it, so the first thing you see after the jump is your own message and the
  * build working on it, rather than a wait on Home followed by a jump to a
- * result that already happened. */
+ * result that already happened.
+ *
+ * The same reason the button lives down here is why sending is also exposed on
+ * a ref: the composer's textarea is rendered by Home, above the provider, so it
+ * cannot call the hook itself. Enter on that box reaches this through the
+ * handle, and both ways in share one guard — no double-send, no second app
+ * opened by a key pressed while the first is still being created. */
 
 /* A name from the first thing someone typed. Cut at a word so a project is not
    called "Build me an online sto", and short enough for a tab. */
@@ -30,18 +36,30 @@ export function nameFromPrompt(prompt: string): string {
   return (lastSpace > 12 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
+/** What Home can do to this button from the outside: send, as if it were pressed. */
+export type StartBuildHandle = { start: () => void };
+
 export default function StartBuildButton({
   prompt,
   onError,
+  ref,
 }: {
   prompt: string;
   onError: (message: string | null) => void;
+  /* React 19 passes ref as an ordinary prop, so there is no forwardRef here. */
+  ref?: React.Ref<StartBuildHandle>;
 }) {
   const router = useRouter();
   const { create } = useProjects();
   const [starting, setStarting] = useState(false);
 
   const ready = Boolean(prompt.trim()) && !starting;
+
+  /* Deliberately not the whole state: Home needs a way to send, not a way to
+     reach inside this. `start` already refuses an empty prompt and a send that
+     is in flight, so the handle cannot do anything pressing the button could
+     not. */
+  useImperativeHandle(ref, () => ({ start: () => void start() }));
 
   async function start() {
     const text = prompt.trim();

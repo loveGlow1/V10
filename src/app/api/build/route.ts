@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { CREDIT_ACTIONS, canAfford, creditCostOf } from "@/app/dashboard/credits";
+import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
+import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
+import { EditError, answerQuestion, editPage } from "@/lib/builder/edit";
+import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
+import { SITE_URL } from "@/lib/site";
+import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Where a build is started.
  *
@@ -22,33 +28,37 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * unbounded. Affordability is checked before the orchestrator is called and the
  * charge is taken after it answers, so a build that never ran is not billed.
  * The cost is priced here from what the build reports, never from anything the
- * caller sends.
- *
- * The answer is streamed rather than returned in one piece, because a build
- * takes up to a minute and a workspace that says nothing for a minute reads as
- * broken. Each phase below is timed as it runs and sent the moment it finishes,
- * so the panel on the other end is reporting this route's real progress rather
- * than animating a guess at it.
- *
- * The split is deliberate. Everything that decides an HTTP status — who is
- * asking, whether the app is theirs, the rate limit, the balance — runs first
- * and still answers with a status code, because those are the errors a caller
- * has to be able to tell apart and they cost a few database round trips. The
- * stream opens only once the build is committed to running; it carries those
- * finished phases with their measured durations as its first frames, then the
- * long one live. From that point the response is a 200 whatever happens, and a
- * failure arrives as an `error` frame — which is why the pre-flight is not
- * folded into it. */
+ * caller sends. */
 
 export const runtime = "nodejs";
 /* A build is a side effect; it must never be served from a cache. */
 export const dynamic = "force-dynamic";
+/* The ceiling this waits under. startBuild gives up at 55s so its own message
+   reaches the chat before the platform cuts the function off at 60. */
+export const maxDuration = 60;
 
 type BuildRequestBody = {
   projectId?: unknown;
   prompt?: unknown;
   requestId?: unknown;
+  /* What the composer says this message is, when it says anything. An explicit
+     choice always wins over the classifier — the person knows, and the
+     classifier is guessing. */
+  intentOverride?: unknown;
+  /* Set only by the second press of "Replace project". A brand-new build
+     discards a page someone has, so it is never done on a guess. */
+  confirmNewProject?: unknown;
+  /* Files uploaded with this message: a screenshot to match, a logo to use, a
+     page of copy to lay out. Ids only — the bytes are read on the server. */
+  attachmentIds?: unknown;
 };
+
+/* An edit is billed as generation, like a build, but priced from how many
+   patches actually landed rather than from the size of the page. A one-line
+   change costs the floor, which is what it should cost. */
+function editUsage(applied: number): { filesTouched: number } {
+  return { filesTouched: Math.max(1, applied) };
+}
 
 /* Long enough for a real description, short enough that the prompt cannot be
    used to push a large payload through to the orchestrator. */
@@ -68,34 +78,21 @@ const BUILDS_PER_HOUR = 20;
    files and stands up services. */
 const BUILD_ACTION = "generate" as const;
 
-/* How much work the build reported doing. Read from the orchestrator's own
-   answer, not from the request body — the caller has every reason to
-   understate it and no way to be checked. Anything missing prices at the
-   action's floor, which is the honest reading of "it ran but said nothing". */
-function usageFrom(result: BuildResult): { filesTouched?: number } {
-  const reported = (result.artifacts as { filesTouched?: unknown })?.filesTouched;
-  return typeof reported === "number" && Number.isFinite(reported) && reported >= 0
-    ? { filesTouched: Math.floor(reported) }
-    : {};
-}
-
-/* One completed phase of this route, with how long it really took. Sent to the
-   caller as the tracker's step list — measured, never estimated. */
-type Phase = { id: string; label: string; ms: number };
+/* What must be in the pool before anything is allowed to run.
+ *
+ * Two figures, because two very different things happen here. An edit is one
+ * short model call and prices between the floor and about a credit, so the
+ * floor is a fair thing to ask for up front. A full build is minutes of
+ * generation and prices up to the ceiling, and letting someone start one on
+ * 0.60 credits is how an account ends up owing more than it ever held.
+ *
+ * Neither is a reservation — the charge is taken afterwards, from what the work
+ * actually did. They are the door: below the floor, nothing runs at all. */
+const ENTRY_COST = CREDIT_ACTIONS.generate.min;
+const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
-
-  /* A stopwatch that laps. Each call closes the phase that just ran and opens
-     the next, so the durations are contiguous and add up to the request — no
-     gap between them where time went unaccounted for. */
-  const phases: Phase[] = [];
-  let lap = Date.now();
-  const phase = (id: string, label: string) => {
-    const now = Date.now();
-    phases.push({ id, label, ms: now - lap });
-    lap = now;
-  };
 
   if (!supabase) {
     return NextResponse.json(
@@ -111,7 +108,6 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Sign in to build." }, { status: 401 });
   }
-  phase("session", "Session verified");
 
   let body: BuildRequestBody;
   try {
@@ -153,7 +149,330 @@ export async function POST(request: Request) {
   if (!project) {
     return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
   }
-  phase("project", "Confirmed the app is yours");
+
+  /* Writing a build row, and taking payment for one, both need the service key:
+     project_builds and credit_balances are read-only to the browser on purpose,
+     so that a client can neither put its own HTML on a preview nor decide what
+     it owes. Ownership was settled just above, under the caller's session. */
+  const service = createSupabaseServiceClient();
+
+  /* ── Can this account pay for anything at all? ──────────────────────────
+     Before the classifier, not after it. Classifying is itself a model call,
+     and so is every branch below it: an empty account that gets as far as here
+     has already been given work for free.
+
+     Read through ensure_credit_balance rather than straight off the table, so
+     that today's refill has landed and an account that has never been charged
+     is not read as having nothing. */
+  const balance = service ? await currentBalance(service, user.id) : null;
+
+  if (balance && !canAfford(balance, ENTRY_COST)) {
+    return NextResponse.json(
+      {
+        error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Top up to keep building.`,
+        code: "insufficient_credits",
+      },
+      { status: 402 },
+    );
+  }
+
+  /* ── What is this message asking for? ───────────────────────────────────
+     Every message used to be a build. "Make the header darker", "undo that"
+     and "build me a law firm site" all ran the same path, which meant an edit
+     cost a full rebuild and a careless sentence could replace someone's work.
+
+     The page as it stands is read first, because it decides almost everything:
+     with nothing built there is nothing to edit and nothing to lose, and with
+     something built, editing is the default and replacing it needs saying so.
+
+     Read under the caller's own session, so RLS answers for it — a project id
+     is not enough to reach someone else's page. */
+  const { data: lastBuild } = await supabase
+    .from("project_builds")
+    .select("id, html")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const currentHtml = (lastBuild?.html as string | undefined) ?? null;
+
+  const override =
+    body.intentOverride === "edit" ||
+    body.intentOverride === "new_project" ||
+    body.intentOverride === "question" ||
+    body.intentOverride === "revert"
+      ? (body.intentOverride as Intent)
+      : null;
+
+  /* A little conversation, so "make it darker too" is read against what came
+     before it rather than on its own. */
+  const { data: recent } = await supabase
+    .from("project_messages")
+    .select("role, body")
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const history = ((recent ?? []) as { role: string; body: string }[])
+    .reverse()
+    .map((row) => ({ from: row.role, text: row.body }));
+
+  /* Whatever was attached to this message, resolved to rows the server can
+     read. Restricted to this project and this owner: the ids came from the
+     caller, and the read behind them uses the service key. */
+  const attachmentIds = Array.isArray(body.attachmentIds)
+    ? (body.attachmentIds.filter((id) => typeof id === "string") as string[])
+    : [];
+  const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+
+  const decision = await classifyIntent({
+    message: prompt,
+    hasPage: Boolean(currentHtml),
+    history,
+    override,
+  });
+
+  /* Nothing to edit, revert or answer about. Whatever it looked like, the only
+     thing that can happen is a first build. */
+  const intent: Intent = currentHtml ? decision.intent : "new_project";
+
+  const previewUrl = `${SITE_URL}/preview/${project.id}`;
+
+  // ── REVERT ───────────────────────────────────────────────────────────────
+  if (intent === "revert") {
+    const { data: history2 } = await supabase
+      .from("project_builds")
+      .select("id, html, prompt")
+      .eq("project_id", project.id)
+      .order("created_at", { ascending: false })
+      .limit(2);
+
+    const previous = (history2 ?? [])[1] as { html: string } | undefined;
+
+    if (!previous || !service) {
+      return NextResponse.json({
+        intent: "revert",
+        build: {
+          ok: false,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: previous
+            ? "That cannot be undone right now."
+            : "There is nothing to undo — this is the first version of the page.",
+        },
+        project: null,
+      });
+    }
+
+    /* Restored by putting the old page back on top as a new version, never by
+       deleting the newer one. Undo should be undoable. */
+    await service.from("project_builds").insert({
+      project_id: project.id,
+      user_id: user.id,
+      prompt: `Reverted: ${prompt}`.slice(0, 500),
+      html: previous.html,
+      model: null,
+      files_touched: 0,
+    });
+
+    await service
+      .from("projects")
+      .update({ status: "Built", preview_url: previewUrl, last_build_at: new Date().toISOString() })
+      .eq("id", project.id)
+      .eq("user_id", user.id);
+
+    const { data: reverted } = await supabase
+      .from("projects")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .eq("id", project.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      intent: "revert",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: "Put the previous version back.",
+      },
+      project: reverted ?? null,
+    });
+  }
+
+  // ── QUESTION ─────────────────────────────────────────────────────────────
+  if (intent === "question" && currentHtml) {
+    try {
+      const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+
+      /* Billed as chat, on what it said. Asking about a page is a model call
+         with the whole page in it, so it is not free — but the chat band starts
+         at zero and reaches one credit only at a full page of answer, which is
+         what keeps troubleshooting from feeling metered. */
+      if (service) {
+        await chargeCredits(service, {
+          userId: user.id,
+          action: "chat",
+          cost: creditCostOf("chat", { outputTokens: answer.outputTokens }),
+          description: `Question: ${project.name}`,
+          projectId: project.id,
+          outputTokens: answer.outputTokens,
+        });
+      }
+
+      return NextResponse.json({
+        intent: "question",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: previewUrl, repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: answer.text,
+        },
+        project: null,
+      });
+    } catch (error) {
+      if (error instanceof EditError) {
+        return NextResponse.json({ error: error.message }, { status: error.status });
+      }
+      throw error;
+    }
+  }
+
+  // ── NEW PROJECT, over something that exists ──────────────────────────────
+  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true) {
+    /* Nothing has happened yet and nothing will until this comes back
+       confirmed. Replacing a page someone spent real time and credits on is
+       not a thing to do on a classifier's say-so. */
+    return NextResponse.json({
+      intent: "new_project",
+      needsConfirmation: true,
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message:
+          "That reads like a brand-new build, which would replace the page you have. Do you want to start over, or change the current page?",
+      },
+      project: null,
+    });
+  }
+
+  // ── EDIT ─────────────────────────────────────────────────────────────────
+  if (intent === "edit" && currentHtml) {
+    if (!service) {
+      return NextResponse.json(
+        { error: "Edits cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
+        { status: 503 },
+      );
+    }
+
+    let edited;
+    try {
+      /* Seconds, not minutes: the model returns a handful of search/replace
+         blocks rather than the whole document, which is why this can run here
+         at all. A full build still goes to the orchestrator below. */
+      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
+    } catch (error) {
+      if (error instanceof EditError) {
+        /* The page is untouched. Said plainly, and with the prompt left in the
+           composer, so it can be rephrased rather than retyped. */
+        return NextResponse.json(
+          { error: error.message, intent: "edit", code: "edit_failed" },
+          { status: error.status },
+        );
+      }
+      throw error;
+    }
+
+    await service.from("project_builds").insert({
+      project_id: project.id,
+      user_id: user.id,
+      prompt,
+      html: edited.html,
+      model: null,
+      files_touched: edited.applied,
+    });
+
+    await service
+      .from("projects")
+      .update({
+        prompt,
+        status: "Built",
+        intent: "webapp",
+        preview_url: previewUrl,
+        last_build_at: new Date().toISOString(),
+      })
+      .eq("id", project.id)
+      .eq("user_id", user.id);
+
+    /* Charged, not attempted. The edit is already in the page — refusing the
+       charge now would not take it back, it would only leave the work unpaid
+       and the balance unchanged, which is precisely how an account came to sit
+       at 0.50 forever while the edits kept arriving. charge_credits takes what
+       is there and reports what it could not, so an account that overdraws
+       lands at zero and the gate above turns the next one away. */
+    const charge = await chargeCredits(service, {
+      userId: user.id,
+      action: BUILD_ACTION,
+      cost: creditCostOf(BUILD_ACTION, editUsage(edited.applied)),
+      description: `Edit: ${project.name}`,
+      projectId: project.id,
+      filesTouched: edited.applied,
+    });
+
+    const { data: after } = await supabase
+      .from("projects")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .eq("id", project.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      intent: "edit",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: { applied: edited.applied },
+        message: [
+          edited.failures.length > 0
+            ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+            : "Done.",
+          /* Said here rather than discovered on the next attempt: running out
+             mid-sentence is a worse surprise than being told. */
+          charge && charge.remaining <= 0
+            ? "That used the last of your credits. Top up to keep building."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      },
+      project: after ?? null,
+    });
+  }
 
   /* How many builds this account has been billed for in the last hour. Only
      charged builds leave a ledger row, so a run of failures is not throttled by
@@ -176,33 +495,28 @@ export async function POST(request: Request) {
       { status: 429 },
     );
   }
-  phase("limits", "Rate limit checked");
 
-  /* Checked before the orchestrator is called: running a build the account
-     cannot pay for spends real money to produce a refusal. The floor is used
-     because the true cost is not known until the build reports back. */
-  const { data: balanceRow } = await supabase
-    .from("credit_balances")
-    .select("daily, rollover, monthly, top_up")
-    .maybeSingle();
+  /* Checked again, and against a bigger number than the door upstairs.
+     Building a whole page is minutes of generation and prices anywhere up to
+     the ceiling of the band, so what has to be in the pool is the ceiling —
+     not the floor, which was the old check and which let an account start a
+     2.50 build holding 0.50.
 
-  const balance = {
-    daily: Number(balanceRow?.daily ?? 0),
-    rollover: Number(balanceRow?.rollover ?? 0),
-    monthly: Number(balanceRow?.monthly ?? 0),
-    topUp: Number(balanceRow?.top_up ?? 0),
-  };
+     Read fresh rather than reusing the balance from the top of the request: an
+     edit or another build may have been charged in between. */
+  const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
-  if (balanceRow && !canAfford(balance, CREDIT_ACTIONS[BUILD_ACTION].min)) {
+  if (beforeBuild && !canAfford(beforeBuild, FULL_BUILD_ENTRY_COST)) {
     return NextResponse.json(
       {
-        error: "Not enough credits to start a build.",
+        error: `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
+          beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
+        )}. Ask for a change to the page instead — an edit costs far less — or top up.`,
         code: "insufficient_credits",
       },
       { status: 402 },
     );
   }
-  phase("credits", "Credits checked");
 
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. */
@@ -210,163 +524,59 @@ export async function POST(request: Request) {
     .from("projects")
     .update({ prompt, status: "Building" })
     .eq("id", project.id);
-  phase("marked", "Marked as building");
 
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
 
-  const encoder = new TextEncoder();
+  /* Only a full build reaches here, and a full build is a fresh page: whatever
+     was there is being replaced, deliberately and with the person's say-so, so
+     the orchestrator is given nothing to edit. */
+  let result: BuildResult;
+  try {
+    result = await startBuild({
+      prompt,
+      projectName: project.name,
+      userId: user.id,
+      projectId: project.id,
+      requestId,
+      /* What was attached, in the two forms a workflow can carry: signed
+         addresses for images, and text already read for everything else. */
+      attachmentUrls: await signedImageUrls(attachments),
+      attachmentText: await attachmentText(attachments),
+    });
+  } catch (error) {
+    if (error instanceof BuilderError) {
+      /* The row was moved to Building a moment ago; leaving it there would show
+         a build that is not running. */
+      await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      /* Closing the tab mid-build makes every later enqueue throw. That is not
-         an error worth surfacing — the build is already provisioning and will
-         finish — so the frames are dropped and the work runs to completion.
-         Tearing it down here would leave half-made services behind. */
-      let listening = true;
-      const send = (frame: Record<string, unknown>) => {
-        if (!listening) return;
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
-        } catch {
-          listening = false;
-        }
-      };
-      const close = () => {
-        if (!listening) return;
-        listening = false;
-        try {
-          controller.close();
-        } catch {
-          // Already torn down by the disconnect.
-        }
-      };
+  /* Deliberately not charged here.
+   *
+   * This used to bill the build the moment the orchestrator answered — but
+   * since generation moved into n8n, all it answers with is "Building". The
+   * page does not exist yet, so there is nothing to price it from, and
+   * creditCostOf fell back to the floor: every full build, however large, cost
+   * 0.50. A whole generated dashboard priced the same as a one-word edit.
+   *
+   * The page arrives at /api/builder/webapp/save a few minutes later, and that
+   * is where the charge is taken now — from the document itself, counted by
+   * filesTouchedFor, which is a number the workflow cannot inflate because the
+   * app derives it rather than reading it. It also means a build that never
+   * finishes is never billed, which is the right answer for a build nobody
+   * got. */
 
-      /* The pre-flight, which is over by the time anything can be sent. It is
-         reported rather than hidden: those checks are the reason a build starts
-         at all, and each one carries the milliseconds it actually cost. */
-      for (const done of phases) {
-        send({ type: "step", id: done.id, label: done.label, ms: done.ms, state: "done" });
-      }
+  /* What the orchestrator persisted, read back rather than assumed. If its
+     Supabase step is not connected yet the row still says "Building", and the
+     reply says so too instead of promising a row that was never written. */
+  const { data: synced } = await supabase
+    .from("projects")
+    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+    .eq("id", project.id)
+    .maybeSingle();
 
-      /* The long one. Sent as `running` before it is awaited, which is the
-         whole point of streaming this route — everything above arrives in the
-         first few milliseconds and this is what the reader waits on. */
-      send({
-        type: "step",
-        id: "orchestrator",
-        label: "Building your app",
-        detail: "Waiting on the orchestrator…",
-        state: "running",
-      });
-
-      let result: BuildResult;
-      try {
-        result = await startBuild({
-          prompt,
-          projectName: project.name,
-          userId: user.id,
-          projectId: project.id,
-          requestId,
-        });
-      } catch (error) {
-        if (error instanceof BuilderError) {
-          /* The row was moved to Building a moment ago; leaving it there would
-             show a build that is not running. */
-          await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
-          send({ type: "error", error: error.message, status: error.status });
-          close();
-          return;
-        }
-        // eslint-disable-next-line no-console
-        console.error("build: the orchestrator call threw:", error);
-        await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
-        send({ type: "error", error: "The build could not be started.", status: 500 });
-        close();
-        return;
-      }
-      phase("orchestrator", "Building your app");
-      const orchestrator = phases[phases.length - 1];
-      send({
-        type: "step",
-        id: "orchestrator",
-        label: "Building your app",
-        ms: orchestrator.ms,
-        state: "done",
-      });
-
-      /* Billed once the build has actually answered. A failed build is not
-         charged: the orchestrator's failure path returns "Failed" without having
-         provisioned anything, and billing it would charge for nothing.
-
-         spend_credits does the deduction inside one locked transaction, so two
-         builds racing cannot both spend the last credit. A charge that cannot be
-         covered is logged rather than raised — the build has already happened,
-         and failing the response here would hide a finished build from its
-         owner. */
-      if (result.status !== "Failed") {
-        const cost = creditCostOf(BUILD_ACTION, usageFrom(result));
-        const { error: chargeError } = await supabase.rpc("spend_credits", {
-          p_action: BUILD_ACTION,
-          p_cost: cost,
-          p_description: `Build: ${project.name}`.slice(0, 200),
-          p_project_id: project.id,
-          p_output_tokens: null,
-          p_files_touched: usageFrom(result).filesTouched ?? null,
-        });
-
-        if (chargeError) {
-          // eslint-disable-next-line no-console
-          console.error("build: the build ran but could not be charged:", chargeError);
-        }
-        phase("billed", "Credits charged");
-        const billed = phases[phases.length - 1];
-        /* Only claimed when the charge went through. A step that says "charged"
-           over a failed deduction would be this route lying about the balance
-           the header is about to show. */
-        send({
-          type: "step",
-          id: "billed",
-          label: chargeError ? "Could not charge for this build" : "Credits charged",
-          ms: billed.ms,
-          state: "done",
-        });
-      }
-
-      /* What the orchestrator persisted, read back rather than assumed. If its
-         Supabase step is not connected yet the row still says "Building", and
-         the reply says so too instead of promising a row that was never
-         written. */
-      const { data: synced } = await supabase
-        .from("projects")
-        .select(
-          "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at",
-        )
-        .eq("id", project.id)
-        .maybeSingle();
-      phase("synced", "Read the result back");
-      const synced_phase = phases[phases.length - 1];
-      send({
-        type: "step",
-        id: "synced",
-        label: "Read the result back",
-        ms: synced_phase.ms,
-        state: "done",
-      });
-
-      send({ type: "result", build: result, project: synced ?? null });
-      close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      /* nginx buffers proxied responses by default, which would hold every
-         frame until the build finished and undo the whole point of this. */
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return NextResponse.json({ intent: "new_project", build: result, project: synced ?? null });
 }

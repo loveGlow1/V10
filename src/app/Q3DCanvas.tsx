@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QMark from "./QMark";
 import Q3DCanvasScene from "./Q3DCanvasScene";
 
 /**
@@ -13,6 +14,14 @@ import Q3DCanvasScene from "./Q3DCanvasScene";
  * the page. Importing it statically puts it in the page's bundle graph, so Next preloads
  * it alongside the main chunks and it is already parsed by the time hydration mounts it.
  */
+/* Long enough to read as a material change rather than a swap, short enough
+   that nobody waits for it. */
+const FADE_MS = 500;
+const FADE = `opacity ${FADE_MS}ms ease-out`;
+
+/* Both marks in the same grid cell, which is what stacks them. */
+const STACKED = "1 / 1";
+
 export default function Q3DCanvas({
   scale = 1,
   className = "",
@@ -23,11 +32,45 @@ export default function Q3DCanvas({
   withBackdrop?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
+  /* Three states, not two: `painted` starts the cross-fade, `retired` ends it.
+     Unmounting the flat mark the moment the canvas draws would be a cut rather
+     than a fade, and leaving it mounted forever would keep a second layer
+     compositing behind a canvas that redraws every frame. */
+  const [painted, setPainted] = useState(false);
+  const [retired, setRetired] = useState(false);
+
   useEffect(() => setMounted(true), []);
 
-  // Same box on the server pass and the first client pass, so mounting the scene swaps
-  // content into an already-reserved slot instead of shifting the layout around it.
-  if (!mounted) return <div className={className} aria-hidden />;
+  useEffect(() => {
+    if (!painted) return;
+    const timer = setTimeout(() => setRetired(true), FADE_MS);
+    return () => clearTimeout(timer);
+  }, [painted]);
 
-  return <Q3DCanvasScene scale={scale} className={className} withBackdrop={withBackdrop} />;
+  /* The two marks share one grid cell rather than being stacked with absolute
+     positioning. Callers pass their own className — and two of them pass
+     `absolute` in it — so this wrapper must not take a position of its own; a
+     single-cell grid overlays its children without one. */
+  return (
+    <div className={className} style={{ display: "grid" }}>
+      {/* Painted with the first paint, before a byte of three.js has run. */}
+      {!retired && (
+        <QMark
+          scale={scale}
+          className="h-full w-full"
+          style={{ gridArea: STACKED, opacity: painted ? 0 : 1, transition: FADE }}
+        />
+      )}
+
+      {mounted && (
+        <Q3DCanvasScene
+          scale={scale}
+          withBackdrop={withBackdrop}
+          className="h-full w-full"
+          style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
+          onPainted={() => setPainted(true)}
+        />
+      )}
+    </div>
+  );
 }

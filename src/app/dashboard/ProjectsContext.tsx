@@ -5,7 +5,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedStatus } from "@/lib/project-status";
-import { readSseFrames } from "@/lib/sse";
 
 export type Project = {
   id: string;
@@ -22,17 +21,6 @@ export type Project = {
   last_build_at: string | null;
 };
 
-/* One phase of a build, as /api/build reports it while it runs. `ms` is the
-   measured duration and is absent on the phase currently running — it is not
-   known until it ends. */
-export type BuildStep = {
-  id: string;
-  label: string;
-  detail?: string;
-  ms?: number;
-  state: "done" | "running" | "pending";
-};
-
 /* The orchestrator's answer to one build, as /api/build passes it on. */
 export type BuildOutcome = {
   message: string;
@@ -40,14 +28,38 @@ export type BuildOutcome = {
   intent: string;
   links: { preview: string; repo: string; admin: string };
   configKeys: Record<string, string>;
-  /* Whatever the branch that ran reported making — stack, plugins, tables,
-     files touched. /api/build already passes this through (it is what the
-     build is priced from); declaring it here is what lets the workspace report
-     the real figure rather than a decorative one. Unknown shape on purpose: it
-     is written by a workflow someone can edit in a browser, so anything read
-     out of it is checked at the point of reading. */
-  artifacts?: Record<string, unknown>;
 };
+
+/** What a message was taken to mean. See src/lib/builder/intent.ts. */
+export type BuildIntent = "edit" | "new_project" | "question" | "revert";
+
+/* One reply to one message. Not every message is a build any more, so this
+   carries which of the four things happened — and, for the one that would
+   replace someone's page, a request to be asked again rather than an outcome. */
+export type BuildReply = {
+  intent?: BuildIntent;
+  /** A new build over an existing page. Nothing has happened yet. */
+  needsConfirmation?: boolean;
+  outcome?: BuildOutcome;
+  /** Set when nothing was changed. The page is exactly as it was. */
+  error?: string;
+};
+
+export type BuildOptions = {
+  /** Overrides the classifier. What the composer's mode chip says. */
+  intentOverride?: BuildIntent | null;
+  /** The second press of "Replace project". */
+  confirmNewProject?: boolean;
+  /** Files uploaded with this message. Ids only — the bytes stay in Storage. */
+  attachmentIds?: string[];
+};
+
+/* How the workspace waits for a page. Generation is not bounded by an HTTP
+   request any more, so these are patience, not timeouts: three seconds between
+   polls is often enough to feel immediate, and eight minutes is longer than any
+   page has taken. */
+const BUILD_POLL_MS = 3_000;
+const BUILD_WATCH_MS = 8 * 60 * 1000;
 
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
@@ -67,10 +79,10 @@ type ProjectsValue = {
   create: (name: string) => Promise<Project | null>;
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
-  /** Runs a build for a project and folds the result back into the list.
-      `onStep` is called as each phase lands, which is what lets the workspace
-      report progress instead of waiting out the whole minute in silence. */
-  build: (id: string, prompt: string, onStep?: (step: BuildStep) => void) => Promise<BuildOutcome>;
+  /** Sends one message for a project and folds any result back into the list. */
+  build: (id: string, prompt: string, options?: BuildOptions) => Promise<BuildReply>;
+  /** Waits for a started build to land its page. See {@link watchBuild}. */
+  watchBuild: (id: string, since: number) => Promise<Project | null>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -211,55 +223,92 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      a failed build in the conversation, next to the message that caused it,
      rather than as a banner over the whole list. */
   const build = useCallback(
-    async (id: string, prompt: string, onStep?: (step: BuildStep) => void): Promise<BuildOutcome> => {
+    async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
       const response = await fetch("/api/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: id, prompt }),
+        body: JSON.stringify({
+          projectId: id,
+          prompt,
+          intentOverride: options.intentOverride ?? null,
+          confirmNewProject: options.confirmNewProject === true,
+          attachmentIds: options.attachmentIds ?? [],
+        }),
       });
 
-      /* Everything the route decides before it commits to a build still answers
-         with a status code and a JSON body — not signed in, not your app, rate
-         limited, out of credits. Those are read here, exactly as before. */
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(payload?.error ?? "The build could not be started.");
+      const payload = (await response.json().catch(() => null)) as {
+        intent?: BuildIntent;
+        needsConfirmation?: boolean;
+        build?: BuildOutcome;
+        project?: Project | null;
+        error?: string;
+      } | null;
+
+      /* Returned rather than thrown. A refused edit is an ordinary answer —
+         the page is untouched and the person needs to read why — and throwing
+         made it indistinguishable in the chat from the app falling over. */
+      if (!response.ok || !payload?.build) {
+        return {
+          intent: payload?.intent,
+          error: payload?.error ?? "The message could not be sent.",
+        };
       }
-      if (!response.body) {
-        throw new Error("The build could not be started.");
+
+      if (payload.project) {
+        const row = payload.project;
+        setProjects((current) =>
+          current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
+        );
       }
 
-      /* From here it is a stream of frames — see src/lib/sse.ts for why the
-         reading is buffered rather than chunk-by-chunk. */
-      let outcome: BuildOutcome | null = null;
-      let failure: string | null = null;
-
-      await readSseFrames(response.body, (event) => {
-        if (event.type === "step") {
-          onStep?.(event as unknown as BuildStep);
-        } else if (event.type === "result") {
-          outcome = event.build as BuildOutcome;
-          const row = event.project as Project | null;
-          if (row) {
-            setProjects((current) =>
-              current.map((project) => (project.id === row.id ? { ...project, ...row } : project)),
-            );
-          }
-        } else if (event.type === "error") {
-          failure = typeof event.error === "string" ? event.error : null;
-        }
-      });
-
-      if (failure) throw new Error(failure);
-      /* A stream that ended without a result is a build whose answer was lost —
-         the connection dropped, or the route died mid-phase. Saying so is the
-         honest reading; inventing a success from a truncated stream is not. */
-      if (!outcome) throw new Error("The build ended without reporting a result.");
-
-      return outcome;
+      return {
+        intent: payload.intent,
+        needsConfirmation: payload.needsConfirmation === true,
+        outcome: payload.build,
+      };
     },
     [],
   );
+
+  /* A build answers before it has finished.
+     Generation runs in the orchestrator, which takes as long as the model takes
+     — a minute or two — and the chat is answered as soon as the prompt has been
+     classified, so nobody waits on a request that a serverless function would
+     kill anyway. The page arrives later, written straight to the project row by
+     the build's own save step.
+
+     So this is the other half: poll that row until it carries a build newer
+     than the one that started, then fold it into the list, which is what turns
+     the spinner in the chat into a preview.
+
+     `last_build_at` is the signal because it is written once, by the step that
+     stores the page — the earlier "Building" update deliberately leaves it
+     alone, or the very first poll would report a build that has not happened. */
+  const watchBuild = useCallback(async (id: string, since: number): Promise<Project | null> => {
+    if (!isSupabaseConfigured) return null;
+    const supabase = createSupabaseBrowserClient();
+    const deadline = Date.now() + BUILD_WATCH_MS;
+
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, BUILD_POLL_MS));
+
+      const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
+      const row = data as unknown as Project | null;
+      if (!row) continue;
+
+      const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
+      if (landed > since) {
+        setProjects((current) =>
+          current.map((project) => (project.id === id ? { ...project, ...row } : project)),
+        );
+        return row;
+      }
+    }
+
+    /* Out of patience rather than out of hope: the build may still land, and
+       the row will show it on the next load. The caller says so. */
+    return null;
+  }, []);
 
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab
@@ -286,8 +335,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       rename,
       remove,
       build,
+      watchBuild,
     }),
-    [projects, loading, error, selectedId, create, rename, remove, build],
+    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;

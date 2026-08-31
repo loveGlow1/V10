@@ -105,9 +105,9 @@ begin
     from public.credit_plans where id = 'free';
   v_bonus := public.signup_bonus_credits();
 
-  -- The bonus goes to the top-up bucket, which is the one that never expires
-  -- and is spent last: a gift should still be there tomorrow, and the day's
-  -- free allowance should be used before it.
+  -- Into the top-up bucket, which is the one that neither expires nor refills.
+  -- On Free that bucket is the entire balance: v_daily and v_monthly are both
+  -- zero, so this is the only credit the account ever receives without paying.
   insert into public.credit_balances (user_id, plan_id, daily, monthly, top_up)
   values (new.id, 'free', v_daily, v_monthly, v_bonus)
   on conflict (user_id) do nothing;
@@ -298,9 +298,14 @@ create table if not exists public.credit_plans (
   rollover_cycles   integer not null default 0
 );
 
+-- Free gets no daily grant. A refilling allowance means an account that never
+-- pays can build forever at whatever rate the refill sets — wait a day, get
+-- five more, indefinitely — which is a free product with a rate limit rather
+-- than a free tier. A Free account opens with signup_bonus_credits() and that
+-- is the whole of it. Kept in step with PLANS in src/app/dashboard/credits.ts.
 insert into public.credit_plans (id, name, monthly_price_usd, daily_credits, monthly_credits, rollover_cycles)
 values
-  ('free',     'Free',       0,   5, 0,   0),
+  ('free',     'Free',       0,   0, 0,   0),
   ('standard', 'Standard',  25,   5, 100, 1),
   ('pro',      'Pro',      150,   5, 600, 1)
 on conflict (id) do update set
@@ -337,13 +342,22 @@ grant select on public.credit_plans to authenticated;
 -- Read by handle_new_user() above, which runs after this file has been applied
 -- in full, so the definition order here does not matter at runtime.
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Everything a new account ever gets for free: five credits, once.
+--
+-- It lands in the top-up bucket, which is what makes it a one-time balance
+-- rather than an allowance — top-ups never expire and nothing refills them.
+-- The free plan's daily_credits is 0 for the same reason: a refilling daily
+-- grant means an account that never pays can build forever at whatever rate
+-- the refill sets, which is not a free tier but a free product.
+--
+-- Keep in step with SIGNUP_CREDITS in src/app/dashboard/credits.ts.
 create or replace function public.signup_bonus_credits()
 returns numeric
 language sql
 immutable
 set search_path = ''
 as $$
-  select 10::numeric(10,2);
+  select 5::numeric(10,2);
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -569,6 +583,117 @@ begin
 end;
 $$;
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- charge_credits — billing work that has already been delivered.
+--
+-- spend_credits refuses when the pool cannot cover the price, and for a publish
+-- that is exactly right: nothing has happened yet, so nothing is owed.
+--
+-- For a build it is wrong, and it was the bug. By the time a build or an edit
+-- is priced, the model has already run and the page already exists; refusing
+-- the charge does not undo any of that, it only leaves the charge unrecorded
+-- and the balance where it was. An account sitting at 0.50 could ask for edit
+-- after edit, each priced above 0.50, each refused by spend_credits, each
+-- delivered anyway — and the balance stayed at 0.50 forever, so the gate that
+-- reads it never refused either. Unlimited work, frozen number.
+--
+-- So this one never refuses. It takes what it can, records what it took, and
+-- reports the shortfall. An account that overdraws lands at exactly zero, which
+-- is the state /api/build's gate reads, so the overdraft is bounded to the one
+-- action that caused it instead of repeating without limit.
+--
+-- Takes the account as an argument and is granted to service_role alone: the
+-- caller has already established whose work this was, and a browser must never
+-- be able to name someone else.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.charge_credits(
+  p_user_id       uuid,
+  p_action        text,
+  p_cost          numeric,
+  p_description   text default null,
+  p_project_id    uuid default null,
+  p_output_tokens integer default null,
+  p_files_touched integer default null
+)
+returns table (charged numeric, shortfall numeric, remaining numeric)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance     public.credit_balances;
+  v_available   numeric(10,2);
+  v_charged     numeric(10,2);
+  v_outstanding numeric(10,2);
+  v_taken       numeric(10,2);
+begin
+  if p_user_id is null then
+    raise exception 'charge_credits needs an account' using errcode = '22023';
+  end if;
+
+  if p_cost < 0 then
+    raise exception 'a charge cannot be negative' using errcode = '22023';
+  end if;
+
+  -- Locks the row for the rest of the transaction, so two builds finishing at
+  -- once cannot both read the same balance and both charge against it.
+  v_balance := public.ensure_credit_balance(p_user_id);
+
+  v_available := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+  v_charged   := least(p_cost, v_available);
+
+  -- Soonest to expire first, in the same order spend_credits drains them.
+  v_outstanding := v_charged;
+
+  v_taken := least(v_balance.daily, v_outstanding);
+  v_balance.daily := v_balance.daily - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.rollover, v_outstanding);
+  v_balance.rollover := v_balance.rollover - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_taken := least(v_balance.monthly, v_outstanding);
+  v_balance.monthly := v_balance.monthly - v_taken;
+  v_outstanding := v_outstanding - v_taken;
+
+  v_balance.top_up := v_balance.top_up - v_outstanding;
+
+  update public.credit_balances set
+    daily    = v_balance.daily,
+    rollover = v_balance.rollover,
+    monthly  = v_balance.monthly,
+    top_up   = v_balance.top_up
+  where user_id = p_user_id
+  returning * into v_balance;
+
+  -- What was taken, not what was owed. The ledger has to sum to the balance or
+  -- it stops being the thing a disputed charge can be settled from; the price
+  -- that could not be met is written into the description instead.
+  insert into public.credit_ledger
+    (user_id, action, credits, description, project_id, output_tokens, files_touched)
+  values
+    (p_user_id, p_action, -v_charged,
+     case
+       when v_charged < p_cost then
+         left(coalesce(p_description, 'Charge')
+              || format(' - priced %s, only %s left', p_cost, v_available), 300)
+       else p_description
+     end,
+     p_project_id, p_output_tokens, p_files_touched);
+
+  charged   := v_charged;
+  shortfall := p_cost - v_charged;
+  remaining := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+  return next;
+end;
+$$;
+
+revoke all on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+  from public, anon, authenticated;
+grant execute on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+  to service_role;
+
 -- Adds bought credits to the pool. Called by a payment webhook once a charge
 -- has settled — never from the browser, which is why it takes the account as an
 -- argument instead of reading auth.uid(), and why execute is not granted below.
@@ -761,3 +886,158 @@ revoke all on public.n8n_chat_histories from anon, authenticated;
 revoke execute on function public.match_documents(extensions.vector, int, jsonb) from public;
 revoke execute on function public.match_documents(extensions.vector, int, jsonb) from anon, authenticated;
 grant execute on function public.match_documents(extensions.vector, int, jsonb) to service_role;
+
+-- ── Generated pages ────────────────────────────────────────────────────────
+--
+-- What a build actually produced. One row per build, so a project keeps its
+-- history rather than only its latest state: the workspace can show what a
+-- prompt changed, and a bad generation can be rolled back to the one before it
+-- rather than regenerated and hoped over.
+--
+-- `html` is a complete standalone document — this is what /preview/<projectId>
+-- serves and what the workspace's iframe loads. It is model output, which is to
+-- say untrusted text: it is served under `Content-Security-Policy: sandbox`, so
+-- the browser gives it an opaque origin and it cannot reach the session cookie
+-- on this domain. Nothing else in the app renders it.
+create table if not exists public.project_builds (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid not null references public.projects (id) on delete cascade,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  request_id    text,
+  prompt        text not null,
+  html          text not null,
+  model         text,
+  files_touched integer not null default 0,
+  created_at    timestamptz not null default now()
+);
+
+-- The preview reads the newest row for a project on every load.
+create index if not exists project_builds_project_created_idx
+  on public.project_builds (project_id, created_at desc);
+
+alter table public.project_builds enable row level security;
+
+-- Read-only to the browser, and only your own. Writes come from the build
+-- endpoint under the service_role key, which bypasses RLS: the generation has
+-- no user session behind it — n8n calls it, not the browser — and a client that
+-- could insert here could put its own HTML on someone's preview.
+drop policy if exists "Owners read their builds" on public.project_builds;
+create policy "Owners read their builds"
+  on public.project_builds for select
+  using (auth.uid() = user_id);
+
+-- ── Conversations ──────────────────────────────────────────────────────────
+--
+-- The thread in a workspace, kept.
+--
+-- It used to live in React state, so a reload — or switching to another app and
+-- back — showed an empty panel for an app that had been built and discussed at
+-- length. What someone asked for is the record of why their app looks the way
+-- it does, so it belongs in a row.
+--
+-- Written by the browser under the owner's own session: every message is
+-- rendered there first, the ones someone types and the ones a build comes back
+-- with. RLS is what scopes a thread to its owner, rather than a check in code
+-- that could be forgotten.
+create table if not exists public.project_messages (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  -- "you" or "system", matching what the panel renders.
+  role       text not null check (role in ('you', 'system')),
+  body       text not null,
+  -- Preview and repository addresses a build came back with. Re-filtered
+  -- through safeHttpUrl when read: a stored address is not a trusted one.
+  links      jsonb not null default '[]'::jsonb,
+  tone       text not null default 'normal' check (tone in ('normal', 'error')),
+  created_at timestamptz not null default now()
+);
+
+-- A thread is always read whole, oldest first, for one project.
+create index if not exists project_messages_project_created_idx
+  on public.project_messages (project_id, created_at);
+
+alter table public.project_messages enable row level security;
+
+drop policy if exists "Owners read their messages" on public.project_messages;
+create policy "Owners read their messages"
+  on public.project_messages for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners write their messages" on public.project_messages;
+create policy "Owners write their messages"
+  on public.project_messages for insert
+  with check (auth.uid() = user_id);
+
+-- Deleting a project takes its thread with it by cascade; this is for clearing
+-- a conversation without deleting the app.
+drop policy if exists "Owners delete their messages" on public.project_messages;
+create policy "Owners delete their messages"
+  on public.project_messages for delete
+  using (auth.uid() = user_id);
+
+-- ── Attachments ────────────────────────────────────────────────────────────
+--
+-- Files someone attaches to a message, so a build has more to go on than a
+-- sentence: a screenshot to match, a logo to use, a page of copy to lay out.
+--
+-- The bytes live in Storage, not in a column. A logo is a hundred kilobytes and
+-- a screenshot is often a megabyte; putting those in a row means reading them
+-- on every query that touches the table.
+insert into storage.buckets (id, name, public)
+values ('attachments', 'attachments', false)
+on conflict (id) do nothing;
+
+-- Private. Every read is a signed URL or a server-side read under the service
+-- key: an attachment is someone's brand asset or their unreleased design, and a
+-- public bucket makes every one of them a guessable URL.
+--
+-- The path is <user_id>/<project_id>/<file>, so the first segment is the owner
+-- and the policies are a comparison against it.
+drop policy if exists "Owners read their attachments" on storage.objects;
+create policy "Owners read their attachments"
+  on storage.objects for select
+  using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners upload their attachments" on storage.objects;
+create policy "Owners upload their attachments"
+  on storage.objects for insert
+  with check (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners delete their attachments" on storage.objects;
+create policy "Owners delete their attachments"
+  on storage.objects for delete
+  using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create table if not exists public.project_attachments (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  -- Path within the attachments bucket: <user_id>/<project_id>/<file>.
+  path       text not null unique,
+  -- What the person called it, which is what the chat shows.
+  name       text not null,
+  mime       text not null default 'application/octet-stream',
+  bytes      integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists project_attachments_project_created_idx
+  on public.project_attachments (project_id, created_at desc);
+
+alter table public.project_attachments enable row level security;
+
+drop policy if exists "Owners read their attachment rows" on public.project_attachments;
+create policy "Owners read their attachment rows"
+  on public.project_attachments for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners write their attachment rows" on public.project_attachments;
+create policy "Owners write their attachment rows"
+  on public.project_attachments for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners delete their attachment rows" on public.project_attachments;
+create policy "Owners delete their attachment rows"
+  on public.project_attachments for delete
+  using (auth.uid() = user_id);

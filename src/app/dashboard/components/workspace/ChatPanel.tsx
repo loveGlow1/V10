@@ -8,54 +8,57 @@ import {
   Check,
   ChevronDown,
   Eye,
+  ExternalLink,
   GitFork,
   Github,
   MicOff,
   Paperclip,
   Shuffle,
   Sparkles,
+  X,
 } from "lucide-react";
 
 import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
 import { avatarFor } from "../../projectColours";
-import { useProjects, type Project } from "../../ProjectsContext";
+import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
-import MessageRow, { type Message } from "./MessageRow";
+import MessageRow, { type Activity } from "./MessageRow";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
+import { appendToThread, loadThread, type ThreadMessage } from "@/lib/project-messages";
+import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import {
+  ACCEPT,
+  MAX_ATTACHMENTS,
+  uploadAttachment,
+  type Attachment,
+} from "@/lib/project-attachments";
 
-/* What the orchestrator decided this build was. Its own words, in ours — the
-   raw value is a key ("webapp"), and an unrecognised one is passed through
-   rather than dropped, because a branch added to the workflow later should
-   show up here as itself instead of vanishing. */
+/* What the panel renders, which is a stored message plus a key to render it by.
+   The shape itself lives in @/lib/project-messages, because the thread is now
+   read back from a table and the two must not drift. */
+/* What the classifier decided, in words for the tracker. Its own keys are
+   edit / new_project / question / revert — see src/lib/builder/intent.ts. */
 const INTENT_LABEL: Record<string, string> = {
-  webapp: "a web app",
-  wordpress: "a WordPress site",
-  ecommerce: "an online store",
+  edit: "Read your message — an edit to the page",
+  new_project: "Read your message — a new page",
+  question: "Read your message — a question about the page",
+  revert: "Read your message — undo the last change",
 };
 
-/* How many files the build says it touched, if it said. Read defensively: this
-   comes out of a workflow that can be edited in a browser, so anything but a
-   real count is treated as "it did not say". */
-function filesTouchedFrom(artifacts: Record<string, unknown> | undefined): number | null {
-  const reported = artifacts?.filesTouched;
-  return typeof reported === "number" && Number.isFinite(reported) && reported >= 0
-    ? Math.floor(reported)
-    : null;
-}
-
-/* What the orchestrator decided this build was, for the line under the clock.
-   Its own words, in ours — the raw value is a key ("webapp"), and one this list
-   does not know is passed through as itself rather than dropped, so a branch
-   added to the workflow later still reads. */
-function intentNote(intent: string): string | null {
-  if (!intent || intent === "unclassified") return null;
-  return `built ${INTENT_LABEL[intent] ?? intent}`;
-}
+type Message = ThreadMessage & {
+  id: number;
+  /* View-only, never written to the thread table. A message reloaded from a
+     previous visit has none of these, which is why all three are optional —
+     see MessageRow. */
+  at?: number;
+  applied?: boolean;
+  activity?: Activity;
+};
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -89,7 +92,7 @@ export default function ChatPanel({
   onBuildSettled?: () => void;
 }) {
   const router = useRouter();
-  const { create, build } = useProjects();
+  const { create, build, watchBuild } = useProjects();
   /* A build running is what makes a session active. The tab strip shows it, so
      a workspace left for another one still says it is working. */
   const { setBusy } = useWorkspaceTabs();
@@ -97,7 +100,25 @@ export default function ChatPanel({
      before it decides anything — the same rule the panel and the links above
      follow. Null means there is nothing to announce. */
   const previewUrl = safeHttpUrl(project?.preview_url);
+  /* A page exists, so a message is ambiguous in a way it cannot be before one
+     does — and only then is there anything for "New project" to replace. */
+  const hasPage = Boolean(previewUrl);
   const [messages, setMessages] = useState<Message[]>([]);
+  /* Whether this project's stored thread has arrived. Nothing may be sent
+     before it does, or an app with history would be built again on arrival. */
+  const [threadLoaded, setThreadLoaded] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  /* What the composer says the next message is. "auto" leaves it to the
+     classifier; anything else is the person telling it outright, which always
+     wins. */
+  const [mode, setMode] = useState<"auto" | "new_project">("auto");
+  /* A message that would replace the page, waiting to be confirmed. Held whole
+     so the same text can be sent again either way. */
+  const [pendingConfirm, setPendingConfirm] = useState<{ text: string } | null>(null);
+  /* Files chosen for the message being written. They belong to the message, not
+     to the project, so they are cleared once it is sent. */
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -105,19 +126,16 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
-  /* When the build in flight was sent. The tracker counts from it, so it is
-     state rather than a ref — the panel has to re-render when it changes. */
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  /* The phases /api/build has reported for the build in flight. Replaced by
-     id rather than appended to, so the orchestrator's `running` step becomes
-     its own `done` step with a duration instead of appearing twice. */
-  const [liveSteps, setLiveSteps] = useState<ActivityStep[]>([]);
+  /* The phases of the message in flight, and the clock they run against. Both
+     are drawn from what this panel genuinely observes — the classifier's answer
+     and the wait for the page — rather than from a script. */
+  const [phases, setPhases] = useState<ActivityStep[]>([]);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   /* Whose workspace this is. Empty until the session answers, and empty for
      good on an account that never gave a name — the greeting handles both. */
   const { firstName } = useAccountName();
   /* Read after mount rather than during render: this component is server
-     rendered too, and the server's hour is not the reader's. A neutral opener
-     until then, so the first paint is never wrong about the time of day. */
+     rendered too, and the server's hour is not the reader's. */
   const [greeting, setGreeting] = useState("Welcome back");
   useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
@@ -126,38 +144,78 @@ export default function ChatPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
-  // A new project is a new conversation; keeping the old one would attribute
-  // messages to the wrong app.
+  /* Who is writing, so a message can be stored against them. Read once: the
+     panel is inside an authenticated route, and a thread cannot be saved
+     without it. */
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    void createSupabaseBrowserClient()
+      .auth.getUser()
+      .then(({ data }) => {
+        if (!cancelled) setUserId(data.user?.id ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* A new project is a new conversation — and now it is that project's own
+     conversation, read back rather than started empty. Before this, reopening
+     an app showed a blank panel for something that had been built and discussed
+     at length.
+
+     `cancelled` because switching apps twice quickly would otherwise let the
+     first thread arrive after the second and paint the wrong conversation. */
   useEffect(() => {
     setMessages([]);
     setDraft("");
-    setStartedAt(null);
-    setLiveSteps([]);
     nextId.current = 0;
+    setThreadLoaded(false);
+
+    const id = project?.id;
+    if (!id) return;
+
+    let cancelled = false;
+    void loadThread(id).then((thread) => {
+      if (cancelled) return;
+      setMessages(thread.map((message) => ({ id: nextId.current++, ...message })));
+      setThreadLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [project?.id]);
 
   /* The prompt Home arrived with, sent once. Guarded by a ref rather than by
      the message list: a re-render while the build is in flight would otherwise
      see an empty conversation and start it a second time.
 
+     It waits for the thread, and then refuses to send if there is one. The
+     prompt rides in the URL, so reloading a workspace re-delivers it — which
+     used to be the point, when nothing was stored and a reload would otherwise
+     open an empty conversation for an app that had never been built. Now that
+     the conversation is kept, re-sending it would run the same build a second
+     time and charge for it. An app with history has already been asked.
+
      Deliberately not in the dependency list — this is a one-shot on arrival,
      and re-running it whenever `send` is redefined is exactly the loop the
      ref is there to prevent. */
   const openingPrompt = useRef<string | null>(null);
   useEffect(() => {
-    if (!project || !initialPrompt) return;
+    if (!project || !initialPrompt || !threadLoaded) return;
     const key = `${project.id}:${initialPrompt}`;
     if (openingPrompt.current === key) return;
     openingPrompt.current = key;
+    if (messages.length > 0) return;
     void send(initialPrompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, initialPrompt]);
+  }, [project?.id, initialPrompt, threadLoaded]);
 
   /* Follows the conversation, but only while the reader is already at the foot
-     of it. A build now reports a phase at a time, so this fires repeatedly
-     during one — and yanking the view back down mid-stream, while someone is
-     reading an earlier reply, is the one thing that would make the live updates
-     worse than the silence they replaced.
+     of it. Phases land one at a time during a build, so this fires repeatedly
+     — and yanking the view back down while someone reads an earlier reply is
+     the one thing that would make live updates worse than no updates.
 
      80px of slack rather than an exact match: a list can settle a pixel or two
      off the bottom on its own, and that must still count as being at it. */
@@ -165,7 +223,7 @@ export default function ChatPanel({
   useEffect(() => {
     const stream = streamRef.current;
     if (stream && pinned.current) stream.scrollTop = stream.scrollHeight;
-  }, [messages, building, liveSteps]);
+  }, [messages, building, phases]);
 
   /* Told to the strip rather than to a tab of its own: another prompt in this
      app is the same app. The cleanup clears the mark when the workspace is left
@@ -191,38 +249,154 @@ export default function ChatPanel({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [modelOpen, forkOpen]);
 
-  async function send(prompt?: string) {
+  async function attachFiles(files: FileList) {
+    if (!project || !userId) return;
+
+    const room = MAX_ATTACHMENTS - attached.length;
+    if (room <= 0) {
+      say({
+        from: "system",
+        text: `A message can carry ${MAX_ATTACHMENTS} files. Send these first.`,
+        tone: "error",
+      });
+      return;
+    }
+
+    setUploading(true);
+    /* One at a time and reported one at a time: a rejected file should say
+       which file and why, rather than failing the whole selection. */
+    for (const file of Array.from(files).slice(0, room)) {
+      const result = await uploadAttachment(file, project.id, userId);
+      if (result.error) {
+        say({ from: "system", text: result.error, tone: "error" });
+        continue;
+      }
+      if (result.attachment) {
+        const added = result.attachment;
+        setAttached((current) => [...current, added]);
+      }
+    }
+    setUploading(false);
+  }
+
+  /* Every message goes through here, so nothing can be shown without also being
+     kept. The write is not awaited and its failure is not raised: a message on
+     screen should stay on screen, and losing a row from the history is not
+     worth interrupting a build over. */
+  function say(message: ThreadMessage, view?: { applied?: boolean; activity?: Activity }) {
+    setMessages((current) => [
+      ...current,
+      { id: nextId.current++, at: Date.now(), ...message, ...view },
+    ]);
+    /* Only the stored half is written. The clock and the applied mark are this
+       session's view of the message, not part of the record. */
+    if (project?.id && userId) void appendToThread(project.id, userId, message);
+  }
+
+  /* The phases of the run in flight, kept in a ref as well as in state. The
+     state is what the live tracker draws; the ref is what the finished message
+     keeps, and reading state back inside the same async function would only
+     ever see the value it closed over. */
+  const run = useRef<ActivityStep[]>([]);
+
+  /* Merges a phase in by id, so a step that was running becomes the same step
+     finished rather than a second line saying the same thing. */
+  function setPhase(step: ActivityStep) {
+    const at = run.current.findIndex((existing) => existing.id === step.id);
+    if (at === -1) run.current = [...run.current, step];
+    else {
+      const next = [...run.current];
+      next[at] = step;
+      run.current = next;
+    }
+    setPhases(run.current);
+  }
+
+  /* The run as it stands, for the message that ends it. `failed` is read from
+     the reply rather than from the steps: a page that generated fine can still
+     come back with a status that says otherwise. */
+  function timelineOf(startedAt: number, failed: boolean): Activity {
+    return {
+      steps: run.current,
+      startedAt,
+      finishedAt: Date.now(),
+      failed,
+      previewHref: null,
+    };
+  }
+
+  async function send(prompt?: string, options: { intentOverride?: BuildIntent | null; confirmNewProject?: boolean; silent?: boolean } = {}) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
 
-    const sentAt = Date.now();
-    setMessages((current) => [
-      ...current,
-      { id: nextId.current++, from: "you", text, at: sentAt },
-    ]);
+    /* Taken before the send and put back if it fails, so a refused message
+       keeps its files as well as its words — re-attaching four screenshots to
+       retry a sentence is the kind of thing that makes people give up. */
+    const sent = attached;
+
+    /* `silent` is the re-send behind a confirmation: the message is already in
+       the conversation, and saying it twice would read as sending it twice. */
+    if (!options.silent) {
+      say({
+        from: "you",
+        text: sent.length > 0 ? `${text}\n\n(${sent.map((f) => f.name).join(", ")})` : text,
+      });
+    }
+    setAttached([]);
     if (prompt === undefined) setDraft("");
     setBuilding(true);
-    setStartedAt(sentAt);
-    setLiveSteps([]);
+    const runStarted = Date.now();
+    setRunStartedAt(runStarted);
+    run.current = [];
+    setPhase({
+      id: "classify",
+      label: "Reading your message",
+      detail: "Working out what it asks for…",
+      state: "running",
+    });
 
-    /* Collected here as well as rendered, so the finished message keeps the
-       real timeline the build reported rather than a summary written after
-       the fact. */
-    const reported: ActivityStep[] = [];
+    /* Noted before the build starts, because it is what tells a page that has
+       just been built from the one that was already there: the build's save
+       step stamps last_build_at, and anything older than this moment belongs to
+       a previous build. */
+    const startedAt = Date.now();
 
     try {
-      const outcome = await build(project.id, text, (step) => {
-        const next: ActivityStep = {
-          id: step.id,
-          label: step.label,
-          detail: step.detail,
-          state: step.state,
-          ms: step.ms,
-        };
-        const at = reported.findIndex((existing) => existing.id === next.id);
-        if (at === -1) reported.push(next);
-        else reported[at] = next;
-        setLiveSteps([...reported]);
+      const reply = await build(project.id, text, {
+        intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
+        confirmNewProject: options.confirmNewProject === true,
+        attachmentIds: sent.map((file) => file.id),
+      });
+
+      /* Nothing was changed. The page is exactly as it was, so this is a
+         sentence to read rather than a failure to recover from — and the text
+         goes back in the composer so it can be reworded, not retyped. */
+      if (reply.error || !reply.outcome) {
+        say({ from: "system", text: reply.error ?? "The message could not be sent.", tone: "error" });
+        if (prompt === undefined) setDraft(text);
+        setAttached(sent);
+        return;
+      }
+
+      /* A build that would replace the page. Nothing has happened yet, and
+         nothing will until one of the two buttons is pressed. */
+      if (reply.needsConfirmation) {
+        say({ from: "system", text: reply.outcome.message, tone: "error" });
+        setPendingConfirm({ text });
+        /* Nothing ran, so the files are still this message's. */
+        setAttached(sent);
+        return;
+      }
+
+      setPendingConfirm(null);
+      const outcome = reply.outcome;
+      /* The classifier has answered, and what it decided is worth showing: it
+         is the difference between a page being edited and a page being
+         replaced, which is the one thing here someone would want to catch. */
+      setPhase({
+        id: "classify",
+        label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
+        state: "done",
       });
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
@@ -231,58 +405,91 @@ export default function ChatPanel({
          `javascript:` address out of an anchor in this origin — the server
          filters too, and this is the half that cannot be bypassed by anything
          reaching the browser another way. */
-      /* The preview is not among these: the tracker below the reply carries it,
-         and offering the same address twice in one card reads as two different
-         destinations. These are the two it does not carry. */
       const links = [
+        { label: "Open preview", href: safeHttpUrl(outcome.links.preview) },
         { label: "View code", href: safeHttpUrl(outcome.links.repo) },
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
       ].filter((link): link is { label: string; href: string } => link.href !== null);
 
-      /* Measured, not estimated: the clock started when the request went out
-         and stops here. `files touched` is the orchestrator's own figure — the
-         same one the build was priced from — and is left off entirely when it
-         did not report one, rather than shown as zero. */
-      const touched = filesTouchedFrom(outcome.artifacts);
-      const note = [intentNote(outcome.intent), touched === null ? null : `${touched} ${touched === 1 ? "file" : "files"} touched`]
-        .filter(Boolean)
-        .join(" · ");
-      setMessages((current) => [
-        ...current,
+      say(
         {
-          id: nextId.current++,
           from: "system",
           text: outcome.message,
-          at: Date.now(),
           links: links.length ? links : undefined,
           tone: outcome.status === "Failed" ? "error" : "normal",
-          activity: {
-            steps: reported,
-            startedAt: sentAt,
-            finishedAt: Date.now(),
-            failed: outcome.status === "Failed",
-            note: note || undefined,
-            previewHref: safeHttpUrl(outcome.links.preview),
-          },
         },
-      ]);
+        /* An edit is finished the moment it answers. A full build is not — its
+           page is still being generated, so both the mark and the timeline wait
+           for the row. */
+        outcome.status === "Building"
+          ? {}
+          : {
+              applied: outcome.status !== "Failed",
+              activity: timelineOf(runStarted, outcome.status === "Failed"),
+            },
+      );
+
+      /* The reply above arrives as soon as the prompt has been classified — the
+         page itself is still being generated, which takes as long as it takes.
+         This is the wait for it, and it is why the composer stays busy: the
+         message said the preview link updates as it finishes, and this is what
+         makes that true without a reload. */
+      if (outcome.status === "Building") {
+        setPhase({
+          id: "generate",
+          label: "Generating the page",
+          detail: "This runs in the orchestrator and takes as long as it takes…",
+          state: "running",
+        });
+        const finished = await watchBuild(project.id, startedAt);
+        const preview = safeHttpUrl(finished?.preview_url);
+
+        if (preview) {
+          setPhase({ id: "generate", label: "Page generated", state: "done" });
+          say(
+            { from: "system", text: "Your page is ready." },
+            {
+              applied: true,
+              /* The address rides on the tracker rather than as a link chip
+                 beside it — offering the same page twice in one card reads as
+                 two destinations. */
+              activity: { ...timelineOf(runStarted, false), previewHref: preview },
+            },
+          );
+        } else if (finished?.status === "Failed") {
+          setPhase({ id: "generate", label: "The build did not finish", state: "done" });
+          /* The build came back and said so. Generation happens after the reply,
+             so a failure there cannot travel in the response — it is written to
+             the row instead, which is the same row this was waiting on. */
+          say({
+            from: "system",
+            text: "The build did not finish. Try again, or describe a smaller page — a very large one can run past what a single build allows.",
+            tone: "error",
+          });
+        } else {
+          /* Left running rather than ticked: the wait gave up, the build did
+             not. Marking it done would say this panel knows an outcome it does
+             not have. */
+          setPhase({
+            id: "generate",
+            label: "Still generating when the wait gave up",
+            state: "running",
+          });
+          say({
+            from: "system",
+            /* Not "it failed": nothing here knows that. The build may still
+               land, and the workspace will show it when it does. */
+            text: "The build is taking longer than usual. It may still finish — the preview appears here when it does.",
+            tone: "error",
+          });
+        }
+      }
     } catch (error) {
-      /* A build that never reached the orchestrator has no steps to show — the
-         message is the whole of what is known, so no tracker is attached. */
-      setMessages((current) => [
-        ...current,
-        {
-          id: nextId.current++,
-          from: "system",
-          text: (error as Error).message,
-          at: Date.now(),
-          tone: "error",
-        },
-      ]);
+      say({ from: "system", text: (error as Error).message, tone: "error" });
     } finally {
       setBuilding(false);
-      setStartedAt(null);
-      setLiveSteps([]);
+      setRunStartedAt(null);
+      setPhases([]);
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
@@ -376,9 +583,9 @@ export default function ChatPanel({
       >
         {/* Who this is and what it is for, at the top of the thread rather than
             floating in the middle of it — so it scrolls away as the
-            conversation grows instead of competing with it. The name is the
-            one on the account; without one the greeting simply stops after the
-            time of day rather than addressing a blank. */}
+            conversation grows instead of competing with it. Without a name on
+            the account the greeting simply stops after the time of day rather
+            than addressing a blank. */}
         <div className="pb-1">
           <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
             <Sparkles className="h-5 w-5 shrink-0 text-accent" aria-hidden />
@@ -410,10 +617,11 @@ export default function ChatPanel({
           />
         ))}
 
-        {/* The build in flight. One step, because one is all that is known
-            while /api/build is out — see BuildActivity for why it is not five.
-            The clock under it is real and ticking. */}
-        {building && startedAt !== null && (
+        {/* The message in flight. Its phases are the ones this panel actually
+            watches happen — the classifier answering, and the wait for a page
+            that is generated after the reply — so the list grows as they land
+            rather than on a timer. The clock is the real one. */}
+        {building && runStartedAt !== null && (
           <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
             <div className="flex items-center gap-2">
               <span
@@ -426,18 +634,7 @@ export default function ChatPanel({
               </p>
             </div>
             <div className="mt-2.5">
-              <BuildActivity
-                running
-                startedAt={startedAt}
-                steps={
-                  liveSteps.length
-                    ? liveSteps
-                    : /* Before the first frame lands. The request really has
-                         been sent, and saying so is better than an empty list
-                         under a heading that says work is happening. */
-                      [{ id: "sent", label: "Sending the build", state: "running" }]
-                }
-              />
+              <BuildActivity running startedAt={runStartedAt} steps={phases} />
             </div>
           </div>
         )}
@@ -478,6 +675,93 @@ export default function ChatPanel({
       </AnimatePresence>
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        {/* What is going with this message. Named rather than counted: "logo.svg,
+            hero.png" is the difference between knowing what you attached and
+            trusting that two files are the right two. */}
+        {(attached.length > 0 || uploading) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1">
+            {attached.map((file) => (
+              <span
+                key={file.id}
+                className="flex max-w-[220px] items-center gap-1.5 rounded-md border border-line/[0.1] bg-layer/[0.04] py-1 pl-2 pr-1 text-[12px] text-ink"
+              >
+                <Paperclip className="h-3 w-3 shrink-0 -rotate-45 text-muted" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttached((current) => current.filter((f) => f.id !== file.id))}
+                  aria-label={`Remove ${file.name}`}
+                  className="shrink-0 rounded p-0.5 text-muted transition-colors hover:text-ink"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {uploading && <span className="text-[12px] text-muted">Attaching…</span>}
+          </div>
+        )}
+
+        {/* What the next message will be taken to mean, and a way to say
+            otherwise. Only once a page exists: before that every message is the
+            first build, and there is nothing a chip could change. */}
+        {hasPage && !pendingConfirm && (
+          <div className="mb-2 flex items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => setMode(mode === "new_project" ? "auto" : "new_project")}
+              className={`rounded-md border px-2 py-1 transition-colors ${
+                mode === "new_project"
+                  ? "border-line/[0.16] bg-layer/[0.06] text-ink"
+                  : "border-line/[0.08] text-muted hover:text-ink"
+              }`}
+            >
+              {mode === "new_project" ? "New project" : "Editing this app"}
+            </button>
+            {mode === "new_project" && (
+              <span className="text-muted">The next message replaces this page.</span>
+            )}
+          </div>
+        )}
+
+        {/* The one question worth interrupting for. Nothing has happened yet,
+            and neither button is the quiet default: replacing a page someone
+            paid for is not something to fall into by pressing return. */}
+        {pendingConfirm && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => {
+                const { text } = pendingConfirm;
+                setPendingConfirm(null);
+                setMode("auto");
+                void send(text, { confirmNewProject: true, intentOverride: "new_project", silent: true });
+              }}
+              className="rounded-md border border-danger/40 px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+            >
+              Replace this page
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const { text } = pendingConfirm;
+                setPendingConfirm(null);
+                setMode("auto");
+                void send(text, { intentOverride: "edit", silent: true });
+              }}
+              className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+            >
+              Change the current page instead
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingConfirm(null)}
+              className="px-1 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* Home's composer, brought over whole: the orbiting highlight outside,
             the graphite glass inside. */}
         <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
@@ -524,9 +808,15 @@ export default function ChatPanel({
                   type="file"
                   ref={fileInputRef}
                   multiple
+                  accept={ACCEPT}
                   className="sr-only"
                   onChange={(event) => {
-                    console.log(event.target.files);
+                    const files = event.target.files;
+                    if (files?.length) void attachFiles(files);
+                    /* Cleared so choosing the same file twice still fires a
+                       change — which is what happens when the first attempt was
+                       rejected and the second is the same file. */
+                    event.target.value = "";
                   }}
                 />
                 <button

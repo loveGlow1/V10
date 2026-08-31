@@ -9,12 +9,17 @@
  * /api/build, which knows who is asking and which projects they own; putting
  * the URL in the browser bundle would let anyone POST builds directly. */
 
+import { signBuildClaim } from "@/lib/build-signature";
 import { safeHttpUrl } from "@/lib/safe-url";
 
+/* The orchestrator only builds web apps and landing pages now — its WordPress
+   and e-commerce branches were removed. Both stay in the union because
+   `projects.intent` is where this is read back from, and rows written before
+   that change still hold them. */
 export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
 
 /** Mirrors the status strings the orchestrator writes to projects.status. */
-export type BuildStatus = "Building" | "Failed" | "Needs Clarification";
+export type BuildStatus = "Building" | "Built" | "Failed" | "Needs Clarification";
 
 export type BuildRequest = {
   /** What the person asked for, in their words. Drives the classifier. */
@@ -26,6 +31,13 @@ export type BuildRequest = {
   projectId: string;
   /** Ties a reply to the message that asked for it. */
   requestId: string;
+  /* Signed addresses for any images attached to the message. URLs rather than
+     bytes: the orchestrator hands these straight to the model, and pushing
+     megabytes of base64 through a webhook to do the same job is the version
+     that falls over. */
+  attachmentUrls?: string[];
+  /** The text of any non-image attachments, already read. */
+  attachmentText?: string;
 };
 
 export type BuildResult = {
@@ -49,10 +61,13 @@ export const isBuilderConfigured = Boolean(process.env.N8N_WEBHOOK_URL);
  *  on the workflow's Webhook node, name for name. */
 export const WEBHOOK_TOKEN_HEADER = "X-QuickStark-Token";
 
-/* How long to wait before giving up. A build branch calls out to provisioning
-   services, so this is generous — but it is bounded, because the caller is an
-   HTTP request someone is watching a spinner for. */
-const TIMEOUT_MS = 60_000;
+/* How long to wait before giving up.
+   Deliberately under the 60s the hosting platform allows a function to run: at
+   exactly 60s the platform wins, kills this function mid-flight, and the browser
+   gets a gateway error page instead of the sentence below — which is a spinner
+   that never resolves rather than a build that says what went wrong. Five
+   seconds of headroom is what buys the app the last word. */
+const TIMEOUT_MS = 55_000;
 
 export class BuilderError extends Error {
   constructor(
@@ -77,7 +92,10 @@ function readResult(value: unknown, fallbackRequestId: string): BuildResult {
     projectId: typeof body.projectId === "string" ? body.projectId : "",
     intent: (body.intent ?? "unclassified") as BuildIntent,
     status:
-      status === "Building" || status === "Failed" || status === "Needs Clarification"
+      status === "Building" ||
+      status === "Built" ||
+      status === "Failed" ||
+      status === "Needs Clarification"
         ? status
         : "Building",
     /* Filtered here rather than at the point of rendering as well as there:
@@ -125,7 +143,11 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
           ? { [WEBHOOK_TOKEN_HEADER]: process.env.N8N_WEBHOOK_TOKEN }
           : {}),
       },
-      body: JSON.stringify(request),
+      /* The signature travels with the request and is carried by the workflow
+         into the build step, which is called with no session behind it and has
+         to be told which project it may write to. n8n never interprets it; it
+         is an opaque field passed through. See src/lib/build-signature.ts. */
+      body: JSON.stringify({ ...request, signature: signBuildClaim(request) ?? "" }),
       cache: "no-store",
       signal: controller.signal,
     });

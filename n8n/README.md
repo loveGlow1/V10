@@ -9,32 +9,53 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
 
 ## Shape
 
+**Only new builds reach this workflow.** The app classifies every message
+first — edit, new_project, question or revert — and handles three of the four
+itself: an edit is a search/replace patch applied in the app in seconds, and a
+question or a revert never leaves it. A build that would replace a page someone
+already has is confirmed with them before it is sent. See
+`src/lib/builder/intent.ts`.
+
+So the page here is always generated fresh, and there is no `previousHtml`.
+
 ```
 [ QuickStark.Ai Chat UI ]
-          │  POST /webhook/api/v1/build
+          │  POST /webhook/api/v1/build  (new builds only)
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
-[ Intent Classifier ]  (Text Classifier, temperature 0, 3 categories + "other")
+[ Intent Classifier ]  (Text Classifier, one category + "other" fallback)
           │
-  ┌───────┴───────────────┬───────────────────────┬──────────────────────┐
-  ▼                       ▼                       ▼                      ▼
-WebApp / Landing    WordPress / Blog         E-Commerce          Manual Review
-• Build Spec        • Build Spec             • Build Spec        (fallback — nothing
-• Scaffold Next.js  • Provision WP Site      • Seed Shopify        is dropped silently)
-• Apply Supabase    • Create Starter Page      Catalog
-  Schema                                     • Register Store
-                                               Webhooks
-  └───────┬───────────────┴───────────────────────┴──────────────────────┘
+  ┌───────┴────────────────────────┐
+  ▼                                ▼
+WebApp / Landing            Manual Review
+• Build Spec                (fallback — a prompt for something
+                             not built yet is answered, not dropped)
+  └───────┬────────────────────────┘
           ▼
-[ Collect Build Outcome ]  (Merge, append, 5 inputs)
-          │  the classifier's own error output is the fifth:
+[ Collect Build Outcome ]  (Merge, append, 3 inputs)
+          │  the classifier's own error output is the third:
           │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
           ▼
-[ Assemble Build Result ] → [ Sync Project Row ] (Supabase `projects`)
+[ Assemble Build Result ] → [ Sync Project Row ]  (status: Building)
           ▼
-[ Build Chat Payload ] → [ Return Payload to Chat UI ]
+[ Build Chat Payload ] → [ Return Payload to Chat UI ]   ← the chat is answered here
+          ▼
+[ If Webapp ] → [ Compose Page Prompt ] → [ Generate Page ] → [ Save Page ]
+                                          (Anthropic API)     (→ the app stores it
+                                                                 and sets preview_url)
 ```
+
+**The reply comes before the page.** Everything above the response line takes a
+few seconds — a classification, nothing more. Generating a page takes a minute
+or two, so it runs *after* the webhook has answered, and the app finds out it
+finished by watching the project row rather than by holding a request open.
+
+That is not a preference. A serverless function is killed at sixty seconds, and
+a page takes longer: execution 221 is the proof — `Generate Page` ran for
+60,673ms and came back `504 An error occurred with your deployment`, with
+nothing built. An n8n node has no such ceiling, which is the whole reason
+generation lives here and not in the app.
 
 ## How the app reaches it
 
@@ -65,10 +86,15 @@ The update matches on **both** `id` and `user_id`. Because this node runs with
 the service_role key, RLS will not stop a write to the wrong row, so a leaked
 project UUID on its own must not be enough to reach someone's project.
 
-`/api/build` also prices the build and charges `spend_credits` once the
-orchestrator answers, using what the build itself reports — never anything the
-caller sends. Report `filesTouched` in a branch's artifacts and it is billed
-accordingly; report nothing and it prices at the floor.
+Billing does **not** happen when the webhook answers, and this is worth knowing
+before adding a field to make it. When the orchestrator replies, the page has
+not been generated yet — there is nothing to price a build from, and pricing it
+anyway meant every build, however large, cost the same as a one-word edit.
+
+A full build is charged in `/api/builder/webapp/save`, from the document that
+arrives there, counted by the app rather than reported by the workflow. Nothing
+this workflow sends decides what anyone is charged. A build that never reaches
+save is never billed, which is the right answer for a build nobody got.
 
 ## Request
 
@@ -95,10 +121,10 @@ behave identically.
   "ok": true,
   "requestId": "req_01HZY",
   "projectId": "b2b1c0d9-…",
-  "intent": "webapp | wordpress | ecommerce | unclassified",
+  "intent": "webapp | unclassified",
   "status": "Building | Failed | Needs Clarification",
   "links":      { "preview": "…", "repo": "…", "admin": "…" },
-  "configKeys": { "NEXT_PUBLIC_SUPABASE_URL": "…", "…": "…" },
+  "configKeys": {},
   "artifacts":  { "stack": "…", "…": "…" },
   "message": "Your webapp build is underway — the preview link updates as it finishes."
 }
@@ -111,9 +137,12 @@ so the chat UI has one response shape to render regardless of which branch ran.
 `status` is derived in `Assemble Build Result` and written straight to
 `projects.status`, which the dashboard already reads.
 
-`artifacts.filesTouched` is what `/api/build` prices the build from, so each
-branch reports it from its provisioning response (`filesTouched`, or `files`).
-A branch that reports neither prices at the action's floor.
+`artifacts` is descriptive only — the stack, and whatever a branch wants to say
+about what it did. It is not read for billing (see above), so a field added
+here cannot move anyone's balance in either direction.
+
+`configKeys` is empty for now. It carried the environment a provisioned backend
+would need, and there is no provisioning until publishing exists.
 
 **The webhook always answers.** Every outbound call runs with
 `onError: continueRegularOutput`, and `Intent Classifier` — the one node every
@@ -125,11 +154,28 @@ the build "may still finish", which is not true. Now it comes back as
 `status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
 bill a build that never ran.
 
+The classifier also **retries**: three tries, two seconds apart, on both the
+Text Classifier and the model node under it. Execution 215 is why — a build
+came back "the classifier could not be reached" on a bare
+`Service unavailable` from Anthropic, which is a passing outage rather than
+anything wrong with the setup, and the one node every build depends on. Three
+tries fit comfortably inside the app's 60-second timeout. The error output is
+not redundant with this: it is what answers once the retries are spent too.
+
 `Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
 that one is a prompt nobody could classify, which is a real answer and is
 charged for. This one is the classifier being unreachable.
 
 ## Before this can run for real
+
+Where this stands: the workflow is **published** and wired end to end. The
+Webhook node carries a Header Auth credential, `Sync Project Row` the Supabase
+one, `Intent Classifier Model` the Anthropic one, and the app holds the two
+environment variables in step 1. Builds reach n8n, route to a branch, sync to
+Supabase and answer the chat — verified by production executions 209 and 210.
+
+Builds are real: the branch generates a page and stores it. Verify the chain
+with `npm run check:builder`.
 
 The graph is wired and tested; the outbound integrations are not yet connected.
 
@@ -164,12 +210,76 @@ that is gated on every enabled node having a credential attached.
    overwrite any project row in the database. `/api/build` checks ownership, but
    nothing forces a caller to go through `/api/build`.
 
-2. **Placeholder URLs** — four HTTP Request nodes point at your provisioning service.
-   Open each and fill in the URL:
-   - `Scaffold Next.js App`
-   - `Apply Supabase Schema`
-   - `Provision WordPress Site`
-   - `Register Store Webhooks`
+2. **The build steps**, all of which run after the chat has been answered:
+
+   | Node | What it does |
+   | --- | --- |
+   | `If Webapp` | Only a web app build has anything left to do; the other two paths were answered in full. |
+   | `Compose Page Prompt` | Builds the system and user messages as plain strings. |
+   | `Generate Page` | POSTs the Anthropic Messages API directly, under the same credential the classifier uses. Ten-minute timeout, because nothing is waiting on it. |
+   | `Save Page` | POSTs the document to `/api/builder/webapp/save`. |
+
+   **Attachments.** A build can be given files. Images arrive as signed URLs in
+   `attachmentUrls` and become image blocks in the request — URLs rather than
+   base64, because pushing megabytes through a webhook to say the same thing is
+   the version that falls over. They are signed for an hour, comfortably longer
+   than a build. Text files are read on the app's side and arrive already inside
+   `attachmentText`. Both are optional; with nothing attached the request is
+   exactly what it was.
+
+   **The system prompt** lives on `Compose Page Prompt`, and is mirrored in
+   [`page-prompt.md`](./page-prompt.md) so it can be reviewed and diffed — a
+   prompt that exists only inside a workflow is one nobody can see change. Edit
+   both; if they disagree, n8n is what ran.
+
+   It covers **sign-in and dashboards**: a build asked for accounts produces a
+   working demo in the one file — views shown and hidden by script, real
+   validation, a protected dashboard, sign out. Two rules make that usable
+   rather than a locked door:
+
+   - a seeded demo account, **with its credentials printed on the sign-in
+     screen**, because whoever opens the preview will not guess the password
+     the model invented; and
+   - **no localStorage, sessionStorage or cookies**. The preview frame has an
+     opaque origin, where those APIs throw a `SecurityError` on access — a page
+     that keeps its session there does not degrade, it crashes blank on load.
+     State lives in ordinary variables, so accounts last as long as the tab,
+     and the page says so quietly rather than implying otherwise.
+
+   `Generate Page` calls the API with an HTTP node rather than an LLM chain on
+   purpose: a generated page is full of `{` and `}`, and a chain reads those as
+   prompt template variables. Editing an existing page would corrupt it.
+
+   With thinking on, the first content block is the thinking, not the page —
+   `Save Page` joins the `text` blocks rather than reading `content[0]`.
+
+   **`Save Page` refuses anything unsigned.** `/api/build` signs `requestId`,
+   `projectId` and `userId` — the three it has already checked ownership of —
+   and the workflow carries that `signature` through as an opaque field. Since
+   the page it stores is later served to its owner, an unsigned caller could put
+   their own HTML on someone's preview, which is the one thing here worth
+   attacking. If this step starts answering 401, the field is not reaching it:
+   check that `Normalize Build Request` sets `signature` and that `Save Page`
+   sends it.
+
+   These two run after the response, so a failure cannot travel back in it.
+   Both route their error output to `Flag Build Failure`, which marks the
+   project row `Failed` — the same row the workspace is polling — so the chat
+   says the build did not finish rather than waiting out its eight minutes in
+   silence.
+
+   **Truncation is the failure to expect.** A page cut off at the model's token
+   ceiling still begins `<!doctype html>` and renders as half a page with no
+   error anywhere, so `/api/builder/webapp/save` refuses a document with no
+   closing tag (execution 224 is that: three minutes of generation, no closing
+   tag, 422). `max_tokens` is 32,000 and the prompt tells the model to finish
+   what it starts and to prefer Tailwind over long stylesheets, because output
+   length is the budget being spent.
+
+   There is no `Apply Supabase Schema` step. Provisioning a schema is part of
+   publishing, which is the owner's own paid choice, not something every build
+   should do.
+
 3. **Credentials** — connect these in n8n:
    - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
      **Supabase API**, with two fields:
@@ -188,10 +298,6 @@ that is gated on every enabled node having a credential attached.
      RLS, so an anon key updates nothing and reports success. It updates the row
      matching the `projectId` the app sent, writing `status, intent,
      preview_url, repo_url, admin_url, last_build_at`.
-   - `WordPress` on `Create Starter Page` — **the node is currently disabled**,
-     so this is not blocking. Re-enable it when there is a real WordPress site.
-   - `Shopify Admin API` on `Seed Shopify Catalog` — **also disabled**, same
-     reasoning.
 4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
    `claude-opus-5`, replacing the OpenAI node that was bound to the shared
    "n8n free OpenAI API credits" pool (exhausted — it returned
@@ -209,21 +315,15 @@ that is gated on every enabled node having a credential attached.
    on every build, so `claude-sonnet-5` or `claude-haiku-4-5` would also serve
    and cost less — that is a cost/quality call to make deliberately, not a
    default to drift into.
-5. **Publish** — this is not a matter of choosing to wait. n8n refuses to publish
-   the workflow at all while step 3 is outstanding, and names the three nodes:
+5. **Publish** — and publish again after every change. n8n serves production
+   traffic from the *published* version, not from the draft, so an edit that is
+   saved but not published is invisible to the app. That is worth knowing
+   because the failure is silent and looks like the edit not working: the
+   webhook's header name was corrected in a draft once and every call kept
+   returning 403 against the old published version until it was published.
 
-   ```
-   Cannot publish workflow: 3 nodes have configuration issues:
-     Node "Create Starter Page":   Missing required credential: wordpressApi
-     Node "Seed Shopify Catalog":  Missing required credential: shopifyAccessTokenApi
-     Node "Sync Project Row":      Missing required credential: supabaseApi
-   ```
-
-
-   **The gate skips disabled nodes.** `Create Starter Page` and
-   `Seed Shopify Catalog` are disabled, which takes them off that list without
-   parking a junk credential in the account purely to satisfy a presence check.
-   What remains is:
+   n8n also refuses to publish while any enabled node is missing a credential,
+   and names them:
 
    ```
    Cannot publish workflow: 2 nodes have configuration issues:
@@ -235,14 +335,74 @@ that is gated on every enabled node having a credential attached.
    Until the workflow is published the production webhook answers 404, which the
    app reports as "the workflow is probably not published yet".
 
-   `supabaseApi` is the one that matters even if WordPress and Shopify never
-   get used: without it `Sync Project Row` writes nothing, every build stays
-   "Building" in the dashboard, and `/api/build` reads back a row the
-   orchestrator never touched.
+   Without it `Sync Project Row` writes nothing, every build stays "Building" in
+   the dashboard, and `/api/build` reads back a row the orchestrator never
+   touched.
 
 Every external call runs with `onError: continueRegularOutput`, so one unconfigured
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
+
+## What the classifier decides now
+
+A narrower question than it once answered. The app has already decided the
+message is a build; this decides whether it is a build of something we make —
+a web app or a landing page, or something to be answered with "not yet".
+
+## Adding a build type back
+
+WordPress and E-Commerce were removed to get one branch working properly first.
+They are not gone — they are in this workflow's **version history**, which is
+where to restore them from rather than rebuilding eight nodes by hand.
+
+Bringing one back is three changes, and all three or none:
+
+1. A **category** on `Intent Classifier`, or nothing routes to it.
+2. The **branch** itself, ending in a Collect node that sets the same seven
+   fields (`intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts,
+   branchStatus`).
+3. A **Merge input** — raise `Collect Build Outcome`'s input count and connect
+   the Collect node to the new one.
+
+Miss the category and the branch is dead code. Miss the Merge input and the
+build runs and then vanishes, with the chat waiting out its 60-second timeout.
+
+The classifier's outputs are ordered: one per category, then the `other`
+fallback, then the error output. Adding a category shifts the last two along by
+one, so their connections have to move too.
+
+Then update `Build Chat Payload`'s Needs Clarification message, which names what
+is currently built, and add a generate step for the new branch under
+`src/app/api/builder/` alongside the web app one.
+
+## "Waiting for the webhook call"
+
+The canvas says it is waiting; the chat looks fine; nothing happens. That
+message is the *test* URL listening — it accepts a single call, only while the
+editor is open — and it is also what a published workflow looks like when no
+call ever arrives. n8n cannot tell the two apart for you, because a request that
+was never sent leaves nothing behind on this side. Check the execution list: if
+every run says `manual`, nothing has ever reached the production webhook.
+
+Run this from the app's directory:
+
+```bash
+npm run check:builder
+```
+
+It makes the call the app would make and names which link is broken:
+
+| What it finds | What it means |
+| --- | --- |
+| `N8N_WEBHOOK_URL is not set` | `/api/build` answers 503 and never calls n8n. The usual one. |
+| the URL contains `/webhook-test/` | That is the listen-once editor address. The app needs `/webhook/`. |
+| `404` | The workflow is not published. |
+| `401` / `403` | The token or the header name does not match the Header Auth credential. It retries under `Authorization` so it can say which. |
+| `200` with a bad shape | A branch stopped setting one of the seven fields. |
+
+The probe sends no `projectId` and no `userId`, so `Sync Project Row` matches no
+row and writes nothing. It does run one real execution, so the classifier bills
+an Anthropic call.
 
 ## Database
 
@@ -253,7 +413,7 @@ The build columns live on `public.projects` and are created by
 | --- | --- | --- |
 | `status` | app, then workflow | `Building` / `Failed` / `Needs Clarification` |
 | `prompt` | app | what was asked for |
-| `intent` | workflow | `webapp` / `wordpress` / `ecommerce` / `unclassified` |
+| `intent` | workflow | `webapp` / `unclassified` (older rows may hold `wordpress` or `ecommerce`) |
 | `preview_url` | workflow | where the built app can be seen |
 | `repo_url` | workflow | the repository holding its code |
 | `admin_url` | workflow | the CMS or store admin, where there is one |
