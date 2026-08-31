@@ -152,8 +152,19 @@ export default function BuildActivity({
                           </span>
                         )}
                       </span>
-                      {step.detail && step.state === "running" && (
-                        <span className="mt-0.5 block text-[12px] leading-snug text-accent">
+                      {/* Shown on finished steps as well as the running one.
+                          The detail is what the step actually did — which model
+                          answered, what it cost, whether the classifier needed
+                          one at all — and hiding it once the step completed
+                          left the list naming operations without their
+                          results. Muted when done, accent while running, so
+                          the live line still reads as the live one. */}
+                      {step.detail && (
+                        <span
+                          className={`mt-0.5 block text-[12px] leading-snug ${
+                            step.state === "running" ? "text-accent" : "text-muted"
+                          }`}
+                        >
                           {step.detail}
                         </span>
                       )}

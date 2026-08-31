@@ -96,6 +96,10 @@ export type EditOutcome = {
   applied: number;
   /** Blocks that were refused even though others landed. Worth surfacing. */
   failures: PatchFailure[];
+  /** What the call cost, reported by the API rather than guessed. */
+  outputTokens: number;
+  /** Whether the first attempt had to be retried. Real, and worth showing. */
+  retried: boolean;
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -120,6 +124,8 @@ export async function editPage(
 
   let output = textOf(first);
   let result = applyPatches(html, output);
+  let outputTokens = first.usage?.output_tokens ?? 0;
+  let retried = false;
 
   /* One retry, and only when nothing at all landed. A partial success is left
      alone: re-running it would apply the blocks that already worked a second
@@ -137,6 +143,8 @@ export async function editPage(
     );
     output = textOf(second);
     result = applyPatches(html, output);
+    outputTokens += second.usage?.output_tokens ?? 0;
+    retried = true;
 
     if (result.applied === 0) {
       /* Nothing was written, and saying so is the whole point: an edit that
@@ -157,6 +165,8 @@ export async function editPage(
     /* Read from the output that actually landed, so a retry's note replaces the
        first attempt's rather than both being in play. */
     note: noteAfterPatches(output),
+    outputTokens,
+    retried,
   };
 }
 

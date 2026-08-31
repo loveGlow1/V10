@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedStatus } from "@/lib/project-status";
+import type { BuildStep } from "@/lib/builder/steps";
 
 export type Project = {
   id: string;
@@ -38,6 +39,9 @@ export type BuildIntent = "edit" | "new_project" | "question" | "revert" | "clar
    replace someone's page, a request to be asked again rather than an outcome. */
 export type BuildReply = {
   intent?: BuildIntent;
+  /* What the server actually did, in order, with what each operation cost.
+     Absent only when the request never got far enough to do anything. */
+  steps?: BuildStep[];
   /** A new build over an existing page. Nothing has happened yet. */
   needsConfirmation?: boolean;
   outcome?: BuildOutcome;
@@ -238,6 +242,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
       const payload = (await response.json().catch(() => null)) as {
         intent?: BuildIntent;
+        steps?: BuildStep[];
         needsConfirmation?: boolean;
         build?: BuildOutcome;
         project?: Project | null;
@@ -250,7 +255,11 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       if (!response.ok || !payload?.build) {
         return {
           intent: payload?.intent,
-          error: payload?.error ?? "The message could not be sent.",
+          /* Carried on a refusal too. A message that was classified, read and
+             then declined did real work, and the steps are how someone sees
+             where it stopped. */
+          steps: payload?.steps,
+          error: payload?.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
         };
       }
 
@@ -263,6 +272,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
       return {
         intent: payload.intent,
+        steps: payload.steps,
         needsConfirmation: payload.needsConfirmation === true,
         outcome: payload.build,
       };

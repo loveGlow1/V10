@@ -373,11 +373,20 @@ export default function ChatPanel({
          sentence to read rather than a failure to recover from — and the text
          goes back in the composer so it can be reworded, not retyped. */
       if (reply.error || !reply.outcome) {
-        say({
-          from: "system",
-          text: reply.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
-          tone: "error",
-        });
+        if (reply.steps?.length) {
+          run.current = [];
+          for (const step of reply.steps) setPhase(step);
+        }
+        say(
+          {
+            from: "system",
+            text: reply.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
+            tone: "error",
+          },
+          /* The steps it did get through are worth keeping: they say how far it
+             got before it stopped. */
+          reply.steps?.length ? { activity: timelineOf(runStarted, true) } : undefined,
+        );
         if (prompt === undefined) setDraft(text);
         setAttached(sent);
         return;
@@ -399,14 +408,21 @@ export default function ChatPanel({
 
       setPendingConfirm(null);
       const outcome = reply.outcome;
-      /* The classifier has answered, and what it decided is worth showing: it
-         is the difference between a page being edited and a page being
-         replaced, which is the one thing here someone would want to catch. */
-      setPhase({
-        id: "classify",
-        label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
-        state: "done",
-      });
+      /* The server's own account of what it did, which replaces the one this
+         panel was guessing at. It names the operations and what each cost —
+         which classifier answered, how many patch blocks landed, what the model
+         call was billed at — none of which the browser can know. The inferred
+         step stays only as the fallback for a reply that carries no list. */
+      if (reply.steps?.length) {
+        run.current = [];
+        for (const step of reply.steps) setPhase(step);
+      } else {
+        setPhase({
+          id: "classify",
+          label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
+          state: "done",
+        });
+      }
       /* Only offer a link the build actually returned, and only if it is an
          absolute http(s) address. A branch whose provisioning step is not
          connected yet comes back without one, and an empty href would look
