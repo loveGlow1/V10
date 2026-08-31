@@ -638,8 +638,15 @@ export default function ChatPanel({
                 canvas fills its wrapper, and a wrapper with no height of its
                 own leaves it free to take whatever height it likes — measured
                 at 32 wide by 150 tall, cropped back to a square by an
-                overflow-hidden that hid the mistake rather than fixing it. */}
-            <Q3DCanvas scale={0.62} className="h-8 w-8 shrink-0" />
+                overflow-hidden that hid the mistake rather than fixing it.
+
+                `scale` is the other half, and the half that was making it look
+                tiny: it sets how much of the frame the mark fills, not how big
+                the frame is. At 0.62 in a 32px box the mark drew 9.5px beside
+                22px words. At 0.78 in 36 it draws 13.8 — measured off the
+                vector mark, whose viewBox comes from the same camera, so what
+                fills the frame there fills it here. */}
+            <Q3DCanvas scale={0.78} className="h-9 w-9 shrink-0" />
             <span>
               {greeting}
               {firstName && (
