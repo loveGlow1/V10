@@ -658,8 +658,24 @@ export default function ChatPanel({
                 19 while turning — roughly what 0.95 in a 44px box only looked
                 like it was giving. Measured off the vector mark, whose viewBox
                 comes from the same camera, so the fraction of the frame it
-                fills is the fraction the 3D one fills. */}
-            <Q3DCanvas scale={1.1} spinAxisTiltDeg={90} className="h-14 w-14 shrink-0" />
+                fills is the fraction the 3D one fills.
+
+                It turns about Y, the way the hero's does, rather than spinning
+                within its own plane like a wheel. The difference is what the
+                tail does. A Y turn leaves the mark's in-plane orientation
+                untouched, so the tail holds the same down-and-to-the-right
+                slant the whole time — the slant the static QMark beside every
+                message below has. A wheel spin sweeps the tail through every
+                angle there is, so the greeting's mark and the message marks
+                agreed with each other for about a quarter of a second per
+                revolution and looked like two different logos the rest of the
+                time.
+
+                It turns right to left, against the hero. Both are visible on
+                the same screen often enough that running them the same way
+                reads as one motion duplicated; running them opposite reads as
+                two marks, which is what they are. */}
+            <Q3DCanvas scale={1.1} spinDirection={-1} className="h-14 w-14 shrink-0" />
             {/* The landing page's own wordmark treatment, brought across so the
                 greeting is in the brand's voice rather than in plain white and
                 a flat green. The time of day takes the silver gradient and its
