@@ -3,7 +3,7 @@
 import React from "react";
 import { Check, ExternalLink, User } from "lucide-react";
 
-import QLogo from "../../../QLogo";
+import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 
@@ -82,7 +82,7 @@ export default function MessageRow({
             <User className="h-3 w-3" />
           </span>
         ) : (
-          <QLogo size={22} />
+          <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
         )}
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
           {you ? (
