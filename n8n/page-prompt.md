@@ -26,7 +26,14 @@ WHAT TO BUILD:
 - Responsive from 320px up. Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Make it look designed rather than defaulted: a considered type scale, deliberate spacing, a coherent palette, restrained motion.
 - Forms and interactive controls should behave — validate and respond in-page. There is no backend, so never post to one; show the state a real submission would produce.
-- For data-heavy interfaces, use representative sample data held in a JavaScript array, and draw charts with inline SVG rather than a charting library.
+- For data-heavy interfaces, use representative sample data and draw charts with inline SVG rather than a charting library.
+
+CONTENT GOES IN THE HTML — this is the rule people notice when it is broken:
+- Write every piece of content the page is about into the markup itself. Headlines, cards, prices, table rows, list items, testimonials, the lot. If a reader is meant to see it, it is in the HTML.
+- Do NOT build the page's content from a JavaScript array at load — no `innerHTML = items.map(...)` to fill an empty container that ships empty. That pattern looks identical in a browser and renders nothing everywhere else.
+- The page is downloadable as a file, and the places people open files are the strictest readers there are. An iOS file preview, an email client, a document viewer: many of them render the HTML and run none of the scripts. A page whose stories live in a JS array arrives there as a headline and four empty boxes.
+- Use JavaScript for behaviour on top of content that is already there: filtering a list the HTML contains, opening a dialog the HTML contains, validating a form, switching a theme. Enhancing, never constructing.
+- If a filter or a "load more" hides some of it, ship it all in the markup and hide the extra with a class. Hidden content is content; absent content is nothing.
 
 SIGN-IN AND DASHBOARDS:
 When the request involves accounts, signing in, a dashboard, or anything "behind a login", build it as a working demo inside the one file.
