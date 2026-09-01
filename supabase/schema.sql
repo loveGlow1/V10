@@ -3,10 +3,14 @@
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.
 --
--- Covers six tables:
+-- Covers nine tables:
 --   user_profiles   — already created; this adds the policies and the trigger
 --                     that fills it, without which it stays empty forever.
 --   projects        — read by the dashboard, and not yet created.
+--   project_files, project_revisions, builder_messages
+--                   — the builder's stored output, its undo history and its
+--                     conversation. Without these, every message rebuilds from
+--                     the prompt because there is no previous output to edit.
 --   mcp_connections — the MCP servers configured in account settings.
 --   credit_plans    — what each plan grants (mirrors PLANS in credits.ts).
 --   credit_balances — one row per account: daily, rollover, monthly, top-up.
@@ -639,3 +643,119 @@ revoke select (api_key) on public.mcp_connections from anon, authenticated;
 revoke execute on function public.rls_auto_enable() from public;
 revoke execute on function public.rls_auto_enable() from anon, authenticated;
 grant execute on function public.rls_auto_enable() to service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Builder persistence — project_files, project_revisions, builder_messages
+--
+-- Why these exist: without a stored copy of what was generated, every message
+-- to the builder is a fresh build from the prompt, because there is no previous
+-- output for the model to edit. These three tables are that copy.
+--
+--   project_files      the current generated project, one row per path
+--   project_revisions  a snapshot taken before each change, so "undo" has
+--                      something to go back to
+--   builder_messages   the conversation, so an edit can be read in the context
+--                      of what was already asked for
+--
+-- They hang off public.projects above rather than declaring their own: a
+-- project here is the same project the dashboard lists and the orchestrator
+-- writes to. Ownership is therefore inherited — each policy asks whether the
+-- parent project belongs to the caller.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.project_files (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  path        text not null,
+  content     text not null default '',
+  updated_at  timestamptz not null default now(),
+  unique (project_id, path)
+);
+
+create table if not exists public.project_revisions (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  label       text,
+  snapshot    jsonb not null,
+  created_at  timestamptz not null default now()
+);
+
+create table if not exists public.builder_messages (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  role        text not null check (role in ('user', 'assistant')),
+  content     text not null,
+  intent      text,
+  created_at  timestamptz not null default now()
+);
+
+-- Every read is "this project's rows", and revisions and messages are always
+-- read newest- or oldest-first, so the ordering belongs in the index.
+create index if not exists project_files_project_idx
+  on public.project_files (project_id);
+create index if not exists project_revisions_project_idx
+  on public.project_revisions (project_id, created_at desc);
+create index if not exists builder_messages_project_idx
+  on public.builder_messages (project_id, created_at asc);
+
+alter table public.project_files     enable row level security;
+alter table public.project_revisions enable row level security;
+alter table public.builder_messages  enable row level security;
+
+-- A child row is the caller's exactly when its project is. `for all` rather
+-- than four policies apiece: unlike projects, nothing here is readable to one
+-- role and writable to another — you either own the project or you see none of
+-- it. The route that writes these uses the service key, which bypasses all of
+-- this, which is why it checks ownership itself before it does.
+drop policy if exists "Owners use their project files" on public.project_files;
+create policy "Owners use their project files"
+  on public.project_files for all
+  using (
+    exists (
+      select 1 from public.projects p
+      where p.id = project_files.project_id and p.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.projects p
+      where p.id = project_files.project_id and p.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Owners use their project revisions" on public.project_revisions;
+create policy "Owners use their project revisions"
+  on public.project_revisions for all
+  using (
+    exists (
+      select 1 from public.projects p
+      where p.id = project_revisions.project_id and p.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.projects p
+      where p.id = project_revisions.project_id and p.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Owners use their builder messages" on public.builder_messages;
+create policy "Owners use their builder messages"
+  on public.builder_messages for all
+  using (
+    exists (
+      select 1 from public.projects p
+      where p.id = builder_messages.project_id and p.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.projects p
+      where p.id = builder_messages.project_id and p.user_id = auth.uid()
+    )
+  );
+
+drop trigger if exists project_files_set_updated_at on public.project_files;
+create trigger project_files_set_updated_at
+  before update on public.project_files
+  for each row execute function public.set_updated_at();
