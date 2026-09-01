@@ -6,7 +6,7 @@ import { Check, Download, ExternalLink, User } from "lucide-react";
 import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
-import BuildResultCard, { type BuildResult } from "./BuildResultCard";
+import BuildResultCard, { useResultActionsLive, type BuildResult } from "./BuildResultCard";
 
 /* The build behind one reply, as the tracker needs it. */
 export type Activity = {
@@ -65,6 +65,14 @@ export default function MessageRow({
   onPublish?: () => void;
 }) {
   const you = message.from === "you";
+
+  /* The card's buttons and these chips are two ways to the same two things, so
+     only one of them is ever on offer. While the buttons are up they are the
+     shortcut worth taking — larger, in reach, and about the build that has just
+     landed. When they expire the chips take over and stay, which is what makes
+     a thread scrolled back to next week still able to open or save the page.
+     A reply with chips and no card has nothing to wait for. */
+  const actionsLive = useResultActionsLive(message.result, supersededAt);
 
   return (
     /* A reply that reports a problem is still a reply. It gets the same
@@ -130,7 +138,7 @@ export default function MessageRow({
         </p>
       )}
 
-      {message.links && (
+      {message.links && !actionsLive && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {message.links.map((link) => {
             /* A chip that saves a file rather than opening a place.
@@ -154,11 +162,7 @@ export default function MessageRow({
       )}
 
       {message.result && (
-        <BuildResultCard
-          result={message.result}
-          supersededAt={supersededAt}
-          onPublish={onPublish}
-        />
+        <BuildResultCard result={message.result} live={actionsLive} onPublish={onPublish} />
       )}
 
       {message.activity && (
