@@ -435,11 +435,13 @@ export default function ChatPanel({
         {
           from: "system",
           text: "Your page is ready.",
-          /* The one thing here that does not expire. The card below offers
-             Download for a few minutes and then takes it away, which is right
-             for a shortcut; this chip is the same file, still here next week.
-             The save step writes the identical pair into the thread, so a
-             reopened conversation shows exactly this. */
+          /* The lasting way to the same file. It waits: the card below offers
+             Download and Publish for a few minutes, and while those are up this
+             chip stays out of the way rather than offering the same page twice
+             in one reply. When they expire it takes over, and then it is here
+             next week. The save step writes the identical pair into the thread,
+             so a reopened conversation — where the card's window is long past —
+             shows the chips straight away. */
           links: [
             {
               label: "Download the page",

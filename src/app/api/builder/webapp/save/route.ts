@@ -184,11 +184,13 @@ export async function POST(request: Request) {
     role: "system",
     body: "Your page is ready.",
     /* Both addresses, and the file is one of them.
-       The card under this message offers Download for a few minutes and then
-       takes it away, which is what a shortcut should do. This link does not
-       expire, because "I built this last week, give me the file" is a
-       reasonable thing to want and the conversation is where someone goes back
-       to look for it. */
+       The card under this message offers Download and Publish for a few minutes
+       and then takes them away, which is what a shortcut should do. These links
+       are the lasting way to the same page, so the row holds them back while
+       those buttons are up — offering it twice in one reply reads as two
+       destinations — and shows them once the buttons go. They do not expire,
+       because "I built this last week, give me the file" is a reasonable thing
+       to want and the conversation is where someone goes back to look for it. */
     links: [
       { label: "Open preview", href: previewUrl },
       { label: "Download the page", href: `${previewUrl}?download=1` },

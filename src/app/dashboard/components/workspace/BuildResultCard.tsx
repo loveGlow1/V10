@@ -49,25 +49,31 @@ function deadlineOf(result: BuildResult, supersededAt?: number | null): number {
 
 /* What a finished build looks like in the thread: the page, what it is called,
    and — for a few minutes — the two things anyone would do with it next. */
-export default function BuildResultCard({
-  result,
-  supersededAt,
-  onPublish,
-}: {
-  result: BuildResult;
-  /** When the most recent run in this visit started, so a card the thread has
-      moved past gives its buttons up early. */
-  supersededAt?: number | null;
-  /** Opens the publish flow the preview header already owns. */
-  onPublish?: () => void;
-}) {
-  const deadline = deadlineOf(result, supersededAt);
+/* Whether this card's buttons are still on offer.
+ *
+ * Lifted out of the card because the row above it needs the same answer: the
+ * link chips are the permanent way to the same two things, and showing both at
+ * once offers each of them twice. One hook, one timer, one truth — the chips
+ * cannot be up while the buttons are, and cannot be missing once they have
+ * gone.
+ *
+ * Safe to call with no result: a reply that carries chips and no card has
+ * nothing to wait for, and gets its chips immediately. */
+export function useResultActionsLive(
+  result: BuildResult | undefined,
+  supersededAt?: number | null,
+): boolean {
+  const deadline = result ? deadlineOf(result, supersededAt) : null;
 
   /* Recomputed on a timer rather than decided once, so the buttons go away
      while someone is looking at them instead of only on the next render. */
-  const [live, setLive] = useState(() => Date.now() < deadline);
+  const [live, setLive] = useState(() => deadline !== null && Date.now() < deadline);
 
   useEffect(() => {
+    if (deadline === null) {
+      setLive(false);
+      return;
+    }
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       setLive(false);
@@ -81,6 +87,21 @@ export default function BuildResultCard({
     return () => window.clearTimeout(timer);
   }, [deadline]);
 
+  return live;
+}
+
+export default function BuildResultCard({
+  result,
+  live,
+  onPublish,
+}: {
+  result: BuildResult;
+  /** Whether the buttons are still on offer — decided by the row, which uses
+      the same answer to keep its link chips out of the way until they go. */
+  live: boolean;
+  /** Opens the publish flow the preview header already owns. */
+  onPublish?: () => void;
+}) {
   return (
     <div className="mt-2.5 overflow-hidden rounded-2xl border border-line/[0.1] bg-layer/[0.02]">
       {/* The page itself, the same component the apps list draws it with —
