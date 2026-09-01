@@ -101,6 +101,9 @@ export default function CryptoPaymentModal({
 
   const [quote, setQuote] = useState<CryptoQuote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  /* The operator's half of a refusal: which variable is missing. The routes
+     send it outside production only, so a customer never reads it. */
+  const [quoteDetail, setQuoteDetail] = useState<string | null>(null);
   const [currency, setCurrency] = useState<CryptoCurrencyId>("btc");
   const [lightning, setLightning] = useState(false);
   const [showAllCurrencies, setShowAllCurrencies] = useState(false);
@@ -126,6 +129,7 @@ export default function CryptoPaymentModal({
     let cancelled = false;
     setQuote(null);
     setQuoteError(null);
+    setQuoteDetail(null);
 
     void (async () => {
       try {
@@ -139,6 +143,7 @@ export default function CryptoPaymentModal({
 
         if (!response.ok) {
           setQuoteError(body?.error ?? "Crypto payment is unavailable right now.");
+          setQuoteDetail(typeof body?.detail === "string" ? body.detail : null);
           return;
         }
 
@@ -182,6 +187,7 @@ export default function CryptoPaymentModal({
        closed tab. */
     setQuote(null);
     setQuoteError(null);
+    setQuoteDetail(null);
     setPayment(null);
     setError(null);
     setCopied(null);
@@ -404,6 +410,7 @@ export default function CryptoPaymentModal({
               <CurrencyStep
                 quote={quote}
                 quoteError={quoteError}
+                quoteDetail={quoteDetail}
                 currency={currency}
                 onSelectCurrency={setCurrency}
                 lightning={lightning}
@@ -433,6 +440,7 @@ export default function CryptoPaymentModal({
 function CurrencyStep({
   quote,
   quoteError,
+  quoteDetail,
   currency,
   onSelectCurrency,
   lightning,
@@ -451,6 +459,7 @@ function CurrencyStep({
 }: {
   quote: CryptoQuote | null;
   quoteError: string | null;
+  quoteDetail: string | null;
   currency: CryptoCurrencyId;
   onSelectCurrency: (id: CryptoCurrencyId) => void;
   lightning: boolean;
@@ -481,9 +490,12 @@ function CurrencyStep({
       </h2>
 
       {quoteError && (
-        <p className="mt-5 rounded-2xl border border-danger/30 bg-danger/[0.08] px-4 py-3 text-sm font-medium text-danger">
-          {quoteError}
-        </p>
+        <div className="mt-5 rounded-2xl border border-danger/30 bg-danger/[0.08] px-4 py-3">
+          <p className="text-sm font-medium text-danger">{quoteError}</p>
+          {quoteDetail && (
+            <p className="mt-2 text-xs font-medium leading-relaxed text-muted">{quoteDetail}</p>
+          )}
+        </div>
       )}
 
       {!quote && !quoteError && (
