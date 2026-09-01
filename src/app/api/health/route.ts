@@ -46,7 +46,7 @@ export async function GET() {
 
   /* Run rather than inspected. It is a few milliseconds and it is the only
      honest answer to "will a download come out styled". */
-  const downloadsCompile = await canCompile();
+  const compile = await canCompile();
 
   return NextResponse.json({
     status: "ok",
@@ -61,8 +61,11 @@ export async function GET() {
        dashboard and otherwise shows up only as a feature that quietly refuses. */
     storageConfigured: isServiceRoleConfigured,
     editingConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
-    /* False means downloads are going out unstyled. See canCompile. */
-    downloadsCompile,
+    /* False means downloads are going out unstyled. See canCompile. The reason
+       rides alongside it when there is one: this failed once in production
+       while passing every test, and a bare false said nothing about why. */
+    downloadsCompile: compile.ok,
+    ...(compile.error ? { downloadsCompileError: compile.error } : {}),
     /* Whether this deployment can take money, in the two halves that fail
        separately. A checkout with no wallet configured offers no currencies at
        all — visible immediately. A checkout with wallets but no callback secret
