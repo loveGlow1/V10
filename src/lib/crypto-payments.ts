@@ -297,6 +297,30 @@ export function convertUsdToCrypto(amountUsd: number, rateUsd: number, decimals:
   return Math.ceil((amountUsd / rateUsd) * scale) / scale;
 }
 
+/* ── Telling one payment from another ──────────────────────────────────────
+
+   A deployment that collects into one static address per coin has a problem
+   the address cannot solve: two customers paying $25 both send exactly the
+   same amount to exactly the same address, and nothing on the chain says which
+   order either payment was for.
+
+   So the amount is the discriminator. Every open order is given an amount no
+   other open order on that address has, by nudging it up by the smallest unit
+   the coin is quoted in until it is unique — enforced by a unique index rather
+   than by hoping, because "probably unique" is not a basis for crediting
+   somebody's account.
+
+   It is always up, never down, so a nudged order still covers its own price;
+   and it is the smallest quoted unit, so on a coin quoted to eight places the
+   difference is a fraction of a cent. */
+export function nudgeAmount(amount: number, currency: CryptoCurrencyId, steps: number): number {
+  const scale = 10 ** CRYPTO_CURRENCIES[currency].decimals;
+  /* Rounded back through the scale so the result is exactly representable at
+     the coin's precision — the amount a wallet is asked for has to be the
+     amount the index compared. */
+  return Math.round(amount * scale + steps) / scale;
+}
+
 /** An amount, written the way the coin quotes it — trailing zeroes and all, so
  *  a person copying it into a wallet sees the precision they are sending. */
 export function formatCryptoAmount(amount: number, currency: CryptoCurrencyId): string {

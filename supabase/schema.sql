@@ -1129,6 +1129,22 @@ create index if not exists crypto_payments_open_idx
   on public.crypto_payments (expires_at)
   where status in ('awaiting_payment', 'submitted');
 
+-- No two open orders may ask for the same amount at the same address.
+--
+-- This is what makes a static receiving address workable at all. Two customers
+-- buying the same plan send the same amount to the same address, and the chain
+-- records nothing that says which order either payment was for — so the amount
+-- has to be the discriminator, and "probably unique" is not a basis for
+-- crediting an account. The create route nudges an order up by one unit at a
+-- time until this index accepts it.
+--
+-- Partial, over the open statuses only: once an order is settled or expired its
+-- amount is free again, and a year of history must not fill the space a live
+-- order needs.
+create unique index if not exists crypto_payments_open_amount_idx
+  on public.crypto_payments (currency, address, crypto_amount)
+  where status in ('awaiting_payment', 'submitted');
+
 alter table public.crypto_payments enable row level security;
 
 drop policy if exists "Owners read their payments" on public.crypto_payments;

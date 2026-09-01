@@ -6,6 +6,7 @@ import {
   convertUsdToCrypto,
   isCryptoCurrencyId,
   isPlausibleEmail,
+  nudgeAmount,
   purchaseCredits,
   purchasePriceUsd,
   readPurchase,
@@ -46,6 +47,12 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/* How many one-unit nudges an order may take before it gives up looking for an
+   amount no other open order is using. Twenty-five is far past what a real
+   collision needs on a coin quoted to eight places, and on a stablecoin quoted
+   to two it caps what a payer can be nudged at a quarter of a dollar. */
+const UNIQUE_AMOUNT_ATTEMPTS = 25;
 
 type CreateRequest = {
   purchase?: unknown;
@@ -167,35 +174,70 @@ export async function POST(request: Request) {
   const address = lightning ? wallet.lightningAddress! : wallet.address;
   const expiresAt = new Date(Date.now() + RATE_LOCK_MINUTES * 60_000).toISOString();
 
-  const { data, error } = await service
-    .from("crypto_payments")
-    .insert({
-      user_id: user.id,
-      status: "awaiting_payment",
-      purchase_kind: purchase.kind,
-      plan_id: purchase.kind === "plan" ? purchase.planId : null,
-      packs: purchase.kind === "topup" ? purchase.packs : null,
-      credits: purchaseCredits(purchase),
-      amount_usd: amountUsd,
-      currency,
-      lightning,
-      address,
-      /* Only carried on chains that need one, and only from configuration —
-         a payment sent to a tagged address without its tag is not credited. */
-      destination_tag: lightning ? null : wallet.destinationTag,
-      crypto_amount: cryptoAmount,
-      rate_usd: rateUsd,
-      receipt_email: receiptEmail,
-      expires_at: expiresAt,
-    })
-    .select(PAYMENT_COLUMNS)
-    .single();
+  const row = {
+    user_id: user.id,
+    status: "awaiting_payment",
+    purchase_kind: purchase.kind,
+    plan_id: purchase.kind === "plan" ? purchase.planId : null,
+    packs: purchase.kind === "topup" ? purchase.packs : null,
+    credits: purchaseCredits(purchase),
+    amount_usd: amountUsd,
+    currency,
+    lightning,
+    address,
+    /* Only carried on chains that need one, and only from configuration —
+       a payment sent to a tagged address without its tag is not credited. */
+    destination_tag: lightning ? null : wallet.destinationTag,
+    rate_usd: rateUsd,
+    receipt_email: receiptEmail,
+    expires_at: expiresAt,
+  };
 
-  if (error || !data) {
-    // eslint-disable-next-line no-console
-    console.error("crypto payments: could not create the order:", error);
-    return NextResponse.json({ error: "Could not start that payment." }, { status: 500 });
+  /* The amount has to be unique among the open orders on this address, because
+     on a static address it is the only thing that says which order a payment
+     belongs to. The database owns that uniqueness — a partial unique index over
+     the open statuses — and this loop answers its refusal by asking for one
+     more unit rather than by guessing an unused amount up front, which would be
+     a race with every other order being created at the same moment.
+
+     A Lightning invoice needs none of this: it is issued per payment and
+     carries its own identity. The loop still runs, finds no collision on the
+     first attempt, and costs nothing. */
+  for (let attempt = 0; attempt < UNIQUE_AMOUNT_ATTEMPTS; attempt += 1) {
+    const attemptAmount = nudgeAmount(cryptoAmount, currency, attempt);
+
+    const { data, error } = await service
+      .from("crypto_payments")
+      .insert({ ...row, crypto_amount: attemptAmount })
+      .select(PAYMENT_COLUMNS)
+      .single();
+
+    if (!error && data) {
+      return NextResponse.json(paymentFromRow(data as CryptoPaymentRow), { status: 201 });
+    }
+
+    /* 23505 is the unique violation: another open order already asks for this
+       exact amount at this address. Anything else is a real failure. */
+    if (error?.code !== "23505") {
+      // eslint-disable-next-line no-console
+      console.error("crypto payments: could not create the order:", error);
+      return NextResponse.json({ error: "Could not start that payment." }, { status: 500 });
+    }
   }
 
-  return NextResponse.json(paymentFromRow(data as CryptoPaymentRow), { status: 201 });
+  /* Every amount in the window is spoken for. On a coin quoted to two places
+     that is genuinely possible under load, and the honest answer is to refuse:
+     an order sharing its amount with another open one is an order that cannot
+     be told apart when the money lands. */
+  // eslint-disable-next-line no-console
+  console.error(
+    `crypto payments: no free amount for ${currency} at ${address} after ${UNIQUE_AMOUNT_ATTEMPTS} attempts`,
+  );
+  return NextResponse.json(
+    {
+      error: "Too many payments are in flight in that currency. Try another coin, or again shortly.",
+      code: "no_distinct_amount",
+    },
+    { status: 503 },
+  );
 }
