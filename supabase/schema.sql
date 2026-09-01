@@ -3,7 +3,7 @@
 -- Safe to run more than once. Paste the whole file into the SQL editor
 -- (Supabase Studio → SQL Editor → New query) and run it.
 --
--- Covers eight tables:
+-- Covers the core tables:
 --   user_profiles   — already created; this adds the policies and the trigger
 --                     that fills it, without which it stays empty forever.
 --   projects        — read by the dashboard, and not yet created.
@@ -11,6 +11,7 @@
 --   credit_plans    — what each plan grants (mirrors PLANS in credits.ts).
 --   credit_balances — one row per account: daily, rollover, monthly, top-up.
 --   credit_ledger   — append-only record of every credit movement.
+--   crypto_payments — orders paid in cryptocurrency, from quote to settlement.
 --   documents          — the n8n agent's RAG knowledge base (pgvector).
 --   n8n_chat_histories — that same agent's conversation memory.
 
@@ -1050,3 +1051,203 @@ drop policy if exists "Owners delete their attachment rows" on public.project_at
 create policy "Owners delete their attachment rows"
   on public.project_attachments for delete
   using (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- crypto_payments — an order taken in cryptocurrency, from quote to settlement.
+--
+-- One row per attempt to pay for something, created the moment a person picks
+-- a coin and holding everything the payment was quoted at: the dollar price,
+-- the rate it was converted at, the amount asked for, and the address it was
+-- asked to be sent to. The row is the receipt. A chain payment cannot be
+-- reversed and cannot be asked to explain itself later, so what was promised
+-- has to be written down before it is sent, not reconstructed afterwards.
+--
+-- Nothing in it is writable from a browser. There is a select policy for the
+-- owner and no insert, update or delete policy at all, because a client that
+-- could write this table could mark its own order confirmed — and confirming
+-- an order grants credits.
+--
+-- Mirrors the types in src/lib/crypto-payments.ts.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.crypto_payments (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+
+  -- awaiting_payment → submitted → confirmed, or → expired / failed. Only
+  -- confirmed pays out, and only once: see settle_crypto_payment below.
+  status          text not null default 'awaiting_payment'
+                    check (status in ('awaiting_payment', 'submitted', 'confirmed', 'expired', 'failed')),
+
+  -- What is being bought. A plan month or a number of top-up packs, never both.
+  purchase_kind   text not null check (purchase_kind in ('plan', 'topup')),
+  plan_id         text references public.credit_plans (id),
+  packs           integer,
+  -- What the account receives when this settles. Recorded at quote time so a
+  -- later change to the plan table cannot retroactively alter what somebody
+  -- paid for.
+  credits         numeric(10,2) not null check (credits > 0),
+  amount_usd      numeric(10,2) not null check (amount_usd > 0),
+
+  -- How it is being paid. crypto_amount and rate_usd are the quote: the rate
+  -- was locked when the row was written and expires_at is when that lock runs
+  -- out, which is the only honest way to show somebody an amount to send.
+  currency        text not null,
+  lightning       boolean not null default false,
+  address         text not null,
+  destination_tag text,
+  crypto_amount   numeric(24,10) not null check (crypto_amount > 0),
+  rate_usd        numeric(24,10) not null check (rate_usd > 0),
+  receipt_email   text,
+
+  -- Settlement. tx_reference is whatever the processor or chain calls the
+  -- payment, kept so a disputed order can be looked up rather than argued over.
+  tx_reference    text,
+  failure_reason  text,
+
+  created_at      timestamptz not null default now(),
+  expires_at      timestamptz not null,
+  submitted_at    timestamptz,
+  confirmed_at    timestamptz,
+  updated_at      timestamptz not null default now(),
+
+  -- A plan order names a paid plan and no packs; a top-up order names packs and
+  -- no plan. Enforced here rather than trusted from the route, because this is
+  -- the shape settle_crypto_payment branches on.
+  constraint crypto_payments_purchase_shape check (
+    (purchase_kind = 'plan'  and plan_id is not null and plan_id <> 'free' and packs is null)
+    or
+    (purchase_kind = 'topup' and packs is not null and packs > 0 and plan_id is null)
+  )
+);
+
+create index if not exists crypto_payments_user_created_idx
+  on public.crypto_payments (user_id, created_at desc);
+
+-- Orders still waiting on a payment: what an expiry sweep reads, and small
+-- enough to be worth its own partial index.
+create index if not exists crypto_payments_open_idx
+  on public.crypto_payments (expires_at)
+  where status in ('awaiting_payment', 'submitted');
+
+alter table public.crypto_payments enable row level security;
+
+drop policy if exists "Owners read their payments" on public.crypto_payments;
+create policy "Owners read their payments"
+  on public.crypto_payments for select
+  using (auth.uid() = user_id);
+
+-- Read-only from the client, and only the rows that are theirs. Every write
+-- goes through the service role: creating an order, marking it submitted, and
+-- settling it are all decisions the server makes.
+revoke all on public.crypto_payments from anon, authenticated;
+grant select on public.crypto_payments to authenticated;
+
+drop trigger if exists crypto_payments_set_updated_at on public.crypto_payments;
+create trigger crypto_payments_set_updated_at
+  before update on public.crypto_payments
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- settle_crypto_payment — the only thing that turns a payment into credits.
+--
+-- Idempotent by construction, which is the property that matters: payment
+-- processors retry, and a chain confirmation can be delivered twice. The row is
+-- locked, an already-confirmed order returns the balance untouched, and the
+-- status change and the grant happen in the same transaction — so an order can
+-- pay out exactly once or not at all, never twice and never half.
+--
+-- What settles depends on what was bought:
+--   topup — the credits land in the top-up bucket, which never expires.
+--   plan  — the account moves to that plan and a fresh cycle opens on it,
+--           mirroring the renewal in ensure_credit_balance: this cycle's unused
+--           grant rolls over where the plan allows one, and the new plan's
+--           grant lands. The grant comes from credit_plans rather than from the
+--           order, because what a plan grants is decided here (see the note
+--           above credit_plans) and an order should not be able to name a
+--           different figure.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.settle_crypto_payment(
+  p_payment_id   uuid,
+  p_tx_reference text default null
+)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_payment public.crypto_payments;
+  v_plan    public.credit_plans;
+  v_balance public.credit_balances;
+  v_today   date := (now() at time zone 'utc')::date;
+begin
+  select * into v_payment from public.crypto_payments
+    where id = p_payment_id
+    for update;
+
+  if not found then
+    raise exception 'no such payment' using errcode = '22023';
+  end if;
+
+  -- Delivered twice. The first delivery paid out; this one returns what the
+  -- account holds and changes nothing.
+  if v_payment.status = 'confirmed' then
+    return public.ensure_credit_balance(v_payment.user_id);
+  end if;
+
+  perform public.ensure_credit_balance(v_payment.user_id);
+
+  if v_payment.purchase_kind = 'topup' then
+    update public.credit_balances
+      set top_up = top_up + v_payment.credits
+      where user_id = v_payment.user_id
+      returning * into v_balance;
+
+    insert into public.credit_ledger (user_id, action, credits, description)
+      values (
+        v_payment.user_id,
+        'topup',
+        v_payment.credits,
+        'Top-up paid in ' || upper(v_payment.currency)
+      );
+  else
+    select * into v_plan from public.credit_plans where id = v_payment.plan_id;
+
+    if not found then
+      raise exception 'no such plan: %', v_payment.plan_id using errcode = '22023';
+    end if;
+
+    update public.credit_balances
+      set plan_id          = v_plan.id,
+          rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
+          monthly          = v_plan.monthly_credits,
+          cycle_started_on = v_today
+      where user_id = v_payment.user_id
+      returning * into v_balance;
+
+    insert into public.credit_ledger (user_id, action, credits, description)
+      values (
+        v_payment.user_id,
+        'grant',
+        v_plan.monthly_credits,
+        v_plan.name || ' plan paid in ' || upper(v_payment.currency)
+      );
+  end if;
+
+  update public.crypto_payments
+    set status       = 'confirmed',
+        confirmed_at = now(),
+        tx_reference = coalesce(p_tx_reference, tx_reference),
+        failure_reason = null
+    where id = p_payment_id;
+
+  return v_balance;
+end;
+$$;
+
+-- Settling is the payment webhook's privilege and nobody else's. Postgres
+-- grants EXECUTE on a new function to PUBLIC, so PUBLIC has to be revoked first
+-- or the function stays callable at /rest/v1/rpc/settle_crypto_payment by
+-- anyone holding an anon key.
+revoke all on function public.settle_crypto_payment(uuid, text) from public, anon, authenticated;
+grant execute on function public.settle_crypto_payment(uuid, text) to service_role;
