@@ -2,6 +2,9 @@ import JSON5 from "json5";
 import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
+
+import { PREFLIGHT_CSS } from "./tailwind-preflight";
 
 /* Turning a generated page into a file that works on its own.
  *
@@ -192,6 +195,21 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
     tailwindcss({
       ...config,
       content: [{ raw: withFonts, extension: "html" }],
+      /* Off, and replaced immediately below by the same CSS from a string this
+         repository carries. Tailwind's own preflight plugin readFileSync's a
+         path built from __dirname, and that read has now failed twice in two
+         different ways — see tailwind-preflight.ts. Nothing else in the compile
+         touches the disk, so with this off the whole thing is arithmetic. */
+      corePlugins: { preflight: false },
+      plugins: [
+        plugin(({ addBase }) => {
+          /* Postcss nodes rather than the plain object the types describe —
+             which is exactly what Tailwind's own preflight plugin passes, and
+             what addBase actually accepts. The cast is to the published types,
+             not around a real constraint. */
+          addBase(postcss.parse(PREFLIGHT_CSS).nodes as unknown as Parameters<typeof addBase>[0]);
+        }),
+      ],
     } as Config),
   ]).process("@tailwind base;\n@tailwind components;\n@tailwind utilities;", {
     from: undefined,
@@ -234,14 +252,22 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
  * the thing worth knowing is whether the compile runs, not whether one of its
  * inputs is where this code guesses it should be.
  */
-export async function canCompile(): Promise<boolean> {
+export async function canCompile(): Promise<{ ok: boolean; error?: string }> {
   try {
     const probe = await toStandalone(
       '<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script>' +
         '</head><body class="flex"><i class="h-5 w-5"></i></body></html>',
     );
-    return probe.cssBytes > 0 && !/cdn\.tailwindcss\.com/.test(probe.html);
-  } catch {
-    return false;
+
+    if (probe.cssBytes > 0 && !/cdn\.tailwindcss\.com/.test(probe.html)) return { ok: true };
+    return { ok: false, error: `compiled ${probe.cssBytes} bytes, which is not a stylesheet` };
+  } catch (error) {
+    /* The reason, not just the fact. A bare false cost a deploy and a round
+       trip to the person who reported it: the compile was failing in production
+       and passing everywhere it could be tested, and nothing anywhere said what
+       it was failing on. The message is the app's own — a module path or a
+       missing file, not user data — and it is worth more than the guess it
+       replaces. */
+    return { ok: false, error: (error as Error)?.message?.slice(0, 300) ?? "unknown" };
   }
 }
