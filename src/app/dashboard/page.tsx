@@ -16,6 +16,7 @@ import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
 import StartBuildButton, { type StartBuildHandle } from "./components/StartBuildButton";
 import DashboardFooter from "./components/DashboardFooter";
+import ScrollToEnds from "./components/ScrollToEnds";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
@@ -811,6 +812,11 @@ export default function DashboardPage() {
         <KeepBuilding onKeepBuilding={focusComposer} />
         <DashboardFooter />
       </div>
+
+      {/* Above SupportChat's button rather than beside it — one corner, one
+          column. This page runs composer → chips → projects → footer, which is
+          a long way back up to the box you actually came here to type in. */}
+      <ScrollToEnds className="fixed bottom-[calc(86px+env(safe-area-inset-bottom)+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))]" />
 
       {/* Select Agent Modal Sheet */}
       <AnimatePresence>
