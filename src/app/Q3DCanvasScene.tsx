@@ -32,6 +32,19 @@ const ROTATION_PERIOD_SECONDS = 16; // one full revolution every 16s, constant/l
  * plain Y, so the sign costs the large instances nothing. */
 const DEFAULT_SPIN_AXIS_TILT_DEG = 0;
 
+/* Which way round the turn goes.
+ *
+ * A positive rotation about +Y carries the near face toward +X, so the surface
+ * facing you sweeps left to right — the hero's turn, and the default. Negative
+ * runs it the other way: right to left, the near face travelling toward the
+ * left edge.
+ *
+ * It is a separate control from the tilt because the two answer different
+ * questions. The tilt decides whether the mark is foreshortened; the direction
+ * decides nothing about how it looks at any instant, only which way it is
+ * going. A mark that turns right to left is the same mark. */
+const FORWARD = 1;
+
 /* Where the turn begins. Face-on to this camera the key lights rake straight past the
    bevels and the extruded side wall is hidden, so the first frame would render as a flat
    black silhouette; a three-quarter turn puts the side wall and the inner rim into the
@@ -207,9 +220,11 @@ function getLogoGeometry(): THREE.BufferGeometry {
 function QLogo({
   scale = 1,
   spinAxisTiltDeg = DEFAULT_SPIN_AXIS_TILT_DEG,
+  spinDirection = FORWARD,
 }: {
   scale?: number;
   spinAxisTiltDeg?: number;
+  spinDirection?: number;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   /* The turn is tracked here rather than read back off the group, because the
@@ -238,7 +253,7 @@ function QLogo({
     // Continuous and linear — no easing, no acceleration. Set from an axis and
     // an angle rather than incremented on .rotation.y, so the axis can be
     // tilted; at a tilt of zero the two are the same rotation.
-    angleRef.current += (delta * (Math.PI * 2)) / ROTATION_PERIOD_SECONDS;
+    angleRef.current += (spinDirection * delta * (Math.PI * 2)) / ROTATION_PERIOD_SECONDS;
     groupRef.current.quaternion.setFromAxisAngle(spinAxis, angleRef.current);
   });
 
@@ -277,6 +292,7 @@ export default function Q3DCanvasScene({
   className = "",
   withBackdrop = false,
   spinAxisTiltDeg = DEFAULT_SPIN_AXIS_TILT_DEG,
+  spinDirection = FORWARD,
   style,
   onPainted,
 }: {
@@ -285,6 +301,8 @@ export default function Q3DCanvasScene({
   /** Degrees to tilt the spin axis from Y toward the camera. Zero — the default
    *  everywhere the mark is large — keeps the original Y-axis turn. */
   spinAxisTiltDeg?: number;
+  /** 1 turns the near face left to right, -1 right to left. See FORWARD. */
+  spinDirection?: number;
   /** Pitch-black background + faint ambient particles, for standalone/hero display
    *  (kept off by default so the small inline logo instances — nav, footer, login
    *  modal — stay transparent and blend into the page behind them). */
@@ -351,7 +369,7 @@ export default function Q3DCanvasScene({
       {/* Front-lower fill light — added alongside the raised ambient above. */}
       <directionalLight position={[4, -5, 5]} intensity={0.8} color="#ffffff" />
       <GlintLight />
-      <QLogo scale={scale} spinAxisTiltDeg={spinAxisTiltDeg} />
+      <QLogo scale={scale} spinAxisTiltDeg={spinAxisTiltDeg} spinDirection={spinDirection} />
     </Canvas>
   );
 }

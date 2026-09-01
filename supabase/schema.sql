@@ -298,16 +298,25 @@ create table if not exists public.credit_plans (
   rollover_cycles   integer not null default 0
 );
 
--- Free gets no daily grant. A refilling allowance means an account that never
--- pays can build forever at whatever rate the refill sets — wait a day, get
--- five more, indefinitely — which is a free product with a rate limit rather
--- than a free tier. A Free account opens with signup_bonus_credits() and that
--- is the whole of it. Kept in step with PLANS in src/app/dashboard/credits.ts.
+-- No plan gets a daily grant. A refilling allowance means an account can build
+-- at whatever rate the refill sets, forever, without the balance ever being the
+-- thing that stops it — wait a day, get more, indefinitely. On Free that is a
+-- free product with a rate limit rather than a free tier; on the paid plans it
+-- is the same hole with a smaller entrance, since the monthly grant is what the
+-- subscription buys and what the pricing page names, and a daily top-up beside
+-- it makes the real allowance a number nobody quoted.
+--
+-- Credits therefore arrive in exactly three countable ways: the one-time signup
+-- grant, the monthly grant on a paid plan, and a purchase. The daily_credits
+-- column stays because the mechanism in ensure_credit_balance is sound —
+-- turning a daily grant back on should be a number, not a redesign.
+--
+-- Kept in step with PLANS in src/app/dashboard/credits.ts.
 insert into public.credit_plans (id, name, monthly_price_usd, daily_credits, monthly_credits, rollover_cycles)
 values
   ('free',     'Free',       0,   0, 0,   0),
-  ('standard', 'Standard',  25,   5, 100, 1),
-  ('pro',      'Pro',      150,   5, 600, 1)
+  ('standard', 'Standard',  25,   0, 100, 1),
+  ('pro',      'Pro',      150,   0, 600, 1)
 on conflict (id) do update set
   name              = excluded.name,
   monthly_price_usd = excluded.monthly_price_usd,

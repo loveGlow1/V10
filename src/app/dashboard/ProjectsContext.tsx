@@ -53,6 +53,20 @@ export type BuildReply = {
   stored?: boolean;
 };
 
+/* The last line of the stream, which is what the whole response used to be. */
+type BuildPayload = {
+  intent?: BuildIntent;
+  steps?: BuildStep[];
+  needsConfirmation?: boolean;
+  build?: BuildOutcome;
+  project?: Project | null;
+  error?: string;
+  /* Whether the route has already put this reply in the stored thread. It
+     writes what it answers now — see lib/thread-server.ts — so the panel
+     renders it but must not write it a second time. */
+  stored?: boolean;
+};
+
 export type BuildOptions = {
   /** Overrides the classifier. What the composer's mode chip says. */
   intentOverride?: BuildIntent | null;
@@ -60,6 +74,14 @@ export type BuildOptions = {
   confirmNewProject?: boolean;
   /** Files uploaded with this message. Ids only — the bytes stay in Storage. */
   attachmentIds?: string[];
+  /**
+   * Called for each operation as the server reports it, before the reply.
+   *
+   * This is what makes the tracker live. Steps still arrive in the final reply
+   * as well, so a caller that does not pass this loses nothing but the timing —
+   * it just sees them all at the end, the way everything did before.
+   */
+  onStep?: (step: BuildStep) => void;
 };
 
 /* How the workspace waits for a page. Generation is not bounded by an HTTP
@@ -244,20 +266,67 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         }),
       });
 
-      const payload = (await response.json().catch(() => null)) as {
-        intent?: BuildIntent;
-        steps?: BuildStep[];
-        needsConfirmation?: boolean;
-        build?: BuildOutcome;
-        project?: Project | null;
-        error?: string;
-        stored?: boolean;
-      } | null;
+      /* The reply arrives as newline-delimited JSON: a line per operation as it
+         happens, then one last line carrying what used to be the whole
+         response. The status lives in that last line rather than in the HTTP
+         status, because a stream commits its headers before any of the work has
+         run — see the note on POST in the route. */
+      let status = response.status;
+      /* Collected rather than assigned to a variable declared out here. The
+         only write is inside the reader's callback, which TypeScript's flow
+         analysis does not follow — it would carry the initial null forward and
+         narrow every later read of it to never. */
+      const results: BuildPayload[] = [];
+
+      if (response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        /* Split on newlines, keeping the tail: a chunk boundary lands wherever
+           the network puts it, which is regularly mid-object. */
+        const take = (chunk: string, last: boolean) => {
+          buffer += chunk;
+          const lines = buffer.split("\n");
+          buffer = last ? "" : (lines.pop() ?? "");
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let parsed: { type?: string; step?: BuildStep; status?: number; body?: unknown };
+            try {
+              parsed = JSON.parse(line);
+            } catch {
+              /* A truncated last line means the connection died mid-object.
+                 Nothing useful is in it, and the missing result is what the
+                 caller reports. */
+              continue;
+            }
+
+            if (parsed.type === "step" && parsed.step) {
+              options.onStep?.(parsed.step);
+            } else if (parsed.type === "result") {
+              status = parsed.status ?? status;
+              if (parsed.body) results.push(parsed.body as BuildPayload);
+            }
+          }
+        };
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            take(decoder.decode(), true);
+            break;
+          }
+          take(decoder.decode(value, { stream: true }), false);
+        }
+      }
+
+      const payload = results.length > 0 ? results[results.length - 1] : null;
 
       /* Returned rather than thrown. A refused edit is an ordinary answer —
          the page is untouched and the person needs to read why — and throwing
          made it indistinguishable in the chat from the app falling over. */
-      if (!response.ok || !payload?.build) {
+      if (status >= 400 || !payload?.build) {
         return {
           intent: payload?.intent,
           /* Carried on a refusal too. A message that was classified, read and
