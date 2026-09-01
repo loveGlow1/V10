@@ -7,13 +7,19 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Download,
   Eye,
   ExternalLink,
   GitFork,
   Github,
+  HelpCircle,
   MicOff,
   Paperclip,
+  Plus,
+  Repeat2,
   Shuffle,
+  Undo2,
+  Wand2,
   X,
 } from "lucide-react";
 
@@ -105,6 +111,8 @@ type Message = ThreadMessage & {
    is invented while that is in flight and nothing is invented if it fails: a
    build that did not happen says so, in the conversation, next to the message
    that asked for it. */
+type ComposerMode = "auto" | "edit" | "new_project" | "question";
+
 export default function ChatPanel({
   project,
   onOpenIntegrations,
@@ -147,7 +155,11 @@ export default function ChatPanel({
   /* What the composer says the next message is. "auto" leaves it to the
      classifier; anything else is the person telling it outright, which always
      wins. */
-  const [mode, setMode] = useState<"auto" | "new_project">("auto");
+  /* What the next message will be taken to mean. "auto" leaves it to the
+     classifier, which is right most of the time; the rest are someone saying so
+     outright. Each is a real BuildIntent, so send() passes it straight through
+     as intentOverride rather than translating. */
+  const [mode, setMode] = useState<ComposerMode>("auto");
   /* A message that would replace the page, waiting to be confirmed. Held whole
      so the same text can be sent again either way. */
   const [pendingConfirm, setPendingConfirm] = useState<{ text: string } | null>(null);
@@ -828,6 +840,14 @@ export default function ChatPanel({
   const chip =
     "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
 
+  /* The action row's pill. The composer's own chip, squared off a little and
+     brought down a size: these sit in a block of six above the box rather than
+     one at a time inside it, and at full round with the composer's type they
+     read as six buttons shouting. min-w-0 so a long label truncates inside its
+     pill instead of stretching the column it is in. */
+  const action_chip =
+    "flex h-9 min-w-0 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12.5px] transition-all active:scale-[0.98]";
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
       {/* From md up only. On a phone the bar above already names the app, beside
@@ -1048,26 +1068,115 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* What the next message will be taken to mean, and a way to say
-            otherwise. Only once a page exists: before that every message is the
-            first build, and there is nothing a chip could change. */}
+        {/* What can be done from here, rather than one chip naming what is
+            already happening.
+
+            Six actions in two groups. The first three set what the next message
+            means — they are a choice between each other, so pressing one lights
+            it and pressing it again hands the reading back to the classifier.
+            The last three happen on the press: they are not about the message
+            in the box at all.
+
+            Only once a page exists. Before that every message is the first
+            build, there is nothing to undo, download, or replace, and a row of
+            actions that mostly do not apply is worse than no row. It also
+            stands down entirely while the replace-or-edit question is up: that
+            question is the one thing on this bar worth reading. */}
         {hasPage && !pendingConfirm && (
-          <div className="mb-2 flex items-center gap-2 px-1 text-[12px]">
+          <div className="mb-2 grid grid-cols-2 gap-1.5 px-1 sm:grid-cols-3">
+            {[
+              {
+                id: "edit" as const,
+                label: "Edit this app",
+                icon: Wand2,
+                title: "Change this page. The next message is read as an edit.",
+              },
+              {
+                id: "new_project" as const,
+                label: "New project",
+                icon: Plus,
+                title: "Build something new. You are asked before this page goes.",
+              },
+              {
+                id: "question" as const,
+                label: "Ask a question",
+                icon: HelpCircle,
+                title: "Ask about this app without changing it.",
+              },
+            ].map((action) => {
+              const Icon = action.icon;
+              const on = mode === action.id;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  title={action.title}
+                  aria-pressed={on}
+                  onClick={() => setMode(on ? "auto" : action.id)}
+                  className={`${action_chip} ${
+                    on
+                      ? "border-line/[0.18] bg-layer/[0.09] text-ink"
+                      : "border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink"
+                  }`}
+                >
+                  <Icon className={`h-3.5 w-3.5 shrink-0 ${on ? "text-ink" : "text-muted"}`} />
+                  <span className="truncate">{action.label}</span>
+                </button>
+              );
+            })}
+
+            {/* Another app in this session — the list of them is a page now, so
+                this goes there rather than growing a second switcher in here. */}
             <button
               type="button"
-              onClick={() => setMode(mode === "new_project" ? "auto" : "new_project")}
-              className={`rounded-md border px-2 py-1 transition-colors ${
-                mode === "new_project"
-                  ? "border-line/[0.16] bg-layer/[0.06] text-ink"
-                  : "border-line/[0.08] text-muted hover:text-ink"
-              }`}
+              title="Open another one of your apps."
+              onClick={() => router.push("/dashboard/projects")}
+              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
             >
-              {mode === "new_project" ? "New project" : "Editing this app"}
+              <Repeat2 className="h-3.5 w-3.5 shrink-0 text-muted" />
+              <span className="truncate">Replace this app</span>
             </button>
-            {mode === "new_project" && (
-              <span className="text-muted">The next message replaces this page.</span>
-            )}
+
+            {/* Sent as a message rather than done behind the scenes, so the
+                revert lands in the conversation next to the change it undoes.
+                Disabled while a build is running: two builds racing over one
+                page is how a page ends up as neither. */}
+            <button
+              type="button"
+              title="Undo the last change to this page."
+              disabled={building}
+              onClick={() => void send("Undo the last change.", { intentOverride: "revert" })}
+              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink disabled:pointer-events-none disabled:opacity-40`}
+            >
+              <Undo2 className="h-3.5 w-3.5 shrink-0 text-muted" />
+              <span className="truncate">Undo last change</span>
+            </button>
+
+            {/* An anchor, not a button: the route answers with a
+                Content-Disposition, so the browser saves the file and this
+                conversation never navigates. */}
+            <a
+              href={`/preview/${project?.id}?download=1`}
+              download
+              title="Save this page as a file."
+              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
+            >
+              <Download className="h-3.5 w-3.5 shrink-0 text-muted" />
+              <span className="truncate">Download</span>
+            </a>
           </div>
+        )}
+
+        {/* Said once, under the row, rather than on the chip that caused it —
+            the chip has room for a name and nothing else. */}
+        {hasPage && !pendingConfirm && mode !== "auto" && (
+          <p className="mb-2 px-1 text-[11.5px] text-muted">
+            {mode === "new_project"
+              ? "The next message replaces this page."
+              : mode === "question"
+                ? "The next message is a question, not a change."
+                : "The next message edits this page."}
+          </p>
         )}
 
         {/* The one question worth interrupting for. Nothing has happened yet,
