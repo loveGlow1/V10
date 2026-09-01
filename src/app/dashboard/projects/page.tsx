@@ -135,11 +135,11 @@ function ProjectsScreen() {
     [rows, load],
   );
 
-  /* Opening is what un-archives — see touch_project in supabase/schema.sql. It
-     clears archived_at and bumps last_opened_at in one statement, which is the
-     only thing that brings back a project that aged out rather than one that was
+  /* Unarchiving, which is the same act as opening minus the navigation.
+     touch_project clears archived_at and bumps last_opened_at in one statement,
+     and only the second half brings back a project that aged out rather than one
      archived by hand: clearing the stamp alone would leave it thirty days old
-     and archived again on the next read. */
+     and archived again on the very next read. */
   const open = useCallback(async (id: string) => {
     if (!token.current) return;
     await touchProject(token.current, id).catch(() => {});
@@ -242,10 +242,9 @@ function ProjectsScreen() {
                 className="flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03]"
               >
                 <button
-                  onClick={() => {
-                    void open(row.id);
-                    router.push(`/dashboard/project/${row.id}?view=preview`);
-                  }}
+                  /* The open is recorded by the workspace on arrival, not
+                     here — see Workspace.tsx. */
+                  onClick={() => router.push(`/dashboard/project/${row.id}?view=preview`)}
                   className="flex min-w-0 flex-1 items-center gap-4 text-left"
                 >
                   <PageThumbnail

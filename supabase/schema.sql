@@ -1311,6 +1311,14 @@ create index if not exists projects_user_active_idx
   where deleted_at is null;
 
 -- Bump last_opened_at when a project is opened.
+--
+-- anon is revoked alongside PUBLIC, not instead of it. Supabase grants EXECUTE
+-- on a new function to anon and authenticated explicitly, so revoking PUBLIC
+-- leaves those grants standing and the function callable at
+-- /rest/v1/rpc/touch_project by anyone holding the anon key. Nothing would
+-- happen if they did — auth.uid() is null for anon, so every statement below
+-- matches no rows — but "the filter saves us" is not a grant policy, and
+-- Supabase's own linter flags it. Same reasoning as settle_crypto_payment.
 create or replace function public.touch_project(p_project_id uuid)
 returns void
 language plpgsql
@@ -1327,7 +1335,7 @@ begin
 end;
 $$;
 
-revoke all on function public.touch_project(uuid) from public;
+revoke all on function public.touch_project(uuid) from public, anon;
 grant execute on function public.touch_project(uuid) to authenticated;
 
 -- Soft delete with a 30-day purge window.
@@ -1345,7 +1353,7 @@ begin
 end;
 $$;
 
-revoke all on function public.soft_delete_project(uuid) from public;
+revoke all on function public.soft_delete_project(uuid) from public, anon;
 grant execute on function public.soft_delete_project(uuid) to authenticated;
 
 create or replace function public.restore_project(p_project_id uuid)
@@ -1362,5 +1370,5 @@ begin
 end;
 $$;
 
-revoke all on function public.restore_project(uuid) from public;
+revoke all on function public.restore_project(uuid) from public, anon;
 grant execute on function public.restore_project(uuid) to authenticated;

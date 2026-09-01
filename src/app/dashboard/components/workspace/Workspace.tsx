@@ -15,6 +15,8 @@ import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { browserAccessToken } from "@/lib/projects/client";
+import { touchProject } from "@/lib/projects/queries";
 import { safeHttpUrl } from "@/lib/safe-url";
 import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
@@ -39,6 +41,28 @@ export default function Workspace({ projectId }: { projectId: string }) {
      undone by the parameter still sitting in the address bar. */
   const openedOnPreview = search.get("view") === "preview";
   const { projects, loading, error, select } = useProjects();
+
+  /* Opening an app is the signal the dashboard ranks on — see touch_project in
+     supabase/schema.sql. It belongs here rather than on the rows that link
+     here, because this is where every way in arrives: the apps list, the
+     Projects page, the drawer, the tab strip, a fork, a shared link, and the
+     redirect that follows starting a build. Touching it in each of those was
+     six chances to add a seventh and forget.
+
+     Once per app per visit. It also clears archived_at, so an app that had aged
+     out is active again the moment it is opened, however it was reached — which
+     is the rule the Projects page states and this is what enforces it. */
+  const touched = useRef<string | null>(null);
+  useEffect(() => {
+    if (!projectId || touched.current === projectId) return;
+    touched.current = projectId;
+    void (async () => {
+      const token = await browserAccessToken();
+      /* Best effort, and deliberately unreported: this is a ranking hint, and
+         nobody opening an app needs to be told its timestamp did not move. */
+      if (token) await touchProject(token, projectId).catch(() => {});
+    })();
+  }, [projectId]);
   /* Opening an app puts it in the strip above, or brings the tab it already has
      forward — never a second one for the same app. */
   const { open: openTab } = useWorkspaceTabs();
