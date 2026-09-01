@@ -16,6 +16,22 @@ if (missingSupabasePublicEnvVars.length > 0) {
 }
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  /* Tailwind runs on the server, in /preview/[projectId]?download=1, to compile
+     a downloaded page's stylesheet into the file (src/lib/standalone-page.ts).
+     It has to be required from node_modules at runtime rather than bundled.
+     
+     Tailwind reads its own files off disk — `preflight` is a literal
+     readFileSync of preflight.css — and webpack rewrites that path into the
+     chunk directory, where the file does not exist. Bundled, the compile threw
+     ENOENT on every download; the route caught it, fell back to the stored HTML
+     and served exactly the unstyled page this was written to fix. It looked
+     like the fix had not deployed.
+     
+     Listing it here leaves the require alone, so the package keeps its own
+     files beside it. postcss goes with it because Tailwind is loaded through
+     it. */
+  serverExternalPackages: ["tailwindcss", "postcss"],
+};
 
 export default nextConfig;
