@@ -12,7 +12,6 @@ import { browserAccessToken, byRank, patchProject } from "@/lib/projects/client"
 import {
   countActiveProjects,
   listContinueWorking,
-  touchProject,
   type ProjectListItem,
 } from "@/lib/projects/queries";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -170,14 +169,10 @@ export default function ProjectList() {
                    is one close away underneath, and the sheet is raised again
                    from there whenever it is wanted.
 
-                   The touch goes first and is not waited on: it is what puts
-                   this project at the top of the list next time, and what
-                   un-archives one that had aged out, and a navigation that
-                   waited on either would be slower for it. */
-                onClick={() => {
-                  if (token.current) void touchProject(token.current, row.id).catch(() => {});
-                  router.push(`/dashboard/project/${project.id}?view=preview`);
-                }}
+                   The opening itself is recorded on arrival, by the workspace,
+                   rather than here — every other way into an app would need its
+                   own copy of this line otherwise. See Workspace.tsx. */
+                onClick={() => router.push(`/dashboard/project/${project.id}?view=preview`)}
                 className="flex min-w-0 flex-1 items-center gap-4 text-left"
               >
                 {/* The page itself, drawn small — not a screenshot and not a
