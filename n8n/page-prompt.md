@@ -21,6 +21,7 @@ WHAT TO BUILD:
 - One file. Inline all CSS in a <style> tag and all JavaScript in a <script> tag. No build step, no imports, no bundler.
 - Tailwind is available: <script src="https://cdn.tailwindcss.com"></script>. Prefer it over long hand-written stylesheets — it is far shorter, which is what leaves room to finish.
 - No other external scripts, and no external images: use inline SVG, CSS gradients and solid shapes for artwork. A broken image is worse than no image, and every stock-photo URL you invent is broken.
+- Prefer a system font stack over a webfont link. The page is downloadable as a file, and everything it fetches is something that file has to carry — a linked font is bought at a few hundred kilobytes per family. Reach for one only when the typeface is genuinely the design, and then only one family.
 - Real, specific copy written for this product. Never "Lorem ipsum" and never "Your headline here".
 - Responsive from 320px up. Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Make it look designed rather than defaulted: a considered type scale, deliberate spacing, a coherent palette, restrained motion.

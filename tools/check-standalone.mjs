@@ -110,6 +110,35 @@ check(
 );
 
 
+/* Webfonts, which need the network to inline and so are checked only when there
+   is one. Skipped rather than failed offline: this suite's promise is that it
+   runs anywhere, and a skip that says so is honest where a pass would not be. */
+const FONT_PAGE = `<!doctype html><html><head>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+</head><body class="font-bold">Set</body></html>`;
+
+let online = true;
+try {
+  const ping = await fetch("https://fonts.googleapis.com/css2?family=Inter:wght@400&display=swap", {
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
+  online = ping.ok;
+} catch {
+  online = false;
+}
+
+if (online) {
+  const fonts = await toStandalone(FONT_PAGE);
+  check("the webfont stylesheet is inlined", !/fonts\.googleapis\.com/.test(fonts.html));
+  check("the font files come with it", (fonts.html.match(/data:font\/woff2;base64,/g) ?? []).length > 0);
+  check("nothing points at the font hosts any more", !/fonts\.gstatic\.com/.test(fonts.html));
+  check("the preconnect hints are gone too", !/preconnect/.test(fonts.html));
+} else {
+  console.log("  skip webfont inlining — no network from here");
+}
+
 let failed = 0;
 for (const { why, ok, detail } of checks) {
   if (ok) {

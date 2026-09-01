@@ -42,6 +42,86 @@ const CDN_SCRIPT =
 const CONFIG_SCRIPT =
   /<script\b[^>]*>\s*(?:window\.)?tailwind\.config\s*=\s*(\{[\s\S]*?\n?\})\s*;?\s*<\/script>/i;
 
+/* A webfont link, which is the other thing in a generated page that only works
+   online. Rare — the build prompt asks for system stacks — but five of the
+   pages stored when this was written pull one, and a masthead set in a fallback
+   serif is exactly the "it looks wrong" this whole export exists to prevent. */
+const FONT_LINK =
+  /<link\b[^>]*\bhref\s*=\s*["'](https:\/\/fonts\.googleapis\.com\/css2?\?[^"']+)["'][^>]*>/gi;
+
+/* The preconnect hints that come with it. Harmless in a file, but they are
+   references to a host the file no longer needs, and leaving them means "no
+   remote reference of any kind" is not quite true. */
+const FONT_PRECONNECT =
+  /<link\b[^>]*\bhref\s*=\s*["']https:\/\/fonts\.(?:googleapis|gstatic)\.com\/?["'][^>]*>\s*/gi;
+
+/* Chrome's, so the stylesheet comes back referencing woff2 rather than the ttf
+   an unknown agent is served. Every browser that can open the file supports it,
+   and it is a third the size. */
+const WOFF2_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/* Enough for a family at several weights, not enough for a page to make the
+   export fetch a private library's worth of fonts. */
+const MAX_FONT_BYTES = 2 * 1024 * 1024;
+
+const FONT_FILE = /url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g;
+
+/**
+ * Google Fonts, fetched and written into the file as data: URIs.
+ *
+ * Two round trips rather than one — the stylesheet, then the faces it names —
+ * because there is no way to ask for both at once. Both are cheap and neither
+ * is on the path of anything but a download.
+ *
+ * Every failure leaves the link exactly where it was. A page that still fetches
+ * its font online is worse than one that carries it, and far better than one
+ * whose fonts were removed because a request timed out.
+ */
+async function inlineWebFonts(html: string): Promise<string> {
+  FONT_LINK.lastIndex = 0;
+  const links = [...html.matchAll(FONT_LINK)];
+  if (links.length === 0) return html;
+
+  let out = html;
+  let budget = MAX_FONT_BYTES;
+
+  for (const [tag, href] of links) {
+    try {
+      const sheet = await fetch(href, { headers: { "User-Agent": WOFF2_AGENT } });
+      if (!sheet.ok) continue;
+      let css = await sheet.text();
+
+      FONT_FILE.lastIndex = 0;
+      const files = [...new Set([...css.matchAll(FONT_FILE)].map((m) => m[1]))];
+
+      for (const url of files) {
+        const face = await fetch(url);
+        if (!face.ok) throw new Error(`font ${face.status}`);
+        const bytes = Buffer.from(await face.arrayBuffer());
+
+        budget -= bytes.byteLength;
+        if (budget < 0) throw new Error("fonts exceed what an export will carry");
+
+        css = css.split(url).join(`data:font/woff2;base64,${bytes.toString("base64")}`);
+      }
+
+      /* Only once every face is in hand. Replacing the link against a
+         half-inlined stylesheet would leave the page reaching for the rest. */
+      out = out.replace(tag, `<style data-quickstark="fonts">\n${css}\n</style>`);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("standalone: a webfont could not be inlined, leaving the link:", error);
+    }
+  }
+
+  /* Only when nothing points at those hosts any more. */
+  FONT_LINK.lastIndex = 0;
+  if (!FONT_LINK.test(out)) out = out.replace(FONT_PRECONNECT, "");
+
+  return out;
+}
+
 export type StandaloneResult = {
   html: string;
   /** Bytes of CSS compiled in. Zero means the page never used the CDN. */
@@ -92,12 +172,17 @@ function readConfig(html: string): { config: Partial<Config>; found: boolean } {
  * it does not reference would only make the file bigger.
  */
 export async function toStandalone(html: string): Promise<StandaloneResult> {
+  /* Fonts first, and independently of Tailwind: a page can use a webfont
+     without the CDN, and the early return below would otherwise let it leave
+     with a stylesheet it has to fetch. */
+  const withFonts = await inlineWebFonts(html);
+
   CDN_SCRIPT.lastIndex = 0;
-  if (!CDN_SCRIPT.test(html)) {
-    return { html, cssBytes: 0, themeApplied: false };
+  if (!CDN_SCRIPT.test(withFonts)) {
+    return { html: withFonts, cssBytes: 0, themeApplied: false };
   }
 
-  const { config, found } = readConfig(html);
+  const { config, found } = readConfig(withFonts);
 
   /* Compiled against this page and nothing else: `content` is the markup
      itself, so the output carries the utilities this document uses rather than
@@ -106,7 +191,7 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
   const compiled = await postcss([
     tailwindcss({
       ...config,
-      content: [{ raw: html, extension: "html" }],
+      content: [{ raw: withFonts, extension: "html" }],
     } as Config),
   ]).process("@tailwind base;\n@tailwind components;\n@tailwind utilities;", {
     from: undefined,
@@ -120,7 +205,7 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
      the page's own <style> block still wins where the two overlap — which is
      the order the CDN produced as well. */
   CDN_SCRIPT.lastIndex = 0;
-  let out = html.replace(
+  let out = withFonts.replace(
     CDN_SCRIPT,
     `<style data-quickstark="tailwind">\n${css}\n</style>`,
   );
