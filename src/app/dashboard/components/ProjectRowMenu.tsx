@@ -1,15 +1,23 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { Download, MoreHorizontal } from "lucide-react";
 
 import { useProjects, type Project } from "../ProjectsContext";
+import { safeHttpUrl } from "@/lib/safe-url";
 
-/* The per-row actions menu: rename, and delete behind a confirmation.
+/* The per-row actions menu: take the page, rename, and delete behind a
+ * confirmation.
  *
  * Lifted out of ProjectList because the drawer's recent tasks need the same
- * three behaviours, and a second copy of a menu that deletes things is how the
- * two drift — one gaining a confirmation step the other never got. */
+ * behaviours, and a second copy of a menu that deletes things is how the two
+ * drift — one gaining a confirmation step the other never got.
+ *
+ * Download is here because this is the one place an app is always listed. The
+ * card in the conversation offers it for a few minutes after a build, which is
+ * a shortcut and expires like one; the preview header offers it while the
+ * preview is open. Neither is somewhere you can go and find it later, and "I
+ * built this last week, give me the file" is a reasonable thing to want. */
 export default function ProjectRowMenu({ project }: { project: Project }) {
   const { rename, remove } = useProjects();
   const [open, setOpen] = useState(false);
@@ -97,6 +105,23 @@ export default function ProjectRowMenu({ project }: { project: Project }) {
             </div>
           ) : (
             <>
+              {/* An anchor rather than a button: the route answers with a
+                  Content-Disposition, so the browser saves the file and the
+                  page this menu is on never navigates. Absent, rather than
+                  disabled, on an app that has not been built — there is no file
+                  to offer and saying so twice is noise. */}
+              {safeHttpUrl(project.preview_url) && (
+                <a
+                  role="menuitem"
+                  href={`/preview/${project.id}?download=1`}
+                  download
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-layer/[0.06]"
+                >
+                  <Download className="h-4 w-4 shrink-0 text-muted" />
+                  Download
+                </a>
+              )}
               <button
                 role="menuitem"
                 onClick={() => setRenaming(true)}
