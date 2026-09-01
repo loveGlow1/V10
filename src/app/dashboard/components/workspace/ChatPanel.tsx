@@ -110,6 +110,9 @@ type Message = ThreadMessage & {
    is invented while that is in flight and nothing is invented if it fails: a
    build that did not happen says so, in the conversation, next to the message
    that asked for it. */
+/* How long the "your preview is ready" pill stays up after a build lands. */
+const PREVIEW_READY_MS = 6_000;
+
 type ComposerMode = "auto" | "edit" | "new_project" | "question";
 
 export default function ChatPanel({
@@ -173,6 +176,56 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+
+  /* The "your preview is ready" pill is an announcement, not a status.
+     
+     It used to render for as long as a page existed, which meant it was on
+     screen every visit, all visit, over a page that had been ready since last
+     week — permanent furniture in the one column a phone has, announcing news
+     that had long stopped being news.
+     
+     It is tied to the event instead: last_build_at moves when a version of the
+     page lands, and every path that changes the page stamps it — an edit, a new
+     build, an undo. So the pill wakes when one of those arrives, says its piece,
+     and goes.
+     
+     The stamp already on the row when a workspace opens is history, not an
+     arrival, so it is recorded and not announced; the same applies to switching
+     apps, which is why the project's id is held beside it. */
+  const [previewReady, setPreviewReady] = useState(false);
+  const seenBuild = useRef<{ id: string | null; stamp: string | null } | null>(null);
+
+  useEffect(() => {
+    const id = project?.id ?? null;
+    const stamp = project?.last_build_at ?? null;
+
+    /* A different app — or the first one this panel has seen. Whatever it was
+       last built with happened before we got here. */
+    if (!seenBuild.current || seenBuild.current.id !== id) {
+      seenBuild.current = { id, stamp };
+      setPreviewReady(false);
+      return;
+    }
+    if (stamp && stamp !== seenBuild.current.stamp) {
+      seenBuild.current = { id, stamp };
+      setPreviewReady(true);
+    }
+  }, [project?.id, project?.last_build_at]);
+
+  /* Long enough to read and reach, short enough that it is gone before it is in
+     the way. The timer runs from the moment it appears; a second build landing
+     inside the window restarts it by setting the flag again. */
+  useEffect(() => {
+    if (!previewReady) return;
+    const timer = setTimeout(() => setPreviewReady(false), PREVIEW_READY_MS);
+    return () => clearTimeout(timer);
+  }, [previewReady]);
+
+  /* Opening the preview is the announcement being acted on, so it has done its
+     job and does not come back when the sheet is closed. */
+  useEffect(() => {
+    if (previewOpen) setPreviewReady(false);
+  }, [previewOpen]);
   /* The phases of the message in flight, and the clock they run against. Both
      are drawn from what this panel genuinely observes — the server's own report
      of each operation, and the wait for the page — rather than from a script.
@@ -1020,13 +1073,13 @@ export default function ChatPanel({
           Phones only: from md up the preview is already on screen beside this,
           so announcing it would be pointing at something visible.
 
-          It pops rather than fades in, and it stands down while the sheet is up
-          — which is what makes closing the sheet the moment it springs back.
-          That is the moment someone might think they have put the preview away
-          for good, and this is what says otherwise. Announcing a preview as
-          ready over the top of the preview itself would say nothing. */}
+          It pops rather than fades in, and it leaves the same way a few seconds
+          later — see previewReady above. Announcing a preview as ready over the
+          top of the preview itself would say nothing, so it also stands down the
+          moment the sheet goes up, and having been acted on, it does not come
+          back when the sheet is closed. */}
       <AnimatePresence>
-        {previewUrl && !previewOpen && (
+        {previewReady && previewUrl && !previewOpen && (
           <motion.div
             key="preview-ready"
             initial={{ opacity: 0, y: 12, scale: 0.9 }}
@@ -1036,7 +1089,10 @@ export default function ChatPanel({
             className="shrink-0 px-3 pb-1 md:hidden"
           >
             <button
-              onClick={onOpenPreview}
+              onClick={() => {
+                setPreviewReady(false);
+                onOpenPreview();
+              }}
               className="mx-auto flex h-11 items-center gap-2 rounded-full bg-solid px-5 text-[14px] font-medium text-onSolid shadow-[0_8px_28px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.97]"
             >
               <Eye className="h-4 w-4" />
