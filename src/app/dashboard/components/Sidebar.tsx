@@ -61,12 +61,18 @@ function taskKind(project: { status: string; intent: string | null }) {
   return project.intent ? TASK_KIND[project.intent] : undefined;
 }
 
-/* How many recent tasks the drawer carries before "View all tasks". Three, the
-   same as the dashboard's own list: enough to recognise what you were last
-   doing, and past it you are browsing rather than resuming — which is what the
-   Projects page is for. Short enough that what sits below it, credits and
-   account, stays on screen without scrolling. */
+/* How many recent tasks the drawer carries, unfolded and folded.
+   
+   Three, the same as the dashboard's own list: enough to recognise what you
+   were last doing, and past it you are browsing rather than resuming — which is
+   what the Projects page is for. Folded it keeps one, because a section that
+   collapses to nothing loses the thing it is for: the last app is what you are
+   most likely to want, and it should never take a press to see it.
+   
+   Two numbers rather than a hardcoded 3 and 1, so the shape of this list is one
+   edit in one place. */
 const RECENT_LIMIT = 3;
+const RECENT_FOLDED = 1;
 
 /* Short enough for a narrow row, and it stops counting once a date says it
    better: "3 days ago" is not more useful than "Aug 24", and it gets less
@@ -113,6 +119,10 @@ export default function Sidebar({
      window while it is open leaves the page frozen with no drawer to close. */
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
+  /* Folded by default: the drawer's job on opening is to say what you were last
+     doing, and one row says it. The other two are a press away and stay put
+     while the drawer is open. */
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [emailRevealed, setEmailRevealed] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -330,9 +340,25 @@ export default function Sidebar({
 
             {/* Recent Tasks Section */}
             <div className="flex min-h-0 flex-1 flex-col">
-              <h3 className="mb-3 shrink-0 px-1 text-xs font-semibold uppercase tracking-wider text-muted/70">
-                Recent Tasks
-              </h3>
+              {/* The way to the whole list lives on the heading, where a
+                  section-level link belongs and where the dashboard already
+                  puts the same words. The button below it folds; this one
+                  leaves. Two jobs, two controls, neither pretending to be the
+                  other. */}
+              <div className="mb-3 flex shrink-0 items-center justify-between gap-3 px-1">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted/70">
+                  Recent Tasks
+                </h3>
+                <button
+                  onClick={() => {
+                    onClose();
+                    router.push("/dashboard/projects");
+                  }}
+                  className="shrink-0 rounded-md px-1 py-0.5 text-xs text-muted transition-colors hover:text-ink"
+                >
+                  View all →
+                </button>
+              </div>
               {/* Once there are tasks this is what scrolls; nothing else in the panel
                   does, so a drag anywhere else cannot start a scroll at all. */}
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -347,7 +373,7 @@ export default function Sidebar({
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    {recent.map((project) => {
+                    {(tasksOpen ? recent : recent.slice(0, RECENT_FOLDED)).map((project) => {
                       const kind = taskKind(project);
                       return (
                         <div
@@ -393,16 +419,23 @@ export default function Sidebar({
                         which shows three of them rather than all. Both halves of
                         that were wrong: this is the way to the full list, and
                         the full list is somewhere else. */}
-                    <button
-                      onClick={() => {
-                        onClose();
-                        router.push("/dashboard/projects");
-                      }}
-                      className="mt-1 flex min-h-11 w-full items-center justify-between rounded-2xl border border-line/[0.06] px-3 text-left transition-colors hover:bg-layer/[0.04]"
-                    >
-                      <span className="text-sm font-medium text-ink">View all tasks</span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
-                    </button>
+                    {/* Only when there is something folded away. With one task
+                        in the list there is no second state to offer, and a
+                        control that expands nothing is a control that lies. */}
+                    {recent.length > RECENT_FOLDED && (
+                      <button
+                        onClick={() => setTasksOpen((open) => !open)}
+                        aria-expanded={tasksOpen}
+                        className="mt-1 flex min-h-11 w-full items-center justify-between rounded-2xl border border-line/[0.06] px-3 text-left transition-colors hover:bg-layer/[0.04]"
+                      >
+                        <span className="text-sm font-medium text-ink">
+                          {tasksOpen ? "Show fewer" : "View all tasks"}
+                        </span>
+                        <ChevronDown
+                          className={`h-4 w-4 shrink-0 text-muted transition-transform ${tasksOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
