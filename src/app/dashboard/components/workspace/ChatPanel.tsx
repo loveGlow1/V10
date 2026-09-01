@@ -446,7 +446,21 @@ export default function ChatPanel({
     if (preview) {
       setPhase({ id: "generate", label: "Page generated", state: "done" });
       say(
-        { from: "system", text: "Your page is ready." },
+        {
+          from: "system",
+          text: "Your page is ready.",
+          /* The one thing here that does not expire. The card below offers
+             Download for a few minutes and then takes it away, which is right
+             for a shortcut; this chip is the same file, still here next week.
+             The save step writes the identical pair into the thread, so a
+             reopened conversation shows exactly this. */
+          links: [
+            {
+              label: "Download the page",
+              href: `${window.location.origin}/preview/${project.id}?download=1`,
+            },
+          ],
+        },
         {
           applied: true,
           /* The card under the reply: the page, its name, and the two
@@ -686,6 +700,13 @@ export default function ChatPanel({
          filters too, and this is the half that cannot be bypassed by anything
          reaching the browser another way. */
       const links = [
+        /* Chips the reply named itself — the file, on a message that asked for
+           it. They come first because they are what was asked for; the
+           project's own addresses are context beside them. */
+        ...(reply.messageLinks ?? []).flatMap((link) => {
+          const href = safeHttpUrl(link.href);
+          return href ? [{ label: link.label, href }] : [];
+        }),
         { label: "Open preview", href: safeHttpUrl(outcome.links.preview) },
         { label: "View code", href: safeHttpUrl(outcome.links.repo) },
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },

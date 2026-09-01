@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { carryBrief, priorTurns } from "@/lib/builder/brief";
+import { wantsDownload } from "@/lib/builder/download";
 import { EDIT_MODEL, EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
@@ -535,6 +536,49 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         message: "Put the previous version back.",
       },
       project: reverted ?? null,
+    });
+  }
+
+  // ── DOWNLOAD ─────────────────────────────────────────────────────────────
+  /* "Send me a download file" is not a question about the page, and it used to
+     be answered as one — by a model told the page is its only subject, which
+     replied that it had no way to hand over files. It does: the same address
+     the preview header and the result card use, which serves the page with a
+     Content-Disposition and a filename.
+   *
+   * No model call, so nothing to bill. The address goes into the thread as a
+   * link, which means it is still there tomorrow — unlike the card's button,
+   * which is a shortcut with a few minutes on it by design. */
+  if (currentHtml && wantsDownload(prompt)) {
+    steps.mark("download", "Answered with the file", "rules only, no model call");
+
+    const href = `${previewUrl}?download=1`;
+    const said =
+      "Here it is — the page as a single HTML file. It opens in any browser, and it is the same file the Download button in the preview header gives you.";
+    const links = [{ label: "Download the page", href }];
+    const stored = await deliver(said, { links, key: "download" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "question",
+      /* The chips under the reply, named. The three in `build.links` are the
+         project's own addresses and are labelled as such by the panel; this one
+         is about the message, so it travels beside them with its own label —
+         the same shape the thread stores and reads back. */
+      messageLinks: links,
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: said,
+      },
+      project: null,
     });
   }
 

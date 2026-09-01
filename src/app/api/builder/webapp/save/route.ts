@@ -183,7 +183,16 @@ export async function POST(request: Request) {
     userId: claim.userId,
     role: "system",
     body: "Your page is ready.",
-    links: [{ label: "Open preview", href: previewUrl }],
+    /* Both addresses, and the file is one of them.
+       The card under this message offers Download for a few minutes and then
+       takes it away, which is what a shortcut should do. This link does not
+       expire, because "I built this last week, give me the file" is a
+       reasonable thing to want and the conversation is where someone goes back
+       to look for it. */
+    links: [
+      { label: "Open preview", href: previewUrl },
+      { label: "Download the page", href: `${previewUrl}?download=1` },
+    ],
     kind: "build_ready",
     dedupeKey: `ready:${claim.requestId || landedAt}`,
   });

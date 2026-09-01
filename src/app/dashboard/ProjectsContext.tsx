@@ -47,6 +47,8 @@ export type BuildReply = {
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
   error?: string;
+  /** Chips this reply carries, already labelled. See BuildPayload. */
+  messageLinks?: { label: string; href: string }[];
   /* Whether the server has already put this reply in the stored thread. It
      writes what it answers now — see lib/thread-server.ts — so the panel
      renders it but must not write it a second time. */
@@ -65,6 +67,10 @@ type BuildPayload = {
      writes what it answers now — see lib/thread-server.ts — so the panel
      renders it but must not write it a second time. */
   stored?: boolean;
+  /* Chips that belong to this message rather than to the project — the file a
+     download request is answered with. Already labelled, because only the route
+     knows what they are. */
+  messageLinks?: { label: string; href: string }[];
 };
 
 export type BuildOptions = {
@@ -351,6 +357,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         needsConfirmation: payload.needsConfirmation === true,
         outcome: payload.build,
         stored: payload.stored === true,
+        messageLinks: payload.messageLinks,
       };
     },
     [],

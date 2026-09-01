@@ -30,7 +30,7 @@ mkdirSync(out, { recursive: true });
 
 execFileSync(
   "npx",
-  ["tsc", "src/lib/builder/brief.ts",
+  ["tsc", "src/lib/builder/brief.ts", "src/lib/builder/download.ts",
    "src/app/dashboard/components/workspace/resume.ts",
    "src/app/dashboard/components/workspace/threadView.ts",
    "--outDir", out, "--rootDir", "src",
@@ -38,6 +38,7 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 const { carryBrief, priorTurns, isContinuation } = await import(join(out, "lib/builder/brief.js"));
+const { wantsDownload } = await import(join(out, "lib/builder/download.js"));
 const { resumableFrom, RESUME_WINDOW_MS } = await import(
   join(out, "app/dashboard/components/workspace/resume.js")
 );
@@ -278,7 +279,51 @@ for (const [name, thread, hasPage, expected] of CARDS) {
   console.log(`${ok ? "ok  " : "WRONG"} card: counts from when the page landed`);
 }
 
+/* ── Asking for the file ─────────────────────────────────────────────────── */
+/* [message, expected] — true means "hand over the page", false means "this is
+   about the page itself". The false half is the one that matters: handing
+   someone a file when they asked for a button is the worse failure. */
+const DOWNLOADS = [
+  /* The message that was actually refused, typos and all. */
+  ["Semd me à download file", true],
+  ["can I download this?", true],
+  ["download", true],
+  ["Download the page please", true],
+  ["send me the html", true],
+  ["give me the file", true],
+  ["can I have a copy of the file", true],
+  ["export the site", true],
+  ["I want to save the code", true],
+  ["is the html downloadable?", true],
+  ["zip it up for me", true],
+
+  /* Edits that talk about downloading. The page is the subject. */
+  ["add a download button", false],
+  ["Add a download link to the hero", false],
+  ["make the download button bigger", false],
+  ["put a download icon in the nav", false],
+  ["change the download section's colour", false],
+  ["remove the download form", false],
+
+  /* Ordinary messages that must not trip it. */
+  ["make the header darker", false],
+  ["what font is the heading?", false],
+  ["build me a pricing page", false],
+  ["", false],
+];
+
+for (const [message, expected] of DOWNLOADS) {
+  const got = wantsDownload(message);
+  const ok = got === expected;
+  if (!ok) wrong++;
+  console.log(
+    `${ok ? "ok  " : "WRONG"} download: ${JSON.stringify(message)} -> ${got ? "hand over the file" : "not a download"}`,
+  );
+}
+
 console.log(
-  `\n${CASES.length + THREADS.length + RESUMES.length + CARDS.length + 4} checks · ${wrong} wrong`,
+  `\n${
+    CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + 4
+  } checks · ${wrong} wrong`,
 );
 process.exit(wrong === 0 ? 0 : 1);

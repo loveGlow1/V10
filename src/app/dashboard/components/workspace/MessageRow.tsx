@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, ExternalLink, User } from "lucide-react";
+import { Check, Download, ExternalLink, User } from "lucide-react";
 
 import QMark from "../../../QMark";
 
@@ -132,18 +132,24 @@ export default function MessageRow({
 
       {message.links && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {message.links.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
-            >
-              {link.label}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          ))}
+          {message.links.map((link) => {
+            /* A chip that saves a file rather than opening a place.
+               Both the arrow and the new tab would be wrong for it: the route
+               answers with a Content-Disposition, so the browser saves it and
+               the tab it opened would sit there empty. */
+            const saves = link.href.includes("download=1");
+            return (
+              <a
+                key={link.href}
+                href={link.href}
+                {...(saves ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
+                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
+              >
+                {link.label}
+                {saves ? <Download className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
+              </a>
+            );
+          })}
         </div>
       )}
 
