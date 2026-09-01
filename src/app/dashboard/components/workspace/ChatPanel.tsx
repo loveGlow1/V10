@@ -25,7 +25,8 @@ import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
-import BuildActivity, { type ActivityStep } from "./BuildActivity";
+import BuildActivity from "./BuildActivity";
+import { usePacedSteps } from "./usePacedSteps";
 import MessageRow, { type Activity } from "./MessageRow";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
@@ -161,9 +162,11 @@ export default function ChatPanel({
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
   /* The phases of the message in flight, and the clock they run against. Both
-     are drawn from what this panel genuinely observes — the classifier's answer
-     and the wait for the page — rather than from a script. */
-  const [phases, setPhases] = useState<ActivityStep[]>([]);
+     are drawn from what this panel genuinely observes — the server's own report
+     of each operation, and the wait for the page — rather than from a script.
+     usePacedSteps holds the rhythm they arrive in; see the note there for why a
+     true report still needs one. */
+  const phases = usePacedSteps();
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   /* When the most recent run started, which runStartedAt cannot say because it
      is cleared the moment the run ends. This one only moves forward, and it is
@@ -392,31 +395,12 @@ export default function ChatPanel({
     }
   }
 
-  /* The phases of the run in flight, kept in a ref as well as in state. The
-     state is what the live tracker draws; the ref is what the finished message
-     keeps, and reading state back inside the same async function would only
-     ever see the value it closed over. */
-  const run = useRef<ActivityStep[]>([]);
-
-  /* Merges a phase in by id, so a step that was running becomes the same step
-     finished rather than a second line saying the same thing. */
-  function setPhase(step: ActivityStep) {
-    const at = run.current.findIndex((existing) => existing.id === step.id);
-    if (at === -1) run.current = [...run.current, step];
-    else {
-      const next = [...run.current];
-      next[at] = step;
-      run.current = next;
-    }
-    setPhases(run.current);
-  }
-
   /* The run as it stands, for the message that ends it. `failed` is read from
      the reply rather than from the steps: a page that generated fine can still
      come back with a status that says otherwise. */
   function timelineOf(startedAt: number, failed: boolean): Activity {
     return {
-      steps: run.current,
+      steps: phases.current(),
       startedAt,
       finishedAt: Date.now(),
       failed,
@@ -438,13 +422,15 @@ export default function ChatPanel({
   async function awaitPage(runStarted: number, since: number, detail: string) {
     if (!project) return;
 
-    setPhase({ id: "generate", label: "Generating the page", detail, state: "running" });
+    /* Set rather than queued. The pace exists to spread a burst; this is one
+       row, and the next thing that happens to it is minutes away. */
+    phases.set({ id: "generate", label: "Generating the page", detail, state: "running" });
 
     const finished = await watchBuild(project.id, since);
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
-      setPhase({ id: "generate", label: "Page generated", state: "done" });
+      phases.set({ id: "generate", label: "Page generated", state: "done" });
       say(
         {
           from: "system",
@@ -488,7 +474,7 @@ export default function ChatPanel({
         "server",
       );
     } else if (finished?.status === "Failed") {
-      setPhase({ id: "generate", label: "The build did not finish", state: "done" });
+      phases.set({ id: "generate", label: "The build did not finish", state: "done" });
       /* The build came back and said so. Generation happens after the reply,
          so a failure there cannot travel in the response — it is written to
          the row instead, which is the same row this was waiting on. */
@@ -501,7 +487,7 @@ export default function ChatPanel({
       /* Left running rather than ticked: the wait gave up, the build did
          not. Marking it done would say this panel knows an outcome it does
          not have. */
-      setPhase({
+      phases.set({
         id: "generate",
         label: "Still generating when the wait gave up",
         state: "running",
@@ -539,13 +525,13 @@ export default function ChatPanel({
     setBuilding(true);
     setRunStartedAt(startedAt);
     setLastRunAt(startedAt);
-    run.current = [];
+    phases.reset();
     try {
       await awaitPage(startedAt, since, "This was already running when you opened it — picking it back up…");
     } finally {
       setBuilding(false);
       setRunStartedAt(null);
-      setPhases([]);
+      phases.reset();
       onBuildSettled?.();
     }
   }
@@ -582,13 +568,17 @@ export default function ChatPanel({
     const runStarted = Date.now();
     setRunStartedAt(runStarted);
     setLastRunAt(runStarted);
-    run.current = [];
+    phases.reset();
     /* The one step this panel reports itself, and the only one it can: the
        request is in the browser's hands until the server answers, so nothing
        else knows it is happening. Everything after it is streamed — see the
        onStep below — and this row closes the moment the first of those
-       arrives, timed by the clock that measured it. */
-    setPhase({
+       arrives, timed by the clock that measured it.
+
+       Shown rather than queued: it is the first row, there is nothing above it
+       to be paced against, and holding it back would leave the panel empty at
+       the one moment somebody is definitely looking at it. */
+    phases.set({
       id: "send",
       label: "Sending your message",
       detail: "waiting for the server to pick it up…",
@@ -619,14 +609,14 @@ export default function ChatPanel({
         onStep: (step) => {
           if (!picked) {
             picked = true;
-            setPhase({
+            phases.show({
               id: "send",
               label: "Sent your message",
               state: "done",
               ms: Date.now() - runStarted,
             });
           }
-          setPhase(step);
+          phases.show(step);
         },
       });
 
@@ -640,7 +630,8 @@ export default function ChatPanel({
            panel timed itself as well as any operation that began and never got
            to finish — which is exactly the row worth keeping when a request
            stops in the middle. */
-        for (const step of reply.steps ?? []) setPhase(step);
+        for (const step of reply.steps ?? []) phases.show(step);
+        await phases.flush();
         say(
           {
             from: "system",
@@ -651,7 +642,7 @@ export default function ChatPanel({
              got before it stopped. Read off the run rather than off the reply,
              because a request that died mid-operation has steps on screen that
              never made it into the reply's list. */
-          run.current.length > 0 ? { activity: timelineOf(runStarted, true) } : undefined,
+          phases.current().length > 0 ? { activity: timelineOf(runStarted, true) } : undefined,
           /* A refusal the server reached — a failed edit, a build that would
              not start — is stored there, with the message that caused it. One
              it never reached (no network, no session) is this panel's to keep. */
@@ -684,9 +675,9 @@ export default function ChatPanel({
          call was billed at — none of which the browser can know. The inferred
          step stays only as the fallback for a reply that carries no list. */
       if (reply.steps?.length) {
-        for (const step of reply.steps) setPhase(step);
+        for (const step of reply.steps) phases.show(step);
       } else {
-        setPhase({
+        phases.show({
           id: "classify",
           label: INTENT_LABEL[reply.intent ?? ""] ?? "Read your message",
           state: "done",
@@ -711,6 +702,11 @@ export default function ChatPanel({
         { label: "View code", href: safeHttpUrl(outcome.links.repo) },
         { label: "Open admin", href: safeHttpUrl(outcome.links.admin) },
       ].filter((link): link is { label: string; href: string } => link.href !== null);
+
+      /* The answer waits for its own working to finish arriving. A reply that
+         lands above three rows still queued reads as the panel having skipped
+         them. */
+      await phases.flush();
 
       say(
         {
@@ -754,7 +750,7 @@ export default function ChatPanel({
     } finally {
       setBuilding(false);
       setRunStartedAt(null);
-      setPhases([]);
+      phases.reset();
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
@@ -969,7 +965,7 @@ export default function ChatPanel({
               </p>
             </div>
             <div className="mt-2.5">
-              <BuildActivity running startedAt={runStartedAt} steps={phases} />
+              <BuildActivity running startedAt={runStartedAt} steps={phases.steps} />
             </div>
           </div>
         )}

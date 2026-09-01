@@ -47,6 +47,50 @@ function client(): Anthropic {
   return new Anthropic();
 }
 
+/* What the model is doing, reported by the model.
+ *
+ * The tracker used to say "claude-opus-5 is writing the change…" for the whole
+ * of a fifteen-second call. That sentence is true, but it is written here — it
+ * is the same words whatever was asked for, which is a placeholder wearing a
+ * progress bar's clothes. This is the actual thing: the reasoning Claude
+ * summarises as it works, and the count of patch blocks as they are written.
+ *
+ * `reasoning` is the model's own summarised thinking. It requires asking for
+ * it: on Claude Opus 5 the default is `display: "omitted"`, which streams
+ * thinking blocks with the text stripped out — so without the opt-in below
+ * there is nothing to show and the panel would be back to inventing a line. */
+export type Progress =
+  | { kind: "reasoning"; text: string }
+  | { kind: "writing"; blocks: number };
+
+export type OnProgress = (progress: Progress) => void;
+
+/* How often progress is passed on. The deltas arrive many times a second and
+   the panel is a line of text a person is reading; anything faster than this is
+   a blur, and every one of them is also a line over the wire. */
+const PROGRESS_EVERY_MS = 600;
+
+/* The last thing Claude finished saying, short enough for one line.
+ *
+ * Taken from the end rather than the start: the reasoning is a running
+ * narration, and the sentence being worked on now is the one worth showing.
+ * An unfinished trailing fragment is dropped — half a sentence appearing a word
+ * at a time reads as a typing effect, which is the fake this is replacing. */
+export function lastSentence(text: string): string | null {
+  const finished = text.replace(/\s+/g, " ").trimEnd();
+  const sentences = finished.split(/(?<=[.!?])\s+/).filter((part) => part.trim().length > 0);
+
+  /* The final element is only a sentence if it is punctuated; otherwise it is
+     what the model is still writing, and the one before it is the last thing it
+     actually finished. */
+  const complete = /[.!?]$/.test(finished) ? sentences : sentences.slice(0, -1);
+  const latest = complete[complete.length - 1];
+  if (!latest) return null;
+
+  const trimmed = latest.trim();
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
+}
+
 async function ask(
   system: string,
   prompt: string,
@@ -59,15 +103,24 @@ async function ask(
      pasted into one. Without them "make it darker too" has no "too", and
      "change the other one as well" names nothing — see builder/brief.ts. */
   prior: Anthropic.MessageParam[] = [],
+  onProgress?: OnProgress,
 ): Promise<Anthropic.Message> {
   try {
-    return await client().messages.create({
+    /* Streamed rather than awaited whole, and the streaming is the point: the
+       events are the only source of what is happening while it happens. The
+       final message is still what the caller gets, so nothing downstream
+       changes shape. */
+    const stream = client().messages.stream({
       model: EDIT_MODEL,
       max_tokens: maxTokens,
       /* Adaptive thinking, low effort. Working out which lines to change and
          copying them exactly is careful work rather than hard work, and this
-         call is on the path of someone watching a cursor. */
-      thinking: { type: "adaptive" },
+         call is on the path of someone watching a cursor.
+
+         `display: "summarized"` is what makes the reasoning readable at all —
+         the default on this model omits it, and the raw chain of thought is
+         never returned by any of them. */
+      thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: "low" },
       system,
       messages: [
@@ -81,6 +134,45 @@ async function ask(
         },
       ],
     });
+
+    if (onProgress) {
+      let reasoning = "";
+      let written = "";
+      let lastSent = 0;
+      let lastLine = "";
+
+      for await (const event of stream) {
+        if (event.type !== "content_block_delta") continue;
+
+        if (event.delta.type === "thinking_delta") {
+          reasoning += event.delta.thinking;
+        } else if (event.delta.type === "text_delta") {
+          written += event.delta.text;
+        } else {
+          continue;
+        }
+
+        const now = Date.now();
+        if (now - lastSent < PROGRESS_EVERY_MS) continue;
+        lastSent = now;
+
+        /* Once blocks are being written the reasoning is over, and the count is
+           both more useful and more certain than the last thing it said. */
+        const blocks = (written.match(/<{7} SEARCH/g) ?? []).length;
+        if (blocks > 0) {
+          onProgress({ kind: "writing", blocks });
+          continue;
+        }
+
+        const line = lastSentence(reasoning);
+        if (line && line !== lastLine) {
+          lastLine = line;
+          onProgress({ kind: "reasoning", text: line });
+        }
+      }
+    }
+
+    return await stream.finalMessage();
   } catch (error) {
     if (error instanceof EditError) throw error;
     if (error instanceof Anthropic.AuthenticationError) {
@@ -121,8 +213,16 @@ export async function editPage(
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
+  onProgress?: OnProgress,
 ): Promise<EditOutcome> {
-  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments, prior);
+  const first = await ask(
+    EDIT_SYSTEM,
+    editPrompt(userMessage, html),
+    8_000,
+    attachments,
+    prior,
+    onProgress,
+  );
 
   if (first.stop_reason === "refusal") {
     throw new EditError("I wasn't able to make that change. If you can say which part of the page you mean, I'll try again.", 422);
@@ -141,12 +241,18 @@ export async function editPage(
       ? describeFailures(result.failures)
       : "You returned no search/replace blocks.";
 
+    /* The second attempt reports too, and says so: a retry that narrated
+       itself as a first attempt would hide the one thing worth knowing about
+       it. */
+    onProgress?.({ kind: "reasoning", text: "That didn't place cleanly. Looking at the page again…" });
+
     const second = await ask(
       EDIT_SYSTEM,
       retryPrompt(userMessage, html, reason),
       8_000,
       attachments,
       prior,
+      onProgress,
     );
     output = textOf(second);
     result = applyPatches(html, output);
@@ -183,6 +289,7 @@ export async function askClarifying(
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
+  onProgress?: OnProgress,
 ): Promise<Answer> {
   /* 300 tokens and low effort: this is one sentence, and it is on the path of
      someone who has already waited once for the classifier. */
@@ -192,6 +299,7 @@ export async function askClarifying(
     300,
     attachments,
     prior,
+    onProgress,
   );
 
   if (message.stop_reason === "refusal") {
@@ -216,6 +324,7 @@ export async function answerQuestion(
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
+  onProgress?: OnProgress,
 ): Promise<Answer> {
   const message = await ask(
     QUESTION_SYSTEM,
@@ -223,6 +332,7 @@ export async function answerQuestion(
     1_500,
     attachments,
     prior,
+    onProgress,
   );
 
   if (message.stop_reason === "refusal") {

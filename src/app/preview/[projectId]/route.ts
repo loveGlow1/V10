@@ -1,3 +1,4 @@
+import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Serves the page a build produced.
@@ -47,6 +48,10 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/* The preview itself is a read. The download compiles a stylesheet on the way
+   out — well under a second for a page of this size, but real work rather than
+   a lookup, so it is not left on the default. */
+export const maxDuration = 30;
 
 function notFound(message: string) {
   /* Deliberately the same answer for "no such project", "not yours" and "never
@@ -113,7 +118,31 @@ export async function GET(
       .eq("id", projectId)
       .maybeSingle();
 
-    return new Response(build.html, {
+    /* Compiled on the way out, and this is what makes a download worth having.
+       The page styles itself with the Tailwind play CDN, which is fine at a URL
+       and useless in a file: opened from disk — Quick Look on a phone, an email
+       attachment, a tab with no connection — that script is a request nobody
+       makes. Not one utility class resolves, nothing errors, and what renders
+       is the raw document: default serif, blue underlined links, an inline icon
+       a screen tall because `h-5 w-5` meant nothing. It looks broken. It is
+       unstyled, which looks the same and is worse, because whoever opened it
+       cannot tell which.
+
+       toStandalone runs Tailwind over this page's own markup and puts the
+       result in the file, so what leaves here has no external reference of any
+       kind. See src/lib/standalone-page.ts. */
+    let file = build.html as string;
+    try {
+      file = (await toStandalone(file)).html;
+    } catch (error) {
+      /* The page is still worth having. Compiling is what makes it look right
+         offline, not what makes it a page, so a compiler failure downgrades the
+         download rather than denying it. */
+      // eslint-disable-next-line no-console
+      console.error("preview: the page could not be made standalone:", error);
+    }
+
+    return new Response(file, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Disposition": `attachment; filename="${fileNameFor(project?.name)}"`,
