@@ -1,15 +1,21 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, LayoutGrid, Laptop, Radio } from "lucide-react";
+import { Pin } from "lucide-react";
 
-import { isPublished, useProjects, type Project } from "../ProjectsContext";
+import { isPublished, useProjects } from "../ProjectsContext";
 import PageThumbnail from "./PageThumbnail";
-import ProjectRowMenu from "./ProjectRowMenu";
+import ProjectLifecycleMenu from "./ProjectLifecycleMenu";
+import { browserAccessToken, byRank, patchProject } from "@/lib/projects/client";
+import {
+  countActiveProjects,
+  listContinueWorking,
+  touchProject,
+  type ProjectListItem,
+} from "@/lib/projects/queries";
 import { safeHttpUrl } from "@/lib/safe-url";
-
-type Filter = "all" | "apps" | "published";
 
 /* Rounded to the unit a person would say out loud; anything under a minute is
    "just now" rather than a count of seconds nobody reads. */
@@ -32,110 +38,150 @@ function updatedAgo(iso: string) {
   return `Updated ${value} ${unit[1]}${value === 1 ? "" : "s"} ago`;
 }
 
+/** Past this, the row is browsing rather than resuming. Everything else is a page. */
+const SHOWN = 3;
+
+/* What is worth coming back to, at most three of them.
+ *
+ * Two sources, deliberately. Which projects and in what order is
+ * listContinueWorking's answer — pinned first, then last opened, archived and
+ * deleted rows already gone — and that ordering is the whole point of the
+ * section. What each row shows is the projects list this dashboard already
+ * holds: the built page for the tile, the status for the Published badge, the
+ * time it was last changed. Asking the lifecycle query for those columns too
+ * would give two loaders for one row and a tile that flickers when they
+ * disagree, so the ranking selects and the list renders.
+ *
+ * The old filter menu is gone. Three rows do not need filtering, and All /
+ * Apps / Published over a list capped at three was a control with nothing to
+ * do; it is a link to the Projects page now, where the filters live and where
+ * there is enough to filter. */
 export default function ProjectList() {
   const router = useRouter();
-  const { projects, loading, error } = useProjects();
-  const [filter, setFilter] = useState<Filter>("all");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef<HTMLDivElement>(null);
+  const { projects, rename: renameInList } = useProjects();
+
+  const [ranked, setRanked] = useState<ProjectListItem[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  /* Held so the row's click handler has it without awaiting: opening a project
+     touches it, and that write must start before the navigation, not after a
+     round trip to find out who is asking. */
+  const token = useRef<string | null>(null);
+
+  const load = useCallback(async () => {
+    token.current = await browserAccessToken();
+    if (!token.current) {
+      setRanked([]);
+      return;
+    }
+    try {
+      const [rows, count] = await Promise.all([
+        listContinueWorking(token.current),
+        countActiveProjects(token.current),
+      ]);
+      setError(null);
+      setRanked(rows);
+      setTotal(count);
+    } catch (loadError) {
+      setRanked([]);
+      setError(loadError instanceof Error ? loadError.message : "Could not read your projects.");
+    }
+  }, []);
 
   useEffect(() => {
-    if (!filterOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setFilterOpen(false);
+    void load();
+  }, [load]);
+
+  /* A project created or renamed elsewhere on this page changes the list under
+     us. Re-reading on its length is enough: a new project is what changes which
+     three of them belong here, and a rename is folded in below without a read. */
+  useEffect(() => {
+    void load();
+  }, [projects.length, load]);
+
+  /* Pin and archive both move a row, so both change the list in place first and
+     tell the server after. A pin that waited on a round trip to move would look
+     like it had not worked. */
+  const change = useCallback(
+    async (id: string, next: Partial<ProjectListItem>, patch: Parameters<typeof patchProject>[1]) => {
+      const before = ranked;
+      setRanked((current) =>
+        (current ?? [])
+          .map((row) => (row.id === id ? { ...row, ...next } : row))
+          .sort(byRank),
+      );
+
+      const failure = await patchProject(id, patch);
+      if (failure) {
+        setError(failure);
+        setRanked(before);
+        return;
       }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [filterOpen]);
+      setError(null);
+      /* An archive leaves a gap, and the fourth project is the one that fills
+         it. Re-read rather than reload the page — the composer above keeps
+         whatever is typed in it. */
+      void load();
+    },
+    [ranked, load],
+  );
 
-  const shown = projects.filter((project) => {
-    if (filter === "published") return isPublished(project);
-    if (filter === "apps") return !isPublished(project);
-    return true;
-  });
+  /* Nothing at all until the first read is in. A heading that appears and then
+     unmounts for someone with no projects is worse than a moment of quiet. */
+  if (ranked === null) return null;
 
-  const tabs: { id: Filter; label: string; icon: typeof LayoutGrid }[] = [
-    { id: "all", label: `All (${projects.length})`, icon: LayoutGrid },
-    { id: "apps", label: "Apps", icon: Laptop },
-    { id: "published", label: "Published", icon: Radio },
-  ];
-  const current = tabs.find((tab) => tab.id === filter) ?? tabs[0];
+  /* Zero projects is not an empty state here. The composer above this is
+     already the invitation to start one, and saying so twice on one screen is
+     saying it once too often. The error is the exception: a section that has
+     silently stopped working should say so rather than look empty. */
+  if (ranked.length === 0 && !error) return null;
 
   return (
-    /* Everything built so far, on both sizes. It used to be desktop-only: three
-       filter pills above a short list cost more room than they saved on a phone.
-       They are a menu now rather than a row, which is one control instead of
-       three, so the filter comes to the phone with the list. */
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
       <div className="flex items-end justify-between gap-4 px-1">
         <h2 className="text-[17px] font-semibold tracking-tight text-ink md:text-lg">
           Continue working
         </h2>
 
-        <div className="relative shrink-0" ref={filterRef}>
-          <button
-            onClick={() => setFilterOpen((open) => !open)}
-            aria-expanded={filterOpen}
-            aria-haspopup="menu"
-            className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+        {/* Only once there is something the three rows do not show. */}
+        {total > SHOWN && (
+          <Link
+            href="/dashboard/projects"
+            className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
           >
-            <current.icon className="h-3.5 w-3.5" />
-            {current.label}
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform ${filterOpen ? "rotate-180" : ""}`}
-            />
-          </button>
-
-          {filterOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-[calc(100%+6px)] z-50 w-[190px] overflow-hidden rounded-xl border border-line/[0.09] bg-panel p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
-            >
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                const active = filter === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    role="menuitem"
-                    onClick={() => {
-                      setFilter(tab.id);
-                      setFilterOpen(false);
-                    }}
-                    className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm transition-colors ${
-                      active ? "bg-layer/[0.06] text-ink" : "text-muted hover:bg-layer/[0.04] hover:text-ink"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+            View all →
+          </Link>
+        )}
       </div>
 
       <div className="mt-3 space-y-1 md:mt-4">
-        {loading && <p className="py-8 text-center text-sm text-muted">Loading your projects…</p>}
-
         {error && <p className="py-8 text-center text-sm text-danger">{error}</p>}
 
-        {!loading &&
-          !error &&
-          shown.map((project) => (
+        {ranked.map((row) => {
+          const project = projects.find((candidate) => candidate.id === row.id);
+          /* Ranked but not loaded yet. It appears on the next read rather than
+             as a row with no name in it. */
+          if (!project) return null;
+
+          return (
             <div
-              key={project.id}
+              key={row.id}
               className="flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03]"
             >
               <button
                 /* Straight to the preview. Opening an app from this list means
                    wanting to look at it, not to talk about it — the conversation
                    is one close away underneath, and the sheet is raised again
-                   from there whenever it is wanted. */
-                onClick={() => router.push(`/dashboard/project/${project.id}?view=preview`)}
+                   from there whenever it is wanted.
+
+                   The touch goes first and is not waited on: it is what puts
+                   this project at the top of the list next time, and what
+                   un-archives one that had aged out, and a navigation that
+                   waited on either would be slower for it. */
+                onClick={() => {
+                  if (token.current) void touchProject(token.current, row.id).catch(() => {});
+                  router.push(`/dashboard/project/${project.id}?view=preview`);
+                }}
                 className="flex min-w-0 flex-1 items-center gap-4 text-left"
               >
                 {/* The page itself, drawn small — not a screenshot and not a
@@ -152,6 +198,7 @@ export default function ProjectList() {
                 />
                 <span className="min-w-0">
                   <span className="flex items-center gap-2">
+                    {row.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted" />}
                     <span className="truncate text-[15px] text-ink">{project.name}</span>
                     {isPublished(project) && (
                       <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
@@ -164,28 +211,34 @@ export default function ProjectList() {
                   </span>
                 </span>
               </button>
-              <ProjectRowMenu project={project} />
-            </div>
-          ))}
 
-        {!loading && !error && shown.length === 0 && (
-          <div className="py-10 text-center">
-            <p className="text-sm font-medium text-muted">
-              {projects.length === 0
-                ? "No apps yet"
-                : filter === "published"
-                  ? "Nothing published yet"
-                  : "Everything you have built is published"}
-            </p>
-            <p className="mx-auto mt-1.5 max-w-[320px] text-[13px] leading-relaxed text-muted/70">
-              {projects.length === 0
-                ? "Describe what you want in the box above to start your first one."
-                : filter === "published"
-                  ? "An app appears here once you publish it."
-                  : "There is nothing left in progress."}
-            </p>
-          </div>
-        )}
+              {/* No Delete. This row sits under the composer, close enough to a
+                  thumb on the way past, and the deliberate version of that
+                  action lives on the Projects page. */}
+              <ProjectLifecycleMenu
+                project={{
+                  id: row.id,
+                  name: project.name,
+                  pinned: row.pinned,
+                  archived: row.archived_at !== null,
+                }}
+                onPin={(pinned) => void change(row.id, { pinned }, { pinned })}
+                onArchive={(archived) =>
+                  void change(
+                    row.id,
+                    { archived_at: archived ? new Date().toISOString() : null },
+                    { archived },
+                  )
+                }
+                onRename={(name) => {
+                  /* Through the projects list, so the tab strip and the switcher
+                     are relabelled with it, then the same change on the server. */
+                  void renameInList(row.id, name);
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
     </section>
   );

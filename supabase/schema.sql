@@ -1290,3 +1290,77 @@ $$;
 -- anyone holding an anon key.
 revoke all on function public.settle_crypto_payment(uuid, text) from public, anon, authenticated;
 grant execute on function public.settle_crypto_payment(uuid, text) to service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Update 02: project lifecycle columns
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table public.projects
+  add column if not exists pinned boolean not null default false,
+  add column if not exists last_opened_at timestamptz not null default now(),
+  add column if not exists archived_at timestamptz,
+  add column if not exists deleted_at timestamptz;
+
+-- Backfill so existing rows are not treated as never-opened.
+update public.projects
+  set last_opened_at = coalesce(updated_at, created_at)
+  where last_opened_at is null;
+
+create index if not exists projects_user_active_idx
+  on public.projects (user_id, pinned desc, last_opened_at desc)
+  where deleted_at is null;
+
+-- Bump last_opened_at when a project is opened.
+create or replace function public.touch_project(p_project_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.projects
+     set last_opened_at = now(),
+         archived_at    = null          -- opening un-archives
+   where id = p_project_id
+     and user_id = auth.uid()
+     and deleted_at is null;
+end;
+$$;
+
+revoke all on function public.touch_project(uuid) from public;
+grant execute on function public.touch_project(uuid) to authenticated;
+
+-- Soft delete with a 30-day purge window.
+create or replace function public.soft_delete_project(p_project_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.projects
+     set deleted_at = now()
+   where id = p_project_id
+     and user_id = auth.uid();
+end;
+$$;
+
+revoke all on function public.soft_delete_project(uuid) from public;
+grant execute on function public.soft_delete_project(uuid) to authenticated;
+
+create or replace function public.restore_project(p_project_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.projects
+     set deleted_at = null
+   where id = p_project_id
+     and user_id = auth.uid();
+end;
+$$;
+
+revoke all on function public.restore_project(uuid) from public;
+grant execute on function public.restore_project(uuid) to authenticated;
