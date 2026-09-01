@@ -795,9 +795,14 @@ function PayStep({
             {payment.status === "submitted" ? (
               <div className="mt-5 flex items-center gap-3 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3.5">
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                {/* No promise about how long. Settlement can be a processor
+                    answering in seconds or a person checking a wallet, and a
+                    screen that says "any moment now" to somebody in the second
+                    case has lied to them about their own money. */}
                 <p className="text-[13px] font-medium leading-relaxed text-soft">
-                  Waiting for the network to confirm. You can close this — the credits land as soon
-                  as the payment confirms.
+                  Waiting for the payment to be confirmed. You can close this page — your credits
+                  are added as soon as it clears, and this order keeps its number if you need to
+                  ask about it.
                 </p>
               </div>
             ) : (

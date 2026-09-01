@@ -72,6 +72,45 @@ deployment other than `http://localhost:3000`.
 **Match the amount exactly before confirming.** It is the only thing tying a
 payment to an order; an approximate match is not a match.
 
+### Settling without a webhook
+
+`npm run settle` needs `CRYPTO_PAYMENTS_WEBHOOK_SECRET`. Until that is set on
+the deployment, payments can still be settled by hand from **Supabase → SQL
+Editor**, which runs as the function's owner and so may call it directly.
+
+What is waiting:
+
+```sql
+select id,
+       created_at,
+       status,
+       coalesce(plan_id, packs || ' × top-up pack') as buying,
+       amount_usd,
+       crypto_amount,
+       upper(currency) as coin,
+       address
+from public.crypto_payments
+where status in ('awaiting_payment', 'submitted')
+order by created_at desc;
+```
+
+Check that a payment of **exactly** `crypto_amount` arrived at `address`, then:
+
+```sql
+select * from public.settle_crypto_payment(
+  '00000000-0000-0000-0000-000000000000',  -- the id from the list above
+  'transaction id from your wallet'        -- optional, kept on the order
+);
+```
+
+It returns the account's balance after the grant. Running it twice grants
+nothing further — the order is locked and an already-confirmed one returns
+untouched — so a double-click cannot pay out twice.
+
+Nothing else settles an order. There is no button in the app that does this, and
+that is deliberate: the browser can only record that a payer *says* they have
+paid.
+
 If you later move to a processor (BTCPay, Coinbase Commerce, NOWPayments), it
 issues a fresh address per order and calls that same webhook itself — the
 manual step and the distinct-amount nudging both become unnecessary, and
