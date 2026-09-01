@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  isCryptoCheckoutConfigured,
+  isSettlementCallbackConfigured,
+} from "@/lib/crypto-payments-server";
 import { isBuilderConfigured } from "@/lib/n8n";
 import { isServiceRoleConfigured } from "@/lib/supabase-service";
 import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -46,6 +50,13 @@ export async function GET() {
        dashboard and otherwise shows up only as a feature that quietly refuses. */
     storageConfigured: isServiceRoleConfigured,
     editingConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    /* Whether this deployment can take money, in the two halves that fail
+       separately. A checkout with no wallet configured offers no currencies at
+       all — visible immediately. A checkout with wallets but no callback secret
+       looks perfect right up until somebody pays and is never credited, which
+       is the failure worth being able to see from outside. */
+    cryptoCheckoutConfigured: isCryptoCheckoutConfigured(),
+    cryptoSettlementConfigured: isSettlementCallbackConfigured(),
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
   });
