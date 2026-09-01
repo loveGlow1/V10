@@ -9,11 +9,7 @@ import { isPublished, useProjects } from "../ProjectsContext";
 import PageThumbnail from "./PageThumbnail";
 import ProjectLifecycleMenu from "./ProjectLifecycleMenu";
 import { browserAccessToken, byRank, patchProject } from "@/lib/projects/client";
-import {
-  countActiveProjects,
-  listContinueWorking,
-  type ProjectListItem,
-} from "@/lib/projects/queries";
+import { listContinueWorking, type ProjectListItem } from "@/lib/projects/queries";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 /* Rounded to the unit a person would say out loud; anything under a minute is
@@ -37,9 +33,6 @@ function updatedAgo(iso: string) {
   return `Updated ${value} ${unit[1]}${value === 1 ? "" : "s"} ago`;
 }
 
-/** Past this, the row is browsing rather than resuming. Everything else is a page. */
-const SHOWN = 3;
-
 /* What is worth coming back to, at most three of them.
  *
  * Two sources, deliberately. Which projects and in what order is
@@ -60,7 +53,6 @@ export default function ProjectList() {
   const { projects, rename: renameInList } = useProjects();
 
   const [ranked, setRanked] = useState<ProjectListItem[] | null>(null);
-  const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   /* Held so the row's click handler has it without awaiting: opening a project
      touches it, and that write must start before the navigation, not after a
@@ -74,13 +66,9 @@ export default function ProjectList() {
       return;
     }
     try {
-      const [rows, count] = await Promise.all([
-        listContinueWorking(token.current),
-        countActiveProjects(token.current),
-      ]);
+      const rows = await listContinueWorking(token.current);
       setError(null);
       setRanked(rows);
-      setTotal(count);
     } catch (loadError) {
       setRanked([]);
       setError(loadError instanceof Error ? loadError.message : "Could not read your projects.");
@@ -121,15 +109,12 @@ export default function ProjectList() {
     [ranked, load],
   );
 
-  /* Nothing at all until the first read is in. A heading that appears and then
-     unmounts for someone with no projects is worse than a moment of quiet. */
+  /* Nothing at all until the first read is in — a section that appears and then
+     rearranges itself is worse than a moment of quiet. After that it stays,
+     empty or not, because the link in its corner is the only way to the
+     Projects page from here and a route that appears once you have four
+     projects is a route nobody finds. */
   if (ranked === null) return null;
-
-  /* Zero projects is not an empty state here. The composer above this is
-     already the invitation to start one, and saying so twice on one screen is
-     saying it once too often. The error is the exception: a section that has
-     silently stopped working should say so rather than look empty. */
-  if (ranked.length === 0 && !error) return null;
 
   return (
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
@@ -138,15 +123,19 @@ export default function ProjectList() {
           Continue working
         </h2>
 
-        {/* Only once there is something the three rows do not show. */}
-        {total > SHOWN && (
-          <Link
-            href="/dashboard/projects"
-            className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
-          >
-            View all →
-          </Link>
-        )}
+        {/* Always. It was shown only once there were more than three projects,
+            on the reasoning that three rows already showed everything — which
+            was true and beside the point: it made the Projects page reachable
+            only from a dashboard that no longer needed it, and unreachable from
+            the one that did. Archived apps, the search, and delete all live
+            behind this link, and none of them are things you want only after
+            your fourth project. */}
+        <Link
+          href="/dashboard/projects"
+          className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+        >
+          View all →
+        </Link>
       </div>
 
       <div className="mt-3 space-y-1 md:mt-4">
