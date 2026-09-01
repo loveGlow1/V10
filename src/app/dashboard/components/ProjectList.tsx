@@ -88,13 +88,9 @@ export default function ProjectList() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  /* A project created or renamed elsewhere on this page changes the list under
-     us. Re-reading on its length is enough: a new project is what changes which
-     three of them belong here, and a rename is folded in below without a read. */
+  /* On mount, and again whenever a project is created or removed elsewhere on
+     this page — that is what changes which three belong here. A rename is
+     folded in below without a read, so it deliberately does not trigger one. */
   useEffect(() => {
     void load();
   }, [projects.length, load]);
