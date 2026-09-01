@@ -156,9 +156,16 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+    /* Deleted rows are gone from here, not merely from the lists that filter
+       for them. A soft delete stamps deleted_at and leaves the row in place, so
+       everything reading this context — the drawer's recent tasks, the
+       switcher, the strip of open tabs — went on showing an app the Projects
+       page had already removed. One filter at the source rather than the same
+       filter repeated at each of them. */
     const { data, error: queryError } = await createSupabaseBrowserClient()
       .from("projects")
       .select(COLUMNS)
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false });
 
     setLoading(false);

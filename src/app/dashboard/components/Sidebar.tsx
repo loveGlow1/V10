@@ -61,10 +61,12 @@ function taskKind(project: { status: string; intent: string | null }) {
   return project.intent ? TASK_KIND[project.intent] : undefined;
 }
 
-/* How many recent tasks the drawer carries before "View all". Enough to
-   recognise what you were last doing, short enough that the list below it —
-   credits, account — stays on screen without scrolling. */
-const RECENT_LIMIT = 5;
+/* How many recent tasks the drawer carries before "View all tasks". Three, the
+   same as the dashboard's own list: enough to recognise what you were last
+   doing, and past it you are browsing rather than resuming — which is what the
+   Projects page is for. Short enough that what sits below it, credits and
+   account, stays on screen without scrolling. */
+const RECENT_LIMIT = 3;
 
 /* Short enough for a narrow row, and it stops counting once a date says it
    better: "3 days ago" is not more useful than "Aug 24", and it gets less
@@ -385,20 +387,22 @@ export default function Sidebar({
                       );
                     })}
 
-                    {/* Only once there is more than the drawer shows. A link to
-                        five things when five are already listed is a dead end. */}
-                    {projects.length > RECENT_LIMIT && (
-                      <button
-                        onClick={() => {
-                          onClose();
-                          router.push("/dashboard");
-                        }}
-                        className="mt-1 flex min-h-11 w-full items-center justify-between rounded-2xl border border-line/[0.06] px-3 text-left transition-colors hover:bg-layer/[0.04]"
-                      >
-                        <span className="text-sm font-medium text-ink">View all tasks</span>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
-                      </button>
-                    )}
+                    {/* Always, and to the Projects page. It was drawn only when
+                        there were more tasks than the drawer showed, and it went
+                        to the dashboard — which is where you already were, and
+                        which shows three of them rather than all. Both halves of
+                        that were wrong: this is the way to the full list, and
+                        the full list is somewhere else. */}
+                    <button
+                      onClick={() => {
+                        onClose();
+                        router.push("/dashboard/projects");
+                      }}
+                      className="mt-1 flex min-h-11 w-full items-center justify-between rounded-2xl border border-line/[0.06] px-3 text-left transition-colors hover:bg-layer/[0.04]"
+                    >
+                      <span className="text-sm font-medium text-ink">View all tasks</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                    </button>
                   </div>
                 )}
               </div>
