@@ -26,12 +26,67 @@ import {
   Users,
 } from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
+import QMark from "../../QMark";
 import { maskEmail } from "../account";
+import ProjectRowMenu from "./ProjectRowMenu";
 import ThemeSwitch from "./ThemeSwitch";
 import { avatarFor } from "../projectColours";
 import { useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+
+/* What kind of thing a task is, from the intent a build recorded. The keys are
+   the orchestrator's own (src/lib/n8n.ts). Only "webapp" appears in the data
+   today; the other two are branches it can take, kept so a WordPress or store
+   build names itself the day one lands rather than falling through to nothing. */
+const TASK_KIND: Record<string, string> = {
+  webapp: "Web app",
+  wordpress: "WordPress site",
+  ecommerce: "Online store",
+};
+
+/* The line under a task's name.
+ *
+ * Status comes first, and that ordering is the whole of this function. In the
+ * live table `intent` is null on exactly the rows whose status is "Draft" — a
+ * project nobody has built yet has nothing to have classified — and that is
+ * nine of nineteen. Reading the kind first would leave half the drawer with a
+ * blank line, and blank on precisely the rows worth telling apart.
+ *
+ * It also puts the states that matter where they can be seen: a build that
+ * failed or is still running says so, which is more use than "Web app". Only
+ * an ordinary finished project falls through to its kind. */
+function taskKind(project: { status: string; intent: string | null }) {
+  if (project.status && project.status !== "Built") return project.status;
+  return project.intent ? TASK_KIND[project.intent] : undefined;
+}
+
+/* How many recent tasks the drawer carries before "View all". Enough to
+   recognise what you were last doing, short enough that the list below it —
+   credits, account — stays on screen without scrolling. */
+const RECENT_LIMIT = 5;
+
+/* Short enough for a narrow row, and it stops counting once a date says it
+   better: "3 days ago" is not more useful than "Aug 24", and it gets less
+   useful the further back it goes. */
+function taskTime(iso: string | null) {
+  if (!iso) return "";
+  const then = new Date(iso);
+  const ms = Date.now() - then.getTime();
+  if (Number.isNaN(ms)) return "";
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  if (hours < 48) return "Yesterday";
+  const sameYear = then.getFullYear() === new Date().getFullYear();
+  return then.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
 
 interface SidebarProps {
   open: boolean;
@@ -62,7 +117,13 @@ export default function Sidebar({
   /* The project the panel names. Read from the same place the switcher and the
      list read it, so the drawer cannot name a project the rest of the app has
      moved on from. */
-  const { selected } = useProjects();
+  const { selected, projects, loading: projectsLoading } = useProjects();
+  /* Newest first and capped. Sorted here rather than trusted from the context:
+     the list is ordered for the apps grid, and "recent" has to mean recent
+     however that ordering changes. */
+  const recent = [...projects]
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+    .slice(0, RECENT_LIMIT);
 
   // The card used to show one hardcoded person, which every visitor would have
   // seen as their own. Read the signed-in user instead.
@@ -273,12 +334,73 @@ export default function Sidebar({
               {/* Once there are tasks this is what scrolls; nothing else in the panel
                   does, so a drag anywhere else cannot start a scroll at all. */}
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-                  <p className="mb-1 text-sm font-medium text-muted">No tasks yet</p>
-                  <p className="text-xs leading-relaxed text-muted/60">
-                    Create your first task to start building
-                  </p>
-                </div>
+                {projectsLoading ? (
+                  <p className="px-1 py-6 text-center text-xs text-muted/60">Loading…</p>
+                ) : recent.length === 0 ? (
+                  <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+                    <p className="mb-1 text-sm font-medium text-muted">No tasks yet</p>
+                    <p className="text-xs leading-relaxed text-muted/60">
+                      Create your first task to start building
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {recent.map((project) => {
+                      const kind = taskKind(project);
+                      return (
+                        <div
+                          key={project.id}
+                          className="flex items-center gap-3 rounded-2xl border border-line/[0.06] bg-layer/[0.03] px-3 py-2.5 transition-colors hover:bg-layer/[0.06]"
+                        >
+                          <button
+                            onClick={() => {
+                              onClose();
+                              router.push(`/dashboard/project/${project.id}`);
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          >
+                            {/* The mark, not a page thumbnail: these rows are
+                                26px tall and a scaled-down document at that size
+                                is a grey smudge. The apps list is where a page
+                                is worth drawing. */}
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.06]">
+                              <QMark scale={1.85} className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-ink">
+                                {project.name}
+                              </span>
+                              <span className="mt-0.5 flex items-baseline gap-2">
+                                {kind && (
+                                  <span className="min-w-0 truncate text-xs text-muted">{kind}</span>
+                                )}
+                                <span className="ml-auto shrink-0 text-xs text-muted/70">
+                                  {taskTime(project.updated_at)}
+                                </span>
+                              </span>
+                            </span>
+                          </button>
+                          <ProjectRowMenu project={project} />
+                        </div>
+                      );
+                    })}
+
+                    {/* Only once there is more than the drawer shows. A link to
+                        five things when five are already listed is a dead end. */}
+                    {projects.length > RECENT_LIMIT && (
+                      <button
+                        onClick={() => {
+                          onClose();
+                          router.push("/dashboard");
+                        }}
+                        className="mt-1 flex min-h-11 w-full items-center justify-between rounded-2xl border border-line/[0.06] px-3 text-left transition-colors hover:bg-layer/[0.04]"
+                      >
+                        <span className="text-sm font-medium text-ink">View all tasks</span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

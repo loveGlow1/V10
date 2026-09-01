@@ -566,10 +566,16 @@ export default function ChatPanel({
   /* A fork is a second app you can change without touching this one. Until a
      build exists there is nothing to copy but the name, which the panel says
      before you press it rather than after. */
+  /* Same synchronous guard as the send button: `forking` is state, so a double
+     press on Create the fork made two copies. */
+  const forkInFlight = useRef(false);
+
   async function fork() {
-    if (!project || forking) return;
+    if (!project || forkInFlight.current) return;
+    forkInFlight.current = true;
     setForking(true);
     const copy = await create(`${project.name} copy`);
+    forkInFlight.current = false;
     setForking(false);
     setForkOpen(false);
     if (copy) {
@@ -654,16 +660,19 @@ export default function ChatPanel({
             the account the greeting simply stops after the time of day rather
             than addressing a blank. */}
         <div className="pb-1">
-          <h2 className="flex flex-wrap items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
-            {/* The mark itself, not a stand-in for one. This was a generic
-                four-point sparkle — the glyph every assistant on the internet
-                uses — which said "an AI" where it should have said whose. */}
+          <h2 className="flex items-center gap-x-2 text-[22px] font-semibold leading-tight text-ink">
             {/* The logo itself, live — the same component the top bar, the
                 sidebar, the sign-in panel and the hero all mount, rather than a
-                picture of it. It carries its own rotation: the scene turns on Y
-                once every sixteen seconds, linear, which is why there is no CSS
-                animation on this. Adding one would spin the canvas as well as
-                the mark inside it and read as two motions fighting.
+                picture of it. It carries its own rotation, once every sixteen
+                seconds and linear, which is why there is no CSS animation on
+                this: adding one would spin the canvas as well as the mark
+                inside it and read as two motions fighting.
+
+                It sits first in a row that does not wrap. As flex items the
+                mark and the words are separate wrap opportunities, so a narrow
+                panel would drop the whole greeting below the mark and leave it
+                alone on the line above. Unwrapped, the words wrap inside their
+                own item and the mark keeps its place at the left.
 
                 Given its size directly, the way the drawer gives it one. The
                 canvas fills its wrapper, and a wrapper with no height of its
@@ -720,7 +729,7 @@ export default function ChatPanel({
                 long name and a 56px mark could push it alone onto the next
                 line — a greeting on one line and a hand on the next. Inline,
                 it travels with the words it belongs to. */}
-            <span>
+            <span className="min-w-0">
               <span className="wordmark-quickstart metal-shimmer">{greeting}</span>
               {firstName && (
                 <>
