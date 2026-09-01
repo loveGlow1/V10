@@ -27,6 +27,7 @@ import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 import MessageRow, { type Activity } from "./MessageRow";
+import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -42,6 +43,21 @@ import {
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
    read back from a table and the two must not drift. */
+/* The line under a finished build's name, and the same rule the drawer's
+   recent tasks follow: the status when it is not the ordinary "Built", and the
+   kind otherwise. `intent` is null on exactly the rows that were never built,
+   so reading it first would leave this blank on the ones worth naming. */
+const RESULT_KIND: Record<string, string> = {
+  webapp: "Web app",
+  wordpress: "WordPress site",
+  ecommerce: "Online store",
+};
+
+function resultKind(project: { status: string; intent: string | null }) {
+  if (project.status && project.status !== "Built") return project.status;
+  return project.intent ? RESULT_KIND[project.intent] : undefined;
+}
+
 /* What the classifier decided, in words for the tracker. Its own keys are
    edit / new_project / question / revert — see src/lib/builder/intent.ts. */
 const INTENT_LABEL: Record<string, string> = {
@@ -60,6 +76,7 @@ type Message = ThreadMessage & {
   at?: number;
   applied?: boolean;
   activity?: Activity;
+  result?: BuildResult;
 };
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
@@ -81,6 +98,7 @@ export default function ChatPanel({
   previewOpen = false,
   initialPrompt,
   onBuildSettled,
+  onPublish,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
@@ -92,6 +110,8 @@ export default function ChatPanel({
   initialPrompt?: string | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
   onBuildSettled?: () => void;
+  /** Asks the preview half for its publish flow. See Workspace. */
+  onPublish?: () => void;
 }) {
   const router = useRouter();
   const { create, build, watchBuild } = useProjects();
@@ -285,7 +305,10 @@ export default function ChatPanel({
      kept. The write is not awaited and its failure is not raised: a message on
      screen should stay on screen, and losing a row from the history is not
      worth interrupting a build over. */
-  function say(message: ThreadMessage, view?: { applied?: boolean; activity?: Activity }) {
+  function say(
+    message: ThreadMessage,
+    view?: { applied?: boolean; activity?: Activity; result?: BuildResult },
+  ) {
     setMessages((current) => [
       ...current,
       { id: nextId.current++, at: Date.now(), ...message, ...view },
@@ -484,6 +507,19 @@ export default function ChatPanel({
             { from: "system", text: "Your page is ready." },
             {
               applied: true,
+              /* The card under the reply: the page, its name, and the two
+                 things anyone does next. Its download expires two minutes from
+                 now — measured from this moment rather than from when the
+                 thread is read, so reopening it later shows the card without
+                 one rather than for two more minutes. */
+              result: {
+                projectId: project.id,
+                name: finished?.name ?? project.name,
+                kind: resultKind(finished ?? project),
+                at: Date.now(),
+                hasPage: true,
+                stamp: finished?.last_build_at ?? null,
+              },
               /* The address rides on the tracker rather than as a link chip
                  beside it — offering the same page twice in one card reads as
                  two destinations. */
@@ -706,6 +742,7 @@ export default function ChatPanel({
             key={message.id}
             message={message}
             onOpenPreview={onOpenPreview}
+            onPublish={onPublish}
           />
         ))}
 
