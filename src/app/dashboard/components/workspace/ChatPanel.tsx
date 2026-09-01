@@ -1148,7 +1148,12 @@ export default function ChatPanel({
             again, which puts as many as fit on each line whatever the screen is
             and needs no column count guessed per breakpoint. */}
         {hasPage && !pendingConfirm && (
-          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+        /* The gap to the composer. The row used to sit 8px off it, close enough
+           that the last chip read as part of the box rather than as something
+           above it, and on a phone close enough to catch with the thumb on the
+           way to typing. */
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-1.5 px-1">
             {[
               {
                 id: "edit" as const,
@@ -1217,18 +1222,20 @@ export default function ChatPanel({
               Undo last change
             </button>
           </div>
-        )}
 
         {/* Said once, under the row, rather than on the chip that caused it —
-            the chip has room for a name and nothing else. */}
+            the chip has room for a name and nothing else. Closer to the row
+            than the row is to the composer, because it belongs to the row. */}
         {hasPage && !pendingConfirm && mode !== "auto" && (
-          <p className="mb-2 px-1 text-[11.5px] text-muted">
+          <p className="mt-2 px-1 text-[11.5px] text-muted">
             {mode === "new_project"
               ? "The next message replaces this page."
               : mode === "question"
                 ? "The next message is a question, not a change."
                 : "The next message edits this page."}
           </p>
+        )}
+        </div>
         )}
 
         {/* The one question worth interrupting for. Nothing has happened yet,
