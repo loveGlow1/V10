@@ -22,6 +22,7 @@ import { useProjects, type Project } from "../../ProjectsContext";
 import { MicMark, SendArrow } from "../marks";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
+import { askBuilder, builderPaths, type BuilderIntent } from "@/lib/builder-client";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 type Message = {
@@ -41,11 +42,23 @@ type Message = {
    it, carrying the controls that belong to an app that already exists: its
    repository, a fork of it, and the agent working on it.
 
-   A message is a build. It goes to /api/build, which runs the orchestrator
-   (n8n/README.md) and answers with what was made and where to see it. Nothing
-   is invented while that is in flight and nothing is invented if it fails: a
-   build that did not happen says so, in the conversation, next to the message
-   that asked for it. */
+   A message takes one of two paths, and which one is decided by whether this
+   project has anything to edit yet.
+
+   A project with no stored files has never been through the editing builder,
+   so its messages go where they have always gone: /api/build, the orchestrator
+   (n8n/README.md), which answers with what was made and where to see it. That
+   is every project today, which is what makes this addition inert until it is
+   asked for.
+
+   Once a project does have files — which happens by choosing New project on
+   the chip below, deliberately — its messages go to /api/builder instead, and
+   are applied as edits to what is already there rather than rebuilt from the
+   prompt.
+
+   Nothing is invented on either path while it is in flight, and nothing is
+   invented if it fails: a build that did not happen says so, in the
+   conversation, next to the message that asked for it. */
 export default function ChatPanel({
   project,
   onOpenIntegrations,
@@ -67,6 +80,18 @@ export default function ChatPanel({
 }) {
   const router = useRouter();
   const { create, build } = useProjects();
+  /* The paths this project already has with the editing builder. Empty is the
+     normal case and the one that changes nothing: an empty list sends every
+     message to the orchestrator, exactly as before this existed. */
+  const [builderFiles, setBuilderFiles] = useState<string[]>([]);
+  /* "auto" follows the files: edit when there are some, orchestrator when there
+     are none. "new_project" is the deliberate way to start one here instead. */
+  const [mode, setMode] = useState<"auto" | "new_project">("auto");
+  /* A replace-the-project request that has stopped to ask. Holding the message
+     rather than the answer: confirming re-sends it. */
+  const [pendingConfirm, setPendingConfirm] = useState<
+    { message: string; prompt: string } | null
+  >(null);
   /* Written by the orchestrator by way of the projects row, so it is filtered
      before it decides anything — the same rule the panel and the links above
      follow. Null means there is nothing to announce. */
@@ -129,6 +154,72 @@ export default function ChatPanel({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [modelOpen, forkOpen]);
 
+  /* Which path this project is on, read once when it opens. A project that has
+     never been through the editing builder answers with an empty list, and the
+     orchestrator keeps the conversation. */
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    setMode("auto");
+    setPendingConfirm(null);
+    builderPaths(project.id).then((paths) => {
+      if (!cancelled) setBuilderFiles(paths);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* One reply, whichever of the builder's answers it is. Shared by sending and
+     by confirming, so a confirmed rebuild reads the same as any other turn. */
+  async function runBuilder(
+    text: string,
+    options: { intentOverride?: BuilderIntent | null; confirmNewProject?: boolean } = {},
+  ) {
+    if (!project) return;
+
+    const reply = await askBuilder({
+      projectId: project.id,
+      message: text,
+      intentOverride: options.intentOverride ?? null,
+      confirmNewProject: options.confirmNewProject === true,
+    });
+
+    if (reply.kind === "confirm") {
+      /* Nothing has changed yet, and nothing will until the row below is
+         answered. The message is kept so confirming can re-send it. */
+      setPendingConfirm({ message: reply.message, prompt: text });
+      return;
+    }
+
+    if (reply.kind === "edit" || reply.kind === "new_project" || reply.kind === "revert") {
+      setBuilderFiles(reply.paths);
+    }
+
+    const text_ =
+      reply.kind === "edit"
+        ? reply.applied.length
+          ? `Edited ${reply.applied.join(", ")}.`
+          : "Nothing needed changing."
+        : reply.kind === "new_project"
+          ? `Built ${reply.paths.length} file${reply.paths.length === 1 ? "" : "s"}.`
+          : reply.message;
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: nextId.current++,
+        from: "system",
+        text: text_,
+        tone: reply.kind === "refused" || reply.kind === "error" ? "error" : "normal",
+      },
+    ]);
+
+    /* A refusal is the one answer worth keeping the words for: the change did
+       not apply, and the next thing to do is rephrase it. */
+    if (reply.kind === "refused") setDraft(text);
+  }
+
   async function send(prompt?: string) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
@@ -136,6 +227,31 @@ export default function ChatPanel({
     setMessages((current) => [...current, { id: nextId.current++, from: "you", text }]);
     if (prompt === undefined) setDraft("");
     setBuilding(true);
+    setPendingConfirm(null);
+
+    /* The fork. Files to edit, or New project chosen on purpose, and the
+       message goes to the editing builder; otherwise this is the orchestrator
+       path it has always been. */
+    if (builderFiles.length > 0 || mode === "new_project") {
+      try {
+        await runBuilder(text, {
+          intentOverride: mode === "new_project" ? "new_project" : null,
+        });
+      } catch (error) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: nextId.current++,
+            from: "system",
+            text: (error as Error).message,
+            tone: "error",
+          },
+        ]);
+      } finally {
+        setBuilding(false);
+      }
+      return;
+    }
 
     try {
       const outcome = await build(project.id, text);
@@ -309,6 +425,82 @@ export default function ChatPanel({
           </p>
         )}
       </div>
+
+      {/* Which path the next message takes, said plainly rather than guessed at.
+          Two states only: follow the project, or replace it. It sits directly
+          above the box so it is read on the way to typing. */}
+      {project && (
+        <div className="flex shrink-0 items-center gap-2 px-4 pb-2 text-[12px]">
+          <button
+            type="button"
+            onClick={() => setMode(mode === "new_project" ? "auto" : "new_project")}
+            aria-pressed={mode === "new_project"}
+            className="flex h-7 items-center rounded-md border border-line/[0.1] bg-layer/[0.03] px-2.5 text-muted transition-colors hover:border-line/[0.18] hover:text-ink"
+          >
+            {mode === "new_project"
+              ? "New project"
+              : builderFiles.length > 0
+                ? "Editing current project"
+                : "Building"}
+          </button>
+          {builderFiles.length > 0 && mode !== "new_project" && (
+            <span className="text-faint">
+              {builderFiles.length} file{builderFiles.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Replacing a project is the one thing here that cannot be taken back by
+          rephrasing, so it stops and asks. Nothing has changed at the point this
+          appears — the route returned without touching a file. */}
+      {pendingConfirm && (
+        <div className="mx-4 mb-2 shrink-0 rounded-xl border border-line/[0.1] bg-layer/[0.04] p-3">
+          <p className="text-[13px] leading-relaxed text-ink">{pendingConfirm.message}</p>
+          <div className="mt-2.5 flex gap-2">
+            <button
+              onClick={async () => {
+                const { prompt } = pendingConfirm;
+                setPendingConfirm(null);
+                setBuilding(true);
+                try {
+                  await runBuilder(prompt, {
+                    intentOverride: "new_project",
+                    confirmNewProject: true,
+                  });
+                } finally {
+                  setBuilding(false);
+                  setMode("auto");
+                }
+              }}
+              className="h-8 rounded-lg bg-danger px-3 text-[13px] font-medium text-white transition-colors hover:brightness-110"
+            >
+              Replace project
+            </button>
+            <button
+              onClick={async () => {
+                const { prompt } = pendingConfirm;
+                setPendingConfirm(null);
+                setMode("auto");
+                setBuilding(true);
+                /* Cancel is not "do nothing": what was asked for is still worth
+                   doing, as an edit to what is already there. Forced, not
+                   re-classified — the router already read this message as a
+                   rebuild once, and asking it twice would return the same
+                   question the person just declined. */
+                try {
+                  await runBuilder(prompt, { intentOverride: "edit" });
+                } finally {
+                  setBuilding(false);
+                }
+              }}
+              className="h-8 rounded-lg border border-line/[0.1] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+            >
+              Keep it, edit instead
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* The moment the build has something to show.
 

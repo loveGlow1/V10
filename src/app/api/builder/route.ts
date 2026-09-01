@@ -60,14 +60,19 @@ async function callModel(prompt: string, maxTokens = 8000) {
     .join("");
 }
 
-export async function POST(request: Request) {
+/* Which project this is, and whether the caller owns it. Both handlers need
+   the same two answers before they touch anything, and the store below runs on
+   the service-role key, which bypasses RLS entirely. */
+async function authorize(projectId: string) {
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
-    return NextResponse.json(
-      { error: "The builder is unavailable because Supabase is not configured." },
-      { status: 503 },
-    );
+    return {
+      error: NextResponse.json(
+        { error: "The builder is unavailable because Supabase is not configured." },
+        { status: 503 },
+      ),
+    };
   }
 
   const {
@@ -75,9 +80,59 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Sign in to build." }, { status: 401 });
+    return { error: NextResponse.json({ error: "Sign in to build." }, { status: 401 }) };
+  }
+  if (!projectId) {
+    return {
+      error: NextResponse.json({ error: "projectId is required" }, { status: 400 }),
+    };
   }
 
+  /* Read under the caller's own session, so RLS answers the ownership
+     question: a project id belonging to someone else comes back empty. */
+  const { data: project, error: lookupError } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (lookupError) {
+    // eslint-disable-next-line no-console
+    console.error("builder: could not read the project:", lookupError);
+    return {
+      error: NextResponse.json({ error: "Could not read that project." }, { status: 500 }),
+    };
+  }
+  if (!project) {
+    return {
+      error: NextResponse.json({ error: "That app is not in your account." }, { status: 404 }),
+    };
+  }
+
+  return { error: null as null };
+}
+
+/* Just the paths, so the workspace can tell whether this project has anything
+   to edit yet without pulling every file across the wire to count them. A
+   project with none has never been through this builder, and the chat sends
+   its messages down the orchestrator path instead. */
+export async function GET(request: Request) {
+  const projectId = new URL(request.url).searchParams.get("projectId") ?? "";
+
+  const gate = await authorize(projectId);
+  if (gate.error) return gate.error;
+
+  try {
+    const files = await loadFiles(projectId);
+    return NextResponse.json({ paths: files.map((file) => file.path) });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("builder:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ paths: [] });
+  }
+}
+
+export async function POST(request: Request) {
   let body: {
     projectId?: unknown;
     message?: unknown;
@@ -95,7 +150,7 @@ export async function POST(request: Request) {
   const override = (body.intentOverride ?? null) as Intent | null;
   const confirmedNew = body.confirmNewProject === true;
 
-  if (!projectId || !message) {
+  if (!message) {
     return NextResponse.json(
       { error: "projectId and message are required" },
       { status: 400 },
@@ -108,25 +163,11 @@ export async function POST(request: Request) {
     );
   }
 
-  /* Read under the caller's own session, so RLS answers the ownership question:
-     a project id belonging to someone else comes back empty and is refused
-     here. Everything past this line runs on the service-role key, which
-     bypasses RLS entirely — without this check, a known project UUID would be
-     enough to read and overwrite anyone's files. */
-  const { data: project, error: lookupError } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .maybeSingle();
-
-  if (lookupError) {
-    // eslint-disable-next-line no-console
-    console.error("builder: could not read the project:", lookupError);
-    return NextResponse.json({ error: "Could not read that project." }, { status: 500 });
-  }
-  if (!project) {
-    return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
-  }
+  /* Everything past this line runs on the service-role key, which bypasses RLS
+     — without this check, a known project UUID would be enough to read and
+     overwrite anyone's files. */
+  const gate = await authorize(projectId);
+  if (gate.error) return gate.error;
 
   try {
     const files = await loadFiles(projectId);
