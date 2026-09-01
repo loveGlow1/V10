@@ -153,6 +153,10 @@ export default function ChatPanel({
      and the wait for the page — rather than from a script. */
   const [phases, setPhases] = useState<ActivityStep[]>([]);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  /* When the most recent run started, which runStartedAt cannot say because it
+     is cleared the moment the run ends. This one only moves forward, and it is
+     what tells a result card the thread has moved on past it. */
+  const [lastRunAt, setLastRunAt] = useState<number | null>(null);
   /* Whose workspace this is. Empty until the session answers, and empty for
      good on an account that never gave a name — the greeting handles both. */
   const { firstName } = useAccountName();
@@ -372,6 +376,7 @@ export default function ChatPanel({
     setBuilding(true);
     const runStarted = Date.now();
     setRunStartedAt(runStarted);
+    setLastRunAt(runStarted);
     run.current = [];
     setPhase({
       id: "classify",
@@ -508,10 +513,11 @@ export default function ChatPanel({
             {
               applied: true,
               /* The card under the reply: the page, its name, and the two
-                 things anyone does next. Its download expires two minutes from
+                 things anyone does next. Its buttons expire three minutes from
                  now — measured from this moment rather than from when the
                  thread is read, so reopening it later shows the card without
-                 one rather than for two more minutes. */
+                 them rather than for three more minutes — or a minute after the
+                 next run starts, whichever comes first. */
               result: {
                 projectId: project.id,
                 name: finished?.name ?? project.name,
@@ -741,6 +747,7 @@ export default function ChatPanel({
           <MessageRow
             key={message.id}
             message={message}
+            supersededAt={lastRunAt}
             onOpenPreview={onOpenPreview}
             onPublish={onPublish}
           />

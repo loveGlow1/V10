@@ -5,25 +5,32 @@ import { Download, Rocket } from "lucide-react";
 
 import PageThumbnail from "../PageThumbnail";
 
-/* How long the download stays in the conversation.
+/* How long a finished build keeps its buttons in the conversation.
  *
- * It is here because a build has just finished and taking the file is the thing
- * some people want to do immediately. It is not here forever, because the
- * thread is a record of what was asked and answered, and a live control sitting
- * in it a week later is neither. Two minutes is the brief: long enough to act
- * on, short enough that scrolling back never offers it.
+ * They are here because a build has just landed and taking the file or putting
+ * it live is the thing some people want to do immediately. They are not here
+ * forever, because the thread is a record of what was asked and answered, and
+ * live controls sitting in it a week later are neither. Three minutes is the
+ * brief: long enough to act on, short enough that scrolling back never offers
+ * them.
  *
- * Nothing is lost when it goes. The same download sits beside Publish in the
- * preview header, which is its permanent home; this is the shortcut. */
-const DOWNLOAD_WINDOW_MS = 2 * 60 * 1000;
+ * Nothing is lost when they go. Download and Publish both live in the preview
+ * header, which is their permanent home; this is the shortcut. */
+const ACTION_WINDOW_MS = 3 * 60 * 1000;
+
+/* And the shorter fuse: once another run starts in the same visit, this card is
+ * no longer the current page, so its buttons stand down a minute later rather
+ * than waiting out the full three. The minute is grace for a hand already
+ * moving towards them, not a second chance. */
+const SUPERSEDED_WINDOW_MS = 60 * 1000;
 
 export type BuildResult = {
   projectId: string;
   name: string;
   /** "Web app", "Draft" — the same line the drawer's recent tasks show. */
   kind?: string;
-  /** When the build landed. The download window is measured from here, so a
-      thread reopened later shows the card without it rather than for two more
+  /** When the build landed. The window is measured from here, so a thread
+      reopened later shows the card without buttons rather than for three more
       minutes. */
   at: number;
   /** Whether there is a page to draw and to take. */
@@ -32,32 +39,47 @@ export type BuildResult = {
   stamp: string | null;
 };
 
+/* The moment the buttons go, which is whichever comes first. A run that started
+   before this card is its own — only a later one supersedes it. */
+function deadlineOf(result: BuildResult, supersededAt?: number | null): number {
+  const full = result.at + ACTION_WINDOW_MS;
+  if (typeof supersededAt !== "number" || supersededAt <= result.at) return full;
+  return Math.min(full, supersededAt + SUPERSEDED_WINDOW_MS);
+}
+
 /* What a finished build looks like in the thread: the page, what it is called,
-   and the two things anyone would do with it next. */
+   and — for a few minutes — the two things anyone would do with it next. */
 export default function BuildResultCard({
   result,
+  supersededAt,
   onPublish,
 }: {
   result: BuildResult;
+  /** When the most recent run in this visit started, so a card the thread has
+      moved past gives its buttons up early. */
+  supersededAt?: number | null;
   /** Opens the publish flow the preview header already owns. */
   onPublish?: () => void;
 }) {
-  /* Recomputed on a timer rather than decided once, so the button goes away
-     while someone is looking at it instead of only on the next render. */
-  const [downloadable, setDownloadable] = useState(
-    () => result.hasPage && Date.now() - result.at < DOWNLOAD_WINDOW_MS,
-  );
+  const deadline = deadlineOf(result, supersededAt);
+
+  /* Recomputed on a timer rather than decided once, so the buttons go away
+     while someone is looking at them instead of only on the next render. */
+  const [live, setLive] = useState(() => Date.now() < deadline);
 
   useEffect(() => {
-    if (!downloadable) return;
-    const remaining = result.at + DOWNLOAD_WINDOW_MS - Date.now();
+    const remaining = deadline - Date.now();
     if (remaining <= 0) {
-      setDownloadable(false);
+      setLive(false);
       return;
     }
-    const timer = window.setTimeout(() => setDownloadable(false), remaining);
+    /* Set true again as well as false: a new deadline can only ever be earlier
+       than the last, but the card is also re-rendered with a fresh result when
+       a build lands, and that one starts its own window. */
+    setLive(true);
+    const timer = window.setTimeout(() => setLive(false), remaining);
     return () => window.clearTimeout(timer);
-  }, [downloadable, result.at]);
+  }, [deadline]);
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-2xl border border-line/[0.1] bg-layer/[0.02]">
@@ -85,28 +107,32 @@ export default function BuildResultCard({
           )}
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
-          {/* An anchor rather than a button: the route answers with
-              Content-Disposition, so the browser saves it and the page it is on
-              never navigates. */}
-          {downloadable && (
-            <a
-              href={`/preview/${result.projectId}?download=1`}
-              download
-              className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-line/[0.12] bg-layer/[0.04] text-[13px] font-medium text-ink transition-colors hover:bg-layer/[0.08]"
+        {/* Both or neither. The row goes whole rather than leaving one button
+            behind, which would read as the other having failed. */}
+        {live && (
+          <div className="mt-3 flex items-center gap-2">
+            {/* An anchor rather than a button: the route answers with
+                Content-Disposition, so the browser saves it and the page it is
+                on never navigates. */}
+            {result.hasPage && (
+              <a
+                href={`/preview/${result.projectId}?download=1`}
+                download
+                className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-line/[0.12] bg-layer/[0.04] text-[13px] font-medium text-ink transition-colors hover:bg-layer/[0.08]"
+              >
+                <Download className="h-4 w-4 shrink-0" />
+                Download
+              </a>
+            )}
+            <button
+              onClick={onPublish}
+              className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-solid text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.99]"
             >
-              <Download className="h-4 w-4 shrink-0" />
-              Download
-            </a>
-          )}
-          <button
-            onClick={onPublish}
-            className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-solid text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.99]"
-          >
-            <Rocket className="h-4 w-4 shrink-0" />
-            Publish
-          </button>
-        </div>
+              <Rocket className="h-4 w-4 shrink-0" />
+              Publish
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

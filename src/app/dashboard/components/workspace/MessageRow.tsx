@@ -53,10 +53,14 @@ export function timeOf(at: number): string {
    which stay legible at any width. */
 export default function MessageRow({
   message,
+  supersededAt,
   onOpenPreview,
   onPublish,
 }: {
   message: Message;
+  /** When the most recent run in this visit started, for a result card that the
+      thread has since moved past. */
+  supersededAt?: number | null;
   onOpenPreview?: () => void;
   onPublish?: () => void;
 }) {
@@ -143,7 +147,13 @@ export default function MessageRow({
         </div>
       )}
 
-      {message.result && <BuildResultCard result={message.result} onPublish={onPublish} />}
+      {message.result && (
+        <BuildResultCard
+          result={message.result}
+          supersededAt={supersededAt}
+          onPublish={onPublish}
+        />
+      )}
 
       {message.activity && (
         <div className="mt-2.5">
