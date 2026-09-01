@@ -118,10 +118,18 @@ export default function ProjectList() {
 
   return (
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
-      <div className="flex items-end justify-between gap-4 px-1">
-        <h2 className="text-[17px] font-semibold tracking-tight text-ink md:text-lg">
-          Continue working
-        </h2>
+      {/* The heading names the rows under it, so with no rows there is nothing
+          for it to name — "Continue working" over an empty space is a promise
+          about work that does not exist, and the composer above has already
+          said what to do about that. The link stays either way: it is the way
+          to the Projects page, not a label for this list. Justified to the end
+          on its own so it keeps the corner it had. */}
+      <div className={`flex items-end gap-4 px-1 ${ranked.length === 0 ? "justify-end" : "justify-between"}`}>
+        {ranked.length > 0 && (
+          <h2 className="text-[17px] font-semibold tracking-tight text-ink md:text-lg">
+            Continue working
+          </h2>
+        )}
 
         {/* Always. It was shown only once there were more than three projects,
             on the reasoning that three rows already showed everything — which
