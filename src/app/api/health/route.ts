@@ -5,6 +5,7 @@ import {
   isSettlementCallbackConfigured,
 } from "@/lib/crypto-payments-server";
 import { isBuilderConfigured } from "@/lib/n8n";
+import { canCompile } from "@/lib/standalone-page";
 import { isServiceRoleConfigured } from "@/lib/supabase-service";
 import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseClient";
 
@@ -20,6 +21,12 @@ import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseC
  * failure it exists for: a variable whose name is a character out is not
  * missing in any way a hosting dashboard shows you — it is simply never read,
  * and the first sign is a build that fails for no visible reason.
+ *
+ * `downloadsCompile` is not about a variable at all — it runs the thing. A
+ * downloaded page has its stylesheet compiled into it, and when that compile
+ * fails the route falls back to the stored HTML: the file still downloads, and
+ * still opens unstyled. Nothing on any screen says the compile failed, which is
+ * how it survived a deploy. This asks the running deployment to do it.
  *
  * `editingConfigured` is the same question for the key the app needs again.
  * Generating a whole page still happens in the orchestrator under n8n's own
@@ -37,6 +44,10 @@ export async function GET() {
 
   const missingSupabaseEnvVars = includeDetails ? getMissingSupabaseEnvVars() : undefined;
 
+  /* Run rather than inspected. It is a few milliseconds and it is the only
+     honest answer to "will a download come out styled". */
+  const downloadsCompile = await canCompile();
+
   return NextResponse.json({
     status: "ok",
     supabaseConfigured: isSupabaseConfigured,
@@ -50,6 +61,8 @@ export async function GET() {
        dashboard and otherwise shows up only as a feature that quietly refuses. */
     storageConfigured: isServiceRoleConfigured,
     editingConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    /* False means downloads are going out unstyled. See canCompile. */
+    downloadsCompile,
     /* Whether this deployment can take money, in the two halves that fail
        separately. A checkout with no wallet configured offers no currencies at
        all — visible immediately. A checkout with wallets but no callback secret

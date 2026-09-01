@@ -128,3 +128,35 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
 
   return { html: out, cssBytes: Buffer.byteLength(css, "utf8"), themeApplied: found };
 }
+
+/**
+ * Whether this deployment can actually compile a stylesheet.
+ *
+ * Not a question about configuration — there is nothing to configure. It is a
+ * question about the bundle, and it exists because the answer was once no in
+ * production and yes everywhere it was tested.
+ *
+ * Tailwind reads its own files off disk (`preflight` is a literal readFileSync
+ * of preflight.css). Bundled by webpack, that path is rewritten into the chunk
+ * directory, the file is not there, and every compile throws ENOENT. The
+ * download route catches that and serves the stored page instead, so the
+ * failure produces a file that downloads fine and opens unstyled — the exact
+ * symptom the compiling was added to fix, with nothing anywhere saying why.
+ * next.config.mjs keeps the package external now, which is the fix; this is how
+ * a running deployment can be asked whether the fix is in it.
+ *
+ * Compiles a few bytes rather than asserting a file exists on a path, because
+ * the thing worth knowing is whether the compile runs, not whether one of its
+ * inputs is where this code guesses it should be.
+ */
+export async function canCompile(): Promise<boolean> {
+  try {
+    const probe = await toStandalone(
+      '<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script>' +
+        '</head><body class="flex"><i class="h-5 w-5"></i></body></html>',
+    );
+    return probe.cssBytes > 0 && !/cdn\.tailwindcss\.com/.test(probe.html);
+  } catch {
+    return false;
+  }
+}
