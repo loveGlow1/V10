@@ -11,6 +11,7 @@
     "check:builder": "node tools/check-builder.mjs",
     "check:intent": "node tools/check-intent.mjs",
     "check:name": "node tools/check-project-name.mjs",
+    "check:payments": "node tools/check-payments.mjs",
     "settle": "node tools/settle-payment.mjs"
   },
   "dependencies": {

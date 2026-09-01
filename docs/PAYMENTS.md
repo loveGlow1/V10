@@ -178,7 +178,26 @@ write it could mark its own order confirmed.
 
 ## Checking a deployment
 
-`GET /api/health` answers both halves:
+```
+npm run check:payments                      # this machine's configuration
+npm run check:payments https://your-site    # and that deployment's /api/health
+```
+
+It verifies each wallet address it can — anything Base58Check has a checksum, and
+a checksum catches the one mistake that cannot be undone — reads a live price for
+every coin on offer, and says which of the four silent failures you are in:
+
+| What is missing | What the customer sees |
+| --- | --- |
+| A wallet | "Crypto payments are not switched on for this deployment" |
+| A readable rate | "Live crypto prices are unavailable right now" |
+| `SUPABASE_SERVICE_ROLE_KEY` | The coin list renders, then Pay fails |
+| `CRYPTO_PAYMENTS_WEBHOOK_SECRET` | Nothing. It all works, and nobody is credited. |
+
+That last row is why the script exists: it is the only failure that looks like
+success from every screen.
+
+`GET /api/health` answers the configuration half on its own:
 
 ```json
 {
