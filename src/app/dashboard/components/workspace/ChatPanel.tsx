@@ -27,6 +27,7 @@ import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 import MessageRow, { type Activity } from "./MessageRow";
+import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -42,6 +43,21 @@ import {
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
    read back from a table and the two must not drift. */
+/* The line under a finished build's name, and the same rule the drawer's
+   recent tasks follow: the status when it is not the ordinary "Built", and the
+   kind otherwise. `intent` is null on exactly the rows that were never built,
+   so reading it first would leave this blank on the ones worth naming. */
+const RESULT_KIND: Record<string, string> = {
+  webapp: "Web app",
+  wordpress: "WordPress site",
+  ecommerce: "Online store",
+};
+
+function resultKind(project: { status: string; intent: string | null }) {
+  if (project.status && project.status !== "Built") return project.status;
+  return project.intent ? RESULT_KIND[project.intent] : undefined;
+}
+
 /* What the classifier decided, in words for the tracker. Its own keys are
    edit / new_project / question / revert — see src/lib/builder/intent.ts. */
 const INTENT_LABEL: Record<string, string> = {
@@ -60,6 +76,7 @@ type Message = ThreadMessage & {
   at?: number;
   applied?: boolean;
   activity?: Activity;
+  result?: BuildResult;
 };
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
@@ -81,6 +98,7 @@ export default function ChatPanel({
   previewOpen = false,
   initialPrompt,
   onBuildSettled,
+  onPublish,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
@@ -92,6 +110,8 @@ export default function ChatPanel({
   initialPrompt?: string | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
   onBuildSettled?: () => void;
+  /** Asks the preview half for its publish flow. See Workspace. */
+  onPublish?: () => void;
 }) {
   const router = useRouter();
   const { create, build, watchBuild } = useProjects();
@@ -133,6 +153,10 @@ export default function ChatPanel({
      and the wait for the page — rather than from a script. */
   const [phases, setPhases] = useState<ActivityStep[]>([]);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  /* When the most recent run started, which runStartedAt cannot say because it
+     is cleared the moment the run ends. This one only moves forward, and it is
+     what tells a result card the thread has moved on past it. */
+  const [lastRunAt, setLastRunAt] = useState<number | null>(null);
   /* Whose workspace this is. Empty until the session answers, and empty for
      good on an account that never gave a name — the greeting handles both. */
   const { firstName } = useAccountName();
@@ -285,7 +309,10 @@ export default function ChatPanel({
      kept. The write is not awaited and its failure is not raised: a message on
      screen should stay on screen, and losing a row from the history is not
      worth interrupting a build over. */
-  function say(message: ThreadMessage, view?: { applied?: boolean; activity?: Activity }) {
+  function say(
+    message: ThreadMessage,
+    view?: { applied?: boolean; activity?: Activity; result?: BuildResult },
+  ) {
     setMessages((current) => [
       ...current,
       { id: nextId.current++, at: Date.now(), ...message, ...view },
@@ -349,6 +376,7 @@ export default function ChatPanel({
     setBuilding(true);
     const runStarted = Date.now();
     setRunStartedAt(runStarted);
+    setLastRunAt(runStarted);
     run.current = [];
     /* The one step this panel reports itself, and the only one it can: the
        request is in the browser's hands until the server answers, so nothing
@@ -515,6 +543,20 @@ export default function ChatPanel({
             { from: "system", text: "Your page is ready." },
             {
               applied: true,
+              /* The card under the reply: the page, its name, and the two
+                 things anyone does next. Its buttons expire three minutes from
+                 now — measured from this moment rather than from when the
+                 thread is read, so reopening it later shows the card without
+                 them rather than for three more minutes — or a minute after the
+                 next run starts, whichever comes first. */
+              result: {
+                projectId: project.id,
+                name: finished?.name ?? project.name,
+                kind: resultKind(finished ?? project),
+                at: Date.now(),
+                hasPage: true,
+                stamp: finished?.last_build_at ?? null,
+              },
               /* The address rides on the tracker rather than as a link chip
                  beside it — offering the same page twice in one card reads as
                  two destinations. */
@@ -752,7 +794,9 @@ export default function ChatPanel({
           <MessageRow
             key={message.id}
             message={message}
+            supersededAt={lastRunAt}
             onOpenPreview={onOpenPreview}
+            onPublish={onPublish}
           />
         ))}
 

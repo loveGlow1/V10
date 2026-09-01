@@ -8,6 +8,7 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  Download,
   ExternalLink,
   LifeBuoy,
   Link2,
@@ -64,12 +65,17 @@ export default function PreviewPanel({
   project,
   onUpgradeClick,
   request,
+  publishRequest,
   onBackToChat,
   onClose,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
   request: ManageRequest | null;
+  /* A counter, bumped when something outside asks for the publish flow — the
+     chat's result card. A counter rather than a boolean for the same reason
+     ManageRequest carries one: asking twice has to register twice. */
+  publishRequest?: number;
   /* Puts this half away and gives the whole workspace to the conversation.
      Desktop only — a phone shows one at a time already. */
   onClose?: () => void;
@@ -151,6 +157,15 @@ export default function PreviewPanel({
     /* `reloads` is a dependency on purpose: the refresh button rebuilds the
        page rather than only remounting a frame around the same copy. */
   }, [previewUrl, previewPath, reloads]);
+
+  useEffect(() => {
+    if (!publishRequest) return;
+    /* The preview half, with the publish panel open — the same one the header
+       button opens, rather than a second flow that would have to say the same
+       things about cost and readiness. */
+    setView("preview");
+    setPublishOpen(true);
+  }, [publishRequest]);
 
   useEffect(() => {
     if (!request) return;
@@ -706,6 +721,38 @@ export default function PreviewPanel({
             )}
             <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
+
+          {/* Download's permanent home, beside Publish. The copy in the chat
+              card is the shortcut and it expires; this one does not, which is
+              why it sits with the other thing you do to a finished app rather
+              than somewhere of its own.
+
+              An anchor, not a button: the route answers with a
+              Content-Disposition, so the browser saves the file and this page
+              stays where it is. A project with nothing built has nothing to
+              take, so it is a dead control rather than a link to a 404. */}
+          {previewUrl ? (
+            <a
+              href={`/preview/${project?.id}?download=1`}
+              download
+              title="Download this page"
+              aria-label="Download this page"
+              className={action}
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              <span className="hidden xl:inline">Download</span>
+            </a>
+          ) : (
+            <button
+              disabled
+              title="Nothing to download yet"
+              aria-label="Download this page"
+              className={action}
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              <span className="hidden xl:inline">Download</span>
+            </button>
+          )}
 
           <button
             onClick={() => setPublishOpen((open) => !open)}

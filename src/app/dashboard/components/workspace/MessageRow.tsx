@@ -6,6 +6,7 @@ import { Check, ExternalLink, User } from "lucide-react";
 import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
+import BuildResultCard, { type BuildResult } from "./BuildResultCard";
 
 /* The build behind one reply, as the tracker needs it. */
 export type Activity = {
@@ -35,6 +36,8 @@ export type Message = {
   /** Set on a reply whose work actually landed. */
   applied?: boolean;
   activity?: Activity;
+  /** The finished page, on the reply that announced it. */
+  result?: BuildResult;
 };
 
 /* The clock, as the reader's own locale writes it. */
@@ -50,10 +53,16 @@ export function timeOf(at: number): string {
    which stay legible at any width. */
 export default function MessageRow({
   message,
+  supersededAt,
   onOpenPreview,
+  onPublish,
 }: {
   message: Message;
+  /** When the most recent run in this visit started, for a result card that the
+      thread has since moved past. */
+  supersededAt?: number | null;
   onOpenPreview?: () => void;
+  onPublish?: () => void;
 }) {
   const you = message.from === "you";
 
@@ -136,6 +145,14 @@ export default function MessageRow({
             </a>
           ))}
         </div>
+      )}
+
+      {message.result && (
+        <BuildResultCard
+          result={message.result}
+          supersededAt={supersededAt}
+          onPublish={onPublish}
+        />
       )}
 
       {message.activity && (
