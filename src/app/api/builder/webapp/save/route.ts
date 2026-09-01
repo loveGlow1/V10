@@ -5,6 +5,7 @@ import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { recordAndConfirm } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
 
 /* Where a finished page is put away.
@@ -136,13 +137,18 @@ export async function POST(request: Request) {
      or a preview, so a finished app sat under "Building…" forever with its own
      page already stored behind it. Not "Live" either, which means published,
      which this is not. */
+  /* The moment this build landed, held rather than inlined: it stamps the row
+     the workspace watches, and it is also what names this build in the thread
+     when the workflow did not send a request id. */
+  const landedAt = new Date().toISOString();
+
   const { error: updateError } = await supabase
     .from("projects")
     .update({
       status: "Built",
       intent: "webapp",
       preview_url: previewUrl,
-      last_build_at: new Date().toISOString(),
+      last_build_at: landedAt,
     })
     .eq("id", project.id)
     .eq("user_id", claim.userId);
@@ -154,6 +160,38 @@ export async function POST(request: Request) {
       { message: "The page was stored but the project could not be updated." },
       { status: 500 },
     );
+  }
+
+  /* ── The conversation is told, from here ─────────────────────────────────
+     This used to be the browser's job: the panel polled the project row, saw
+     the page land, and wrote "your page is ready" into the thread itself. Which
+     worked exactly as long as the tab stayed open. Close it during a build —
+     two minutes is long enough that people do — and the page was built, stored
+     and charged for, while the conversation stopped at "your build is underway"
+     and stayed there. There was nothing to carry on from.
+
+     So the announcement is written where the build actually finishes. It is in
+     the thread whether or not anyone is watching, it carries the preview
+     address, and it is keyed on the build's own request id so a save delivered
+     twice does not say it twice.
+
+     Written before the charge, and the charge is skipped if it cannot be
+     written: a build nobody can find in their conversation is not one that was
+     delivered. */
+  const announced = await recordAndConfirm(supabase, {
+    projectId: project.id,
+    userId: claim.userId,
+    role: "system",
+    body: "Your page is ready.",
+    links: [{ label: "Open preview", href: previewUrl }],
+    kind: "build_ready",
+    dedupeKey: `ready:${claim.requestId || landedAt}`,
+  });
+
+  if (!announced) {
+    // eslint-disable-next-line no-console
+    console.error("save: the page was stored but could not be announced; not charging for it.");
+    return NextResponse.json({ previewUrl, filesTouched });
   }
 
   /* Priced from the page, and only now that there is a page. filesTouchedFor

@@ -21,12 +21,38 @@ export type ThreadMessage = {
   tone?: "normal" | "error";
 };
 
+/* What a message is, beyond what it says. The routes write it now — a build
+   that finishes announces itself from the server — so a thread read back can
+   tell the sentence that means "your page is ready" from one that happens to
+   be worded like it. See lib/thread-server.ts. */
+export type MessageKind = "chat" | "build_started" | "build_ready" | "build_failed";
+
+/* A message as it comes back out of the table: what was said, plus the two
+   things only the row knows — when, and what kind of thing it was. Both are
+   read rather than inferred, which is what lets a reopened workspace put the
+   finished build's card back under the message that announced it. */
+export type StoredMessage = ThreadMessage & {
+  kind: MessageKind;
+  at: number;
+};
+
 type Row = {
   role: "you" | "system";
   body: string;
   links: unknown;
   tone: "normal" | "error";
+  kind: string | null;
+  created_at: string;
 };
+
+const KINDS: MessageKind[] = ["chat", "build_started", "build_ready", "build_failed"];
+
+/* An unknown kind is an ordinary message. The column is written by this app,
+   but a thread outlives any one version of it, and a row from before the column
+   existed reads as null. */
+function readKind(value: unknown): MessageKind {
+  return KINDS.includes(value as MessageKind) ? (value as MessageKind) : "chat";
+}
 
 /* Addresses are filtered on the way out as well as on the way in. They were
    written by a build, which is to say by a workflow anyone with n8n access can
@@ -45,12 +71,12 @@ function readLinks(value: unknown): { label: string; href: string }[] | undefine
 }
 
 /** The thread for a project, oldest first. Empty when there is nothing stored. */
-export async function loadThread(projectId: string): Promise<ThreadMessage[]> {
+export async function loadThread(projectId: string): Promise<StoredMessage[]> {
   if (!isSupabaseConfigured) return [];
 
   const { data, error } = await createSupabaseBrowserClient()
     .from("project_messages")
-    .select("role, body, links, tone")
+    .select("role, body, links, tone, kind, created_at")
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
 
@@ -63,6 +89,12 @@ export async function loadThread(projectId: string): Promise<ThreadMessage[]> {
     text: row.body,
     links: readLinks(row.links),
     tone: row.tone,
+    kind: readKind(row.kind),
+    /* The row's own clock, so a reopened thread shows when things were said
+       rather than nothing at all. It is also what a finished build's card
+       counts its few minutes from — measured from when the page actually
+       landed, not from when someone happened to scroll back to it. */
+    at: Date.parse(row.created_at),
   }));
 }
 

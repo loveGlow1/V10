@@ -47,6 +47,10 @@ export type BuildReply = {
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
   error?: string;
+  /* Whether the server has already put this reply in the stored thread. It
+     writes what it answers now — see lib/thread-server.ts — so the panel
+     renders it but must not write it a second time. */
+  stored?: boolean;
 };
 
 /* The last line of the stream, which is what the whole response used to be. */
@@ -57,6 +61,10 @@ type BuildPayload = {
   build?: BuildOutcome;
   project?: Project | null;
   error?: string;
+  /* Whether the route has already put this reply in the stored thread. It
+     writes what it answers now — see lib/thread-server.ts — so the panel
+     renders it but must not write it a second time. */
+  stored?: boolean;
 };
 
 export type BuildOptions = {
@@ -326,6 +334,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
              where it stopped. */
           steps: payload?.steps,
           error: payload?.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
+          stored: payload?.stored === true,
         };
       }
 
@@ -341,6 +350,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         steps: payload.steps,
         needsConfirmation: payload.needsConfirmation === true,
         outcome: payload.build,
+        stored: payload.stored === true,
       };
     },
     [],

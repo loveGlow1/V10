@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 
 import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
+import { carryBrief, priorTurns } from "@/lib/builder/brief";
 import { EDIT_MODEL, EditError, answerQuestion, askClarifying, editPage } from "@/lib/builder/edit";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
+import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -316,18 +318,32 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       ? (body.intentOverride as Intent)
       : null;
 
-  /* A little conversation, so "make it darker too" is read against what came
-     before it rather than on its own. */
+  /* The conversation so far, which is what makes this a session rather than a
+     sequence of unrelated requests. It decides three things now, not one: how
+     the classifier reads the message, what the model is told came before it,
+     and — for a message like "rebuild", which describes nothing — what is
+     actually built. See builder/brief.ts.
+
+     Read before this message is stored, so the message is never in its own
+     history. */
   const { data: recent } = await supabase
     .from("project_messages")
     .select("role, body")
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
-    .limit(6);
+    .limit(20);
 
   const history = ((recent ?? []) as { role: string; body: string }[])
     .reverse()
     .map((row) => ({ from: row.role, text: row.body }));
+
+  /* The classifier keeps the slice it was tuned and tested against. Widening
+     what it sees is a change to how every message is read, and this is not the
+     change that should make it. */
+  const classifierHistory = history.slice(-6);
+
+  /* The same conversation in the shape a model call takes. */
+  const prior = priorTurns(history);
 
   /* Whatever was attached to this message, resolved to rows the server can
      read. Restricted to this project and this owner: the ids came from the
@@ -345,6 +361,67 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     );
   }
 
+  /* One id for everything this message does, settled here rather than at the
+     build below: it is what makes each row this request writes safe to write
+     twice. A retried request, or the same message sent from two tabs, writes
+     the same message once. */
+  const requestId =
+    typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
+
+  /* ── The message goes into the thread before anything is done with it ────
+     The browser used to be the only thing that wrote a thread: it rendered a
+     message and inserted a row, without awaiting it. So a tab closed mid-build
+     wrote nothing, and the conversation it left behind had a hole in it exactly
+     where the answer should have been — which is also the context the next
+     message is read against.
+
+     Written here instead, with the file names the panel shows, so the record is
+     the same whether or not anyone is still looking at it. */
+  const spoken =
+    attachments.length > 0
+      ? `${prompt}\n\n(${attachments.map((file) => file.name).join(", ")})`
+      : prompt;
+
+  if (service) {
+    await recordMessage(service, {
+      projectId: project.id,
+      userId: user.id,
+      role: "you",
+      body: spoken,
+      dedupeKey: `you:${requestId}`,
+    });
+  }
+
+  /* What this route says back, stored before it is charged for.
+     Returns false only when the row genuinely could not be written — and then
+     nothing is billed, because an answer nobody can read is not one that was
+     delivered. */
+  async function deliver(
+    text: string,
+    options: {
+      kind?: "chat" | "build_started" | "build_ready" | "build_failed";
+      tone?: "normal" | "error";
+      links?: { label: string; href: string }[];
+      key: string;
+    },
+  ): Promise<boolean> {
+    /* No service key means nothing here can write to the thread at all. Said
+       plainly rather than assumed: the answer goes back to the panel, which
+       stores it the old way, and the charge below is skipped anyway because
+       charging needs the same key. */
+    if (!service) return false;
+    return recordAndConfirm(service, {
+      projectId: project!.id,
+      userId: user!.id,
+      role: "system",
+      body: text,
+      tone: options.tone,
+      links: options.links,
+      kind: options.kind ?? "chat",
+      dedupeKey: `${options.key}:${requestId}`,
+    });
+  }
+
   /* Announced before the call, not after it. Classifying is a round trip when
      the rules cannot settle it, and this is the line someone reads while that
      round trip is happening. */
@@ -353,7 +430,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const decision = await classifyIntent({
     message: prompt,
     hasPage: Boolean(currentHtml),
-    history,
+    history: classifierHistory,
     override,
   });
 
@@ -391,7 +468,12 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     const previous = (history2 ?? [])[1] as { html: string } | undefined;
 
     if (!previous || !service) {
+      const message = previous
+        ? "That cannot be undone right now."
+        : "There is nothing to undo — this is the first version of the page.";
+      const stored = await deliver(message, { key: "revert-none" });
       return NextResponse.json({
+        stored,
         steps: steps.list(),
         intent: "revert",
         build: {
@@ -403,9 +485,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
           links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" },
           configKeys: {},
           artifacts: {},
-          message: previous
-            ? "That cannot be undone right now."
-            : "There is nothing to undo — this is the first version of the page.",
+          message,
         },
         project: null,
       });
@@ -431,6 +511,8 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
 
     steps.mark("restore", "Put the previous version back on top");
 
+    const storedRevert = await deliver("Put the previous version back.", { key: "revert" });
+
     const { data: reverted } = await supabase
       .from("projects")
       .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
@@ -438,6 +520,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       .maybeSingle();
 
     return NextResponse.json({
+      stored: storedRevert,
       steps: steps.list(),
       intent: "revert",
       build: {
@@ -467,17 +550,26 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   if (intent === "clarify" && currentHtml) {
     try {
       steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
-      const question = await askClarifying(prompt, currentHtml, await attachmentBlocks(attachments));
+      const question = await askClarifying(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        prior,
+      );
       steps.mark(
         "clarify",
         "Wrote one question back",
         `${EDIT_MODEL}, ${question.outputTokens} output tokens`,
       );
 
+      /* Stored before it is billed. A question that never reached anyone is
+         not a question that was asked, and the ledger should not say it was. */
+      const delivered = await deliver(question.text, { key: "clarify" });
+
       /* Billed as chat, like a question, because that is what it is: one short
          model call with the page in it. Charging a build rate for a sentence
          that changed nothing would be charging for the classifier's caution. */
-      if (service) {
+      if (service && delivered) {
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
@@ -489,6 +581,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       }
 
       return NextResponse.json({
+        stored: delivered,
         steps: steps.list(),
         intent: "clarify",
         build: {
@@ -516,18 +609,25 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   if (intent === "question" && currentHtml) {
     try {
       steps.begin("answer", "Reading the page to answer you", `${EDIT_MODEL} is reading the page…`);
-      const answer = await answerQuestion(prompt, currentHtml, await attachmentBlocks(attachments));
+      const answer = await answerQuestion(
+        prompt,
+        currentHtml,
+        await attachmentBlocks(attachments),
+        prior,
+      );
       steps.mark(
         "answer",
         "Answered from the page",
         `${EDIT_MODEL}, ${answer.outputTokens} output tokens`,
       );
 
+      const delivered = await deliver(answer.text, { key: "answer" });
+
       /* Billed as chat, on what it said. Asking about a page is a model call
          with the whole page in it, so it is not free — but the chat band starts
          at zero and reaches one credit only at a full page of answer, which is
          what keeps troubleshooting from feeling metered. */
-      if (service) {
+      if (service && delivered) {
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
@@ -539,6 +639,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       }
 
       return NextResponse.json({
+        stored: delivered,
         steps: steps.list(),
         intent: "question",
         build: {
@@ -556,7 +657,8 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       });
     } catch (error) {
       if (error instanceof EditError) {
-        return NextResponse.json({ error: error.message }, { status: error.status });
+        const stored = await deliver(error.message, { tone: "error", key: "answer-failed" });
+        return NextResponse.json({ error: error.message, stored }, { status: error.status });
       }
       throw error;
     }
@@ -567,7 +669,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     /* Nothing has happened yet and nothing will until this comes back
        confirmed. Replacing a page someone spent real time and credits on is
        not a thing to do on a classifier's say-so. */
+    const asked =
+      "That reads like a brand-new build, which would replace the page you have. Do you want to start over, or change the current page?";
+    const stored = await deliver(asked, { key: "confirm" });
     return NextResponse.json({
+      stored,
       intent: "new_project",
       needsConfirmation: true,
       build: {
@@ -579,8 +685,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         links: { preview: previewUrl, repo: "", admin: "" },
         configKeys: {},
         artifacts: {},
-        message:
-          "That reads like a brand-new build, which would replace the page you have. Do you want to start over, or change the current page?",
+        message: asked,
       },
       project: null,
     });
@@ -601,7 +706,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
       steps.begin("edit", "Changing the page", `${EDIT_MODEL} is writing the change…`);
-      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments));
+      edited = await editPage(prompt, currentHtml, await attachmentBlocks(attachments), prior);
       steps.mark(
         "edit",
         edited.failures.length > 0
@@ -613,8 +718,9 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       if (error instanceof EditError) {
         /* The page is untouched. Said plainly, and with the prompt left in the
            composer, so it can be rephrased rather than retyped. */
+        const stored = await deliver(error.message, { tone: "error", key: "edit-failed" });
         return NextResponse.json(
-          { error: error.message, intent: "edit", code: "edit_failed" },
+          { error: error.message, intent: "edit", code: "edit_failed", stored },
           { status: error.status },
         );
       }
@@ -644,6 +750,23 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       .eq("id", project.id)
       .eq("user_id", user.id);
 
+    /* The reply, composed here rather than in the response body, because it
+       goes into the thread before it goes into the ledger: the edit is in the
+       page, and the sentence saying so must survive the tab that asked for it. */
+    const said = [
+      edited.failures.length > 0
+        ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+        : "Done.",
+      /* The model's own next step, when it had one. It came back on the
+         edit call, so it costs nothing extra and it is about the page as it
+         now stands rather than as it was. */
+      edited.note ? `Next: ${edited.note}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const storedEdit = await deliver(said, { key: "edit" });
+
     /* Charged, not attempted. The edit is already in the page — refusing the
        charge now would not take it back, it would only leave the work unpaid
        and the balance unchanged, which is precisely how an account came to sit
@@ -670,6 +793,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       .maybeSingle();
 
     return NextResponse.json({
+      stored: storedEdit,
       steps: steps.list(),
       intent: "edit",
       build: {
@@ -681,22 +805,14 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         links: { preview: previewUrl, repo: "", admin: "" },
         configKeys: {},
         artifacts: { applied: edited.applied },
-        message: [
-          edited.failures.length > 0
-            ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-            : "Done.",
-          /* The model's own next step, when it had one. It came back on the
-             edit call, so it costs nothing extra and it is about the page as it
-             now stands rather than as it was. */
-          edited.note ? `Next: ${edited.note}` : null,
-          /* Said here rather than discovered on the next attempt: running out
-             mid-sentence is a worse surprise than being told. */
+        /* Said to the screen rather than written to the thread: running out
+           mid-sentence is a worse surprise than being told, but next week's
+           reader of this conversation does not need to know what the balance
+           was on the day. */
+        message:
           charge && charge.remaining <= 0
-            ? "That used the last of your credits. Top up to keep building."
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" "),
+            ? `${said} That used the last of your credits. Top up to keep building.`
+            : said,
       },
       project: after ?? null,
     });
@@ -715,13 +831,12 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     .gte("created_at", anHourAgo);
 
   if ((recentBuilds ?? 0) >= BUILDS_PER_HOUR) {
-    return NextResponse.json(
-      {
-        error: `That's ${BUILDS_PER_HOUR} builds inside an hour, which is the limit here. Give it a few minutes and I'll carry on.`,
-        code: "rate_limited",
-      },
-      { status: 429 },
-    );
+    const said = `That's ${BUILDS_PER_HOUR} builds inside an hour, which is the limit here. Give it a few minutes and I'll carry on.`;
+    /* Stored, though nothing was charged for it. The message that asked is
+       already in the thread, and a question with no answer under it is exactly
+       the hole this whole change is about. */
+    const stored = await deliver(said, { tone: "error", key: "rate-limited" });
+    return NextResponse.json({ error: said, code: "rate_limited", stored }, { status: 429 });
   }
 
   /* Checked again, and against a bigger number than the door upstairs.
@@ -735,26 +850,40 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
   if (beforeBuild && !canAfford(beforeBuild, FULL_BUILD_ENTRY_COST)) {
-    return NextResponse.json(
-      {
-        error: `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
-          beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
-        )}. Ask for a change to the page instead — an edit costs far less — or top up.`,
-        code: "insufficient_credits",
-      },
-      { status: 402 },
+    const said = `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
+      beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
+    )}. Ask for a change to the page instead — an edit costs far less — or top up.`;
+    const stored = await deliver(said, { tone: "error", key: "no-credits" });
+    return NextResponse.json({ error: said, code: "insufficient_credits", stored }, { status: 402 });
+  }
+
+  /* ── What is actually being built ────────────────────────────────────────
+     "Rebuild" is a real thing people type, and on its own it describes nothing.
+     It used to be handed to the orchestrator as the design brief, which built
+     what you would expect from the word "rebuild" — and told someone who had
+     described an e-commerce store two messages earlier that it had forgotten.
+
+     So a message that only asks for the last thing again carries the last thing
+     with it. A message that describes something is passed through exactly as
+     typed, which is every other message. See builder/brief.ts. */
+  const brief = carryBrief(prompt, history);
+
+  if (brief.carried) {
+    steps.mark(
+      "brief",
+      "Carried your earlier description forward",
+      `"${brief.carried.slice(0, 60)}${brief.carried.length > 60 ? "…" : ""}"`,
     );
   }
 
   /* Stored before the build runs, so a build that times out on the way back
-     still leaves the workspace showing why it is not idle. */
+     still leaves the workspace showing why it is not idle. The brief is stored
+     rather than the message, so the row says what was built rather than the
+     word that asked for it again. */
   await supabase
     .from("projects")
-    .update({ prompt, status: "Building" })
+    .update({ prompt: brief.text, status: "Building" })
     .eq("id", project.id);
-
-  const requestId =
-    typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
 
   /* Only a full build reaches here, and a full build is a fresh page: whatever
      was there is being replaced, deliberately and with the person's say-so, so
@@ -763,7 +892,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   try {
     steps.running("orchestrator", "Generating the page", "handed to the build orchestrator");
     result = await startBuild({
-      prompt,
+      prompt: brief.text,
       projectName: project.name,
       userId: user.id,
       projectId: project.id,
@@ -778,7 +907,15 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       /* The row was moved to Building a moment ago; leaving it there would show
          a build that is not running. */
       await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      /* Stored as well as returned. This one matters on reopening: without it a
+         workspace whose tab was closed on a failed start shows a build that
+         never finishes and never explains itself. */
+      const stored = await deliver(error.message, {
+        kind: "build_failed",
+        tone: "error",
+        key: "build-failed",
+      });
+      return NextResponse.json({ error: error.message, stored }, { status: error.status });
     }
     throw error;
   }
@@ -798,6 +935,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * finishes is never billed, which is the right answer for a build nobody
    * got. */
 
+  /* The build is running and the thread says so — from here, not from the
+     browser. It is what a session reopened five minutes later reads to know
+     there is something still in flight to pick back up. */
+  const storedBuild = await deliver(result.message, { kind: "build_started", key: "build" });
+
   /* What the orchestrator persisted, read back rather than assumed. If its
      Supabase step is not connected yet the row still says "Building", and the
      reply says so too instead of promising a row that was never written. */
@@ -808,6 +950,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     .maybeSingle();
 
   return NextResponse.json({
+    stored: storedBuild,
     steps: steps.list(),
     intent: "new_project",
     build: result,

@@ -55,6 +55,10 @@ async function ask(
      text refers to them — "match this screenshot" reads as an instruction only
      once the screenshot is already in view. */
   attachments: Anthropic.ContentBlockParam[] = [],
+  /* What was said before this message, as turns rather than as a preamble
+     pasted into one. Without them "make it darker too" has no "too", and
+     "change the other one as well" names nothing — see builder/brief.ts. */
+  prior: Anthropic.MessageParam[] = [],
 ): Promise<Anthropic.Message> {
   try {
     return await client().messages.create({
@@ -67,6 +71,7 @@ async function ask(
       output_config: { effort: "low" },
       system,
       messages: [
+        ...prior,
         {
           role: "user",
           content:
@@ -115,8 +120,9 @@ export async function editPage(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
+  prior: Anthropic.MessageParam[] = [],
 ): Promise<EditOutcome> {
-  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments);
+  const first = await ask(EDIT_SYSTEM, editPrompt(userMessage, html), 8_000, attachments, prior);
 
   if (first.stop_reason === "refusal") {
     throw new EditError("I wasn't able to make that change. If you can say which part of the page you mean, I'll try again.", 422);
@@ -140,6 +146,7 @@ export async function editPage(
       retryPrompt(userMessage, html, reason),
       8_000,
       attachments,
+      prior,
     );
     output = textOf(second);
     result = applyPatches(html, output);
@@ -175,10 +182,17 @@ export async function askClarifying(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
+  prior: Anthropic.MessageParam[] = [],
 ): Promise<Answer> {
   /* 300 tokens and low effort: this is one sentence, and it is on the path of
      someone who has already waited once for the classifier. */
-  const message = await ask(CLARIFY_SYSTEM, clarifyPrompt(userMessage, html), 300, attachments);
+  const message = await ask(
+    CLARIFY_SYSTEM,
+    clarifyPrompt(userMessage, html),
+    300,
+    attachments,
+    prior,
+  );
 
   if (message.stop_reason === "refusal") {
     throw new EditError("I wasn't able to answer that one. Try asking it a different way.", 422);
@@ -201,8 +215,15 @@ export async function answerQuestion(
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
+  prior: Anthropic.MessageParam[] = [],
 ): Promise<Answer> {
-  const message = await ask(QUESTION_SYSTEM, questionPrompt(userMessage, html), 1_500, attachments);
+  const message = await ask(
+    QUESTION_SYSTEM,
+    questionPrompt(userMessage, html),
+    1_500,
+    attachments,
+    prior,
+  );
 
   if (message.stop_reason === "refusal") {
     throw new EditError("The model declined to answer that.", 422);
