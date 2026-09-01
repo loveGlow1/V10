@@ -30,6 +30,7 @@ import MessageRow, { type Activity } from "./MessageRow";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
+import { resumableFrom } from "./resume";
 import { safeHttpUrl } from "@/lib/safe-url";
 import { appendToThread, loadThread, type ThreadMessage } from "@/lib/project-messages";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
@@ -238,6 +239,41 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt, threadLoaded]);
 
+  /* A build that was already running when this workspace was opened.
+     The row is the shared truth between one visit and the next: it says
+     "Building" from the moment the orchestrator is called until its page lands,
+     so a session that arrives in the middle can simply wait for the same thing
+     the session that started it was waiting for. See resume(), above.
+
+     Guarded by a ref keyed on the run, so re-renders during the wait do not
+     start a second one — and skipped entirely while this session is itself
+     building, which is the case that is already being watched. */
+  const resumed = useRef<string | null>(null);
+  /* Whether this session has run a build of its own. If it has, it has already
+     done the waiting — including giving up on it — and picking the same run
+     back up here would restart that wait behind a line saying the build was
+     already going when the workspace opened, which it was not. */
+  const sentHere = useRef(false);
+  useEffect(() => {
+    if (!project) return;
+
+    const startedAt = resumableFrom({
+      status: project.status,
+      updatedAt: project.updated_at,
+      threadLoaded,
+      building,
+      sentHere: sentHere.current,
+    });
+    if (startedAt === null) return;
+
+    const key = `${project.id}:${project.updated_at}`;
+    if (resumed.current === key) return;
+    resumed.current = key;
+
+    void resume(startedAt, project.last_build_at ? Date.parse(project.last_build_at) : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, project?.status, project?.updated_at, threadLoaded, building]);
+
   /* Follows the conversation, but only while the reader is already at the foot
      of it. Phases land one at a time during a build, so this fires repeatedly
      — and yanking the view back down while someone reads an earlier reply is
@@ -312,6 +348,13 @@ export default function ChatPanel({
   function say(
     message: ThreadMessage,
     view?: { applied?: boolean; activity?: Activity; result?: BuildResult },
+    /* Where the record of this message lives.
+       "server" — /api/build or the save step has already written it, and
+       writing it again here would put it in the thread twice.
+       "session" — it is true only of this screen and this moment ("still
+       waiting"), so it is shown and deliberately not kept.
+       Default: this panel is the only thing that knows, so it writes it. */
+    record: "panel" | "server" | "session" = "panel",
   ) {
     setMessages((current) => [
       ...current,
@@ -319,7 +362,9 @@ export default function ChatPanel({
     ]);
     /* Only the stored half is written. The clock and the applied mark are this
        session's view of the message, not part of the record. */
-    if (project?.id && userId) void appendToThread(project.id, userId, message);
+    if (record === "panel" && project?.id && userId) {
+      void appendToThread(project.id, userId, message);
+    }
   }
 
   /* The phases of the run in flight, kept in a ref as well as in state. The
@@ -354,9 +399,122 @@ export default function ChatPanel({
     };
   }
 
+  /* The wait for a page that is being generated somewhere else.
+   *
+   * Shared by the two ways of arriving at one: sending a message, and opening a
+   * workspace whose build was already running. They are the same wait — the
+   * only honest difference is what the tracker says about how it got here — and
+   * having written it twice, the second copy is how a resumed session ended up
+   * behaving unlike a live one.
+   *
+   * `since` is the build to wait past: the row stamps last_build_at when the
+   * page lands, so anything at or before this belongs to a previous build.
+   */
+  async function awaitPage(runStarted: number, since: number, detail: string) {
+    if (!project) return;
+
+    setPhase({ id: "generate", label: "Generating the page", detail, state: "running" });
+
+    const finished = await watchBuild(project.id, since);
+    const preview = safeHttpUrl(finished?.preview_url);
+
+    if (preview) {
+      setPhase({ id: "generate", label: "Page generated", state: "done" });
+      say(
+        { from: "system", text: "Your page is ready." },
+        {
+          applied: true,
+          /* The card under the reply: the page, its name, and the two
+             things anyone does next. Its buttons expire three minutes from
+             now — measured from this moment rather than from when the
+             thread is read, so reopening it later shows the card without
+             them rather than for three more minutes — or a minute after the
+             next run starts, whichever comes first. */
+          result: {
+            projectId: project.id,
+            name: finished?.name ?? project.name,
+            kind: resultKind(finished ?? project),
+            at: Date.now(),
+            hasPage: true,
+            stamp: finished?.last_build_at ?? null,
+          },
+          /* The address rides on the tracker rather than as a link chip
+             beside it — offering the same page twice in one card reads as
+             two destinations. */
+          activity: { ...timelineOf(runStarted, false), previewHref: preview },
+        },
+        /* The save step wrote this line into the thread as it stored the page,
+           which is what makes it survive a closed tab. Writing it here too
+           would say it twice to anyone who reopens the app. */
+        "server",
+      );
+    } else if (finished?.status === "Failed") {
+      setPhase({ id: "generate", label: "The build did not finish", state: "done" });
+      /* The build came back and said so. Generation happens after the reply,
+         so a failure there cannot travel in the response — it is written to
+         the row instead, which is the same row this was waiting on. */
+      say({
+        from: "system",
+        text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
+        tone: "error",
+      });
+    } else {
+      /* Left running rather than ticked: the wait gave up, the build did
+         not. Marking it done would say this panel knows an outcome it does
+         not have. */
+      setPhase({
+        id: "generate",
+        label: "Still generating when the wait gave up",
+        state: "running",
+      });
+      say(
+        {
+          from: "system",
+          /* Not "it failed": nothing here knows that. The build may still
+             land, and the workspace will show it when it does — so it is not
+             marked as a problem either. */
+          text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
+        },
+        undefined,
+        /* True of this wait, not of this build. Keeping it would leave a
+           conversation that says the builder gave up, next to the page it went
+           on to deliver — and the next visit picks the build back up anyway. */
+        "session",
+      );
+    }
+  }
+
+  /* Picking a build back up.
+   *
+   * A build takes minutes, and people close tabs. The row says "Building" until
+   * its page lands, so a workspace opened onto one has everything it needs to
+   * carry on: the thread it left behind, read from the table, and a build to
+   * wait for. Before this, that workspace sat with a dead conversation ending
+   * at "your build is underway" — the page would arrive, be stored, and be
+   * charged for, and nothing on the screen ever said so.
+   *
+   * Only builds recent enough to still be running are picked up. A row left
+   * "Building" by something that died a week ago is not a build to wait for,
+   * and waiting on it would be this panel inventing a spinner. */
+  async function resume(startedAt: number, since: number) {
+    setBuilding(true);
+    setRunStartedAt(startedAt);
+    setLastRunAt(startedAt);
+    run.current = [];
+    try {
+      await awaitPage(startedAt, since, "This was already running when you opened it — picking it back up…");
+    } finally {
+      setBuilding(false);
+      setRunStartedAt(null);
+      setPhases([]);
+      onBuildSettled?.();
+    }
+  }
+
   async function send(prompt?: string, options: { intentOverride?: BuildIntent | null; confirmNewProject?: boolean; silent?: boolean } = {}) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
+    sentHere.current = true;
 
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
@@ -366,10 +524,18 @@ export default function ChatPanel({
     /* `silent` is the re-send behind a confirmation: the message is already in
        the conversation, and saying it twice would read as sending it twice. */
     if (!options.silent) {
-      say({
-        from: "you",
-        text: sent.length > 0 ? `${text}\n\n(${sent.map((f) => f.name).join(", ")})` : text,
-      });
+      /* Shown here, stored there. /api/build writes this message the moment it
+         has checked the project is yours, with the same file names beside it —
+         so a tab closed a second later still leaves the question in the thread,
+         and the next message is still read against it. */
+      say(
+        {
+          from: "you",
+          text: sent.length > 0 ? `${text}\n\n(${sent.map((f) => f.name).join(", ")})` : text,
+        },
+        undefined,
+        "server",
+      );
     }
     setAttached([]);
     if (prompt === undefined) setDraft("");
@@ -415,6 +581,10 @@ export default function ChatPanel({
           /* The steps it did get through are worth keeping: they say how far it
              got before it stopped. */
           reply.steps?.length ? { activity: timelineOf(runStarted, true) } : undefined,
+          /* A refusal the server reached — a failed edit, a build that would
+             not start — is stored there, with the message that caused it. One
+             it never reached (no network, no session) is this panel's to keep. */
+          reply.stored ? "server" : "panel",
         );
         if (prompt === undefined) setDraft(text);
         setAttached(sent);
@@ -428,7 +598,7 @@ export default function ChatPanel({
            page — the two buttons under it are the whole point, and marking the
            sentence as a problem made a question look like something had already
            gone wrong. */
-        say({ from: "system", text: reply.outcome.message });
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingConfirm({ text });
         /* Nothing ran, so the files are still this message's. */
         setAttached(sent);
@@ -489,6 +659,7 @@ export default function ChatPanel({
                 reply.intent !== "clarify",
               activity: timelineOf(runStarted, outcome.status === "Failed"),
             },
+        reply.stored ? "server" : "panel",
       );
 
       /* The reply above arrives as soon as the prompt has been classified — the
@@ -497,68 +668,7 @@ export default function ChatPanel({
          message said the preview link updates as it finishes, and this is what
          makes that true without a reload. */
       if (outcome.status === "Building") {
-        setPhase({
-          id: "generate",
-          label: "Generating the page",
-          detail: "This runs in the orchestrator and takes as long as it takes…",
-          state: "running",
-        });
-        const finished = await watchBuild(project.id, startedAt);
-        const preview = safeHttpUrl(finished?.preview_url);
-
-        if (preview) {
-          setPhase({ id: "generate", label: "Page generated", state: "done" });
-          say(
-            { from: "system", text: "Your page is ready." },
-            {
-              applied: true,
-              /* The card under the reply: the page, its name, and the two
-                 things anyone does next. Its buttons expire three minutes from
-                 now — measured from this moment rather than from when the
-                 thread is read, so reopening it later shows the card without
-                 them rather than for three more minutes — or a minute after the
-                 next run starts, whichever comes first. */
-              result: {
-                projectId: project.id,
-                name: finished?.name ?? project.name,
-                kind: resultKind(finished ?? project),
-                at: Date.now(),
-                hasPage: true,
-                stamp: finished?.last_build_at ?? null,
-              },
-              /* The address rides on the tracker rather than as a link chip
-                 beside it — offering the same page twice in one card reads as
-                 two destinations. */
-              activity: { ...timelineOf(runStarted, false), previewHref: preview },
-            },
-          );
-        } else if (finished?.status === "Failed") {
-          setPhase({ id: "generate", label: "The build did not finish", state: "done" });
-          /* The build came back and said so. Generation happens after the reply,
-             so a failure there cannot travel in the response — it is written to
-             the row instead, which is the same row this was waiting on. */
-          say({
-            from: "system",
-            text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
-            tone: "error",
-          });
-        } else {
-          /* Left running rather than ticked: the wait gave up, the build did
-             not. Marking it done would say this panel knows an outcome it does
-             not have. */
-          setPhase({
-            id: "generate",
-            label: "Still generating when the wait gave up",
-            state: "running",
-          });
-          say({
-            from: "system",
-            /* Not "it failed": nothing here knows that. The build may still
-               land, and the workspace will show it when it does — so it is not
-               marked as a problem either. */
-            text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
-          });
-        }
+        await awaitPage(runStarted, startedAt, "This runs in the orchestrator and takes as long as it takes…");
       }
     } catch (error) {
       say({ from: "system", text: (error as Error).message, tone: "error" });

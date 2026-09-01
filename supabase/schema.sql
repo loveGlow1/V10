@@ -953,6 +953,29 @@ create table if not exists public.project_messages (
   created_at timestamptz not null default now()
 );
 
+-- Written by the server as well as by the browser.
+--
+-- A message used to be inserted only by the panel that rendered it, which meant
+-- a closed tab lost the reply — and, because a reply is also what the next
+-- message is read against, lost the thread's memory of what was being built.
+-- The routes now write what they answer and what they charge for, so the record
+-- survives the browser that asked for it.
+--
+-- kind names what the row is, so a resumed session can tell an announcement
+-- from a sentence: 'chat' | 'build_started' | 'build_ready' | 'build_failed'.
+alter table public.project_messages
+  add column if not exists kind text not null default 'chat';
+
+-- What makes a server write safe to repeat. The same reply may be written by a
+-- retried request, by two open tabs, or by the save step arriving twice, and
+-- one build must not announce itself three times in a thread.
+alter table public.project_messages
+  add column if not exists dedupe_key text;
+
+create unique index if not exists project_messages_dedupe_idx
+  on public.project_messages (project_id, dedupe_key)
+  where dedupe_key is not null;
+
 -- A thread is always read whole, oldest first, for one project.
 create index if not exists project_messages_project_created_idx
   on public.project_messages (project_id, created_at);
