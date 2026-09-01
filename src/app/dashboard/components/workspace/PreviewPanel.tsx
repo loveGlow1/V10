@@ -8,6 +8,7 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  Download,
   ExternalLink,
   LifeBuoy,
   Link2,
@@ -676,6 +677,31 @@ export default function PreviewPanel({
               className={`${action} w-9 px-0`}
             >
               <ExternalLink className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* The app as a file. A plain anchor rather than a fetch-and-blob:
+              the route answers with Content-Disposition, so the browser saves
+              it and names it, which is the behaviour a phone actually honours.
+              What arrives is compiled to stand alone — see the route — so it
+              opens correctly with no connection. */}
+          {previewUrl && project ? (
+            <a
+              href={`/download/${project.id}`}
+              title="Download the page as a file"
+              aria-label="Download the page as a file"
+              className={`${action} w-9 px-0`}
+            >
+              <Download className="h-4 w-4" />
+            </a>
+          ) : (
+            <button
+              disabled
+              title="Nothing to download yet"
+              aria-label="Download the page as a file"
+              className={`${action} w-9 px-0`}
+            >
+              <Download className="h-4 w-4" />
             </button>
           )}
 
