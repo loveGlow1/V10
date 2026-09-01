@@ -42,6 +42,80 @@ Two properties hold the whole thing up:
 already-confirmed order returns the balance untouched. Processors retry, and a
 retry must not pay twice.
 
+## Collecting into your own wallets
+
+With static addresses — one per coin, set below — every customer pays into the
+same address, and the chain records nothing that says which order a payment was
+for. Two people buying Standard both send $25 of Bitcoin to the same place.
+
+So **the amount is the identifier**. Every open order is given an amount no
+other open order on that address is using: the create route nudges it up by one
+unit at a time until the `crypto_payments_open_amount_idx` unique index accepts
+it. On a coin quoted to eight places that costs the payer a fraction of a cent;
+on a stablecoin quoted to two it is capped at a quarter of a dollar. Amounts are
+freed again as soon as an order settles or expires.
+
+That is what makes the manual step reliable:
+
+```
+npm run settle                      # every order still waiting, with its exact amount
+npm run settle -- <reference>       # shows the order, asks, then settles it
+npm run settle -- <id> <txid> --yes # unprompted, recording the transaction
+```
+
+`npm run settle` does not touch the database. It makes the same signed call to
+`/api/payments/crypto/webhook` that a processor would, so credits are released
+by one code path whoever triggers it. It needs `SUPABASE_SERVICE_ROLE_KEY` to
+read orders, `CRYPTO_PAYMENTS_WEBHOOK_SECRET` to sign, and `APP_URL` to reach a
+deployment other than `http://localhost:3000`.
+
+**Match the amount exactly before confirming.** It is the only thing tying a
+payment to an order; an approximate match is not a match.
+
+### Settling without a webhook
+
+`npm run settle` needs `CRYPTO_PAYMENTS_WEBHOOK_SECRET`. Until that is set on
+the deployment, payments can still be settled by hand from **Supabase → SQL
+Editor**, which runs as the function's owner and so may call it directly.
+
+What is waiting:
+
+```sql
+select id,
+       created_at,
+       status,
+       coalesce(plan_id, packs || ' × top-up pack') as buying,
+       amount_usd,
+       crypto_amount,
+       upper(currency) as coin,
+       address
+from public.crypto_payments
+where status in ('awaiting_payment', 'submitted')
+order by created_at desc;
+```
+
+Check that a payment of **exactly** `crypto_amount` arrived at `address`, then:
+
+```sql
+select * from public.settle_crypto_payment(
+  '00000000-0000-0000-0000-000000000000',  -- the id from the list above
+  'transaction id from your wallet'        -- optional, kept on the order
+);
+```
+
+It returns the account's balance after the grant. Running it twice grants
+nothing further — the order is locked and an already-confirmed one returns
+untouched — so a double-click cannot pay out twice.
+
+Nothing else settles an order. There is no button in the app that does this, and
+that is deliberate: the browser can only record that a payer *says* they have
+paid.
+
+If you later move to a processor (BTCPay, Coinbase Commerce, NOWPayments), it
+issues a fresh address per order and calls that same webhook itself — the
+manual step and the distinct-amount nudging both become unnecessary, and
+nothing else about the flow changes.
+
 ## Environment variables
 
 ### Wallets — one per coin you accept
@@ -143,7 +217,26 @@ write it could mark its own order confirmed.
 
 ## Checking a deployment
 
-`GET /api/health` answers both halves:
+```
+npm run check:payments                      # this machine's configuration
+npm run check:payments https://your-site    # and that deployment's /api/health
+```
+
+It verifies each wallet address it can — anything Base58Check has a checksum, and
+a checksum catches the one mistake that cannot be undone — reads a live price for
+every coin on offer, and says which of the four silent failures you are in:
+
+| What is missing | What the customer sees |
+| --- | --- |
+| A wallet | "Crypto payments are not switched on for this deployment" |
+| A readable rate | "Live crypto prices are unavailable right now" |
+| `SUPABASE_SERVICE_ROLE_KEY` | The coin list renders, then Pay fails |
+| `CRYPTO_PAYMENTS_WEBHOOK_SECRET` | Nothing. It all works, and nobody is credited. |
+
+That last row is why the script exists: it is the only failure that looks like
+success from every screen.
+
+`GET /api/health` answers the configuration half on its own:
 
 ```json
 {

@@ -76,6 +76,16 @@ export async function GET(request: Request) {
       {
         error: "Crypto payments are not switched on for this deployment.",
         code: "checkout_unconfigured",
+        /* Which variable is missing is operator information, not customer
+           information — the same line the health check draws. A person buying
+           credits gets the sentence above; whoever is running the deployment
+           gets the reason, and only outside production. */
+        ...(process.env.NODE_ENV === "production"
+          ? {}
+          : {
+              detail:
+                "No wallet is configured. Set CRYPTO_WALLET_BTC (or another CRYPTO_WALLET_* address) and restart — see docs/PAYMENTS.md.",
+            }),
       },
       { status: 503 },
     );
@@ -106,6 +116,12 @@ export async function GET(request: Request) {
       {
         error: "Live crypto prices are unavailable right now. Try again in a moment.",
         code: "rates_unavailable",
+        ...(process.env.NODE_ENV === "production"
+          ? {}
+          : {
+              detail:
+                "The rate source could not be read. A deployment with no outbound network can pin rates with CRYPTO_RATE_BTC and friends — see docs/PAYMENTS.md.",
+            }),
       },
       { status: 503 },
     );
