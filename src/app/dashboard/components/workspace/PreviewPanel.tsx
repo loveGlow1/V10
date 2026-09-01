@@ -65,12 +65,17 @@ export default function PreviewPanel({
   project,
   onUpgradeClick,
   request,
+  publishRequest,
   onBackToChat,
   onClose,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
   request: ManageRequest | null;
+  /* A counter, bumped when something outside asks for the publish flow — the
+     chat's result card. A counter rather than a boolean for the same reason
+     ManageRequest carries one: asking twice has to register twice. */
+  publishRequest?: number;
   /* Puts this half away and gives the whole workspace to the conversation.
      Desktop only — a phone shows one at a time already. */
   onClose?: () => void;
@@ -152,6 +157,15 @@ export default function PreviewPanel({
     /* `reloads` is a dependency on purpose: the refresh button rebuilds the
        page rather than only remounting a frame around the same copy. */
   }, [previewUrl, previewPath, reloads]);
+
+  useEffect(() => {
+    if (!publishRequest) return;
+    /* The preview half, with the publish panel open — the same one the header
+       button opens, rather than a second flow that would have to say the same
+       things about cost and readiness. */
+    setView("preview");
+    setPublishOpen(true);
+  }, [publishRequest]);
 
   useEffect(() => {
     if (!request) return;
@@ -680,31 +694,6 @@ export default function PreviewPanel({
             </button>
           )}
 
-          {/* The app as a file. A plain anchor rather than a fetch-and-blob:
-              the route answers with Content-Disposition, so the browser saves
-              it and names it, which is the behaviour a phone actually honours.
-              What arrives is compiled to stand alone — see the route — so it
-              opens correctly with no connection. */}
-          {previewUrl && project ? (
-            <a
-              href={`/download/${project.id}`}
-              title="Download the page as a file"
-              aria-label="Download the page as a file"
-              className={`${action} w-9 px-0`}
-            >
-              <Download className="h-4 w-4" />
-            </a>
-          ) : (
-            <button
-              disabled
-              title="Nothing to download yet"
-              aria-label="Download the page as a file"
-              className={`${action} w-9 px-0`}
-            >
-              <Download className="h-4 w-4" />
-            </button>
-          )}
-
           {/* A build writes to the same address, so the frame has to be told to
               look again. Disabled until there is something to look at, so it
               cannot promise a refresh of nothing. */}
@@ -732,6 +721,38 @@ export default function PreviewPanel({
             )}
             <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
+
+          {/* Download's permanent home, beside Publish. The copy in the chat
+              card is the shortcut and it expires; this one does not, which is
+              why it sits with the other thing you do to a finished app rather
+              than somewhere of its own.
+
+              An anchor, not a button: the route answers with a
+              Content-Disposition, so the browser saves the file and this page
+              stays where it is. A project with nothing built has nothing to
+              take, so it is a dead control rather than a link to a 404. */}
+          {previewUrl ? (
+            <a
+              href={`/preview/${project?.id}?download=1`}
+              download
+              title="Download this page"
+              aria-label="Download this page"
+              className={action}
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              <span className="hidden xl:inline">Download</span>
+            </a>
+          ) : (
+            <button
+              disabled
+              title="Nothing to download yet"
+              aria-label="Download this page"
+              className={action}
+            >
+              <Download className="h-4 w-4 shrink-0" />
+              <span className="hidden xl:inline">Download</span>
+            </button>
+          )}
 
           <button
             onClick={() => setPublishOpen((open) => !open)}

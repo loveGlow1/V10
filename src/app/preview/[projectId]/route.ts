@@ -1,3 +1,4 @@
+import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Serves the page a build produced.
@@ -30,10 +31,27 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  *
  * The owner, and nobody else. The read runs under the caller's session, so RLS
  * on project_builds answers the question and a link forwarded to someone else
- * shows them nothing. Making a page public is what publishing will be for. */
+ * shows them nothing. Making a page public is what publishing will be for.
+ *
+ * ── ?download=1 ───────────────────────────────────────────────────────────
+ *
+ * The same document, handed over as a file instead of rendered. It is the same
+ * read and the same RLS, which is the reason it lives here rather than in a
+ * route of its own: two places that serve someone's private page are two places
+ * to get the ownership check wrong.
+ *
+ * A download is served with `Content-Security-Policy: sandbox` and no
+ * allowances at all — stricter than the rendered case, which needs scripts to
+ * be a working page. Nothing should execute on the way to disk, and if a
+ * browser ever ignored the disposition and rendered it anyway, it renders
+ * inert. */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/* The preview itself is a read. The download compiles a stylesheet on the way
+   out — well under a second for a page of this size, but real work rather than
+   a lookup, so it is not left on the default. */
+export const maxDuration = 30;
 
 function notFound(message: string) {
   /* Deliberately the same answer for "no such project", "not yours" and "never
@@ -51,11 +69,26 @@ function notFound(message: string) {
   );
 }
 
+/* The project's name as a file name: lowercase, words joined by hyphens, and
+   nothing that could carry meaning into a header. Built from the stored name
+   rather than taken from a query parameter — a caller-supplied filename is a
+   header injection waiting to happen, and this one is only ever read out of a
+   row the caller already owns. */
+function fileNameFor(name: string | null | undefined): string {
+  const slug = (name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `${slug || "page"}.html`;
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await context.params;
+  const asDownload = new URL(request.url).searchParams.get("download") === "1";
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return notFound("Previews are unavailable — Supabase is not configured.");
@@ -72,6 +105,54 @@ export async function GET(
 
   if (!build?.html) {
     return notFound("There is nothing to preview here yet. Send a message to build this app.");
+  }
+
+  if (asDownload) {
+    /* Read for the file name only, and after the build: a project with no build
+       never reaches here, so this is not a round trip anyone pays for on the
+       path that matters. RLS answers it too, so a name cannot leak from a
+       project the caller does not own. */
+    const { data: project } = await supabase
+      .from("projects")
+      .select("name")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    /* Compiled on the way out, and this is what makes a download worth having.
+       The page styles itself with the Tailwind play CDN, which is fine at a URL
+       and useless in a file: opened from disk — Quick Look on a phone, an email
+       attachment, a tab with no connection — that script is a request nobody
+       makes. Not one utility class resolves, nothing errors, and what renders
+       is the raw document: default serif, blue underlined links, an inline icon
+       a screen tall because `h-5 w-5` meant nothing. It looks broken. It is
+       unstyled, which looks the same and is worse, because whoever opened it
+       cannot tell which.
+
+       toStandalone runs Tailwind over this page's own markup and puts the
+       result in the file, so what leaves here has no external reference of any
+       kind. See src/lib/standalone-page.ts. */
+    let file = build.html as string;
+    try {
+      file = (await toStandalone(file)).html;
+    } catch (error) {
+      /* The page is still worth having. Compiling is what makes it look right
+         offline, not what makes it a page, so a compiler failure downgrades the
+         download rather than denying it. */
+      // eslint-disable-next-line no-console
+      console.error("preview: the page could not be made standalone:", error);
+    }
+
+    return new Response(file, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${fileNameFor(project?.name)}"`,
+        /* No allowances. See the note above — a file on its way to disk has
+           nothing to run. */
+        "Content-Security-Policy": "sandbox",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   return new Response(build.html, {

@@ -43,13 +43,20 @@ export default function ProjectSwitcher({
     };
   }, [open]);
 
+  /* A form with no in-flight guard at all: Enter and a click on Save are two
+     submits, and both created a project. Synchronous, for the same reason as
+     the send button — `saving` is state and settles a tick too late. */
+  const inFlight = useRef(false);
+
   async function createProject(event: React.FormEvent) {
     event.preventDefault();
     const name = draft.trim();
-    if (!name) return;
+    if (!name || inFlight.current) return;
 
+    inFlight.current = true;
     setSaving(true);
     const created = await create(name);
+    inFlight.current = false;
     setSaving(false);
     if (!created) return;
 

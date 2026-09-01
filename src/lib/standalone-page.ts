@@ -128,14 +128,3 @@ export async function toStandalone(html: string): Promise<StandaloneResult> {
 
   return { html: out, cssBytes: Buffer.byteLength(css, "utf8"), themeApplied: found };
 }
-
-/** A filename someone can find again, derived from the project's own name. */
-export function downloadNameFor(projectName: string): string {
-  const stem =
-    projectName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "page";
-  return `${stem}.html`;
-}

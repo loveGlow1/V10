@@ -52,6 +52,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view, setView] = useState<"preview" | "chat">("chat");
   const [manageRequest, setManageRequest] = useState<ManageRequest | null>(null);
+  /* Bumped when the chat's result card asks to publish. The preview half owns
+     that flow — one place that says what publishing costs and that it is not
+     wired yet — so this asks for it rather than building a second one. */
+  const [publishRequest, setPublishRequest] = useState(0);
   /* The preview sheet on a phone. Separate from `view`, which still switches
      this pane between the conversation and the Manage panes — the sheet is a
      layer over both rather than a third tab. */
@@ -191,6 +195,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
               previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}
               onBuildSettled={refreshCredits}
+              onPublish={() => {
+                setPublishRequest((n) => n + 1);
+                /* On a phone the two halves share the screen, so asking for the
+                   preview's flow means bringing that half onto it. */
+                setView("preview");
+                setPreviewPaneOpen(true);
+              }}
             />
           </div>
           {/* Put away from md up only: a phone's `view` already decides which
@@ -205,6 +216,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               project={project}
               onUpgradeClick={() => setBillingOpen(true)}
               request={manageRequest}
+              publishRequest={publishRequest}
               onBackToChat={() => setView("chat")}
               onClose={() => setPreviewPaneOpen(false)}
             />

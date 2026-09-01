@@ -35,7 +35,7 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
-const { toStandalone, downloadNameFor } = createRequire(import.meta.url)(
+const { toStandalone } = createRequire(import.meta.url)(
   join(out, "standalone-page.js"),
 );
 
@@ -109,8 +109,6 @@ check(
   degraded.cssBytes > 3000 && degraded.themeApplied === false && !/cdn\.tailwindcss\.com/i.test(degraded.html),
 );
 
-check("the filename is derived from the project", downloadNameFor("Landing page for news site!") === "landing-page-for-news-site.html");
-check("a nameless project still gets a filename", downloadNameFor("   ") === "page.html");
 
 let failed = 0;
 for (const { why, ok, detail } of checks) {
