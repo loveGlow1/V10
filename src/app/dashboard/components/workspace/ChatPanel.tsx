@@ -31,8 +31,14 @@ import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { resumableFrom } from "./resume";
+import { cardFor, cardIndex } from "./threadView";
 import { safeHttpUrl } from "@/lib/safe-url";
-import { appendToThread, loadThread, type ThreadMessage } from "@/lib/project-messages";
+import {
+  appendToThread,
+  loadThread,
+  type MessageKind,
+  type ThreadMessage,
+} from "@/lib/project-messages";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import {
   ACCEPT,
@@ -71,6 +77,10 @@ const INTENT_LABEL: Record<string, string> = {
 
 type Message = ThreadMessage & {
   id: number;
+  /* What kind of thing the message was, when it came out of the table. A
+     message this session said has none — nothing is deciding anything about it
+     from a distance. */
+  kind?: MessageKind;
   /* View-only, never written to the thread table. A message reloaded from a
      previous visit has none of these, which is why all three are optional —
      see MessageRow. */
@@ -79,6 +89,7 @@ type Message = ThreadMessage & {
   activity?: Activity;
   result?: BuildResult;
 };
+
 
 /* The left half of a workspace: what you have asked for, and the box you ask in.
 
@@ -206,7 +217,21 @@ export default function ChatPanel({
     let cancelled = false;
     void loadThread(id).then((thread) => {
       if (cancelled) return;
-      setMessages(thread.map((message) => ({ id: nextId.current++, ...message })));
+
+      /* The finished build's card, put back under the message that announced
+         it — see threadView.ts. Without this the card lived only in the tab
+         that watched the build land, which is to say almost nowhere. */
+      const carries = project ? cardIndex(thread, Boolean(safeHttpUrl(project.preview_url))) : -1;
+
+      setMessages(
+        thread.map((message, index) => ({
+          id: nextId.current++,
+          ...message,
+          ...(index === carries && project
+            ? { result: cardFor(project, message.at, resultKind(project)) }
+            : {}),
+        })),
+      );
       setThreadLoaded(true);
     });
     return () => {

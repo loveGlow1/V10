@@ -30,7 +30,9 @@ mkdirSync(out, { recursive: true });
 
 execFileSync(
   "npx",
-  ["tsc", "src/lib/builder/brief.ts", "src/app/dashboard/components/workspace/resume.ts",
+  ["tsc", "src/lib/builder/brief.ts",
+   "src/app/dashboard/components/workspace/resume.ts",
+   "src/app/dashboard/components/workspace/threadView.ts",
    "--outDir", out, "--rootDir", "src",
    "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler", "--skipLibCheck"],
   { stdio: ["ignore", "ignore", "inherit"] },
@@ -38,6 +40,9 @@ execFileSync(
 const { carryBrief, priorTurns, isContinuation } = await import(join(out, "lib/builder/brief.js"));
 const { resumableFrom, RESUME_WINDOW_MS } = await import(
   join(out, "app/dashboard/components/workspace/resume.js")
+);
+const { cardIndex, cardFor } = await import(
+  join(out, "app/dashboard/components/workspace/threadView.js")
 );
 
 const you = (text) => ({ from: "you", text });
@@ -236,5 +241,44 @@ for (const [name, check, expected] of RESUMES) {
   console.log(`${ok ? "ok  " : "WRONG"} resume: ${name} -> ${got === null ? "leave it" : `wait from ${got - NOW}ms`}`);
 }
 
-console.log(`\n${CASES.length + THREADS.length + RESUMES.length + 3} checks · ${wrong} wrong`);
+/* ── The finished build's card, put back on a reopened thread ────────────── */
+const ready = (at) => ({ kind: "build_ready", at });
+const said = (at) => ({ kind: "chat", at });
+const started = (at) => ({ kind: "build_started", at });
+
+const CARDS = [
+  ["the only build", [said(1), started(2), ready(3)], true, 2],
+  ["the most recent of several", [ready(1), said(2), ready(3), said(4)], true, 2],
+  ["a thread with no build in it", [said(1), said(2)], true, -1],
+  ["a build that never finished", [said(1), started(2)], true, -1],
+  ["a project with no page yet", [ready(1)], false, -1],
+  ["an empty thread", [], true, -1],
+  ["an announcement with no timestamp", [{ kind: "build_ready" }], true, -1],
+  ["a row from before the column existed", [{ kind: "chat", at: 1 }], true, -1],
+];
+
+for (const [name, thread, hasPage, expected] of CARDS) {
+  const got = cardIndex(thread, hasPage);
+  const ok = got === expected;
+  if (!ok) wrong++;
+  console.log(`${ok ? "ok  " : "WRONG"} card: ${name} -> ${got === -1 ? "no card" : `message ${got}`}`);
+}
+
+/* The card counts its minutes from when the page landed, not from now. */
+{
+  const landed = Date.parse("2026-09-01T11:58:00Z");
+  const card = cardFor(
+    { id: "p1", name: "Demo Page", preview_url: "https://x.test", last_build_at: "2026-09-01T11:58:00Z" },
+    landed,
+    "Web app",
+  );
+  const ok =
+    card.at === landed && card.hasPage === true && card.projectId === "p1" && card.stamp !== null;
+  if (!ok) wrong++;
+  console.log(`${ok ? "ok  " : "WRONG"} card: counts from when the page landed`);
+}
+
+console.log(
+  `\n${CASES.length + THREADS.length + RESUMES.length + CARDS.length + 4} checks · ${wrong} wrong`,
+);
 process.exit(wrong === 0 ? 0 : 1);
