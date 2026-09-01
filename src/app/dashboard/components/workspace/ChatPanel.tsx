@@ -843,10 +843,16 @@ export default function ChatPanel({
   /* The action row's pill. The composer's own chip, squared off a little and
      brought down a size: these sit in a block of six above the box rather than
      one at a time inside it, and at full round with the composer's type they
-     read as six buttons shouting. min-w-0 so a long label truncates inside its
-     pill instead of stretching the column it is in. */
+     read as six buttons shouting.
+
+     Each is the width of its own label — shrink-0 against the wrapping row, so
+     a pill keeps its natural size and the row breaks around it. A grid would
+     have made every pill as wide as the longest, which pads "Download" out to
+     the width of "Undo last change" and turns six labels into six identical
+     slabs. Ragged is the point: different words are different lengths, and the
+     eye finds a name faster in a line that admits it. */
   const action_chip =
-    "flex h-9 min-w-0 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12.5px] transition-all active:scale-[0.98]";
+    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12.5px] transition-all active:scale-[0.98]";
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
@@ -1081,9 +1087,13 @@ export default function ChatPanel({
             build, there is nothing to undo, download, or replace, and a row of
             actions that mostly do not apply is worse than no row. It also
             stands down entirely while the replace-or-edit question is up: that
-            question is the one thing on this bar worth reading. */}
+            question is the one thing on this bar worth reading.
+
+            They wrap rather than sit in a grid: the row fills, breaks and fills
+            again, which puts as many as fit on each line whatever the screen is
+            and needs no column count guessed per breakpoint. */}
         {hasPage && !pendingConfirm && (
-          <div className="mb-2 grid grid-cols-2 gap-1.5 px-1 sm:grid-cols-3">
+          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
             {[
               {
                 id: "edit" as const,
@@ -1120,7 +1130,7 @@ export default function ChatPanel({
                   }`}
                 >
                   <Icon className={`h-3.5 w-3.5 shrink-0 ${on ? "text-ink" : "text-muted"}`} />
-                  <span className="truncate">{action.label}</span>
+                  {action.label}
                 </button>
               );
             })}
@@ -1134,7 +1144,7 @@ export default function ChatPanel({
               className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
             >
               <Repeat2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              <span className="truncate">Replace this app</span>
+              Replace this app
             </button>
 
             {/* Sent as a message rather than done behind the scenes, so the
@@ -1149,7 +1159,7 @@ export default function ChatPanel({
               className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink disabled:pointer-events-none disabled:opacity-40`}
             >
               <Undo2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              <span className="truncate">Undo last change</span>
+              Undo last change
             </button>
 
             {/* An anchor, not a button: the route answers with a
@@ -1162,7 +1172,7 @@ export default function ChatPanel({
               className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
             >
               <Download className="h-3.5 w-3.5 shrink-0 text-muted" />
-              <span className="truncate">Download</span>
+              Download
             </a>
           </div>
         )}
