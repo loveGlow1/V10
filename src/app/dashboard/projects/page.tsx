@@ -7,6 +7,7 @@ import { ArrowLeft, Pin, Search } from "lucide-react";
 
 import PageThumbnail from "../components/PageThumbnail";
 import ProjectLifecycleMenu from "../components/ProjectLifecycleMenu";
+import ScrollToEnds from "../components/ScrollToEnds";
 import { ProjectsProvider, useProjects } from "../ProjectsContext";
 import {
   browserAccessToken,
@@ -314,6 +315,10 @@ function ProjectsScreen() {
           </div>
         )}
       </div>
+
+      {/* No support button on this page, so the corner is free. The toast is
+          centred, so the two never meet. */}
+      <ScrollToEnds className="fixed bottom-[max(18px,env(safe-area-inset-bottom))] right-[max(18px,env(safe-area-inset-right))]" />
 
       {/* Ten seconds in the corner; thirty days in the database. The toast is
           the reachable half of the same undo. */}

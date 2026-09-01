@@ -25,6 +25,7 @@ import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
 import { MicMark, SendArrow } from "../marks";
+import ScrollToEnds from "../ScrollToEnds";
 import BuildActivity from "./BuildActivity";
 import { usePacedSteps } from "./usePacedSteps";
 import MessageRow, { type Activity } from "./MessageRow";
@@ -842,6 +843,9 @@ export default function ChatPanel({
         </p>
       </header>
 
+      {/* Wrapped so the jump control can sit over the thread rather than over
+          the composer under it: this box is exactly the scrolling area. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={streamRef}
         onScroll={(event) => {
@@ -971,6 +975,16 @@ export default function ChatPanel({
             </div>
           </div>
         )}
+      </div>
+
+        {/* Over the thread, clear of the composer. A long build leaves a long
+            conversation, and the top of it is where the prompt that started
+            everything is. */}
+        <ScrollToEnds
+          target={streamRef}
+          downLabel="Jump to latest"
+          className="pointer-events-auto absolute bottom-4 right-4"
+        />
       </div>
 
       {/* The moment the build has something to show.
