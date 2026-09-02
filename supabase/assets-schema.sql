@@ -109,3 +109,30 @@ drop policy if exists "Anyone may read project assets" on storage.objects;
 create policy "Anyone may read project assets"
   on storage.objects for select
   using (bucket_id = 'project-assets');
+
+/* The curated library gets a bucket of its own, because it is global rather
+   than per-project: one catalogue of photographs every build may draw on, not
+   something owned by whoever's project happened to acquire it first.
+
+   It stays empty until the photographs are uploaded, and that is fine — the
+   provider reports itself misconfigured while CURATED_ASSETS_BASE_URL is
+   unset, so it is skipped rather than serving addresses that 404. Point that
+   variable here once there are files at the paths the catalogue names
+   (src/lib/builder/assets/providers/curated.ts). */
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'quickstark-library',
+  'quickstark-library',
+  true,
+  26214400,
+  array['image/webp','image/jpeg','image/png','image/avif']
+)
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Anyone may read the curated library" on storage.objects;
+create policy "Anyone may read the curated library"
+  on storage.objects for select
+  using (bucket_id = 'quickstark-library');
