@@ -92,4 +92,11 @@ export const landing: Blueprint = {
     "Every claim of proof names something specific — a person, a company, a number.",
     "The page can be read end to end without meeting a control that does nothing.",
   ],
+
+  assets: {
+    photographs: ["hero", "editorial", "lifestyle"],
+    drawn: ["logo", "icon", "illustration", "avatar", "decorative"],
+    note:
+      "One strong hero and two supporting photographs carry a landing page. Customer avatars are drawn monograms, not portraits of invented people — a fake face beside a fake name is the most damaging thing on a marketing page.",
+  },
 };

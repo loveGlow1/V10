@@ -1,3 +1,6 @@
+import type { GenerationJob, ImageProvider as GeneratingProvider } from "@/lib/builder/assets/asset-generator";
+import { promptFor, widthFor } from "@/lib/builder/assets/asset-generator";
+import type { Quality, VisualSpec } from "@/lib/builder/assets/asset-types";
 import type { ImageProvider, ImageSlot, Shot } from "@/lib/builder/images";
 
 /* Where the real pixels come from.
@@ -156,3 +159,64 @@ export function providerFromEnv(): ImageProvider | null {
 export const isImageProviderConfigured = Boolean(
   process.env.UNSPLASH_ACCESS_KEY || process.env.PEXELS_API_KEY,
 );
+
+
+/* ── The same two sources, behind the asset pipeline's interface ───────────
+ *
+ * Two shapes exist because two callers exist, and they want different things.
+ * fillImages works on a finished document and asks "what goes in this tag";
+ * the asset pipeline works before the document exists and asks "make me this
+ * picture". Both end at the same HTTP call, so the adapters below are thin.
+ *
+ * kind: "library" is not a footnote. A stock library finds a photograph that
+ * already exists, so it cannot edit or upscale, and it cannot show somebody's
+ * actual product — which is exactly when a generative provider earns its cost.
+ * The planner is allowed to know the difference. */
+
+function asSlot(spec: VisualSpec): ImageSlot {
+  return {
+    tag: "",
+    shot: promptFor(spec),
+    alt: spec.subject,
+    ratio: spec.aspectRatio.replace(":", "/"),
+    weight: spec.type === "hero" ? "hero" : spec.type === "product" ? "thumb" : "feature",
+  };
+}
+
+function libraryProvider(inner: ImageProvider): GeneratingProvider {
+  return {
+    name: inner.name,
+    kind: "library",
+    async generate(spec: VisualSpec, quality: Quality): Promise<GenerationJob> {
+      const shot = await inner.shotFor(asSlot(spec), widthFor(quality));
+      if (!shot) {
+        return { id: "", status: "failed", error: "no photograph matched that subject" };
+      }
+      return {
+        id: `${inner.name}:${Date.now()}`,
+        status: "ready",
+        image: {
+          bytes: shot.bytes,
+          contentType: shot.contentType,
+          width: widthFor(quality),
+          height: 0,
+          provider: inner.name,
+          credit: shot.credit,
+        },
+      };
+    },
+    /* No edit, no upscale, and deliberately not stubs that pretend: a caller
+       has to be able to tell what a provider can actually do. */
+  };
+}
+
+/**
+ * The providers this deployment can use, best first.
+ *
+ * A generative provider would be unshifted onto the front of this list when one
+ * is configured — the resolver takes them in order and falls back down it.
+ */
+export function providersFromEnv(): GeneratingProvider[] {
+  const stock = providerFromEnv();
+  return stock ? [libraryProvider(stock)] : [];
+}

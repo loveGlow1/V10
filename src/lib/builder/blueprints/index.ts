@@ -4,6 +4,8 @@ import { blog } from "@/lib/builder/blueprints/blog";
 import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
 import { webapp } from "@/lib/builder/blueprints/webapp";
+import { manifestForPrompt } from "@/lib/builder/assets/asset-resolver";
+import type { AssetManifest } from "@/lib/builder/assets/asset-types";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
 
@@ -60,6 +62,15 @@ export type ProjectContext = {
      src/lib/builder/market.ts. Only a default: the locale section it selects
      opens by handing precedence back to the brief. */
   market?: Market;
+  /* The pictures, already decided, already acquired, already stored.
+     
+     This is the architectural rule of the whole builder in one field: the model
+     that writes the code does not decide what imagery a project needs, does not
+     make it, does not store it and does not optimise it. It is handed the
+     answer. Where this is absent the page falls back to declaring slots for
+     something else to fill later, which is the weaker arrangement and exists
+     only so a build without an asset pipeline still runs. */
+  manifest?: AssetManifest;
 };
 
 function list(items: readonly string[]): string {
@@ -172,7 +183,7 @@ ${list(blueprint.completionRules)}
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${projectContext(context)}
+${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest)}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 

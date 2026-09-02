@@ -103,4 +103,11 @@ export const blog: Blueprint = {
     "Every category offered returns articles, and every count beside a category matches what it filters to.",
     "Every author, date and reading time shown is consistent wherever that article appears.",
   ],
+
+  assets: {
+    photographs: ["article-cover", "editorial", "portrait"],
+    drawn: ["logo", "icon", "decorative"],
+    note:
+      "Every article needs its own cover, and covers that repeat are worse than covers that are plain. Author portraits are photographs where the author is real and drawn monograms where they are not.",
+  },
 };

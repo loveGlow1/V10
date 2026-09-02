@@ -128,6 +128,40 @@ prompt that still carries the brief, the depth floors and the exclusions.
 Blueprints are prose, and prose has no type checker: an exclusion can be
 deleted and nothing anywhere would fail.
 
+### The asset pipeline
+
+The architectural rule: **the model that writes the code does not decide what
+visual assets a project needs, does not make them, does not store them and does
+not optimise them.** It is handed a manifest and uses what is in it. A model
+deciding its own imagery one section at a time is how a project ends up with a
+luxury photograph, a cartoon and a 3D render in it, each individually
+defensible.
+
+```
+brief → classify → blueprint → visual planner → asset planner
+                                       ↓
+                    user upload · generated · sourced
+                                       ↓
+                    asset library → storage → optimiser
+                                       ↓
+                        manifest → code generator
+```
+
+`src/lib/builder/assets/` holds it:
+
+| | |
+| --- | --- |
+| `asset-types.ts` | The types, states, quality tiers, and the table that decides whether a thing is a **photograph or drawn**. A chart, icon, logo or avatar is drawn in code — that's a property of the type, not advice in a prompt |
+| `asset-planner.ts` | **One visual direction per project**, read from the brief, inherited by every request. Structured specs, never a raw prompt |
+| `asset-generator.ts` | `generate` / `edit` / `upscale` / `getStatus` behind one interface, with ordered fallback |
+| `asset-library.ts` | Reuse by fingerprint of the *spec*, so a rebuild never pays twice for the same picture |
+| `asset-storage.ts` | Supabase Storage + `project_assets`, so an asset outlives the response that made it |
+| `asset-optimizer.ts` | One place that decides delivery widths, formats and `srcset` |
+| `asset-resolver.ts` | The priority ladder — **user upload → existing project asset → made now → placeholder last** — producing the manifest |
+
+Quality defaults to `premium`. `npm run check:assets` covers the whole path
+offline: no key, no network, no cost.
+
 ### Photographs
 
 Generated pages used to draw everything — a product, a person, a plate of food,

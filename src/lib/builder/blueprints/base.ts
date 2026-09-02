@@ -1,3 +1,4 @@
+import type { AssetType } from "@/lib/builder/assets/asset-types";
 import type { BuildKind } from "@/lib/builder/kinds";
 
 /* The contract every blueprint fills in, and the rules all four inherit.
@@ -60,6 +61,19 @@ export type Blueprint = {
   qualityRules: string[];
   /** What "finished" means for this kind. Checked before the document ends. */
   completionRules: string[];
+  /* What this kind needs to LOOK like it should, which is a different question
+     from what it must contain. Named here rather than left to the code model,
+     because a model deciding its own imagery one section at a time is how a
+     project ends up with a luxury photograph, a cartoon and a 3D render in it.
+     The planner reads this; see src/lib/builder/assets/asset-planner.ts. */
+  assets: {
+    /** Photographs this kind genuinely needs, by asset type. */
+    photographs: AssetType[];
+    /** Made in code, and not to be sourced or generated under any circumstance. */
+    drawn: AssetType[];
+    /** One line on how imagery should behave for this kind in particular. */
+    note: string;
+  };
 };
 
 export const BASE = `HOW ANYTHING IS BUILT HERE:

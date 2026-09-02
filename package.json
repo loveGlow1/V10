@@ -10,6 +10,7 @@
     "check:auth-domain": "node tools/check-auth-domain.mjs",
     "audit:page": "node tools/audit-page.mjs",
     "check:brief": "node tools/check-brief.mjs",
+    "check:assets": "node tools/check-assets.mjs",
     "check:blueprint": "node tools/check-blueprint.mjs",
     "check:builder": "node tools/check-builder.mjs",
     "check:images": "node tools/check-images.mjs",

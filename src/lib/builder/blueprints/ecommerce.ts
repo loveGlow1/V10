@@ -105,4 +105,11 @@ export const ecommerce: Blueprint = {
     "Every total shown anywhere agrees with the lines it is a total of.",
     "Every category and filter offered returns products.",
   ],
+
+  assets: {
+    photographs: ["hero", "product", "lifestyle", "gallery"],
+    drawn: ["logo", "icon", "decorative"],
+    note:
+      "Products are photographed identically — same ground, same light, same framing — because a catalogue where every item was shot differently reads as a marketplace of strangers rather than one shop. Lifestyle frames are the exception and are used sparingly.",
+  },
 };

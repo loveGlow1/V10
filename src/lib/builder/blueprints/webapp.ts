@@ -129,4 +129,11 @@ export const webapp: Blueprint = {
     "Loading, empty, success and error states exist wherever they apply, not only on the first screen.",
     "Where a conditional requirement applied, it is met in full — and where none applied, none was invented.",
   ],
+
+  assets: {
+    photographs: [],
+    drawn: ["logo", "brand-mark", "icon", "avatar", "screenshot", "illustration"],
+    note:
+      "Almost nothing. Photography inside working software is decoration, and charts, tables, icons and the interface itself are drawn in code so they stay responsive and legible in both themes. A marketing photograph belongs on the page that sells this app, not inside it.",
+  },
 };
