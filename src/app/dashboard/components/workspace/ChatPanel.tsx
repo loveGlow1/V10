@@ -694,6 +694,11 @@ export default function ChatPanel({
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
+        /* The picker, honoured. This used to be state that nothing read: the
+           chip drew whatever was chosen and every build ran on Opus regardless,
+           which made the whole menu a decoration. It goes as the id the picker
+           holds — "auto" included — and the server resolves it. */
+        model,
         /* Live. Each operation lands here as the server finishes announcing or
            completing it, and setPhase merges by id — so a row that says
            "Changing the page" becomes the same row saying how many changes

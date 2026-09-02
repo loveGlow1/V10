@@ -9,6 +9,7 @@
  * /api/build, which knows who is asking and which projects they own; putting
  * the URL in the browser bundle would let anyone POST builds directly. */
 
+import type { Provider } from "@/app/dashboard/models";
 import { signBuildClaim } from "@/lib/build-signature";
 import { isBuildKind, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -54,6 +55,30 @@ export type BuildRequest = {
      than by name so that changing a prompt is a commit here, not an edit in a
      browser. */
   systemPrompt: string;
+  /* ── The generation call, prepared ────────────────────────────────────────
+   *
+   * The app now decides WHICH model runs a build and shapes the request for
+   * that vendor's API, rather than the orchestrator holding one hardcoded
+   * Anthropic body. The composer's picker was previously decorative — every
+   * build ran on Opus whatever it said — and this is what makes it real.
+   *
+   * The workflow routes on `provider` to pick the credential, POSTs
+   * `generationBody` to `generationUrl` with `generationHeaders`, and reads the
+   * answer at the depth `responseShape` names. It adds the API key and nothing
+   * else: no key is ever sent from here, and none is ever sent back.
+   *
+   * See src/lib/builder/model-request.ts for the three shapes, and
+   * src/app/dashboard/models.ts for what each model is called on the wire. */
+  /** The picker's id, for the record and for the thread. */
+  model: string;
+  /** What to call it in front of a person — "Gemini 3 Pro", not "gemini-3-pro". */
+  modelName: string;
+  /** Which credential to attach: "claude", "openai" or "google". */
+  provider: Provider;
+  generationUrl: string;
+  generationHeaders: Record<string, string>;
+  generationBody: unknown;
+  responseShape: "anthropic" | "openai" | "google";
 };
 
 export type BuildResult = {

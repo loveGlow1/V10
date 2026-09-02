@@ -30,6 +30,8 @@ import {
   type KindResult,
 } from "@/lib/builder/kinds";
 import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
+import { DEFAULT_MODEL, PROVIDER_LABEL, resolveModel } from "@/app/dashboard/models";
+import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
@@ -88,6 +90,11 @@ type BuildRequestBody = {
   /* Files uploaded with this message: a screenshot to match, a logo to use, a
      page of copy to lay out. Ids only — the bytes are read on the server. */
   attachmentIds?: unknown;
+  /* Which model generates the page, as the composer's picker holds it —
+     "auto", or one of the ids in src/app/dashboard/models.ts. Resolved and
+     validated here rather than trusted: this arrives from a browser, and it
+     decides which vendor's API is called and what it is charged. */
+  model?: unknown;
 };
 
 /* An edit is billed as generation, like a build, but priced from how many
@@ -1011,6 +1018,30 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      Free almost always: the regexes in builder/kinds.ts answer most briefs
      outright, and the model is asked only about the ones they decline. Neither
      path throws, so an unreachable classifier still builds something. */
+  /* Which model, settled before anything is spent.
+   *
+   * Rejected rather than substituted. A body naming a model this app does not
+   * offer did not come from this app's picker, and quietly building it on the
+   * default would turn a tampered request into a normal-looking build. A model
+   * whose provider has no key configured is refused for the opposite reason:
+   * it is our misconfiguration, not the person's mistake, and it should read
+   * as one rather than as a build that failed for no stated cause. */
+  const model = resolveModel(body.model ?? DEFAULT_MODEL);
+  if (!model) {
+    return NextResponse.json(
+      { error: "That is not a model this app can build with." },
+      { status: 400 },
+    );
+  }
+  if (!providerConfigured(model.provider)) {
+    return NextResponse.json(
+      {
+        error: `${model.name} is not available right now — ${PROVIDER_LABEL[model.provider]} is not configured on this deployment. Pick another model.`,
+      },
+      { status: 503 },
+    );
+  }
+
   steps.begin("kind", "Working out what to build", "landing page, store, publication or app…");
 
   /* A choice, then the free rules, then a question — and only a model if
@@ -1180,6 +1211,26 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     const imageUrls = await signedImageUrls(intake.reference);
     const attachedText = await attachmentText(attachments);
 
+    /* The whole system prompt, held rather than inlined: it is both what the
+       orchestrator is sent and what the request body is built around, and
+       composing it twice would be two chances to compose it differently. */
+    const systemPrompt = composeBuildPrompt(kind.kind, brief.text, {
+      projectName: project.name,
+      attachmentText: attachedText,
+      imageCount: imageUrls.length,
+      carriedFrom: brief.carried,
+      market: market.market,
+      /* What the code generator is told about imagery, and all it is told. */
+      manifest: pictures.manifest,
+    });
+
+    const request = generationRequest(
+      model,
+      systemPrompt,
+      userMessage(project.name, brief.text, attachedText, imageUrls.length),
+      imageUrls.map((url) => ({ url })),
+    );
+
     result = await startBuild({
       prompt: brief.text,
       projectName: project.name,
@@ -1195,15 +1246,22 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
          with no diff and no review, and that is how one prompt came to serve
          four different kinds of product. */
       buildKind: kind.kind,
-      systemPrompt: composeBuildPrompt(kind.kind, brief.text, {
-        projectName: project.name,
-        attachmentText: attachedText,
-        imageCount: imageUrls.length,
-        carriedFrom: brief.carried,
-        market: market.market,
-        /* What the code generator is told about imagery, and all it is told. */
-        manifest: pictures.manifest,
-      }),
+      /* Which model, and everything needed to call it — the endpoint, the
+         wire id, the token ceiling, and the body already shaped for that
+         vendor's API. The orchestrator attaches the credential and sends it.
+
+         Shaped here rather than on a canvas because three providers means
+         three bodies, and three bodies built out of node expressions is three
+         things that can drift from what this app thinks it asked for. See
+         src/lib/builder/model-request.ts. */
+      model: model.id,
+      modelName: model.name,
+      provider: request.provider,
+      generationUrl: request.url,
+      generationHeaders: request.headers,
+      generationBody: request.body,
+      responseShape: request.shape,
+      systemPrompt,
     });
   } catch (error) {
     if (error instanceof BuilderError) {

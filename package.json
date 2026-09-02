@@ -14,6 +14,7 @@
     "check:builder": "node tools/check-builder.mjs",
     "check:images": "node tools/check-images.mjs",
     "check:intent": "node tools/check-intent.mjs",
+    "check:models": "node tools/check-models.mjs",
     "check:name": "node tools/check-project-name.mjs",
     "check:narration": "node tools/check-narration.mjs",
     "check:payments": "node tools/check-payments.mjs",

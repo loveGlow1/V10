@@ -98,6 +98,15 @@ export type BuildOptions = {
    */
   buildKind?: BuildKind | null;
   /**
+   * Which model to build with, as the composer's picker has it.
+   *
+   * "auto" is a real value to send rather than an absence: the server resolves
+   * it, so what Auto means is decided in one place and can change without every
+   * caller learning about it. Left off entirely, the server also defaults — a
+   * caller that does not care never has to name a model.
+   */
+  model?: string | null;
+  /**
    * Called for each operation as the server reports it, before the reply.
    *
    * This is what makes the tracker live. Steps still arrive in the final reply
@@ -294,6 +303,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           confirmNewProject: options.confirmNewProject === true,
           attachmentIds: options.attachmentIds ?? [],
           buildKind: options.buildKind ?? null,
+          model: options.model ?? null,
         }),
       });
 
