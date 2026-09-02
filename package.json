@@ -7,11 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:auth-domain": "node tools/check-auth-domain.mjs",
-    "audit:page": "node tools/audit-page.mjs",
-    "check:brief": "node tools/check-brief.mjs",
     "check:assets": "node tools/check-assets.mjs",
+    "check:auth-domain": "node tools/check-auth-domain.mjs",
     "check:blueprint": "node tools/check-blueprint.mjs",
+    "check:brief": "node tools/check-brief.mjs",
     "check:builder": "node tools/check-builder.mjs",
     "check:images": "node tools/check-images.mjs",
     "check:intent": "node tools/check-intent.mjs",
@@ -19,6 +18,8 @@
     "check:narration": "node tools/check-narration.mjs",
     "check:payments": "node tools/check-payments.mjs",
     "check:standalone": "node tools/check-standalone.mjs",
+    "check:theme": "node tools/check-theme.mjs",
+    "audit:page": "node tools/audit-page.mjs",
     "settle": "node tools/settle-payment.mjs"
   },
   "dependencies": {
