@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedStatus } from "@/lib/project-status";
+import type { BuildKind } from "@/lib/builder/kinds";
 import type { BuildStep } from "@/lib/builder/steps";
 
 export type Project = {
@@ -80,6 +81,15 @@ export type BuildOptions = {
   confirmNewProject?: boolean;
   /** Files uploaded with this message. Ids only — the bytes stay in Storage. */
   attachmentIds?: string[];
+  /**
+   * Which blueprint to build from, when something already knows.
+   *
+   * Set by the target chip pressed on Home — the person said "landing page"
+   * before they said anything else, and that is a better answer than reading it
+   * back out of their sentence. Left off, the server classifies the brief. See
+   * src/lib/builder/kinds.ts.
+   */
+  buildKind?: BuildKind | null;
   /**
    * Called for each operation as the server reports it, before the reply.
    *
@@ -276,6 +286,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           intentOverride: options.intentOverride ?? null,
           confirmNewProject: options.confirmNewProject === true,
           attachmentIds: options.attachmentIds ?? [],
+          buildKind: options.buildKind ?? null,
         }),
       });
 

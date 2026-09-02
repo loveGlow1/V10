@@ -38,6 +38,8 @@ const buildWebhook = trigger({
         projectId: '',
         projectName: 'Aurora Storefront',
         prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
+        buildKind: 'ecommerce',
+        systemPrompt: 'You are building an online store as a single self-contained HTML file…',
       },
       headers: { 'content-type': 'application/json' },
       query: {},
@@ -86,6 +88,29 @@ const normalizeRequest = node({
             type: 'string',
             value: expr('{{ $json.body?.prompt ?? $json.prompt ?? $json.body?.message ?? $json.message ?? "" }}'),
           },
+          /* What kind of thing to build, decided by the app rather than here.
+             The classifier below still runs — it is also the "none of these
+             fit" route — but it must not overrule this: the system prompt that
+             arrives with it was composed for this kind, and a branch that
+             disagrees builds one thing from another thing's instructions.
+             See src/lib/builder/kinds.ts. */
+          {
+            id: 'build-kind',
+            name: 'buildKind',
+            type: 'string',
+            value: expr('{{ $json.body?.buildKind ?? $json.buildKind ?? "landing" }}'),
+          },
+          /* The whole system prompt the page is generated from, one per kind,
+             composed in the app from files that can be diffed and reviewed.
+             Compose Page Prompt uses this when it is present and falls back to
+             its own text only for a caller that is not the app. See
+             n8n/page-prompt.md. */
+          {
+            id: 'system-prompt',
+            name: 'systemPrompt',
+            type: 'string',
+            value: expr('{{ $json.body?.systemPrompt ?? $json.systemPrompt ?? "" }}'),
+          },
           {
             id: 'requested-at',
             name: 'requestedAt',
@@ -103,6 +128,8 @@ const normalizeRequest = node({
       projectId: '',
       projectName: 'Aurora Storefront',
       prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
+      buildKind: 'ecommerce',
+      systemPrompt: 'You are building an online store as a single self-contained HTML file…',
       requestedAt: '2026-08-30T09:15:00.000Z',
     },
   ],
@@ -957,7 +984,7 @@ const entryNote = sticky(
 );
 
 const classifierNote = sticky(
-  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type, an "other" fallback so nothing is dropped silently, and an error output so a model that cannot be reached returns a Failed payload instead of ending the run with no response.\n\nThe model is Anthropic (claude-opus-5), adaptive thinking at low effort. Not thinking-disabled: this node parses the model\'s output against a JSON schema, and with thinking off Opus 5 can leak reasoning tags into that text. No temperature - newer Anthropic models ignore it.',
+  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type, an "other" fallback so nothing is dropped silently, and an error output so a model that cannot be reached returns a Failed payload instead of ending the run with no response.\n\nThe model is Anthropic (claude-opus-5), adaptive thinking at low effort. Not thinking-disabled: this node parses the model\'s output against a JSON schema, and with thinking off Opus 5 can leak reasoning tags into that text. No temperature - newer Anthropic models ignore it.\n\nRouting is decided in the app now, not here: /api/build classifies the brief into landing / ecommerce / blog / webapp and sends it as buildKind alongside the system prompt composed for that kind (src/lib/builder/blueprints, n8n/page-prompt.md). This node stays as the fallback for callers that send neither, and must not overrule buildKind.',
   [intentClassifier, classifierModel],
   { color: 3 },
 );

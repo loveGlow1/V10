@@ -18,13 +18,22 @@ already has is confirmed with them before it is sent. See
 
 So the page here is always generated fresh, and there is no `previousHtml`.
 
+**And the app decides what kind of thing it is.** A second classification runs
+before the call — landing page, storefront, blog, web app — and the request
+carries both the answer (`buildKind`) and the whole system prompt composed for
+it (`systemPrompt`). There used to be one prompt on the `Compose Page Prompt`
+node for all four, which is why every build came back looking like the same
+page with different words in it. See `src/lib/builder/kinds.ts`,
+`src/lib/builder/blueprints/`, and [`page-prompt.md`](./page-prompt.md) for what
+the workflow has to do with the two fields.
+
 ```
 [ QuickStark.Ai Chat UI ]
           │  POST /webhook/api/v1/build  (new builds only)
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
-[ Intent Classifier ]  (Text Classifier, one category + "other" fallback)
+[ Intent Classifier ]  (fallback only — the app sends buildKind)
           │
   ┌───────┴────────────────────────┐
   ▼                                ▼
@@ -70,7 +79,8 @@ ChatPanel / StartBuildButton   (src/app/dashboard/…)
         │  POST /api/build  { projectId, prompt }
         ▼
 /api/build            authenticates, verifies ownership, marks the row Building
-        │  POST N8N_WEBHOOK_URL  { prompt, projectName, userId, projectId, requestId }
+        │  POST N8N_WEBHOOK_URL  { prompt, buildKind, systemPrompt, projectName,
+        │                            userId, projectId, requestId }
         ▼
 this workflow         classifies, builds, writes the row back
         │

@@ -178,6 +178,14 @@ async function main() {
     userId: "",
     projectId: "",
     requestId: `check-builder-${Date.now()}`,
+    /* The app sends these two on every build now: which blueprint the page is
+       built from, and the system prompt composed for it (src/lib/builder/
+       blueprints, n8n/page-prompt.md). They are sent here so this probe still
+       matches the request the app makes — a Normalize Build Request node that
+       has not been given the two assignments drops them, and the page is then
+       generated from whatever text is left on Compose Page Prompt. */
+    buildKind: "landing",
+    systemPrompt: "Connectivity probe — this prompt is never used to build anything.",
   };
 
   info("Sending one build request. This runs a real execution — give it a moment.");

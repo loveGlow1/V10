@@ -10,13 +10,17 @@
  * the URL in the browser bundle would let anyone POST builds directly. */
 
 import { signBuildClaim } from "@/lib/build-signature";
+import { isBuildKind, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
 
-/* The orchestrator only builds web apps and landing pages now — its WordPress
-   and e-commerce branches were removed. Both stay in the union because
-   `projects.intent` is where this is read back from, and rows written before
-   that change still hold them. */
-export type BuildIntent = "webapp" | "wordpress" | "ecommerce" | "unclassified";
+/* What kind of thing was built, as it is stored on `projects.intent`.
+ *
+ * The four live values are the build kinds — see src/lib/builder/kinds.ts,
+ * which is where the decision is now made. "wordpress" stays in the union
+ * because rows written before WordPress briefs were folded into "blog" still
+ * hold it, and "unclassified" because the orchestrator writes it when a build
+ * never reached a branch. Neither is produced by the app any more. */
+export type BuildIntent = BuildKind | "wordpress" | "unclassified";
 
 /** Mirrors the status strings the orchestrator writes to projects.status. */
 export type BuildStatus = "Building" | "Built" | "Failed" | "Needs Clarification";
@@ -38,6 +42,18 @@ export type BuildRequest = {
   attachmentUrls?: string[];
   /** The text of any non-image attachments, already read. */
   attachmentText?: string;
+  /* What kind of thing this is, decided here rather than in the workflow.
+     The orchestrator classified every build itself, which meant the routing
+     lived where it could not be reviewed and the app could not know what it had
+     asked for. Now the app decides, sends the decision, and sends the prompt
+     that goes with it. */
+  buildKind: BuildKind;
+  /* The system prompt the page is generated from, composed for that kind from
+     src/lib/builder/blueprints. The workflow's Compose Page Prompt node uses
+     this when it is present — see n8n/page-prompt.md. It is sent in full rather
+     than by name so that changing a prompt is a commit here, not an edit in a
+     browser. */
+  systemPrompt: string;
 };
 
 export type BuildResult = {
@@ -82,7 +98,11 @@ export class BuilderError extends Error {
 /* Trusts the shape no further than it has to: the orchestrator is a workflow
    someone can edit in a browser, so a branch that stops setting `links` should
    surface as a build with no preview rather than a crash in the chat panel. */
-function readResult(value: unknown, fallbackRequestId: string): BuildResult {
+function readResult(
+  value: unknown,
+  fallbackRequestId: string,
+  fallbackKind: BuildKind | null,
+): BuildResult {
   const body = (value ?? {}) as Partial<BuildResult> & { links?: Partial<BuildResult["links"]> };
   const status = body.status;
 
@@ -90,7 +110,11 @@ function readResult(value: unknown, fallbackRequestId: string): BuildResult {
     ok: body.ok !== false,
     requestId: typeof body.requestId === "string" ? body.requestId : fallbackRequestId,
     projectId: typeof body.projectId === "string" ? body.projectId : "",
-    intent: (body.intent ?? "unclassified") as BuildIntent,
+    /* The kind the app decided, not the one the workflow reports. The
+       orchestrator still carries a classifier of its own, and when the two
+       disagree the app's is the one the prompt was composed from — so it is the
+       one that describes what was actually built. */
+    intent: fallbackKind ?? ((body.intent ?? "unclassified") as BuildIntent),
     status:
       status === "Building" ||
       status === "Built" ||
@@ -182,7 +206,11 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
   }
 
   try {
-    return readResult(await response.json(), request.requestId);
+    return readResult(
+      await response.json(),
+      request.requestId,
+      isBuildKind(request.buildKind) ? request.buildKind : null,
+    );
   } catch {
     throw new BuilderError("The builder answered with something that was not JSON.", 502);
   }
