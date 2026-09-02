@@ -12,7 +12,10 @@ import {
   editPage,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { composeBuildPrompt } from "@/lib/builder/blueprints";
+import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
+import { isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
@@ -59,6 +62,11 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Which blueprint to build from — landing, ecommerce, blog or webapp. Sent
+     only when something in the interface already knows (a starter chip, a
+     project whose kind is settled); otherwise the brief is classified. As with
+     intentOverride, an explicit choice beats a guess. */
+  buildKind?: unknown;
   /* Files uploaded with this message: a screenshot to match, a logo to use, a
      page of copy to lay out. Ids only — the bytes are read on the server. */
   attachmentIds?: unknown;
@@ -955,13 +963,41 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     );
   }
 
+  /* ── Which blueprint this is built from ──────────────────────────────────
+     The decision that used to be made inside the orchestrator, on one prompt
+     that had to describe a storefront, a landing page, a publication and an
+     application at once — and so described none of them. Every build came back
+     looking like the average of the four: a hero, three cards, a price table,
+     a footer.
+
+     It is made here now, from the brief that is actually being built rather
+     than from the raw message, and it decides the whole prompt: sections,
+     behaviour, depth, and — the part that matters most to anyone who has asked
+     for a landing page and been handed a shop — what must not be in it. See
+     src/lib/builder/blueprints.
+
+     Free almost always: the regexes in builder/kinds.ts answer most briefs
+     outright, and the model is asked only about the ones they decline. Neither
+     path throws, so an unreachable classifier still builds something. */
+  steps.begin("kind", "Working out what to build", "landing page, store, publication or app…");
+  const kind = await classifyKind({
+    brief: brief.text,
+    override: isBuildKind(body.buildKind) ? body.buildKind : null,
+  });
+  steps.mark("kind", `Building ${KIND_LABEL[kind.kind].toLowerCase()}`, KIND_BLURB[kind.kind]);
+
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. The brief is stored
      rather than the message, so the row says what was built rather than the
-     word that asked for it again. */
+     word that asked for it again.
+
+     The kind goes down with it, rather than being left to the workflow's own
+     classifier: the prompt the page is generated from was composed from this
+     decision, so this is what the build actually is — and writing it here means
+     the row says so even if the orchestrator's Supabase step is not connected. */
   await supabase
     .from("projects")
-    .update({ prompt: brief.text, status: "Building" })
+    .update({ prompt: brief.text, status: "Building", intent: kind.kind })
     .eq("id", project.id);
 
   /* Only a full build reaches here, and a full build is a fresh page: whatever
@@ -984,6 +1020,12 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
          addresses for images, and text already read for everything else. */
       attachmentUrls: await signedImageUrls(attachments),
       attachmentText: await attachmentText(attachments),
+      /* What to build, and the prompt to build it from. The workflow is handed
+         both rather than deciding for itself: prompts that live in a node can
+         only be changed in a browser, with no diff and no review, and that is
+         how one prompt came to serve four different kinds of page. */
+      buildKind: kind.kind,
+      systemPrompt: composeBuildPrompt(kind.kind),
     });
   } catch (error) {
     if (error instanceof BuilderError) {
@@ -1036,6 +1078,10 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     stored: storedBuild,
     steps: steps.list(),
     intent: "new_project",
+    /* What was built, beside what the message was. The workspace names the
+       result from it, and the composer can send it back as buildKind to keep a
+       follow-up build on the same blueprint. */
+    buildKind: kind.kind,
     build: result,
     project: synced ?? null,
   });

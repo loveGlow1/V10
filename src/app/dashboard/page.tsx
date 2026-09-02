@@ -23,6 +23,8 @@ import PhoneField from "./components/PhoneField";
 import { ComingSoonBadge, ComingSoonModal } from "./components/ComingSoon";
 import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
+import type { LucideIcon } from "lucide-react";
+import type { BuildKind } from "@/lib/builder/kinds";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
@@ -32,9 +34,9 @@ import {
   SlidersHorizontal,
   Mic,
   MicOff,
-  Smartphone,
   Layers,
   FileText,
+  ShoppingBag,
   AppWindow,
   Bot,
   X,
@@ -99,14 +101,33 @@ const PROMPTS = [
   "Build me a dashboard for...",
 ];
 
+/* The row of targets above the composer, and now a row that decides something.
+ *
+ * It used to be three chips that only moved a highlight: pressing "Landing
+ * Page" and typing a sentence built exactly what pressing "Web App" built,
+ * because there was one prompt behind all of them. Each id is a build kind now
+ * (src/lib/builder/kinds.ts) and travels with the first message, so the chip is
+ * the answer to "what is this" rather than a guess made from the sentence.
+ *
+ * Four rather than three: a store was the kind most often asked for and the one
+ * the old row could not name at all. "Blog Post" was the third chip and named
+ * one post; what people were reaching for was the publication around it.
+ *
+ * Nothing is selected to begin with, which is new and is the point. The row had
+ * a default selection back when the selection meant nothing; now it overrules
+ * the classifier, and a default would mean everybody's first build was a web
+ * app however the sentence read. Chosen nothing, the server reads the brief —
+ * which gets "a landing page for my gym" right on its own. Pressing the
+ * selected chip again clears it and hands it back.
+ *
+ * No badge on any of these. The beta pill moved to the Storefront starter under
+ * the composer, where it sits on the thing it is a claim about. */
 const projectTypes = [
-  /* No badge on any of these. The beta pill moved to the Storefront starter
-     under the composer, where it sits on the thing it is a claim about rather
-     than on the target this row is only switching between. */
-  { id: "web", label: "Web App", icon: Layers, phoneIcon: Globe },
-  { id: "mobile", label: "Blog Post", icon: Smartphone, phoneIcon: Smartphone },
+  { id: "webapp", label: "Web App", icon: Layers, phoneIcon: Globe },
   { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
-];
+  { id: "ecommerce", label: "Store", icon: ShoppingBag, phoneIcon: ShoppingBag },
+  { id: "blog", label: "Blog", icon: FileText, phoneIcon: FileText },
+] satisfies { id: BuildKind; label: string; icon: LucideIcon; phoneIcon: LucideIcon }[];
 
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
@@ -114,7 +135,7 @@ export default function DashboardPage() {
   /* Which pane the settings panel opens on. The account menu wants its own; the
      project switcher wants the project's. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
-  const [activeType, setActiveType] = useState("web");
+  const [activeType, setActiveType] = useState<BuildKind | null>(null);
   const [composerFocused, setComposerFocused] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
@@ -366,7 +387,7 @@ export default function DashboardPage() {
               return (
                 <button
                   key={type.id}
-                  onClick={() => setActiveType(type.id)}
+                  onClick={() => setActiveType((current) => (current === type.id ? null : type.id))}
                   className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-[5px] text-[13px] font-normal leading-[20px] transition-all md:leading-normal sm:gap-2 md:-mb-px md:py-2.5 md:font-medium md:flex-none md:shrink-0 md:justify-start md:rounded-b-none md:rounded-t-[14px] md:px-5 md:py-2.5 md:text-sm ${
                     active
                       ? "border-line/[0.16] bg-layer/[0.07] font-medium text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.10)] md:border-line/[0.08] md:border-b-transparent md:bg-panel md:shadow-none"
@@ -635,7 +656,12 @@ export default function DashboardPage() {
                       and only lifts once there is something to send. It names a
                       new app from what was typed and opens it; the build runs
                       in the workspace it opens. */}
-                  <StartBuildButton ref={sendRef} prompt={transcript} onError={setStartError} />
+                  <StartBuildButton
+                    ref={sendRef}
+                    prompt={transcript}
+                    kind={activeType}
+                    onError={setStartError}
+                  />
                 </div>
               </div>
             </div>

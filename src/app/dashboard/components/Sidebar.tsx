@@ -33,16 +33,18 @@ import ThemeSwitch from "./ThemeSwitch";
 import { avatarFor } from "../projectColours";
 import { useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { KIND_LABEL } from "@/lib/builder/kinds";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
-/* What kind of thing a task is, from the intent a build recorded. The keys are
-   the orchestrator's own (src/lib/n8n.ts). Only "webapp" appears in the data
-   today; the other two are branches it can take, kept so a WordPress or store
-   build names itself the day one lands rather than falling through to nothing. */
+/* What kind of thing a task is, from the intent a build recorded.
+ *
+ * Four of the keys are the build kinds the app now decides between and builds
+ * from (src/lib/builder/kinds.ts, where these words come from). "wordpress" is
+ * the fifth and is history: WordPress briefs are built as publications now, and
+ * the key stays only so rows written before that still name themselves. */
 const TASK_KIND: Record<string, string> = {
-  webapp: "Web app",
+  ...KIND_LABEL,
   wordpress: "WordPress site",
-  ecommerce: "Online store",
 };
 
 /* The line under a task's name.

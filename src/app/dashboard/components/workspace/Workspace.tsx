@@ -15,6 +15,7 @@ import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { isBuildKind } from "@/lib/builder/kinds";
 import { browserAccessToken } from "@/lib/projects/client";
 import { touchProject } from "@/lib/projects/queries";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -36,6 +37,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
      to send rather than being dropped on the floor. */
   const search = useSearchParams();
   const initialPrompt = search.get("prompt");
+  /* And with ?kind=… when the target chip above the composer said what kind of
+     thing it is. Validated rather than trusted: it arrives in an address bar,
+     and an unrecognised word means "let the server work it out" rather than
+     "build from a blueprint that does not exist". */
+  const chosen = search.get("kind");
+  const initialKind = isBuildKind(chosen) ? chosen : null;
   /* "?view=preview" is how the apps list says "they wanted to look at it".
      Read once on arrival rather than watched: closing the sheet must not be
      undone by the parameter still sitting in the address bar. */
@@ -218,6 +225,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               onOpenPreview={() => setPreviewSheetOpen(true)}
               previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}
+              initialKind={initialKind}
               onBuildSettled={refreshCredits}
               onPublish={() => {
                 setPublishRequest((n) => n + 1);

@@ -1,52 +1,89 @@
 # The build prompt
 
-The system prompt the orchestrator generates pages with. It lives on the
-`Compose Page Prompt` node in n8n, which is where it actually runs — this file
-is the copy that can be reviewed, diffed and argued with, because a prompt that
-only exists inside a workflow is a prompt nobody can see change.
+There is no longer one of these, and that is the point of this file.
 
-**Edit both.** If they disagree, n8n is what ran.
+The prompt a page was generated from used to live on the `Compose Page Prompt`
+node in n8n: one prompt, describing "a page" in general terms, used for a
+landing page, a storefront, a publication and an application alike. A prompt
+that has to describe all four describes none of them, and what came back was
+the average of them — a hero, three feature cards, a pricing table and a
+footer, whatever had been asked for. A demo of a website rather than the
+website.
 
----
+It also meant the prompt could only be changed in a browser, by hand, with no
+diff and no review.
+
+## Where the prompt lives now
+
+In the app, in code, one per kind:
 
 ```
-You build complete, production-quality web pages as a single self-contained HTML file.
+src/lib/builder/kinds.ts               which of the four this brief is
+src/lib/builder/classify-kind.ts       the model fallback, when the rules decline
+src/lib/builder/blueprints/base.ts     craft rules and the quality bar, shared
+src/lib/builder/blueprints/landing.ts  one page, one audience, one action
+src/lib/builder/blueprints/ecommerce.ts  catalogue, cart, a checkout that adds up
+src/lib/builder/blueprints/blog.ts     a publication with something to read in it
+src/lib/builder/blueprints/webapp.ts   sign-in, views, data, and a back end
+src/lib/builder/blueprints/index.ts    composes one system prompt per kind
+```
 
-OUTPUT FORMAT — this is absolute:
-- Reply with the HTML document and nothing else. No prose before it, no explanation after it, no markdown fences.
-- Start at <!doctype html> and end at </html>.
-- FINISH THE DOCUMENT. An unfinished page is worthless — it renders as half a page. If the design is large, build fewer sections and finish them rather than starting more than you can close. Prefer compact, well-chosen markup over exhaustive markup.
+`/api/build` classifies the brief, composes the prompt for that kind, and sends
+**both** with the build request:
 
-WHAT TO BUILD:
-- One file. Inline all CSS in a <style> tag and all JavaScript in a <script> tag. No build step, no imports, no bundler.
-- Tailwind is available: <script src="https://cdn.tailwindcss.com"></script>. Prefer it over long hand-written stylesheets — it is far shorter, which is what leaves room to finish.
-- No other external scripts, and no external images: use inline SVG, CSS gradients and solid shapes for artwork. A broken image is worse than no image, and every stock-photo URL you invent is broken.
-- Prefer a system font stack over a webfont link. The page is downloadable as a file, and everything it fetches is something that file has to carry — a linked font is bought at a few hundred kilobytes per family. Reach for one only when the typeface is genuinely the design, and then only one family.
-- Real, specific copy written for this product. Never "Lorem ipsum" and never "Your headline here".
-- Responsive from 320px up. Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
-- Make it look designed rather than defaulted: a considered type scale, deliberate spacing, a coherent palette, restrained motion.
-- Forms and interactive controls should behave — validate and respond in-page. There is no backend, so never post to one; show the state a real submission would produce.
-- For data-heavy interfaces, use representative sample data and draw charts with inline SVG rather than a charting library.
+```jsonc
+{
+  "prompt": "…the brief, in their words…",
+  "buildKind": "landing",      // landing | ecommerce | blog | webapp
+  "systemPrompt": "…the whole system prompt for that kind…"
+}
+```
 
-CONTENT GOES IN THE HTML — this is the rule people notice when it is broken:
-- Write every piece of content the page is about into the markup itself. Headlines, cards, prices, table rows, list items, testimonials, the lot. If a reader is meant to see it, it is in the HTML.
-- Do NOT build the page's content from a JavaScript array at load — no `innerHTML = items.map(...)` to fill an empty container that ships empty. That pattern looks identical in a browser and renders nothing everywhere else.
-- The page is downloadable as a file, and the places people open files are the strictest readers there are. An iOS file preview, an email client, a document viewer: many of them render the HTML and run none of the scripts. A page whose stories live in a JS array arrives there as a headline and four empty boxes.
-- Use JavaScript for behaviour on top of content that is already there: filtering a list the HTML contains, opening a dialog the HTML contains, validating a form, switching a theme. Enhancing, never constructing.
-- If a filter or a "load more" hides some of it, ship it all in the markup and hide the extra with a class. Hidden content is content; absent content is nothing.
+## What the workflow has to do
 
-SIGN-IN AND DASHBOARDS:
-When the request involves accounts, signing in, a dashboard, or anything "behind a login", build it as a working demo inside the one file.
-- Views are sections of the same document, shown and hidden by script. Never navigate away, never use a router, never open a second page.
-- Sign in, sign up and sign out all work. Validate properly: required fields, a plausible email shape, a minimum password length, and errors shown inline next to the field rather than in an alert.
-- SEED ONE DEMO ACCOUNT AND PRINT ITS EMAIL AND PASSWORD ON THE SIGN-IN SCREEN. This is the most important rule in this section: a preview nobody can get into is a locked door, and whoever opens it will not guess the password you invented.
-- The dashboard behind it is the real content — their name, their data, navigation, a way to sign out. Not a placeholder that says "welcome, you are logged in".
-- A protected view must not render until someone is signed in, and signing out must return to the sign-in screen with the session cleared.
+**`Normalize Build Request`** carries the two new fields through, the same way it
+carries `prompt`:
 
-STATE — a hard constraint, not a preference:
-- Hold all state in ordinary JavaScript variables.
-- Do NOT use localStorage, sessionStorage, cookies or IndexedDB. The preview runs in a sandboxed frame with an opaque origin, and in that context those APIs throw a SecurityError on access — so a page that keeps its session there does not degrade, it crashes blank on load. If you have a real reason to touch one, wrap every access in try/catch and work correctly without it.
-- Accounts and data therefore last as long as the tab, which is expected. Say so once and quietly — a line of small text under the sign-in form — rather than implying the accounts are real or the security is real.
+```
+buildKind     {{ $json.body?.buildKind ?? $json.buildKind ?? "landing" }}
+systemPrompt  {{ $json.body?.systemPrompt ?? $json.systemPrompt ?? "" }}
+```
 
-If the request is for an app rather than a page, build its interface and make it work client-side, holding state in memory.
+**`Compose Page Prompt`** uses what it was given, and only falls back to its own
+text when the field is empty — which now only happens for a caller that is not
+this app:
+
+```
+{{ $("Normalize Build Request").item.json.systemPrompt || $json.fallbackPrompt }}
+```
+
+**`Sync Project Row`** writes `intent` from `buildKind` rather than from the
+workflow's own classifier. The app writes the same value to the row before the
+call, so a workflow that overwrites it with something else makes the row
+disagree with the prompt the page was actually built from.
+
+The classifier node inside the workflow is now redundant for builds that come
+from this app. It stays for the moment because it is also the route's "none of
+these fit" fallback, but it must not overrule `buildKind`.
+
+## Keeping the two in step
+
+The blueprints are the source of truth and this file is the map to them. When a
+prompt changes, it changes in `src/lib/builder/blueprints/` — that is what gets
+reviewed, and what `npm run check:blueprint` checks: that every kind still
+composes a prompt with its sections, its behaviour, its depth and, above all,
+its exclusions intact.
+
+The exclusions are the half that fixes the original complaint. A landing page's
+blueprint forbids a cart, a checkout, a product grid, a sign-in and a blog
+index by name; a storefront's forbids a sign-in wall and an admin area; a
+publication's forbids prices and pricing tiers; an application's forbids the
+marketing hero. Kinds stopped bleeding into each other when the prompts started
+saying what each one is *not*.
+
+To read a prompt exactly as it will be sent:
+
+```js
+import { composeBuildPrompt } from "@/lib/builder/blueprints";
+composeBuildPrompt("landing");
 ```

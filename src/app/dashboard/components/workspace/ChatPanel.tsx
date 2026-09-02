@@ -39,6 +39,7 @@ import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { resumableFrom } from "./resume";
 import { cardFor, cardIndex } from "./threadView";
+import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
@@ -62,9 +63,10 @@ import {
    kind otherwise. `intent` is null on exactly the rows that were never built,
    so reading it first would leave this blank on the ones worth naming. */
 const RESULT_KIND: Record<string, string> = {
-  webapp: "Web app",
+  ...KIND_LABEL,
+  /* History: WordPress briefs are built as publications now, and the key stays
+     only so rows written before that still name themselves. */
   wordpress: "WordPress site",
-  ecommerce: "Online store",
 };
 
 function resultKind(project: { status: string; intent: string | null }) {
@@ -121,6 +123,7 @@ export default function ChatPanel({
   onOpenPreview,
   previewOpen = false,
   initialPrompt,
+  initialKind,
   onBuildSettled,
   onPublish,
 }: {
@@ -132,6 +135,12 @@ export default function ChatPanel({
   previewOpen?: boolean;
   /** What Home was asked for, when the workspace was opened by sending from it. */
   initialPrompt?: string | null;
+  /* Which blueprint the opening build runs on, when Home's target chip already
+     said. It travels with that first message only: the chip was pressed about
+     that sentence, and a person who types "actually, build me a store" three
+     messages later has changed their mind. Everything after it is classified
+     from the brief. */
+  initialKind?: BuildKind | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
   onBuildSettled?: () => void;
   /** Asks the preview half for its publish flow. See Workspace. */
@@ -328,9 +337,9 @@ export default function ChatPanel({
     if (openingPrompt.current === key) return;
     openingPrompt.current = key;
     if (messages.length > 0) return;
-    void send(initialPrompt);
+    void send(initialPrompt, { buildKind: initialKind ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, initialPrompt, threadLoaded]);
+  }, [project?.id, initialPrompt, initialKind, threadLoaded]);
 
   /* A build that was already running when this workspace was opened.
      The row is the shared truth between one visit and the next: it says
@@ -603,7 +612,15 @@ export default function ChatPanel({
     }
   }
 
-  async function send(prompt?: string, options: { intentOverride?: BuildIntent | null; confirmNewProject?: boolean; silent?: boolean } = {}) {
+  async function send(
+    prompt?: string,
+    options: {
+      intentOverride?: BuildIntent | null;
+      confirmNewProject?: boolean;
+      silent?: boolean;
+      buildKind?: BuildKind | null;
+    } = {},
+  ) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
     sentHere.current = true;
@@ -669,6 +686,7 @@ export default function ChatPanel({
         intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
+        buildKind: options.buildKind ?? null,
         /* Live. Each operation lands here as the server finishes announcing or
            completing it, and setPhase merges by id — so a row that says
            "Changing the page" becomes the same row saying how many changes

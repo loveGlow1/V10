@@ -4,6 +4,7 @@ import React, { useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp } from "lucide-react";
 
+import type { BuildKind } from "@/lib/builder/kinds";
 import { useProjects } from "../ProjectsContext";
 import { nameFromPrompt } from "../projectName";
 import { SendArrow } from "./marks";
@@ -31,10 +32,16 @@ export type StartBuildHandle = { start: () => void };
 
 export default function StartBuildButton({
   prompt,
+  kind,
   onError,
   ref,
 }: {
   prompt: string;
+  /* Which target chip is selected above the composer. It travels to the
+     workspace with the prompt and decides which blueprint the first build runs
+     on — see src/lib/builder/blueprints. Null means the chip said nothing and
+     the server should classify the sentence itself. */
+  kind?: BuildKind | null;
   onError: (message: string | null) => void;
   /* React 19 passes ref as an ordinary prop, so there is no forwardRef here. */
   ref?: React.Ref<StartBuildHandle>;
@@ -85,7 +92,8 @@ export default function StartBuildButton({
        The prompt travels in the URL rather than in a store: a reload of the
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
-    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(text)}`);
+    const target = kind ? `&kind=${encodeURIComponent(kind)}` : "";
+    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(text)}${target}`);
   }
 
   return (

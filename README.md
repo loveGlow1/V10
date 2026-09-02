@@ -113,13 +113,48 @@ four is wrong. It POSTs one real build request with no `projectId` and no
 `userId`, so it runs one execution — the classifier bills an Anthropic call —
 and `Sync Project Row` matches no row and writes nothing.
 
+### Checking the blueprints
+
+```bash
+npm run check:blueprint
+```
+
+Two things it will not let slip. That a brief still routes to the kind a
+careful reader would build from it — measured on a labelled corpus, offline,
+with no model call — and that each kind's composed prompt still carries its
+sections, its depth and, above all, its exclusions. Blueprints are prose, and
+prose has no type checker: an exclusion can be deleted and nothing anywhere
+would fail.
+
 ### What a build makes
 
 A build generates one complete, self-contained HTML page — markup, styles and
 its own interactivity in a single document — saved against the project and
-served at `/preview/<projectId>`. A landing page or a small web app that really
-exists. A second message in the same workspace passes the current page back to
-the model, so a follow-up edits it rather than replacing it.
+served at `/preview/<projectId>`. A second message in the same workspace passes
+the current page back to the model, so a follow-up edits it rather than
+replacing it.
+
+**Four kinds, four blueprints.** A brief is classified — landing page,
+storefront, blog, web app — and built from the blueprint for that kind:
+
+| Kind | What it is | What it must not have |
+| --- | --- | --- |
+| `landing` | One page, one audience, one action. Nine to eleven full sections of real copy. | No cart, no checkout, no sign-in, no blog index, no admin |
+| `ecommerce` | A catalogue of at least eight products, a cart, and a checkout whose totals add up. | No sign-in wall, no admin or inventory back office |
+| `blog` | A publication: a lead story, seven or more articles, categories that filter, and one full article of eight hundred words. WordPress briefs are built here. | No prices, no pricing tiers, no cart |
+| `webapp` | Both halves: sign-in, four or more views, and a data layer with real tables, an API surface and the SQL schema written out. | No marketing hero, no storefront |
+
+The exclusions are the half that matters. Every kind used to be built from one
+prompt describing "a page", so a landing page could arrive with a product grid
+and a blog could arrive with a pricing table — the same demo page each time,
+with different words in it. Each blueprint now says what its kind is *not*, and
+that is what keeps them apart. They live in `src/lib/builder/blueprints/`, the
+routing lives in `src/lib/builder/kinds.ts`, and the target chips above the
+composer on Home set the kind outright when someone already knows.
+
+The app composes the prompt and sends it with the build request; the
+orchestrator uses what it is given (`n8n/page-prompt.md`). A prompt is a commit
+here, not an edit in a browser.
 
 A build asked for accounts produces a working sign-in and a dashboard behind
 it — validation, protected views, sign out, and a seeded demo account whose
