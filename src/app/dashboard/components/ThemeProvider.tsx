@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 
 import {
   applyTheme,
+  DEFAULT_THEME,
   isThemeChoice,
   resolveTheme,
   THEME_KEY,
@@ -30,8 +31,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
      first client render agree. The stored choice is read in the effect below —
      by which point the inline boot script has already painted the right one, so
      nothing flashes. */
-  const [choice, setChoiceState] = useState<ThemeChoice>("system");
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
+  const [choice, setChoiceState] = useState<ThemeChoice>(DEFAULT_THEME);
+  const [resolved, setResolved] = useState<"light" | "dark">(resolveTheme(DEFAULT_THEME));
 
   useEffect(() => {
     let stored: string | null = null;
@@ -40,7 +41,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Private mode and blocked site data both throw. The default stands.
     }
-    const initial = isThemeChoice(stored) ? stored : "system";
+    /* Nothing stored means nobody has chosen, and that is dark — not the OS's
+       opinion. Matching the system is a setting someone picks, and picking it
+       is what writes "system" here. See DEFAULT_THEME in src/app/theme.ts. */
+    const initial = isThemeChoice(stored) ? stored : DEFAULT_THEME;
     setChoiceState(initial);
     setResolved(resolveTheme(initial));
     applyTheme(initial);
