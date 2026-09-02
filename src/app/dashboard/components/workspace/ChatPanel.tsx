@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Download,
   Eye,
   ExternalLink,
   GitFork,
@@ -928,16 +929,16 @@ export default function ChatPanel({
     "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
 
   /* The action row's pill. The composer's own chip, squared off a little and
-     brought down a size: these sit in a block of five above the box rather than
+     brought down a size: these sit in a block of six above the box rather than
      one at a time inside it, and at full round with the composer's type they
-     read as five buttons shouting.
+     read as six buttons shouting.
 
      Each is the width of its own label — shrink-0 against the wrapping row, so
      a pill keeps its natural size and the row breaks around it. A grid would
-     have made every pill as wide as the longest, which pads "New project" out
-     to the width of "Undo last change" and turns five labels into five
-     identical slabs. Ragged is the point: different words are different
-     lengths, and the eye finds a name faster in a line that admits it. */
+     have made every pill as wide as the longest, which pads "Download" out to
+     the width of "Undo last change" and turns six labels into six identical
+     slabs. Ragged is the point: different words are different lengths, and the
+     eye finds a name faster in a line that admits it. */
   const action_chip =
     "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12.5px] transition-all active:scale-[0.98]";
 
@@ -1167,14 +1168,14 @@ export default function ChatPanel({
         {/* What can be done from here, rather than one chip naming what is
             already happening.
 
-            Five actions in two groups. The first three set what the next message
+            Six actions in two groups. The first three set what the next message
             means — they are a choice between each other, so pressing one lights
             it and pressing it again hands the reading back to the classifier.
-            The last two happen on the press: they are not about the message
+            The last three happen on the press: they are not about the message
             in the box at all.
 
             Only once a page exists. Before that every message is the first
-            build, there is nothing to undo or replace, and a row of
+            build, there is nothing to undo, download, or replace, and a row of
             actions that mostly do not apply is worse than no row. It also
             stands down entirely while the replace-or-edit question is up: that
             question is the one thing on this bar worth reading.
@@ -1256,6 +1257,24 @@ export default function ChatPanel({
               <Undo2 className="h-3.5 w-3.5 shrink-0 text-muted" />
               Undo last change
             </button>
+
+            {/* An anchor, not a button: the route answers with a
+                Content-Disposition, so the browser saves the file and this
+                conversation never navigates.
+
+                It points at the same /preview/[projectId]?download=1 the
+                preview header and the build card use, which is what keeps the
+                three of them honest — one route, one ownership check, one
+                compile-to-standalone on the way out. */}
+            <a
+              href={`/preview/${project?.id}?download=1`}
+              download
+              title="Save this page as a file."
+              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
+            >
+              <Download className="h-3.5 w-3.5 shrink-0 text-muted" />
+              Download
+            </a>
           </div>
 
         {/* Said once, under the row, rather than on the chip that caused it —
