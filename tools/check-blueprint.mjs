@@ -235,10 +235,18 @@ try {
     }
 
     /* Long enough to be a blueprint rather than a sentence, short enough to
-       leave the model room to answer with a whole document. */
+       leave the model room to answer with a whole document.
+
+       The ceiling is 3000 rather than the 2600 it started at. The web app
+       blueprint carries eight conditional requirements — the field that keeps
+       a calculator from being handed a CRM's back end — and each one costs
+       forty words it earns. Three thousand words is around four thousand
+       tokens of system prompt against a document of twenty thousand, which is
+       not what crowds anything out; the guard is here to catch a blueprint
+       that has doubled by accident, not to price the good ones out. */
     const words = prompt.split(/\s+/).length;
     if (words < 500) fail(`${kind}: the prompt is ${words} words, which is too thin to be a blueprint`);
-    else if (words > 2600) fail(`${kind}: the prompt is ${words} words, which crowds out the build`);
+    else if (words > 3000) fail(`${kind}: the prompt is ${words} words, which crowds out the build`);
     else
       console.log(
         `ok   ${kind.padEnd(10)} ${String(words).padStart(4)} words · ${

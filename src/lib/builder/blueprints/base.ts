@@ -76,6 +76,7 @@ CONTENT GOES IN THE HTML — the rule people notice when it is broken:
 - The page is downloadable as a file, and the places people open files are the strictest readers there are. An iOS file preview, an email client, a document viewer: many render the HTML and run none of the scripts. Content that lives in a JS array arrives there as a headline and four empty boxes.
 - Use JavaScript for behaviour on top of content that is already there: filtering a list the HTML contains, opening a dialog the HTML contains, validating a form, switching a view. Enhancing, never constructing.
 - If a filter or a "load more" hides some of it, ship it all in the markup and hide the extra with a class. Hidden content is content; absent content is nothing.
+- The one thing script may produce is what somebody's own input computes — a result, a total, a schedule, a chart of numbers they entered. That cannot be written in advance and nobody expects it to be. What it does not excuse is an empty shell: ship a worked default in the markup, so the build renders as something finished before a single event fires, and recompute over it from there.
 
 STATE — a hard constraint, not a preference:
 - Hold all state in ordinary JavaScript variables.

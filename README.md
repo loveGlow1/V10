@@ -128,6 +128,27 @@ prompt that still carries the brief, the depth floors and the exclusions.
 Blueprints are prose, and prose has no type checker: an exclusion can be
 deleted and nothing anywhere would fail.
 
+### Judging what came back
+
+```bash
+npm run audit:page -- path/to/page.html landing
+```
+
+`check:blueprint` asks whether the prompt still says the right things.
+`audit:page` asks the question after it — whether what came back obeyed them:
+the document is finished, no placeholder copy, no `href="#"`, every anchor
+resolves to an id that exists, content is in the markup rather than built from
+a JS array, no storage APIs, no invented image URLs, and the per-kind floors
+(nine sections and five FAQ entries for a landing page, eight products and a
+subtotal for a store, seven articles and one of 800+ words for a blog, four
+views and the four states for an app). For a web app it also reports which
+architecture the build decided it needed, which is how you check the
+conditional rules did their job: a calculator should come back "none — a plain
+tool".
+
+Whether the copy is any good is still a judgement someone makes by looking.
+These are the rules a person stops checking after the third build.
+
 ### What a build makes
 
 A build generates one complete, self-contained HTML page — markup, styles and
