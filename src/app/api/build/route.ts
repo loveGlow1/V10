@@ -12,6 +12,7 @@ import {
   editPage,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
@@ -1023,6 +1024,31 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   steps.begin("assets", "Planning the imagery", "one look for the whole project…");
 
   const library = { assets: await loadAssets(project.id) };
+
+  /* What they attached, taken in as assets before anything is planned.
+   *
+     Their own photograph of their own product must beat anything we could find
+     or generate, and it only can if it is in the library by the time the
+     resolver walks the chain. Content images are copied into the public asset
+     bucket, classified and tagged with the slot they should fill; a screenshot
+     or a mockup is left alone and goes to the model as something to look at.
+     See asset-intake.ts. */
+  const intake = await intakeAttachments({
+    projectId: project.id,
+    kind: kind.kind,
+    rows: attachments,
+    existing: library.assets,
+  });
+  library.assets.push(...intake.assets);
+
+  if (intake.assets.length > 0) {
+    steps.mark(
+      "attachments",
+      `Took in ${intake.assets.length} of your ${intake.assets.length === 1 ? "image" : "images"}`,
+      `used as ${[...new Set(intake.assets.map((asset) => asset.type))].join(", ")} rather than redrawn`,
+    );
+  }
+
   const plan = planAssets({ kind: kind.kind, brief: brief.text });
   const providers = await usableProviders(library);
   const pictures = await resolveAssets({
@@ -1079,7 +1105,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
        addresses for images, and text already read for everything else. Read
        once here rather than twice, because the composed prompt needs to know
        about them as well as the orchestrator. */
-    const imageUrls = await signedImageUrls(attachments);
+    /* Only the REFERENCE images. Anything taken in as an asset is in the
+       manifest with a stable URL, and sending it here as well would ask the
+       model to redraw a photograph it has been told to reference — which is
+       the behaviour this whole path exists to stop. */
+    const imageUrls = await signedImageUrls(intake.reference);
     const attachedText = await attachmentText(attachments);
 
     result = await startBuild({

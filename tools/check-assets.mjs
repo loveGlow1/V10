@@ -34,6 +34,7 @@ writeFileSync(
       join(process.cwd(), "src/lib/builder/assets/asset-optimizer.ts"),
       join(process.cwd(), "src/lib/builder/assets/asset-library.ts"),
       join(process.cwd(), "src/lib/builder/assets/providers/registry.ts"),
+      join(process.cwd(), "src/lib/builder/assets/asset-intake.ts"),
     ],
   }),
 );
@@ -289,6 +290,49 @@ try {
      "and the visual direction still reaches the code generator");
 
   const made = fellThrough;
+
+  // ── Taking in what somebody attached ────────────────────────────────────
+  const intake = await import(join(out, "lib/builder/assets/asset-intake.js"));
+
+  /* No service key here, so nothing can be copied into the bucket. Everything
+     must come back as reference rather than vanishing — an upload that
+     disappears with no explanation is the worst of the three outcomes. */
+  const upload = (id, name, mime = "image/jpeg") => ({ id, name, mime, path: `p/${id}` });
+  const noKey = await intake.intakeAttachments({
+    projectId: "p", kind: "ecommerce", existing: [],
+    rows: [upload("a", "bowl-01.jpg"), upload("b", "bowl-02.jpg")],
+  });
+  is(noKey.assets.length, 0, "with no storage configured nothing is taken in");
+  is(noKey.reference.length, 2, "and every upload still reaches the model to look at");
+
+  /* Classification is what decides whether a picture is used or copied, so it
+     is the part worth pinning down. It runs before any storage call. */
+  const classified = async (name, kind) => {
+    const out = await intake.intakeAttachments({
+      projectId: "p", kind, existing: [], rows: [upload("x", name)],
+    });
+    return out.reference.length === 1 ? "reference-or-unstored" : "asset";
+  };
+  is(await classified("homepage-screenshot.png", "ecommerce"), "reference-or-unstored",
+     "a screenshot is a picture of what they want, not content for the page");
+  is(await classified("figma-mockup.png", "landing"), "reference-or-unstored",
+     "so is a mockup");
+
+  /* A non-image is never taken in, whatever it is called. */
+  const withPdf = await intake.intakeAttachments({
+    projectId: "p", kind: "ecommerce", existing: [],
+    rows: [upload("d", "catalogue.pdf", "application/pdf")],
+  });
+  is(withPdf.assets.length + withPdf.reference.length, 0, "a PDF is not an image and is left alone");
+
+  /* An upload already taken in must not be copied again on the next build. */
+  const again = await intake.intakeAttachments({
+    projectId: "p", kind: "ecommerce",
+    existing: [ready({ type: "product", source: "user", url: "https://theirs/1.jpg", tags: ["product-1", "product", "upload:a"] })],
+    rows: [upload("a", "bowl-01.jpg")],
+  });
+  is(again.assets.length, 0, "an upload already taken in is not taken in twice");
+  is(again.reference.length, 0, "and is not sent to the model as a reference either");
 
   // ── What the code generator is told ─────────────────────────────────────
   const text = resolver.manifestForPrompt(made.manifest);

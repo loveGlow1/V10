@@ -27,7 +27,7 @@ export const ecommerce: Blueprint = {
     "Header — wordmark, category navigation, a search field that filters the catalog on the page, and a cart button showing a live item count.",
     "Campaign hero — one season, collection or offer, with a specific claim and a button that jumps to the catalog. One band, not three.",
     "Collection views — four to six categories, each drawn with inline SVG or a CSS treatment, each filtering the grid below.",
-    "Product listing — the catalog, and the center of the build. Every product written into the HTML: name, one line of what it is, a real price with a currency symbol, a rating with a review count, an inline-SVG or CSS product image, a stock or shipping note, and an add-to-cart button. Vary them properly — different prices, some on sale with the old price struck through, one or two sold out.",
+    "Product listing — the catalog, and the center of the build. Every product written into the HTML: name, one line of what it is, a real price with a currency symbol, a rating with a review count, its photograph from the asset manifest where one was supplied and a plain toned panel at the right aspect ratio where none was, a stock or shipping note, and an add-to-cart button. Vary them properly — different prices, some on sale with the old price struck through, one or two sold out.",
     "Product detail — a dialog or panel opened from any card, holding a larger image, the full description, materials or specification, a variant picker (size, color, or this product's equivalent) that changes the price where it should, a quantity stepper, delivery and returns detail, and add-to-cart.",
     "Cart — a slide-over drawer listing every line with its image, variant, unit price, a working quantity stepper and a remove control; then subtotal, shipping (free above the threshold the announcement bar named), tax, and a total. An empty state that says something useful.",
     "Checkout — a real multi-step flow inside the page: contact, delivery address, shipping method, payment details, each step validating before it advances, with an order summary alongside that stays in step with the cart.",
@@ -48,6 +48,7 @@ export const ecommerce: Blueprint = {
     minimumSections: 10,
     floors: [
       "At least eight meaningful products, all written into the HTML. Twelve is better if the document can carry them.",
+      "Where fewer photographs were supplied than there are products, build the catalogue around the ones that exist rather than padding it with stand-ins. A shop of six real products beats one of six real and six invented.",
       "At least three categories that actually filter.",
       "At least four reviews.",
       "Prices that read like a real price list — varied, ending sensibly, in one currency, and identical wherever the same product appears.",
@@ -75,6 +76,11 @@ export const ecommerce: Blueprint = {
       require: "a variant picker that changes price, image and availability, and carries the choice into the cart line",
     },
     {
+      when: "product photographs were supplied for this project",
+      require:
+        "those exact photographs, used as they are. They are somebody's actual stock, and a sourced or generated picture of a similar thing is a different product — the wrong item in the customer's basket. Never redraw one, never substitute one, and never crop one so the product leaves the frame",
+    },
+    {
       when: "the brief names WordPress or WooCommerce",
       require:
         "this same structure in that vocabulary — shop page, product archive, single product, cart, checkout, my account — so the preview maps onto a real store",
@@ -90,7 +96,7 @@ export const ecommerce: Blueprint = {
     "No admin dashboard, no inventory back office, no merchant management interface, no order-management tooling. That is a web app, and it is built as one when it is what was asked for.",
     "No blog index or article archive.",
     "Not a landing page with a Shop Now button and nothing behind it. If there is no catalog you can add to a cart, this is not a store.",
-    "No external image URLs and no invented CDN links for product photos.",
+    "No image URL you invented. The only addresses that may appear are the ones in the asset manifest — everything else is a broken image, and a product page of broken images is worse than one of plain panels.",
   ],
 
   qualityRules: [

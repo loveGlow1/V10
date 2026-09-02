@@ -162,6 +162,27 @@ brief → classify → blueprint → visual planner → asset planner
 Quality defaults to `premium`. `npm run check:assets` covers the whole path
 offline: no key, no network, no cost.
 
+#### What someone attaches is used, not redrawn
+
+Upload a photograph of your own product and the builder used to draw a vector
+approximation of it. Three reasons, all now fixed: an attachment was never
+registered as an asset, so the highest-priority provider had nothing to serve;
+attachments live behind signed URLs that expire in an hour, so a page
+referencing one broke by lunchtime; and the instruction that travelled with them
+said to *recreate* what they show.
+
+`asset-intake.ts` splits them. An image is either **content** — a product shot,
+a logo, a photograph of the premises — which is copied into the public asset
+bucket, classified, tagged with the slot it should fill and put first in the
+chain; or **reference** — a screenshot, a mockup, a competitor's homepage —
+which stays as vision input for the model to build something *like*. Filenames
+decide first (people name files), then the kind of thing being built: eight
+photographs uploaded to a storefront are a catalogue; the same eight on a web
+app are far more likely to be a design to match.
+
+Each upload is placed once, in its own slot, and never taken in twice across
+rebuilds.
+
 #### Image sources are plug-ins, never dependencies
 
 The builder must produce a complete project with every API key missing, every

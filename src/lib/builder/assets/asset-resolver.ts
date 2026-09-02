@@ -247,6 +247,7 @@ SLOTS:
 ${lines.join("\n")}
 
 - Reference a slot by its URL exactly as written, in an <img> with the alt text given, width and height set, loading="lazy" below the fold, and object-fit: cover.
+- Some of these are the customer's own photographs of their own products, logo or premises. Use them as they are: never redraw one in SVG, never replace one with something that looks similar, and never crop one so its subject leaves the frame.
 - ${manifest.drawn.length > 0 ? `Draw these yourself, as you would any icon or logo: ${manifest.drawn.join(", ")}.` : "Nothing here is left for you to draw."}
 - ${
     manifest.unresolved.length > 0
