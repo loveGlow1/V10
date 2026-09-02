@@ -16,6 +16,21 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
   file as history until someone re-exports it; check a change against the
   editor, or `get_workflow_details`, before believing it.
 
+## What runs a model, and what does not
+
+Two model calls used to sit in this workflow. Only one remains, and the
+difference matters:
+
+| | |
+| --- | --- |
+| **`Generate Page`** | **Still here, and it is the one that matters.** Anthropic's API directly — `claude-opus-5`, adaptive thinking, high effort, ten-minute timeout — on the `Anthropic account` credential. This writes the page. |
+| ~~`Intent Classifier` + `Intent Classifier Model`~~ | **Deleted.** A routing call that re-decided what the app had already decided, on the one node every build passed through — so an outage or an exhausted key took down every build to answer a question nobody had asked. |
+
+So the canvas has no AI node before generation, and that is the intended state
+rather than something missing. The kind arrives as `buildKind`; the prompt
+arrives as `systemPrompt`; a request carrying neither is answered rather than
+guessed at.
+
 ## Shape
 
 **Only new builds reach this workflow.** The app classifies every message
