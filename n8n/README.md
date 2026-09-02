@@ -23,7 +23,9 @@ difference matters:
 
 | | |
 | --- | --- |
-| **`Generate Page`** | **Still here, and it is the one that matters.** Anthropic's API directly — `claude-opus-5`, adaptive thinking, high effort, ten-minute timeout — on the `Anthropic account` credential. This writes the page. |
+| **`Route By Provider`** | **The model choice, honoured.** A Switch on `provider` into one of three generation nodes. Three nodes rather than one, because a credential is bound to a node in n8n and cannot be an expression — three keys needs three nodes. Falls back to Claude. |
+| **`Generate With Claude` / `Generate With OpenAI` / `Generate With Gemini`** | **The one that matters.** Each POSTs `generationBody` to `generationUrl` with `generationHeaders`, all three shaped by the app for that vendor's API, and attaches its own credential. Ten-minute timeout. |
+| **`Extract Page`** | The document, out of whichever answer came back — all three bury it at a different depth, and Anthropic puts the thinking in the FIRST block, so this joins the text blocks rather than indexing. |
 | ~~`Intent Classifier` + `Intent Classifier Model`~~ | **Deleted.** A routing call that re-decided what the app had already decided, on the one node every build passed through — so an outage or an exhausted key took down every build to answer a question nobody had asked. |
 
 So the canvas has no AI node before generation, and that is the intended state
@@ -92,7 +94,11 @@ Manual Review                      └────→ • Build Spec
           ▼
 [ Build Chat Payload ] → [ Return Payload to Chat UI ]   ← the chat is answered here
           ▼
-[ If A Page Is To Be Built ] → [ Compose Page Prompt ] → [ Generate Page ] → [ Save Page ]
+[ If A Page Is To Be Built ] → [ Route By Provider ] ─┬→ [ Generate With Claude ] ─┐
+                                                     ├→ [ Generate With OpenAI ] ─┤
+                                                     └→ [ Generate With Gemini ] ─┘
+                                                                                  ↓
+                                          [ Collect Generation ] → [ Extract Page ] → [ Save Page ]
                                           (Anthropic API)     (→ the app stores it
                                                                  and sets preview_url)
 ```
@@ -280,8 +286,9 @@ that is gated on every enabled node having a credential attached.
    | Node | What it does |
    | --- | --- |
    | `If Webapp` | Only a web app build has anything left to do; the other two paths were answered in full. |
-   | `Compose Page Prompt` | Builds the system and user messages as plain strings. |
-   | `Generate Page` | POSTs the Anthropic Messages API directly, under the same credential the classifier uses. Ten-minute timeout, because nothing is waiting on it. |
+   | `Route By Provider` | Switches on the `provider` the app sent. |
+   | `Generate With Claude` / `…OpenAI` / `…Gemini` | POST the request the app shaped, each under its own credential. Ten-minute timeout, because nothing is waiting on it. |
+   | `Extract Page` | Normalises three answer shapes back to one `{ html, model }`. |
    | `Save Page` | POSTs the document to `/api/builder/webapp/save`. |
 
    **Attachments.** A build can be given files. Images arrive as signed URLs in
@@ -534,3 +541,53 @@ Every node is on the current type version except the seven `Set` nodes, which ar
 on 3.4 where 3.5 exists. The difference is binary-field handling, which this
 graph has none of, and n8n does not upgrade existing nodes in place — so they are
 left alone rather than churned for a version number.
+
+---
+
+## Which model runs a build
+
+The composer's model picker used to be a decoration. It offered nine models
+across three makers, and every build ran on `claude-opus-5` regardless, because
+the picker's state was never sent anywhere — not to `/api/build`, not to this
+workflow. The chip could say "Gemini 3 Pro" while Anthropic was billed.
+
+It is real now, and the split of responsibility is worth stating plainly:
+
+**The app decides and shapes.** `/api/build` resolves the picker's id (`"auto"`
+included — see `AUTO_MODEL` in `src/app/dashboard/models.ts`), refuses anything
+it does not offer, and builds the complete request body for that vendor's API in
+`src/lib/builder/model-request.ts`. It sends `provider`, `generationUrl`,
+`generationHeaders`, `generationBody` and `responseShape`.
+
+**This workflow sends and reads.** It switches on `provider`, POSTs what it was
+given, attaches the credential, and normalises the answer. It contains no
+knowledge of what a system prompt is or how any vendor spells one.
+
+The bodies are shaped in the app rather than out of node expressions here for
+the reason the system prompt moved: three bodies built on a canvas are three
+things that can drift from what the app believes it asked for, with no diff and
+no review. `npm run check:models` asserts all three shapes without a key or a
+network — including that `max_tokens` never reaches OpenAI (which rejects it)
+and that `system` never reaches Google (which would silently drop the blueprint
+and return a generic page).
+
+### Credentials
+
+| Provider | Credential | State |
+|---|---|---|
+| `claude` | `Anthropic account` | Real key. **Out of credit** as of 2026-09-02 — see request id `req_011CefAvYvwh3f9EHXnWWVLj`. |
+| `openai` | `n8n free OpenAI API credits` | **Exhausted.** Replace with a real OpenAI key before offering GPT models. |
+| `google` | none | **Not created.** Make a Google Gemini (PaLM) API credential from an AI Studio key and attach it to `Generate With Gemini`. |
+
+A build whose provider has no key configured is refused by `/api/build` before
+anything is spent, with a sentence naming the maker — not left to fail at the
+HTTP node. `providerConfigured()` reads `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
+and `GOOGLE_API_KEY` from the app's environment, so those must be set wherever
+the app runs as well as in n8n's credential store.
+
+### Deployment order matters
+
+This workflow's draft expects `generationUrl` and `generationBody` on the
+request. An older app does not send them, and the generation node would POST to
+an empty URL and fail every build. **Deploy the app first, then publish the
+workflow.**

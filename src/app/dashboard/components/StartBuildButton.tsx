@@ -34,6 +34,7 @@ export default function StartBuildButton({
   prompt,
   kind,
   onError,
+  disabled = false,
   ref,
 }: {
   prompt: string;
@@ -43,6 +44,10 @@ export default function StartBuildButton({
      the server should classify the sentence itself. */
   kind?: BuildKind | null;
   onError: (message: string | null) => void;
+  /* Set while the builder is not taking work. Home reads that from the server
+     and passes it down rather than asking again here, so the banner and the
+     button cannot disagree about whether anything can be built. */
+  disabled?: boolean;
   /* React 19 passes ref as an ordinary prop, so there is no forwardRef here. */
   ref?: React.Ref<StartBuildHandle>;
 }) {
@@ -56,7 +61,7 @@ export default function StartBuildButton({
      the first. */
   const inFlight = useRef(false);
 
-  const ready = Boolean(prompt.trim()) && !starting;
+  const ready = Boolean(prompt.trim()) && !starting && !disabled;
 
   /* Deliberately not the whole state: Home needs a way to send, not a way to
      reach inside this. `start` already refuses an empty prompt and a send that
@@ -67,6 +72,11 @@ export default function StartBuildButton({
   async function start() {
     const text = prompt.trim();
     if (!text || inFlight.current) return;
+    /* Checked here and not only on the button. Home fires this through the ref
+       when somebody presses Enter, which never touches the element's disabled
+       attribute — so a guard that lived only there would stop the mouse and let
+       the keyboard through, which is the half-working version of not working. */
+    if (disabled) return;
 
     inFlight.current = true;
     setStarting(true);

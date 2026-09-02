@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Clock,
   Download,
   Eye,
   ExternalLink,
@@ -192,6 +193,32 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* Whether the builder is taking work, and what to say if not.
+     
+     Asked rather than assumed, and asked of the server rather than baked in at
+     build time: an outage is exactly when nobody wants to wait for a deploy
+     before the app can stop pretending. Null until the answer arrives, which
+     reads as "running" — a composer that greys itself out for a moment on every
+     load would be its own small lie. */
+  const [paused, setPaused] = useState<{ message: string } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    /* Failure is silence on purpose. If this request cannot be made, the build
+       request probably cannot either, and it will say so itself with the real
+       reason — blocking the composer on a fetch that did not answer would take
+       the app down for a reason of its own invention. */
+    fetch("/api/builder/status", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (!live || !body?.paused) return;
+        setPaused({ message: String(body.message ?? "") });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   /* The "your preview is ready" pill is an announcement, not a status.
      
@@ -630,6 +657,11 @@ export default function ChatPanel({
   ) {
     const text = (prompt ?? draft).trim();
     if (!text || !project || building) return;
+    /* Belt as well as braces. The send button is already disabled and the
+       banner is already up; this is here so a keyboard shortcut, a stale tab or
+       a resend behind a confirmation cannot slip past them into a spinner. The
+       server refuses it too — this only saves the round trip. */
+    if (paused) return;
     sentHere.current = true;
 
     /* Taken before the send and put back if it fails, so a refused message
@@ -694,6 +726,11 @@ export default function ChatPanel({
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
+        /* The picker, honoured. This used to be state that nothing read: the
+           chip drew whatever was chosen and every build ran on Opus regardless,
+           which made the whole menu a decoration. It goes as the id the picker
+           holds — "auto" included — and the server resolves it. */
+        model,
         /* Live. Each operation lands here as the server finishes announcing or
            completing it, and setPhase merges by id — so a row that says
            "Changing the page" becomes the same row saying how many changes
@@ -1183,7 +1220,27 @@ export default function ChatPanel({
             They wrap rather than sit in a grid: the row fills, breaks and fills
             again, which puts as many as fit on each line whatever the screen is
             and needs no column count guessed per breakpoint. */}
-        {hasPage && !pendingConfirm && (
+        {/* Said once, above the composer, before anybody writes anything.
+            
+            Not a toast and not a modal: a toast is gone by the time somebody
+            has finished reading their own half-written brief, and a modal
+            demands to be dismissed before it will let them read the thing it
+            is talking about. This sits where the answer would have appeared,
+            stays there, and greys the send button beside it so the state and
+            its consequence are one thing rather than two.
+            
+            It replaces the action row rather than stacking above it: while
+            nothing can be built, "Edit this app" and "Undo last change" are
+            two more buttons that do not work, and offering them is the same
+            lie in a smaller font. */}
+        {paused && (
+          <div className="mb-4 flex items-start gap-2.5 rounded-[10px] border border-warn/[0.22] bg-warn/[0.07] px-3 py-2.5">
+            <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
+            <p className="text-[12.5px] leading-relaxed text-soft">{paused.message}</p>
+          </div>
+        )}
+
+        {hasPage && !pendingConfirm && !paused && (
         /* The gap to the composer. The row used to sit 8px off it, close enough
            that the last chip read as part of the box rather than as something
            above it, and on a phone close enough to catch with the thumb on the
@@ -1486,10 +1543,10 @@ export default function ChatPanel({
                     it, and only lifts once there is something to send. */}
                 <button
                   onClick={() => void send()}
-                  disabled={!draft.trim() || building}
+                  disabled={!draft.trim() || building || paused !== null}
                   aria-label="Send"
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
-                    draft.trim() && !building
+                    draft.trim() && !building && !paused
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
                       : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}

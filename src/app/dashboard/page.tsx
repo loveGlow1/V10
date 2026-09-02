@@ -27,6 +27,7 @@ import type { LucideIcon } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  Clock,
   Paperclip,
   ChevronDown,
   Globe,
@@ -179,6 +180,29 @@ export default function DashboardPage() {
   /* Why a send did not open an app. Held here rather than in the button so it
      can be shown under the composer, where the text that failed still is. */
   const [startError, setStartError] = useState<string | null>(null);
+  /* Whether there is any point starting one. Home is where a person commits to
+     a whole new project, so it is the worst place to accept a brief that cannot
+     be built — they name the thing, describe it, press send, and land in a
+     workspace whose only content is a failure. See
+     src/lib/builder/availability.ts. */
+  const [paused, setPaused] = useState<{ message: string } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/builder/status", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (!live || !body?.paused) return;
+        setPaused({ message: String(body.message ?? "") });
+      })
+      /* Silence on failure: the build request will give the real reason if it
+         comes to that, and greying the composer over a fetch that did not
+         answer would be an outage this page invented. */
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   /* The account's own balance rather than a constant. useCredits reads
      credit_balances directly, so it does not need the projects provider this
      page renders below it. */
@@ -661,6 +685,7 @@ export default function DashboardPage() {
                     prompt={transcript}
                     kind={activeType}
                     onError={setStartError}
+                    disabled={paused !== null}
                   />
                 </div>
               </div>
@@ -670,6 +695,17 @@ export default function DashboardPage() {
               <p role="alert" className="mt-2 px-1 text-[12px] leading-relaxed text-danger">
                 {startError}
               </p>
+            )}
+
+            {/* Under the composer, where the brief they just wrote still is —
+                not over it, and not instead of it. Someone who has typed three
+                paragraphs should be told it cannot run right now without having
+                those three paragraphs taken off the screen to say so. */}
+            {paused && (
+              <div className="mt-2 flex items-start gap-2.5 rounded-[10px] border border-warn/[0.22] bg-warn/[0.07] px-3 py-2.5">
+                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
+                <p className="text-[12.5px] leading-relaxed text-soft">{paused.message}</p>
+              </div>
             )}
 
             {/* Hung off the whole composer rather than off the chip, and for the
