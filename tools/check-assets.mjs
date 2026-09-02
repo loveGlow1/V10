@@ -208,6 +208,38 @@ try {
   is(withUpload.created.some((a) => a.url === "https://theirs/hero.jpg"), false,
      "their own asset is not recorded again as something we acquired");
 
+  /* Several uploads must land in several slots, not one upload in all of them.
+     This is the failure the anti-demo bar forbids, arriving through the one
+     provider that is supposed to be about the customer's own work. */
+  const shopPlan = planner.planAssets({ kind: "ecommerce", brief: "a store selling ceramics" });
+  const theirPhotos = {
+    assets: [1, 2, 3, 4, 5, 6, 7, 8].map((n) =>
+      ready({ id: `u${n}`, type: "product", source: "user", url: `https://theirs/product-${n}.jpg` }),
+    ),
+  };
+  const placed = await resolver.resolveAssets({
+    projectId: "p", plan: shopPlan, library: theirPhotos,
+    providers: await chainFor(theirPhotos.assets),
+  });
+  const productPhotos = Object.entries(placed.manifest.assets)
+    .filter(([slot, url]) => slot.startsWith("product-") && url)
+    .map(([, url]) => url);
+  is(productPhotos.length, 8, "eight uploads fill eight product slots");
+  is(new Set(productPhotos).size, 8, "and each slot gets a different one of them");
+
+  /* A tag naming the slot beats a guess from the type. */
+  const tagged = {
+    assets: [
+      ready({ id: "generic", type: "hero", source: "user", url: "https://theirs/any.jpg" }),
+      ready({ id: "exact", type: "hero", source: "user", url: "https://theirs/for-hero.jpg", tags: ["hero"] }),
+    ],
+  };
+  const byTag = await resolver.resolveAssets({
+    projectId: "p", plan, library: tagged, providers: await chainFor(tagged.assets),
+  });
+  is(byTag.manifest.assets.hero, "https://theirs/for-hero.jpg",
+     "an upload tagged for a slot wins over one that merely shares its type");
+
   const mine = library.fingerprint(plan.requests.find((r) => r.slot === "hero").spec);
   const mineLibrary = {
     assets: [ready({ type: "hero", source: "generated", url: "https://ours/hero.jpg", prompt: mine })],

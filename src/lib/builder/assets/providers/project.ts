@@ -16,6 +16,16 @@ import type { AssetProvider, ProviderHealth, Supply } from "@/lib/builder/assets
  * page does not look like the first. Reuse is keyed on the fingerprint of the
  * SPEC, so it survives a reworded brief and does not survive a real change. */
 export function projectProvider(library: Library): AssetProvider {
+  /* Which uploads this resolution has already placed.
+   *
+   * Without it every product slot in a storefront gets the same photograph:
+   * the lookup below is a find(), and a find() with no memory returns the
+   * first match twelve times. Somebody who uploaded twelve product shots would
+   * see one of them repeated and the other eleven ignored — the precise
+   * failure the quality bar forbids, in the one provider that is meant to be
+   * about their own work. */
+  const placed = new Set<string>();
+
   return {
     id: "project",
     label: "Project assets",
@@ -32,18 +42,30 @@ export function projectProvider(library: Library): AssetProvider {
     async supply(request): Promise<Supply | null> {
       const ready = library.assets.filter((asset) => asset.status === "ready" && asset.url);
 
-      /* Theirs first, matched conservatively: by type, then by a tag naming the
-         slot. A wrong match here is worse than no match, because it puts
-         somebody's unrelated photograph somewhere they did not choose. */
+      /* Theirs first, matched conservatively: a tag naming this exact slot wins,
+         then the first unplaced upload of the right type. A wrong match is
+         worse than no match, because it puts somebody's unrelated photograph
+         somewhere they did not choose — but placing the same one everywhere is
+         worse still, so anything already used drops out of the running.
+         
+         Slot before type, deliberately: a tag is somebody saying where a
+         picture goes, and that beats a guess from its type. */
+      const mineForSlot = ready.find(
+        (asset) =>
+          asset.source === "user" &&
+          !placed.has(asset.id) &&
+          asset.tags?.some((tag) => tag.toLowerCase() === request.slot.toLowerCase()),
+      );
+
       const theirs =
-        ready.find((asset) => asset.source === "user" && asset.type === request.type) ??
+        mineForSlot ??
         ready.find(
           (asset) =>
-            asset.source === "user" &&
-            asset.tags?.some((tag) => tag.toLowerCase() === request.slot.toLowerCase()),
+            asset.source === "user" && !placed.has(asset.id) && asset.type === request.type,
         );
 
       if (theirs) {
+        placed.add(theirs.id);
         return {
           url: theirs.url,
           width: theirs.width,
