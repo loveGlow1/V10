@@ -95,7 +95,10 @@ doing for its own sake: the classifier was the one node every build passed
 through, so an Anthropic outage took down every build in order to re-decide
 something the app had already decided.
 
-### Two fallbacks that are now stale
+### The two stale fallbacks are gone
+
+Deleted on 2026-09-02, published as version `6b087dbf`. What was there and why
+it went:
 
 Both only run for a caller that sends no `buildKind`, which the app never does.
 Neither is urgent; both are wrong if they ever fire.
@@ -107,9 +110,18 @@ Neither is urgent; both are wrong if they ever fire.
 - **`Intent Classifier`'s categories** describe one category and say a blog, a
   WordPress site or a store "is not this". The app now routes four kinds.
 
-The honest fix for both is to delete them rather than maintain a second copy:
-if `buildKind` is absent the caller is not this app, and answering it with a
-five-year-old prompt is worse than answering it with "send a buildKind".
+Both were deleted rather than maintained, because a second copy of a prompt is a
+copy that drifts — and this one had. `Kind Decided By App` now requires
+**both** `buildKind` and `systemPrompt` to be non-empty, and a request missing
+either goes to `Flag For Manual Review`, which answers plainly that there is
+nothing to build it from. A caller sending neither is not this app.
+
+Three nodes went with them — `Intent Classifier`, `Intent Classifier Model` and
+`Flag Classifier Failure` — and the merge dropped from three inputs to two. The
+side effect is worth naming: **no model runs in this workflow before
+generation.** The classifier was the one node every build passed through, so an
+Anthropic outage or a key out of credit used to take down every build in order
+to re-decide something the app had already decided.
 
 ## How a kind is decided
 

@@ -136,3 +136,23 @@ drop policy if exists "Anyone may read the curated library" on storage.objects;
 create policy "Anyone may read the curated library"
   on storage.objects for select
   using (bucket_id = 'quickstark-library');
+
+/* ── Two service-only tables, made explicit ──────────────────────────────────
+
+   documents and n8n_chat_histories are reached only by the n8n RAG agent under
+   the service role. They have RLS on and no policy, which denies everyone else
+   — correct, but it reads as an oversight, and the linter reports it as one.
+
+   Made explicit two ways: the grants are revoked outright, so a later blanket
+   "grant select on all tables in schema public to anon" cannot quietly open
+   them; and the reason is written on the table, where the next person to run
+   the linter will find it. */
+
+revoke all on public.documents from anon, authenticated;
+revoke all on public.n8n_chat_histories from anon, authenticated;
+
+comment on table public.documents is
+  'Customer-support RAG corpus. Service role only: RLS is on with no policy BY DESIGN, and API grants are revoked. Nothing in the browser may read it. Written and searched by the n8n agent via match_documents.';
+
+comment on table public.n8n_chat_histories is
+  'n8n conversation memory. Service role only: RLS is on with no policy BY DESIGN, and API grants are revoked. Not part of the app''s own thread storage, which is project_messages.';
