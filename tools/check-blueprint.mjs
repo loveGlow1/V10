@@ -161,6 +161,41 @@ try {
     ).padStart(3)}  wrong ${String(marketWrong).padStart(2)}  on the default ${assumed} (${DEFAULT_MARKET})`,
   );
 
+  /* ── When the builder asks rather than guesses ────────────────────────── */
+  {
+    /* A build is minutes of generation and real money, so the wrong kind is a
+       rebuild rather than an edit — but asking about a brief that plainly says
+       what it is would be worse than guessing. The line is exactly where the
+       free rules give up, and this pins it: what heuristicKind answers is
+       never asked about, and what it declines always is. */
+    const decided = [];
+    const asked = [];
+    for (const [, set] of Object.entries(SETS)) {
+      for (const [brief] of set) (heuristicKind(brief) ? decided : asked).push(brief);
+    }
+
+    const rate = (asked.length / (decided.length + asked.length)) * 100;
+    if (decided.length === 0) fail("nothing is decided without asking, which would interrogate every build");
+    else if (rate > 25)
+      fail(`${rate.toFixed(0)}% of briefs would be asked about, which is an interrogation rather than a question`);
+    else
+      console.log(
+        `ok   asking    ${asked.length} of ${decided.length + asked.length} briefs (${rate.toFixed(
+          0,
+        )}%) reach the model and are asked about; the rest are read`,
+      );
+
+    /* The cases that must never be asked about: somebody said it outright. */
+    for (const brief of [
+      "build me a landing page for my fashion brand",
+      "create an ecommerce store for my fashion brand",
+      "build a blog about technology",
+      "create a web app for managing projects",
+    ]) {
+      if (!heuristicKind(brief)) fail(`a brief that names its kind should never be asked about: "${brief}"`);
+    }
+  }
+
   /* ── The prompts ─────────────────────────────────────────────────────── */
   console.log("");
 

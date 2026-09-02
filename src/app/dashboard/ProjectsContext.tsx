@@ -45,6 +45,11 @@ export type BuildReply = {
   steps?: BuildStep[];
   /** A new build over an existing page. Nothing has happened yet. */
   needsConfirmation?: boolean;
+  /* The rules could not tell what kind of thing this is, so it is being asked
+     rather than guessed. Nothing has happened yet; answering re-sends the same
+     message with the kind attached. */
+  needsKind?: boolean;
+  kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
   error?: string;
@@ -61,6 +66,8 @@ type BuildPayload = {
   intent?: BuildIntent;
   steps?: BuildStep[];
   needsConfirmation?: boolean;
+  needsKind?: boolean;
+  kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
   build?: BuildOutcome;
   project?: Project | null;
   error?: string;
@@ -373,6 +380,8 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         intent: payload.intent,
         steps: payload.steps,
         needsConfirmation: payload.needsConfirmation === true,
+        needsKind: payload.needsKind === true,
+        kindOptions: payload.kindOptions,
         outcome: payload.build,
         stored: payload.stored === true,
         messageLinks: payload.messageLinks,

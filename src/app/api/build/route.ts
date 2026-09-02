@@ -20,7 +20,15 @@ import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
-import { isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
+import {
+  bestKindGuess,
+  BUILD_KINDS,
+  heuristicKind,
+  isBuildKind,
+  KIND_BLURB,
+  KIND_LABEL,
+  type KindResult,
+} from "@/lib/builder/kinds";
 import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
@@ -126,6 +134,20 @@ const INTENT_WORDS: Record<string, string> = {
  *
  * Neither is a reservation — the charge is taken afterwards, from what the work
  * actually did. They are the door: below the floor, nothing runs at all. */
+/* Whether a brief the free rules cannot read is put back to the person.
+ *
+ * True, and the reasoning is about what the two mistakes cost. A wrong kind is
+ * a rebuild rather than an edit — minutes of generation and real money spent on
+ * a storefront somebody wanted as a landing page. A question costs one round
+ * trip, and only ever on the roughly one brief in ten that nothing could read
+ * confidently; anything that names its kind, demands one kind's machinery, or
+ * arrived with a chip pressed never reaches it.
+ *
+ * Set false and the model decides instead, silently. That is the right setting
+ * for a caller that cannot be asked — an API integration, a scheduled build —
+ * and the wrong one for a person sitting in front of the builder. */
+const ASK_WHEN_UNSURE = true;
+
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
 
@@ -990,10 +1012,56 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      outright, and the model is asked only about the ones they decline. Neither
      path throws, so an unreachable classifier still builds something. */
   steps.begin("kind", "Working out what to build", "landing page, store, publication or app…");
-  const kind = await classifyKind({
-    brief: brief.text,
-    override: isBuildKind(body.buildKind) ? body.buildKind : null,
-  });
+
+  /* A choice, then the free rules, then a question — and only a model if
+     somebody has turned the question off.
+     
+     The order matters and it was wrong a moment ago: this used to call the
+     model first and then ask anyway, paying for an answer it discarded. Nothing
+     used it but the order of four buttons, and bestKindGuess orders them for
+     nothing. So on this path no model is consulted before generation, in the
+     app for the same reason none is consulted in the orchestrator. */
+  const chosen = isBuildKind(body.buildKind) ? body.buildKind : null;
+  const quick: KindResult | null = chosen
+    ? { kind: chosen, confidence: 1, source: "selection", reason: "you chose it" }
+    : heuristicKind(brief.text);
+
+  if (!quick && ASK_WHEN_UNSURE) {
+    const asked =
+      "I can build this a few different ways and I would rather ask than guess. Which is it?";
+    const stored = await deliver(asked, { key: "which-kind" });
+    const leading = bestKindGuess(brief.text);
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsKind: true,
+      /* Leading reading first, so the likeliest answer is the first thing
+         under the thumb. Read from the scored signals rather than from a model:
+         the rules could not pick a winner outright, but they still know which
+         way they were leaning. */
+      kindOptions: [leading, ...BUILD_KINDS.filter((option) => option !== leading)].map(
+        (option) => ({ kind: option, label: KIND_LABEL[option], blurb: KIND_BLURB[option] }),
+      ),
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: leading,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
+
+  /* Only reached when asking is switched off: something has to decide, and a
+     model reads "something for my restaurant" better than a scoreboard does. */
+  const kind = quick ?? (await classifyKind({ brief: brief.text }));
   steps.mark(
     "kind",
     `Building ${KIND_LABEL[kind.kind].toLowerCase()}`,
