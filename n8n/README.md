@@ -9,8 +9,12 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
   **It has drifted from what runs.** The canvas has been hand-edited since, and
   the live workflow is now the one to read: it has no WordPress or e-commerce
   branch, it generates and saves the page itself, and it carries
-  `Kind Decided By App`. Treat this file as history until someone re-exports it;
-  check a change against the editor before believing it.
+  `Kind Decided By App`. It has drifted further since that was written — the
+  Text Classifier and its model are gone, the merge takes two inputs rather
+  than three, `Compose Page Prompt` no longer holds a system prompt of its own,
+  and the app now sends an asset manifest inside `systemPrompt`. Treat this
+  file as history until someone re-exports it; check a change against the
+  editor, or `get_workflow_details`, before believing it.
 
 ## Shape
 

@@ -12,10 +12,16 @@ import {
   editPage,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
+import { planAssets } from "@/lib/builder/assets/asset-planner";
+import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
+import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
+import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
+import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
@@ -67,6 +73,10 @@ type BuildRequestBody = {
      project whose kind is settled); otherwise the brief is classified. As with
      intentOverride, an explicit choice beats a guess. */
   buildKind?: unknown;
+  /* Which market's conventions the content follows — "us" or "ng". Sent only
+     when something already knows; otherwise it is read out of the brief, and
+     either way a brief that names a country overrules it. */
+  market?: unknown;
   /* Files uploaded with this message: a screenshot to match, a logo to use, a
      page of copy to lay out. Ids only — the bytes are read on the server. */
   attachmentIds?: unknown;
@@ -984,7 +994,88 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     brief: brief.text,
     override: isBuildKind(body.buildKind) ? body.buildKind : null,
   });
-  steps.mark("kind", `Building ${KIND_LABEL[kind.kind].toLowerCase()}`, KIND_BLURB[kind.kind]);
+  steps.mark(
+    "kind",
+    `Building ${KIND_LABEL[kind.kind].toLowerCase()}`,
+    `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
+  );
+
+  /* ── And where it is set ────────────────────────────────────────────────
+     The blueprint decides what is built; this decides the world it is built
+     in — the currency on every price, the shape of an address, how people pay,
+     which way round a date goes, and which English it is spelled in. Free, and
+     read from the brief rather than assumed: "a storefront with Paystack
+     checkout" is Nigerian without anybody typing the word. See
+     src/lib/builder/market.ts. */
+  const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
+  steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
+
+  /* ── The pictures, decided before a line of the page is written ─────────
+     The architectural rule, at the point it actually applies: the model that
+     writes the code is not asked what imagery this project needs. That is
+     settled here — one visual direction for the whole project, a plan of what
+     it needs, and every slot filled from the first source in the chain that can
+     answer. See src/lib/builder/assets/.
+
+     Every part of it degrades. No providers configured, no storage, no table,
+     no network: the plan still exists, the direction still reaches the code
+     generator, and the slots nothing could fill become toned panels. A build
+     never fails over a photograph. */
+  steps.begin("assets", "Planning the imagery", "one look for the whole project…");
+
+  const library = { assets: await loadAssets(project.id) };
+
+  /* What they attached, taken in as assets before anything is planned.
+   *
+     Their own photograph of their own product must beat anything we could find
+     or generate, and it only can if it is in the library by the time the
+     resolver walks the chain. Content images are copied into the public asset
+     bucket, classified and tagged with the slot they should fill; a screenshot
+     or a mockup is left alone and goes to the model as something to look at.
+     See asset-intake.ts. */
+  const intake = await intakeAttachments({
+    projectId: project.id,
+    kind: kind.kind,
+    rows: attachments,
+    existing: library.assets,
+  });
+  library.assets.push(...intake.assets);
+
+  if (intake.assets.length > 0) {
+    steps.mark(
+      "attachments",
+      `Took in ${intake.assets.length} of your ${intake.assets.length === 1 ? "image" : "images"}`,
+      `used as ${[...new Set(intake.assets.map((asset) => asset.type))].join(", ")} rather than redrawn`,
+    );
+  }
+
+  const plan = planAssets({ kind: kind.kind, brief: brief.text });
+  const providers = await usableProviders(library);
+  const pictures = await resolveAssets({
+    projectId: project.id,
+    plan,
+    library,
+    providers,
+    /* Stored where there is a service key, so the next build reuses these
+       rather than paying for them again. */
+    store: Boolean(service),
+    deadlineMs: 20_000,
+  });
+
+  /* Recorded, but never blocking: a build must not fail because a row did not
+     write. recordAsset logs its own failures. */
+  await Promise.all(pictures.created.map((asset) => recordAsset(asset).catch(() => false)));
+
+  const sources = Object.entries(pictures.bySource)
+    .map(([id, count]) => `${count} from ${id}`)
+    .join(", ");
+  steps.mark(
+    "assets",
+    `Chose the imagery — ${plan.direction.register}`,
+    sources
+      ? `${sources}${pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""}`
+      : "no image source configured, so the layout holds plain panels",
+  );
 
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. The brief is stored
@@ -1010,22 +1101,41 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       "Building your page",
       "handed to the orchestrator — this one takes minutes, not seconds…",
     );
+    /* What was attached, in the two forms a workflow can carry: signed
+       addresses for images, and text already read for everything else. Read
+       once here rather than twice, because the composed prompt needs to know
+       about them as well as the orchestrator. */
+    /* Only the REFERENCE images. Anything taken in as an asset is in the
+       manifest with a stable URL, and sending it here as well would ask the
+       model to redraw a photograph it has been told to reference — which is
+       the behaviour this whole path exists to stop. */
+    const imageUrls = await signedImageUrls(intake.reference);
+    const attachedText = await attachmentText(attachments);
+
     result = await startBuild({
       prompt: brief.text,
       projectName: project.name,
       userId: user.id,
       projectId: project.id,
       requestId,
-      /* What was attached, in the two forms a workflow can carry: signed
-         addresses for images, and text already read for everything else. */
-      attachmentUrls: await signedImageUrls(attachments),
-      attachmentText: await attachmentText(attachments),
-      /* What to build, and the prompt to build it from. The workflow is handed
-         both rather than deciding for itself: prompts that live in a node can
-         only be changed in a browser, with no diff and no review, and that is
-         how one prompt came to serve four different kinds of page. */
+      attachmentUrls: imageUrls,
+      attachmentText: attachedText,
+      /* What to build, and the whole prompt to build it from: the base rules,
+         the blueprint for this kind, the brief, and what the app knows about
+         the project. The workflow is handed both rather than deciding for
+         itself — prompts that live in a node can only be changed in a browser,
+         with no diff and no review, and that is how one prompt came to serve
+         four different kinds of product. */
       buildKind: kind.kind,
-      systemPrompt: composeBuildPrompt(kind.kind),
+      systemPrompt: composeBuildPrompt(kind.kind, brief.text, {
+        projectName: project.name,
+        attachmentText: attachedText,
+        imageCount: imageUrls.length,
+        carriedFrom: brief.carried,
+        market: market.market,
+        /* What the code generator is told about imagery, and all it is told. */
+        manifest: pictures.manifest,
+      }),
     });
   } catch (error) {
     if (error instanceof BuilderError) {
@@ -1110,6 +1220,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
        result from it, and the composer can send it back as buildKind to keep a
        follow-up build on the same blueprint. */
     buildKind: kind.kind,
+    market: market.market,
     build: result,
     project: synced ?? null,
   });

@@ -48,10 +48,27 @@ export const KIND_BLURB: Record<BuildKind, string> = {
   webapp: "a web app — sign-in, views, data, and the back end it runs on",
 };
 
+/* Which rung of the ladder answered. Named after the rung rather than after
+   the mechanism, because "heuristic" told you nothing about why a brief was
+   read the way it was — and why is what someone disputes. */
+export type KindSource =
+  /** The person chose it from the target chips. Nothing overrules this. */
+  | "selection"
+  /** The brief names the kind outright: "build me a landing page…". */
+  | "explicit"
+  /** The brief demands machinery only another kind can hold. */
+  | "machinery"
+  /** No label, decided by weighing the signals. */
+  | "rules"
+  /** The rules declined and the model was asked. */
+  | "model";
+
 export type KindResult = {
   kind: BuildKind;
   confidence: number;
-  source: "override" | "heuristic" | "model";
+  source: KindSource;
+  /** One clause saying why, for the step list and for anyone arguing with it. */
+  reason: string;
 };
 
 /* ── Signals ──────────────────────────────────────────────────────────────
@@ -108,6 +125,39 @@ const APP_FUNCTION =
 
 /* "front end and back end", "full stack" — an explicit ask for both halves. */
 const FULL_STACK = /\b(full[- ]?stack|front[- ]?end and back[- ]?end|back[- ]?end and front[- ]?end|end[- ]to[- ]end app)\b/i;
+
+/* ── The labels ───────────────────────────────────────────────────────────
+ *
+ * A brief that names its own kind — "build me a landing page for…", "an
+ * e-commerce store for…" — has answered the question, and the rest of the
+ * sentence is the subject rather than the answer. These are the labels, one
+ * per kind, and they are read before anything is weighed. */
+const ECOMMERCE_LABEL =
+  /\b(e[- ]?commerce|online (store|shop)|storefront|web ?shop|shop(ping)? site|store site|marketplace)\b/i;
+
+const BLOG_LABEL =
+  /\b(blog|wordpress|word ?press|magazine|publication|news site|content site|editorial site|zine)\b/i;
+
+const APP_LABEL =
+  /\b(web ?app|web application|application|saas|crm|erp|portal|internal tool|admin (panel|tool)|management system|booking system|help ?desk|ticketing|project management (tool|app|system))\b|\b(tool|calculator|converter|generator|editor|planner|tracker)\b/i;
+
+/* ── The machinery ────────────────────────────────────────────────────────
+ *
+ * The exception to the labels, and the reason this is a ladder rather than a
+ * lookup. A label says what someone called it; machinery says what they asked
+ * for. "A landing page for my Shopify store" is a landing page — the store is
+ * the subject. "A landing page with products, a cart and checkout" is a store,
+ * whatever it was called, because a landing page cannot hold a checkout.
+ *
+ * Both sets are deliberately narrow. They overrule a person's own word for
+ * what they want, so they contain only things that genuinely cannot live in
+ * another kind — not "payments", which is a button, and not "sign up", which
+ * is an email field on every landing page ever built. */
+const SHOP_MACHINERY =
+  /\b(cart|basket|checkout|add to (cart|bag|basket)|shopping (cart|basket)|order flow|place orders?|buy (it |them )?online|product (catalogue|catalog) (with|and)|inventory (management|system))\b/i;
+
+const APP_MACHINERY =
+  /\b(log[- ]?in|sign[- ]?in|signed[- ]?in|user accounts?|customer accounts?|member (area|s only)|authenticat(e|ion)|roles?( and | & )permissions?|permissions?|multi[- ]?tenant|database|back ?end|api endpoints?|crud|supabase|postgres|admin (users|roles)|team members?|user management)\b/i;
 
 /* ── Weighing ─────────────────────────────────────────────────────────────
  *
@@ -198,10 +248,74 @@ export function bestKindGuess(brief: string): BuildKind {
   return leader;
 }
 
-/** The free deterministic pass. Null when the brief is genuinely ambiguous. */
+/** The kind a brief names outright, or null when it names none or several. */
+export function labelledKind(brief: string): BuildKind | null {
+  const m = brief;
+
+  /* Landing first, and deliberately not treated as one label among four. A
+     landing page is always a landing page FOR something, so its label
+     co-occurs with another kind's noun by nature — "a landing page for my
+     online store" carries two labels and means one thing. Every other pair is
+     genuine ambiguity and falls through to be weighed. */
+  if (LANDING_EXPLICIT.test(m)) return "landing";
+
+  const labelled = [
+    ECOMMERCE_LABEL.test(m) ? ("ecommerce" as const) : null,
+    BLOG_LABEL.test(m) ? ("blog" as const) : null,
+    APP_LABEL.test(m) ? ("webapp" as const) : null,
+  ].filter((kind) => kind !== null);
+
+  return labelled.length === 1 ? labelled[0] : null;
+}
+
+/** The kind the brief's own requirements demand, whatever it called itself. */
+export function demandedKind(brief: string): BuildKind | null {
+  if (SHOP_MACHINERY.test(brief)) return "ecommerce";
+  if (FULL_STACK.test(brief) || APP_MACHINERY.test(brief)) return "webapp";
+  return null;
+}
+
+/**
+ * The free deterministic pass — rungs two, three and four of the ladder.
+ *
+ * Rung one is the target chip and is applied by the caller, because a choice
+ * someone made in the interface is not a reading of their sentence.
+ *
+ *   2. the brief names its kind        → that kind
+ *   3. …unless it demands another's machinery → the demanded kind
+ *   4. no label: weigh the signals     → the winner, if it wins clearly
+ *
+ * Null when none of the three settles it, which sends the brief to the model.
+ * That is the designed path, not a failure: a brief that reads equally as a
+ * store and as an application has not been understood here, and saying so is
+ * cheaper than being confidently wrong about which of two very different
+ * things to build.
+ */
 export function heuristicKind(brief: string): KindResult | null {
   const m = brief.trim();
   if (!m) return null;
+
+  const labelled = labelledKind(m);
+  const demanded = demandedKind(m);
+
+  if (labelled) {
+    if (demanded && demanded !== labelled) {
+      return {
+        kind: demanded,
+        confidence: 0.9,
+        source: "machinery",
+        reason: `called a ${KIND_LABEL[labelled].toLowerCase()}, but it asks for ${
+          demanded === "ecommerce" ? "a cart and a checkout" : "accounts and data behind them"
+        }`,
+      };
+    }
+    return {
+      kind: labelled,
+      confidence: 0.95,
+      source: "explicit",
+      reason: "you named it",
+    };
+  }
 
   const scores = scoreKind(m);
   const ranked = BUILD_KINDS.map((kind) => ({ kind, points: scores[kind] })).sort(
@@ -215,5 +329,5 @@ export function heuristicKind(brief: string): KindResult | null {
      rules are is how far ahead the winner finished. Capped at 0.95 — a regex is
      never certain. */
   const confidence = Math.min(0.95, 0.6 + (best.points - runnerUp.points) * 0.06);
-  return { kind: best.kind, confidence, source: "heuristic" };
+  return { kind: best.kind, confidence, source: "rules", reason: "read from what you described" };
 }

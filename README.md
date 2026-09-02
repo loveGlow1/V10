@@ -121,10 +121,148 @@ npm run check:blueprint
 
 Two things it will not let slip. That a brief still routes to the kind a
 careful reader would build from it — measured on a labelled corpus, offline,
-with no model call — and that each kind's composed prompt still carries its
-sections, its depth and, above all, its exclusions. Blueprints are prose, and
-prose has no type checker: an exclusion can be deleted and nothing anywhere
-would fail.
+with no model call, with a set per rung of the routing ladder — and that every
+blueprint still meets its own contract: no emptied field, every conditional
+requirement stating both its condition and its requirement, and a composed
+prompt that still carries the brief, the depth floors and the exclusions.
+Blueprints are prose, and prose has no type checker: an exclusion can be
+deleted and nothing anywhere would fail.
+
+### The asset pipeline
+
+The architectural rule: **the model that writes the code does not decide what
+visual assets a project needs, does not make them, does not store them and does
+not optimise them.** It is handed a manifest and uses what is in it. A model
+deciding its own imagery one section at a time is how a project ends up with a
+luxury photograph, a cartoon and a 3D render in it, each individually
+defensible.
+
+```
+brief → classify → blueprint → visual planner → asset planner
+                                       ↓
+                    user upload · generated · sourced
+                                       ↓
+                    asset library → storage → optimiser
+                                       ↓
+                        manifest → code generator
+```
+
+`src/lib/builder/assets/` holds it:
+
+| | |
+| --- | --- |
+| `asset-types.ts` | The types, states, quality tiers, and the table that decides whether a thing is a **photograph or drawn**. A chart, icon, logo or avatar is drawn in code — that's a property of the type, not advice in a prompt |
+| `asset-planner.ts` | **One visual direction per project**, read from the brief, inherited by every request. Structured specs, never a raw prompt |
+| `asset-generator.ts` | `generate` / `edit` / `upscale` / `getStatus` behind one interface, with ordered fallback |
+| `asset-library.ts` | Reuse by fingerprint of the *spec*, so a rebuild never pays twice for the same picture |
+| `asset-storage.ts` | Supabase Storage + `project_assets`, so an asset outlives the response that made it |
+| `asset-optimizer.ts` | One place that decides delivery widths, formats and `srcset` |
+| `asset-resolver.ts` | The priority ladder — **user upload → existing project asset → made now → placeholder last** — producing the manifest |
+
+Quality defaults to `premium`. `npm run check:assets` covers the whole path
+offline: no key, no network, no cost.
+
+#### What someone attaches is used, not redrawn
+
+Upload a photograph of your own product and the builder used to draw a vector
+approximation of it. Three reasons, all now fixed: an attachment was never
+registered as an asset, so the highest-priority provider had nothing to serve;
+attachments live behind signed URLs that expire in an hour, so a page
+referencing one broke by lunchtime; and the instruction that travelled with them
+said to *recreate* what they show.
+
+`asset-intake.ts` splits them. An image is either **content** — a product shot,
+a logo, a photograph of the premises — which is copied into the public asset
+bucket, classified, tagged with the slot it should fill and put first in the
+chain; or **reference** — a screenshot, a mockup, a competitor's homepage —
+which stays as vision input for the model to build something *like*. Filenames
+decide first (people name files), then the kind of thing being built: eight
+photographs uploaded to a storefront are a catalogue; the same eight on a web
+app are far more likely to be a design to match.
+
+Each upload is placed once, in its own slot, and never taken in twice across
+rebuilds.
+
+#### Image sources are plug-ins, never dependencies
+
+The builder must produce a complete project with every API key missing, every
+external provider disabled or down, and every rate limit reached. So the sources
+sit behind one `AssetProvider` interface and the chain is configuration:
+
+```
+project assets → curated library → Unsplash → Pexels → AI generation → panel
+```
+
+| Provider | Cost | Default |
+| --- | --- | --- |
+| **Project assets** — uploads, then anything this project already made | free | always on, nothing to configure |
+| **QuickStark curated library** — our own catalogue, the source that needs no third party | free | on when `CURATED_ASSETS_BASE_URL` points at the bucket |
+| **Unsplash / Pexels** | low | off unless a key is set |
+| **AI generation** | high | off unless explicitly enabled |
+
+Every provider reports one of `available`, `disabled`, `misconfigured`,
+`rate_limited` or `temporarily_unavailable`. A missing key is `misconfigured` —
+an ordinary, silent state, not an error. The resolver skips it and carries on.
+A provider that throws mid-build is skipped for that slot. **Nothing is ever
+shown to the person building the site, and nothing asks them to configure an
+API.**
+
+`ASSET_PROVIDER_ORDER` reorders or narrows the chain without touching code, and
+a per-build cost ceiling keeps the expensive source out of a build that can't
+afford it. Keys stay server-side: the generated project receives an asset URL
+and nothing else. `GET /api/health` reports `imagesConfigured`, plus per-provider
+states outside production.
+
+### Photographs
+
+Generated pages used to draw everything — a product, a person, a plate of food,
+all as inline SVG — because the rule said no external images, and every
+stock-photo URL a model invents is broken. Nothing was ever broken, and
+everything looked like clip art. A model cannot solve this by writing base64: a
+JPEG is compressed binary, and base64 from a model is corrupt bytes and a
+broken image.
+
+So the page declares the picture and something else fills it:
+
+```html
+<img data-shot="folded ochre wax print fabric, raking light, neutral seamless"
+     data-ratio="4/5" data-weight="thumb" alt="Ochre Adire wax print, six yards">
+```
+
+`src/lib/builder/images.ts` reads every slot after generation and embeds real
+photographs as base64, spending a page budget in weight order — heroes first,
+grid thumbnails last — so a long catalogue degrades to placeholders rather than
+to a page nobody waits for. `UNSPLASH_ACCESS_KEY` or `PEXELS_API_KEY` turns it
+on; with neither, every slot keeps a neutral toned placeholder and the page is
+stored exactly as it would have been.
+
+Charts, diagrams, maps, logos and icons stay drawn, deliberately — a photograph
+of a chart is unreadable — and `npm run audit:page` fails a page that draws a
+photograph as SVG, which is the defect that made pages look generated.
+
+`npm run check:images` exercises the whole path against a stub provider: no key,
+no network, no cost.
+
+### Judging what came back
+
+```bash
+npm run audit:page -- path/to/page.html landing
+```
+
+`check:blueprint` asks whether the prompt still says the right things.
+`audit:page` asks the question after it — whether what came back obeyed them:
+the document is finished, no placeholder copy, no `href="#"`, every anchor
+resolves to an id that exists, content is in the markup rather than built from
+a JS array, no storage APIs, no invented image URLs, and the per-kind floors
+(nine sections and five FAQ entries for a landing page, eight products and a
+subtotal for a store, seven articles and one of 800+ words for a blog, four
+views and the four states for an app). For a web app it also reports which
+architecture the build decided it needed, which is how you check the
+conditional rules did their job: a calculator should come back "none — a plain
+tool".
+
+Whether the copy is any good is still a judgement someone makes by looking.
+These are the rules a person stops checking after the third build.
 
 ### What a build makes
 
@@ -139,18 +277,63 @@ storefront, blog, web app — and built from the blueprint for that kind:
 
 | Kind | What it is | What it must not have |
 | --- | --- | --- |
-| `landing` | One page, one audience, one action. Nine to eleven full sections of real copy. | No cart, no checkout, no sign-in, no blog index, no admin |
-| `ecommerce` | A catalogue of at least eight products, a cart, and a checkout whose totals add up. | No sign-in wall, no admin or inventory back office |
-| `blog` | A publication: a lead story, seven or more articles, categories that filter, and one full article of eight hundred words. WordPress briefs are built here. | No prices, no pricing tiers, no cart |
-| `webapp` | Both halves: sign-in, four or more views, and a data layer with real tables, an API surface and the SQL schema written out. | No marketing hero, no storefront |
+| `landing` | One page, one audience, one action. Nine or more full sections of real copy, five or more FAQ entries, real proof. | No cart, no checkout, no sign-in wall, no blog index, no admin dashboard |
+| `ecommerce` | A catalogue of at least eight products, a cart, and a checkout whose totals add up. | No sign-in wall, no admin dashboard, no inventory back office |
+| `blog` | A publication: a lead story, seven or more articles, categories that filter, and one full article of eight hundred words. WordPress briefs are built here. | No pricing table, no pricing tiers, no cart, no marketing hero |
+| `webapp` | The product that was asked for: a shell that fits it, four or more real workflows, and loading, empty, success and error states. | No marketing hero, no storefront, no fake dashboard widgets |
 
-The exclusions are the half that matters. Every kind used to be built from one
-prompt describing "a page", so a landing page could arrive with a product grid
-and a blog could arrive with a pricing table — the same demo page each time,
-with different words in it. Each blueprint now says what its kind is *not*, and
-that is what keeps them apart. They live in `src/lib/builder/blueprints/`, the
-routing lives in `src/lib/builder/kinds.ts`, and the target chips above the
-composer on Home set the kind outright when someone already knows.
+**Two markets, read from the brief.** The United States and Nigeria each get a
+locale block written for them, and `src/lib/builder/market.ts` decides which
+travels with a build:
+
+| | United States | Nigeria |
+| --- | --- | --- |
+| Money | `$1,299`, card first, Stripe | `₦1,250,000`, **bank transfer first**, then card, USSD, pay-on-delivery; Paystack or Flutterwave |
+| Address | street, city, two-letter state, ZIP | building, street, area, city and state — no postcode |
+| Phone | `(415) 555-0142`, reserved range | `0803 123 4567`; no reserved range exists, so keep invented numbers illustrative |
+| Dates | March 4, 2026 | 4 March 2026 |
+| Spelling | American | British |
+| Tax / registration | sales tax, Inc./LLC, EIN | VAT at 7.5%, Ltd, RC number |
+| Delivery | national, business days | within-city by dispatch rider, 2–4 working days to other states |
+
+Detection reads places, currencies and the services a business actually uses,
+because nobody writes "in Nigeria" when they write "checkout with Paystack".
+Whichever it picks is only a default: both blocks open by handing precedence
+back to the brief, so "for my bakery in Leeds" comes back British, in pounds,
+without either market having to enumerate the world. A brief naming nowhere
+gets `DEFAULT_MARKET` — one constant, one line to change.
+
+The two blocks are written separately rather than parameterised on purpose. A
+US page with ₦ in front of the numbers reads as a translation; what makes a
+Nigerian storefront read as Nigerian is transfer above card and delivery quoted
+by state.
+
+Every blueprint fills in the same nine-field contract — identity,
+requirements, optional features, depth floors, interactions, **conditional
+requirements**, exclusions, quality rules, completion rules — and the prompt is
+assembled additively:
+
+```
+BASE RULES + BLUEPRINT + USER BRIEF + PROJECT CONTEXT = systemPrompt
+```
+
+The exclusions are what keeps the kinds apart. Every kind used to be built from
+one prompt describing "a page", so a landing page could arrive with a product
+grid and a blog with a pricing table — the same demo each time, different words
+in it. Each blueprint now says what its kind is *not*.
+
+The conditional requirements are what keeps a kind from being one shape. "Web
+app" means a CRM and it means a unit converter, so authentication, roles, a data
+model, an API surface and a back end are each conditional on the product
+actually needing them — and a lightweight utility is explicitly told to have
+none of them and to build the tool properly instead. Forcing a calculator into a
+CRM's architecture produces exactly the fake dashboard this replaced.
+
+Routing is a ladder: the target chip on Home decides outright; otherwise a brief
+that names its kind gets it, unless it demands another kind's machinery ("a
+landing page with a cart and checkout" is a store); otherwise the signals are
+weighed; and only what none of that settles reaches a model — about one brief in
+ten. It lives in `src/lib/builder/kinds.ts`.
 
 The app composes the prompt and sends it with the build request; the
 orchestrator uses what it is given (`n8n/page-prompt.md`). A prompt is a commit

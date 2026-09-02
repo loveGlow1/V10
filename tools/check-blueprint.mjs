@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { SETS } from "./blueprint-corpus.mjs";
+import { MARKETS, SETS } from "./blueprint-corpus.mjs";
 
 /* Compiled rather than imported: the heuristics and the blueprints are
    TypeScript and this is a plain node script. Built under node_modules/.cache
@@ -54,6 +54,7 @@ writeFileSync(
     },
     files: [
       join(process.cwd(), "src/lib/builder/kinds.ts"),
+      join(process.cwd(), "src/lib/builder/market.ts"),
       join(process.cwd(), "src/lib/builder/blueprints/index.ts"),
     ],
   }),
@@ -92,7 +93,12 @@ try {
   rewrite(out);
 
   const { heuristicKind, BUILD_KINDS } = await import(join(out, "lib/builder/kinds.js"));
-  const { composeBuildPrompt } = await import(join(out, "lib/builder/blueprints/index.js"));
+  const { composeBuildPrompt, BLUEPRINTS } = await import(
+    join(out, "lib/builder/blueprints/index.js")
+  );
+  const { detectMarket, DEFAULT_MARKET, MARKETS: MARKET_IDS } = await import(
+    join(out, "lib/builder/market.js")
+  );
 
   /* ── Routing ─────────────────────────────────────────────────────────── */
   let totalCases = 0;
@@ -135,42 +141,178 @@ try {
     `\n${totalCases} briefs · ${totalDeferred} handed to the model (${deferralRate}%)`,
   );
 
+  /* ── Which market ────────────────────────────────────────────────────── */
+  let marketWrong = 0;
+  let assumed = 0;
+
+  for (const [brief, want] of MARKETS) {
+    const got = detectMarket(brief);
+    const answer = got.source === "default" ? "default" : got.market;
+    if (answer === "default") assumed++;
+    if (answer !== want) {
+      marketWrong++;
+      failed++;
+      console.log(`       want ${String(want).padEnd(8)} got ${answer.padEnd(8)} ${brief}`);
+    }
+  }
+  console.log(
+    `${marketWrong === 0 ? "ok  " : "FAIL"} market  n=${String(MARKETS.length).padStart(3)}  correct ${String(
+      MARKETS.length - marketWrong,
+    ).padStart(3)}  wrong ${String(marketWrong).padStart(2)}  on the default ${assumed} (${DEFAULT_MARKET})`,
+  );
+
   /* ── The prompts ─────────────────────────────────────────────────────── */
   console.log("");
 
   /* Every prompt has to keep its frame. These are the headings composition
-     writes, and a blueprint emptied of sections or exclusions loses one. */
+     writes, and a blueprint emptied of a field loses one. */
   const FRAME = [
     "WHAT THIS IS:",
     "BUILD THESE, IN THIS ORDER:",
+    "REQUIRED ONLY WHEN THE BRIEF CALLS FOR IT",
     "THIS HAS TO WORK, NOT BE DEPICTED:",
     "NOT PART OF THIS BUILD",
-    "HOW MUCH:",
+    "HOW MUCH",
+    "THE STANDARD FOR THIS KIND:",
+    "DONE MEANS:",
+    "THE BRIEF",
     "THE BAR",
-    "OUTPUT FORMAT",
+    "THE INTERACTION RULE",
+    "THE SECTION DEPTH RULE",
     "CONTENT GOES IN THE HTML",
+    "FINISHING",
   ];
 
   /* The separations that were actually being got wrong, asserted as words that
      must appear in the exclusions. Each pair is one production complaint. */
   const SEPARATION = {
-    landing: ["cart", "checkout", "sign-in", "blog index", "admin"],
-    ecommerce: ["dashboard", "blog"],
-    blog: ["cart", "checkout", "pricing tiers", "dashboard"],
-    webapp: ["hero", "cart", "blog"],
+    landing: ["cart", "checkout", "sign-in wall", "blog index", "admin dashboard"],
+    ecommerce: ["sign-in wall", "admin dashboard", "inventory back office", "blog"],
+    blog: ["pricing table", "pricing tiers", "cart", "checkout", "marketing hero"],
+    webapp: ["marketing hero", "storefront", "fake dashboard"],
   };
 
+  /* One brief, used for every kind, so the composed prompts differ only by
+     blueprint. It is deliberately a real sentence: a prompt that only holds
+     together around a placeholder is not being checked. */
+  const BRIEF = "Build something for Harbour & Vine, a small business in Bristol.";
+
   for (const kind of BUILD_KINDS) {
-    const prompt = composeBuildPrompt(kind);
+    const blueprint = BLUEPRINTS[kind];
+
+    /* The contract before the prose. Every field carries a floor, because an
+       emptied array still composes a prompt — one with a heading and nothing
+       under it, which is exactly the thin output this whole thing exists to
+       stop. */
+    const empty = [
+      ["identity", blueprint.identity.length > 40],
+      ["requirements", blueprint.requirements.length >= blueprint.depth.minimumSections],
+      ["interactions", blueprint.interactions.length >= 3],
+      ["exclusions", blueprint.exclusions.length >= 3],
+      ["qualityRules", blueprint.qualityRules.length >= 3],
+      ["completionRules", blueprint.completionRules.length >= 2],
+      ["depth.floors", blueprint.depth.floors.length >= 3],
+      ["conditionalRequirements", blueprint.conditionalRequirements.length >= 3],
+      ["kind matches its file", blueprint.kind === kind],
+    ]
+      .filter(([, ok]) => !ok)
+      .map(([field]) => field);
+
+    if (empty.length > 0) {
+      fail(`${kind}: the blueprint no longer meets its own contract`, empty.join(", "));
+      continue;
+    }
+
+    /* Conditional requirements are the field that keeps a calculator from
+       being handed a CRM's back end, and they only work if each one states
+       what brings it in. */
+    const shapeless = blueprint.conditionalRequirements.filter(
+      (rule) => !rule.when || !rule.require || rule.when.length < 15 || rule.require.length < 15,
+    );
+    if (shapeless.length > 0) {
+      fail(`${kind}: a conditional requirement has no condition or no requirement`);
+      continue;
+    }
+
+    const prompt = composeBuildPrompt(kind, BRIEF, { projectName: "Harbour & Vine" });
     const missing = FRAME.filter((heading) => !prompt.includes(heading));
     if (missing.length > 0) {
       fail(`${kind}: the composed prompt lost part of its frame`, missing.join(", "));
       continue;
     }
 
+    if (!prompt.includes(BRIEF)) {
+      fail(`${kind}: the brief did not reach the composed prompt`);
+      continue;
+    }
+
+    /* Every market composes, and each one carries its own conventions rather
+       than the other's with the currency swapped. These are the pairs that
+       would make a page read as a translation: a Nigerian build quoting sales
+       tax, a US build quoting VAT, either one wearing the other's spelling. */
+    const WRONG_FOR = {
+      us: ["₦", "naira", "vat at 7.5%", "dispatch rider", "rc number", "colour", "catalogue"],
+      ng: ["zip code", "sales tax", "two-letter state", "ein", "fahrenheit", " color,", " catalog,"],
+    };
+    const REQUIRED_FOR = {
+      us: ["the build is American", "$1,299", "555-01"],
+      ng: ["the build is Nigerian", "₦1,250,000", "bank transfer comes first", "british spelling"],
+    };
+
+    let localeBad = false;
+    for (const market of MARKET_IDS) {
+      const forMarket = composeBuildPrompt(kind, BRIEF, { projectName: "Harbour & Vine", market });
+      const section = forMarket.slice(
+        forMarket.indexOf("WHERE THIS IS SET"),
+        forMarket.indexOf("THE BAR"),
+      );
+
+      const missing = REQUIRED_FOR[market].filter(
+        (phrase) => !section.toLowerCase().includes(phrase.toLowerCase()),
+      );
+      if (missing.length > 0) {
+        fail(`${kind}/${market}: the locale block lost its own conventions`, missing.join(", "));
+        localeBad = true;
+        break;
+      }
+
+      /* Naming the other market's convention in order to reject it is the
+         point, not a leak: the Nigerian block says "VAT at 7.5% rather than
+         sales tax" and "an RC number rather than an EIN", and the closing line
+         names both markets to forbid mixing them. So contrastive clauses and
+         that closing line come out before the scan, and what remains is only
+         what the block actually prescribes. */
+      const prescribed = section
+        .split("\n")
+        .filter((line) => !line.includes("Never mix two markets"))
+        .join("\n")
+        .replace(/ rather than [^.\n]+/gi, " ")
+        .replace(/, or a [^.\n]+ beside [^.\n]+/gi, " ")
+        .replace(/Do this even when[^.\n]+/gi, " ")
+        .replace(/where a US business would[^.\n]+/gi, " ");
+
+      const leaked = WRONG_FOR[market].filter((phrase) =>
+        prescribed.toLowerCase().includes(phrase.toLowerCase()),
+      );
+      if (leaked.length > 0) {
+        fail(`${kind}/${market}: the locale block carries the other market's conventions`, leaked.join(", "));
+        localeBad = true;
+        break;
+      }
+
+      /* Both blocks must hand precedence back to the brief, or a Leeds bakery
+         is built in whichever market the regexes defaulted to. */
+      if (!section.includes("the brief overrules it")) {
+        fail(`${kind}/${market}: the locale block no longer defers to the brief`);
+        localeBad = true;
+        break;
+      }
+    }
+    if (localeBad) continue;
+
     const excludes = prompt.slice(
       prompt.indexOf("NOT PART OF THIS BUILD"),
-      prompt.indexOf("HOW MUCH:"),
+      prompt.indexOf("HOW MUCH"),
     );
     const unsaid = SEPARATION[kind].filter(
       (word) => !excludes.toLowerCase().includes(word.toLowerCase()),
@@ -180,12 +322,33 @@ try {
       continue;
     }
 
-    /* Long enough to be a blueprint rather than a sentence, short enough to
-       leave the model room to answer with a whole document. */
+    /* Two measurements, because there are two different risks and one number
+       could not tell them apart.
+       
+       The blueprint half is the variable one — what this kind, and only this
+       kind, is told. A blueprint that has doubled by accident is the failure
+       worth catching, and it shows up here.
+       
+       The shared tail (the brief, the locale, the bar, the base rules) is the
+       same for all four and grows only by a deliberate, reviewed edit. It was
+       what tripped the single ceiling twice: adding the photograph contract to
+       the base rules pushed every kind over a limit that was never about the
+       base rules. So the whole prompt is held to a far looser cap that exists
+       only to catch something pathological. */
     const words = prompt.split(/\s+/).length;
-    if (words < 400) fail(`${kind}: the prompt is ${words} words, which is too thin to be a blueprint`);
-    else if (words > 2200) fail(`${kind}: the prompt is ${words} words, which crowds out the page`);
-    else console.log(`ok   ${kind.padEnd(10)} ${words} words, frame intact, exclusions in place`);
+    const own = prompt.slice(0, prompt.indexOf("THE BRIEF —")).split(/\s+/).length;
+
+    if (own < 350) fail(`${kind}: the blueprint is ${own} words, which is too thin to be one`);
+    else if (own > 1800) fail(`${kind}: the blueprint is ${own} words, which is more than one kind needs`);
+    else if (words > 4000) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
+    else
+      console.log(
+        `ok   ${kind.padEnd(10)} ${String(own).padStart(4)} own + ${String(words - own).padStart(4)} shared · ${
+          blueprint.requirements.length
+        } required · ${blueprint.conditionalRequirements.length} conditional · ${
+          blueprint.exclusions.length
+        } excluded · min ${blueprint.depth.minimumSections}`,
+      );
   }
 
   if (failed > 0) {

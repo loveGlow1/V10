@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { creditCostOf } from "@/app/dashboard/credits";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
+import { fillImages } from "@/lib/builder/images";
+import { providerFromEnv } from "@/lib/builder/image-providers";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm } from "@/lib/thread-server";
@@ -74,6 +76,45 @@ export async function POST(request: Request) {
   let html: string;
   try {
     html = readGeneratedDocument(body.html);
+  } catch (error) {
+    if (error instanceof PageHtmlError) {
+      return NextResponse.json({ message: error.message }, { status: error.status });
+    }
+    throw error;
+  }
+
+  /* ── The photographs ────────────────────────────────────────────────────
+     The page arrives with its pictures declared rather than drawn: an <img>
+     carrying the art direction for the photograph that belongs in it, and no
+     src. This is where real pixels go in.
+
+     It happens here rather than in the orchestrator for the same reason the
+     save happens here at all — nobody is waiting on this request, the page has
+     already been generated, and the chat was answered minutes ago. And it
+     happens before validation of size, because embedding a dozen photographs
+     is what makes a page large and the limit has to be applied to what is
+     actually stored.
+
+     Unconfigured is a supported state. With no provider key set, every slot
+     keeps the neutral placeholder it shipped with and the page is stored
+     exactly as it would have been — so photographs are a deployment decision
+     rather than a dependency. */
+  const pictures = await fillImages(html, providerFromEnv());
+  html = pictures.html;
+
+  if (pictures.filled > 0) {
+    // eslint-disable-next-line no-console
+    console.info(
+      `save: filled ${pictures.filled} of ${pictures.filled + pictures.skipped} image slots (${Math.round(
+        pictures.bytes / 1024,
+      )}KB)`,
+    );
+  }
+
+  /* Re-read after filling: the document that gets stored is this one, and the
+     size limits are about what is stored. */
+  try {
+    html = readGeneratedDocument(html);
   } catch (error) {
     if (error instanceof PageHtmlError) {
       return NextResponse.json({ message: error.message }, { status: error.status });

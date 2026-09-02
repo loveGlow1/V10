@@ -20,13 +20,29 @@ In the app, in code, one per kind:
 ```
 src/lib/builder/kinds.ts               which of the four this brief is
 src/lib/builder/classify-kind.ts       the model fallback, when the rules decline
-src/lib/builder/blueprints/base.ts     craft rules and the quality bar, shared
+src/lib/builder/blueprints/base.ts     the contract, the shared rules, the bar
 src/lib/builder/blueprints/landing.ts  one page, one audience, one action
 src/lib/builder/blueprints/ecommerce.ts  catalogue, cart, a checkout that adds up
 src/lib/builder/blueprints/blog.ts     a publication with something to read in it
-src/lib/builder/blueprints/webapp.ts   sign-in, views, data, and a back end
-src/lib/builder/blueprints/index.ts    composes one system prompt per kind
+src/lib/builder/blueprints/webapp.ts   the product asked for, and only the
+                                       architecture it actually needs
+src/lib/builder/blueprints/index.ts    assembles one system prompt per build
 ```
+
+Each blueprint fills in the same nine-field contract — `identity`,
+`requirements`, `optionalFeatures`, `depth`, `interactions`,
+`conditionalRequirements`, `exclusions`, `qualityRules`, `completionRules` —
+and the prompt is assembled additively rather than by branching:
+
+```
+BASE RULES  +  BLUEPRINT  +  USER BRIEF  +  PROJECT CONTEXT  =  systemPrompt
+```
+
+Nothing in the composer branches on the contents of a brief. What varies
+between kinds varies because the blueprint file is different; what varies
+within a kind is a `conditionalRequirement`, which the model applies because it
+can read the brief. That is what keeps a calculator from being handed a CRM's
+sign-in, three tables and a SQL schema.
 
 `/api/build` classifies the brief, composes the prompt for that kind, and sends
 **both** with the build request:
@@ -39,7 +55,16 @@ src/lib/builder/blueprints/index.ts    composes one system prompt per kind
 }
 ```
 
-## What the workflow has to do
+## What the workflow does
+
+**This is wired.** Verified against the live workflow `pIJ3Fu5QpGTotf2m` on
+2026-09-02: `Normalize Build Request` carries both fields, a new
+`Kind Decided By App` IF node routes straight to the build branch when
+`buildKind` is present — skipping the classifier and its model call entirely —
+and `Generate Page` sends `systemPrompt || $json.system`, so the app's composed
+prompt is what runs and the node's own text is only a fallback.
+
+For reference, that is:
 
 **`Normalize Build Request`** carries the two new fields through, the same way it
 carries `prompt`:
@@ -64,15 +89,70 @@ disagree with the prompt the page was actually built from.
 
 The classifier node inside the workflow is now redundant for builds that come
 from this app. It stays for the moment because it is also the route's "none of
-these fit" fallback, but it must not overrule `buildKind`.
+these fit" fallback, but it must not overrule `buildKind` — and the IF node in
+front of it means a build with a kind never reaches it at all. That was worth
+doing for its own sake: the classifier was the one node every build passed
+through, so an Anthropic outage took down every build in order to re-decide
+something the app had already decided.
+
+### The two stale fallbacks are gone
+
+Deleted on 2026-09-02, published as version `6b087dbf`. What was there and why
+it went:
+
+Both only run for a caller that sends no `buildKind`, which the app never does.
+Neither is urgent; both are wrong if they ever fire.
+
+- **`Compose Page Prompt`'s own system text** is the original single prompt,
+  including "no external images: use inline SVG … for artwork" — the rule that
+  produced the clip-art look. A build that fell back to it would come out in the
+  old style, with no blueprint, no locale and no asset manifest.
+- **`Intent Classifier`'s categories** describe one category and say a blog, a
+  WordPress site or a store "is not this". The app now routes four kinds.
+
+Both were deleted rather than maintained, because a second copy of a prompt is a
+copy that drifts — and this one had. `Kind Decided By App` now requires
+**both** `buildKind` and `systemPrompt` to be non-empty, and a request missing
+either goes to `Flag For Manual Review`, which answers plainly that there is
+nothing to build it from. A caller sending neither is not this app.
+
+Three nodes went with them — `Intent Classifier`, `Intent Classifier Model` and
+`Flag Classifier Failure` — and the merge dropped from three inputs to two. The
+side effect is worth naming: **no model runs in this workflow before
+generation.** The classifier was the one node every build passed through, so an
+Anthropic outage or a key out of credit used to take down every build in order
+to re-decide something the app had already decided.
+
+## How a kind is decided
+
+A ladder, in `src/lib/builder/kinds.ts`, and the order is the whole of it:
+
+1. **The target chip.** Chosen on Home, it decides outright — a choice is not a
+   reading of a sentence, and nothing below is allowed to talk someone out of
+   it.
+2. **The brief names its kind.** "Build me a landing page for my fashion brand"
+   is a landing page. The rest of the sentence is the subject, not the answer.
+3. **…unless it demands another kind's machinery.** "A landing page with
+   products, a cart and checkout" is a store: a cart cannot live on a landing
+   page. Both machinery sets are deliberately narrow — they overrule a person's
+   own word, so they hold only what genuinely cannot live elsewhere. Not
+   "payments", which is a button; not "sign up", which is an email field on
+   every landing page ever built.
+4. **Weighing.** No label, so the signals are scored and a winner has to clear a
+   floor and beat the runner-up by a margin.
+5. **The model.** Only for what rungs 2–4 declined — about one brief in ten.
+
+`npm run check:blueprint` measures rungs 2–4 against a labelled corpus, offline
+and free, with a set per rung.
 
 ## Keeping the two in step
 
 The blueprints are the source of truth and this file is the map to them. When a
 prompt changes, it changes in `src/lib/builder/blueprints/` — that is what gets
-reviewed, and what `npm run check:blueprint` checks: that every kind still
-composes a prompt with its sections, its behaviour, its depth and, above all,
-its exclusions intact.
+reviewed, and what `npm run check:blueprint` checks: that every blueprint still
+meets its own contract (no emptied field, every conditional requirement stating
+both its condition and its requirement), and that the composed prompt still
+carries the brief, the depth floors and, above all, the exclusions.
 
 The exclusions are the half that fixes the original complaint. A landing page's
 blueprint forbids a cart, a checkout, a product grid, a sign-in and a blog
@@ -85,5 +165,5 @@ To read a prompt exactly as it will be sent:
 
 ```js
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
-composeBuildPrompt("landing");
+composeBuildPrompt("landing", "a landing page for my gym", { projectName: "Ironworks" });
 ```
