@@ -4,8 +4,13 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
 
 - **Workflow**: `QuickStark.Ai — Build Orchestrator` (`pIJ3Fu5QpGTotf2m`)
 - **Editor**: https://neauraissystems.app.n8n.cloud/workflow/pIJ3Fu5QpGTotf2m
-- **Source of truth**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
-  Edit it here, re-validate, and push the change to n8n rather than hand-editing the canvas.
+- **Reference**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
+
+  **It has drifted from what runs.** The canvas has been hand-edited since, and
+  the live workflow is now the one to read: it has no WordPress or e-commerce
+  branch, it generates and saves the page itself, and it carries
+  `Kind Decided By App`. Treat this file as history until someone re-exports it;
+  check a change against the editor before believing it.
 
 ## Shape
 
@@ -24,8 +29,22 @@ carries both the answer (`buildKind`) and the whole system prompt composed for
 it (`systemPrompt`). There used to be one prompt on the `Compose Page Prompt`
 node for all four, which is why every build came back looking like the same
 page with different words in it. See `src/lib/builder/kinds.ts`,
-`src/lib/builder/blueprints/`, and [`page-prompt.md`](./page-prompt.md) for what
-the workflow has to do with the two fields.
+`src/lib/builder/blueprints/`, and [`page-prompt.md`](./page-prompt.md).
+
+**So when `buildKind` arrives, nothing here calls a model to route.**
+`Kind Decided By App` sends the request straight to the build branch, the
+branch's `intent` is the kind the app decided, and `Generate Page` sends the
+`systemPrompt` that came with it. The Text Classifier is reached only by a
+caller that sends no `buildKind`.
+
+That is not a saving, it is the fix for an outage. For a while the workflow
+carried neither field: it dropped both in `Normalize Build Request` and
+re-classified every build here, on the one node every build passed through. So
+when the Anthropic key ran out of credit, every build in the product came back
+`The intent classifier could not be reached, so the build was never routed to a
+branch` — a routing call that decided nothing the app had not already decided,
+failing builds that needed no routing. A step that cannot change the answer
+must not be able to fail the request.
 
 ```
 [ QuickStark.Ai Chat UI ]
@@ -33,14 +52,18 @@ the workflow has to do with the two fields.
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
-[ Intent Classifier ]  (fallback only — the app sends buildKind)
-          │
-  ┌───────┴────────────────────────┐
-  ▼                                ▼
-WebApp / Landing            Manual Review
-• Build Spec                (fallback — a prompt for something
-                             not built yet is answered, not dropped)
-  └───────┬────────────────────────┘
+[ Kind Decided By App ]  ── buildKind present ──┐   ← no model is called
+          │                                     │
+    no buildKind                                │
+          ▼                                     │
+[ Intent Classifier ]  (fallback only)          │
+          │                                     │
+  ┌───────┴────────────────────────┐            │
+  ▼                                ▼            ▼
+Manual Review                      └────→ • Build Spec
+(fallback — a prompt for something          (landing / ecommerce /
+ not built yet is answered, not dropped)     blog / webapp)
+  └───────┬─────────────────────────────────────┘
           ▼
 [ Collect Build Outcome ]  (Merge, append, 3 inputs)
           │  the classifier's own error output is the third:
@@ -50,7 +73,7 @@ WebApp / Landing            Manual Review
           ▼
 [ Build Chat Payload ] → [ Return Payload to Chat UI ]   ← the chat is answered here
           ▼
-[ If Webapp ] → [ Compose Page Prompt ] → [ Generate Page ] → [ Save Page ]
+[ If A Page Is To Be Built ] → [ Compose Page Prompt ] → [ Generate Page ] → [ Save Page ]
                                           (Anthropic API)     (→ the app stores it
                                                                  and sets preview_url)
 ```
@@ -155,14 +178,27 @@ here cannot move anyone's balance in either direction.
 would need, and there is no provisioning until publishing exists.
 
 **The webhook always answers.** Every outbound call runs with
-`onError: continueRegularOutput`, and `Intent Classifier` — the one node every
-build passes through, and the only one that depends on an outside model — runs
-with `onError: continueErrorOutput` into `Flag Classifier Failure`. Without that
+`onError: continueRegularOutput`, and `Intent Classifier` runs with
+`onError: continueErrorOutput` into `Flag Classifier Failure`. Without that
 error output a classifier failure ends the execution silently: the webhook never
 responds, and the app waits out its 60-second timeout before telling the user
 the build "may still finish", which is not true. Now it comes back as
 `status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
 bill a build that never ran.
+
+`Sync Project Row` has `alwaysOutputData` on for the same reason, and it is the
+less obvious one. A Supabase update that matches no row is not an error — it
+succeeds and returns nothing — and a node with no items does not run, so
+`Build Chat Payload` and the Respond node never executed and the webhook never
+answered. A filter that matches nothing has to be a reply saying so, not
+silence.
+
+`Flag Classifier Failure` reports `$json.error.description` ahead of
+`$json.error.message`. n8n's `message` is its own wrapper — "Bad request -
+please check your parameters" — and `description` is what the API actually said,
+which for this one was "Your credit balance is too low to access the Anthropic
+API". Reporting the wrapper sent whoever read it looking for a malformed
+request that did not exist.
 
 The classifier also **retries**: three tries, two seconds apart, on both the
 Text Classifier and the model node under it. Execution 215 is why — a build
