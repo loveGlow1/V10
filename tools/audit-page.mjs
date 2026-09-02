@@ -94,6 +94,29 @@ const external = [...html.matchAll(/(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["
 check(external.length === 0, "no external images or scripts", external.slice(0, 4).join(" "));
 check(count(/<img\b/gi) === 0 || external.length === 0, "no <img> pointing at an invented URL");
 
+/* Locale, reported as one line rather than judged. The default is American
+   (see LOCALE in blueprints/base.ts) but a brief naming a country overrules
+   it, so a page in pounds is only wrong if nobody asked for one — which this
+   cannot know. What it can catch is the mixture, which is never right. */
+const money = {
+  usd: count(/\$\d/g),
+  gbp: count(/£\d/g),
+  eur: count(/€\d/g),
+};
+const anglicised = ["postcode", "colour", "catalogue", "licence", "fulfilment"].filter((w) => prose.includes(w));
+const mixed = [money.usd > 0, money.gbp > 0, money.eur > 0].filter(Boolean).length > 1;
+check(!mixed, "one currency throughout", `$ ×${money.usd} · £ ×${money.gbp} · € ×${money.eur}`);
+check(
+  !(money.usd > 0 && anglicised.length > 0),
+  "spelling matches the currency",
+  `dollars beside ${anglicised.join(", ")}`,
+);
+console.log(
+  `      locale: ${money.gbp > 0 ? "£ GBP" : money.eur > 0 ? "€ EUR" : money.usd > 0 ? "$ USD" : "no prices"}${
+    anglicised.length ? ` · British spelling (${anglicised.join(", ")})` : ""
+  }`,
+);
+
 const sections = count(/<section\b/gi);
 const headings = count(/<h2\b/gi);
 

@@ -167,6 +167,13 @@ storefront, blog, web app — and built from the blueprint for that kind:
 | `blog` | A publication: a lead story, seven or more articles, categories that filter, and one full article of eight hundred words. WordPress briefs are built here. | No pricing table, no pricing tiers, no cart, no marketing hero |
 | `webapp` | The product that was asked for: a shell that fits it, four or more real workflows, and loading, empty, success and error states. | No marketing hero, no storefront, no fake dashboard widgets |
 
+Generated content is **American by default** — dollars, US addresses and ZIP
+codes, `(415) 555-0142` phone numbers, `March 4, 2026` dates, American spelling,
+sales tax rather than VAT. A brief that names a country, city or currency
+overrules it outright: "for my bakery in Leeds" comes back British, in pounds.
+The default exists because nothing used to state one, so the model picked, and
+picked differently every time. It lives in `LOCALE` in `blueprints/base.ts`.
+
 Every blueprint fills in the same nine-field contract — identity,
 requirements, optional features, depth floors, interactions, **conditional
 requirements**, exclusions, quality rules, completion rules — and the prompt is

@@ -1,4 +1,4 @@
-import { BAR, BASE, type Blueprint } from "@/lib/builder/blueprints/base";
+import { BAR, BASE, LOCALE, type Blueprint } from "@/lib/builder/blueprints/base";
 import { blog } from "@/lib/builder/blueprints/blog";
 import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
@@ -166,7 +166,9 @@ ${list(blueprint.completionRules)}
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${projectContext(context)}────────────────────────────────────────
+${projectContext(context)}
+${LOCALE}
+────────────────────────────────────────
 
 ${BAR}
 

@@ -222,6 +222,26 @@ try {
       continue;
     }
 
+    /* The prompt's own spelling is an instruction about the output's spelling,
+       so a British form left in one is a British form that leaks into the
+       page. The locale section is exempt because it names both sides on
+       purpose — it is the rule, not a violation of it. */
+    const withoutLocale =
+      prompt.slice(0, prompt.indexOf("WHERE THIS IS SET")) +
+      prompt.slice(prompt.indexOf("THE BAR"));
+    const anglicised = ["catalogue", "colour", "licence number", "postcode", "fulfilment", "cheque"].filter(
+      (word) => withoutLocale.toLowerCase().includes(word),
+    );
+    if (anglicised.length > 0) {
+      fail(`${kind}: the prompt still spells the output British`, anglicised.join(", "));
+      continue;
+    }
+
+    if (!prompt.includes("the build is American")) {
+      fail(`${kind}: the composed prompt lost its locale default`);
+      continue;
+    }
+
     const excludes = prompt.slice(
       prompt.indexOf("NOT PART OF THIS BUILD"),
       prompt.indexOf("HOW MUCH"),

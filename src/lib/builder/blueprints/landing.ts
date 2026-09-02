@@ -68,7 +68,7 @@ export const landing: Blueprint = {
     },
     {
       when: "the brief names a regulated field — health, finance, law",
-      require: "the disclosure or credential line such a page would carry, stated plainly and not invented as a specific licence number",
+      require: "the disclosure or credential line such a page would carry, stated plainly and not invented as a specific license number",
     },
   ],
 

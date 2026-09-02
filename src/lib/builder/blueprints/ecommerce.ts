@@ -24,11 +24,11 @@ export const ecommerce: Blueprint = {
 
   requirements: [
     "Announcement bar — one real offer or shipping threshold, dismissible.",
-    "Header — wordmark, category navigation, a search field that filters the catalogue on the page, and a cart button showing a live item count.",
-    "Campaign hero — one season, collection or offer, with a specific claim and a button that jumps to the catalogue. One band, not three.",
+    "Header — wordmark, category navigation, a search field that filters the catalog on the page, and a cart button showing a live item count.",
+    "Campaign hero — one season, collection or offer, with a specific claim and a button that jumps to the catalog. One band, not three.",
     "Collection views — four to six categories, each drawn with inline SVG or a CSS treatment, each filtering the grid below.",
-    "Product listing — the catalogue, and the centre of the build. Every product written into the HTML: name, one line of what it is, a real price with a currency symbol, a rating with a review count, an inline-SVG or CSS product image, a stock or shipping note, and an add-to-cart button. Vary them properly — different prices, some on sale with the old price struck through, one or two sold out.",
-    "Product detail — a dialog or panel opened from any card, holding a larger image, the full description, materials or specification, a variant picker (size, colour, or this product's equivalent) that changes the price where it should, a quantity stepper, delivery and returns detail, and add-to-cart.",
+    "Product listing — the catalog, and the center of the build. Every product written into the HTML: name, one line of what it is, a real price with a currency symbol, a rating with a review count, an inline-SVG or CSS product image, a stock or shipping note, and an add-to-cart button. Vary them properly — different prices, some on sale with the old price struck through, one or two sold out.",
+    "Product detail — a dialog or panel opened from any card, holding a larger image, the full description, materials or specification, a variant picker (size, color, or this product's equivalent) that changes the price where it should, a quantity stepper, delivery and returns detail, and add-to-cart.",
     "Cart — a slide-over drawer listing every line with its image, variant, unit price, a working quantity stepper and a remove control; then subtotal, shipping (free above the threshold the announcement bar named), tax, and a total. An empty state that says something useful.",
     "Checkout — a real multi-step flow inside the page: contact, delivery address, shipping method, payment details, each step validating before it advances, with an order summary alongside that stays in step with the cart.",
     "Order confirmation — an order number, an itemised summary, a delivery estimate, and what happens next.",
@@ -60,7 +60,7 @@ export const ecommerce: Blueprint = {
     "Quantity steppers and remove controls work from both the cart and the product detail.",
     "Removing the last line returns the drawer to its empty state, and checkout refuses to start from an empty cart.",
     "Search and category filters act on products already in the markup — hide and show, never build.",
-    "Every checkout field validates specifically: an email shape, a card number's length, a postcode that is not blank, with the error beside the field rather than in an alert.",
+    "Every checkout field validates specifically: an email shape, a card number's length, a ZIP or postal code that is not blank, with the error beside the field rather than in an alert.",
     "Nothing posts anywhere. Payment is a demonstration, and the build says so once, quietly, near the pay button.",
   ],
 
@@ -71,7 +71,7 @@ export const ecommerce: Blueprint = {
         "a sign-in that works and an account panel showing that customer's orders — as an addition a guest can skip, never a wall in front of the shop",
     },
     {
-      when: "the products have meaningful variants — sizes, colours, materials, plans",
+      when: "the products have meaningful variants — sizes, colors, materials, plans",
       require: "a variant picker that changes price, image and availability, and carries the choice into the cart line",
     },
     {
@@ -81,7 +81,7 @@ export const ecommerce: Blueprint = {
     },
     {
       when: "the brief is a service, booking or digital product rather than physical goods",
-      require: "delivery and shipping replaced by what that product actually needs — scheduling, access, licence terms",
+      require: "delivery and shipping replaced by what that product actually needs — scheduling, access, license terms",
     },
   ],
 
@@ -89,12 +89,12 @@ export const ecommerce: Blueprint = {
     "No sign-in wall in front of the shop. A guest can browse, add to cart and check out.",
     "No admin dashboard, no inventory back office, no merchant management interface, no order-management tooling. That is a web app, and it is built as one when it is what was asked for.",
     "No blog index or article archive.",
-    "Not a landing page with a Shop Now button and nothing behind it. If there is no catalogue you can add to a basket, this is not a store.",
+    "Not a landing page with a Shop Now button and nothing behind it. If there is no catalog you can add to a cart, this is not a store.",
     "No external image URLs and no invented CDN links for product photos.",
   ],
 
   qualityRules: [
-    "The catalogue reads like one shop's range: a coherent set of things, priced coherently, described in one voice.",
+    "The catalog reads like one store's range: a coherent set of things, priced coherently, described in one voice.",
     "Product copy says what the thing is and what it is made of, not that it is 'high quality'.",
     "The shopping experience is judged on a phone as well as on a desktop: the drawer, the steppers and the checkout all have to work at 320px.",
     "Sale prices, stock states and ratings are varied and plausible rather than uniform.",
