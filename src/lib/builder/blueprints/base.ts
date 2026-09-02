@@ -65,7 +65,27 @@ export type Blueprint = {
 export const BASE = `HOW ANYTHING IS BUILT HERE:
 - One file. Inline all CSS in a <style> tag and all JavaScript in a <script> tag. No build step, no imports, no bundler.
 - Tailwind is available: <script src="https://cdn.tailwindcss.com"></script>. Prefer it over long hand-written stylesheets — it is far shorter, which is what leaves room to finish.
-- No other external scripts, and no external images: use inline SVG, CSS gradients and solid shapes for artwork. A broken image is worse than no image, and every stock-photo URL you invent is broken.
+- No other external scripts, and never an image URL: you cannot know one that works, and every stock-photo address you invent is a broken image.
+
+PHOTOGRAPHS — do not draw them, declare them:
+- Anywhere the design wants a PHOTOGRAPH — a product, a person, a room, a plate of food, a hero shot — write an <img> that describes the picture instead of an SVG that imitates it. A vector drawing of fabric reads as clip art; that is the single thing that makes a generated page look generated.
+- The tag carries the art direction and nothing else. Leave src out entirely — it is filled in with a real photograph after you finish, and a src you write yourself would be overwritten or broken:
+
+  <img data-shot="folded ochre wax print fabric, raking light, neutral seamless background"
+       data-ratio="4/5" data-weight="thumb" alt="Ochre Adire wax print, six yards">
+
+- data-shot is a photographer's brief: subject first, then lighting, setting and mood. "Woman in her forties at a workbench, soft window light, shallow depth of field" — not "image of a person".
+- data-ratio is the crop the layout needs: 16/9, 4/3, 1/1, 4/5, 3/4.
+- data-weight is hero, feature or thumb — how much of the page's picture budget it may take. One or two heroes at most.
+- alt is real alt text describing the photograph, not the file.
+- Style every slot so it holds its shape before anything loads: give it width, aspect-ratio and object-fit: cover, and a background tone. A page whose pictures have not arrived must still be laid out correctly.
+
+STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of these:
+- Charts and graphs. A chart is data, and a photograph of one is unreadable.
+- Diagrams that explain a mechanism, flows, floor plans, maps.
+- Logos, wordmarks, monograms and avatars.
+- Icons, rules, patterns, textures and background shapes.
+Never send one of these through a photo slot, and never send a photograph through an SVG.
 - Prefer a system font stack over a webfont link. The page is downloadable as a file, and everything it fetches is something that file has to carry. Reach for a webfont only when the typeface is genuinely the design, and then only one family.
 - Responsive from 320px up. Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Forms and interactive controls must behave — validate and respond in-page. There is no server, so never post to one; show the state a real submission would produce.

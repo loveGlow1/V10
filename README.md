@@ -128,6 +128,36 @@ prompt that still carries the brief, the depth floors and the exclusions.
 Blueprints are prose, and prose has no type checker: an exclusion can be
 deleted and nothing anywhere would fail.
 
+### Photographs
+
+Generated pages used to draw everything — a product, a person, a plate of food,
+all as inline SVG — because the rule said no external images, and every
+stock-photo URL a model invents is broken. Nothing was ever broken, and
+everything looked like clip art. A model cannot solve this by writing base64: a
+JPEG is compressed binary, and base64 from a model is corrupt bytes and a
+broken image.
+
+So the page declares the picture and something else fills it:
+
+```html
+<img data-shot="folded ochre wax print fabric, raking light, neutral seamless"
+     data-ratio="4/5" data-weight="thumb" alt="Ochre Adire wax print, six yards">
+```
+
+`src/lib/builder/images.ts` reads every slot after generation and embeds real
+photographs as base64, spending a page budget in weight order — heroes first,
+grid thumbnails last — so a long catalogue degrades to placeholders rather than
+to a page nobody waits for. `UNSPLASH_ACCESS_KEY` or `PEXELS_API_KEY` turns it
+on; with neither, every slot keeps a neutral toned placeholder and the page is
+stored exactly as it would have been.
+
+Charts, diagrams, maps, logos and icons stay drawn, deliberately — a photograph
+of a chart is unreadable — and `npm run audit:page` fails a page that draws a
+photograph as SVG, which is the defect that made pages look generated.
+
+`npm run check:images` exercises the whole path against a stub provider: no key,
+no network, no cost.
+
 ### Judging what came back
 
 ```bash

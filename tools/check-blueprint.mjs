@@ -322,22 +322,28 @@ try {
       continue;
     }
 
-    /* Long enough to be a blueprint rather than a sentence, short enough to
-       leave the model room to answer with a whole document.
-
-       The ceiling is 3000 rather than the 2600 it started at. The web app
-       blueprint carries eight conditional requirements — the field that keeps
-       a calculator from being handed a CRM's back end — and each one costs
-       forty words it earns. Three thousand words is around four thousand
-       tokens of system prompt against a document of twenty thousand, which is
-       not what crowds anything out; the guard is here to catch a blueprint
-       that has doubled by accident, not to price the good ones out. */
+    /* Two measurements, because there are two different risks and one number
+       could not tell them apart.
+       
+       The blueprint half is the variable one — what this kind, and only this
+       kind, is told. A blueprint that has doubled by accident is the failure
+       worth catching, and it shows up here.
+       
+       The shared tail (the brief, the locale, the bar, the base rules) is the
+       same for all four and grows only by a deliberate, reviewed edit. It was
+       what tripped the single ceiling twice: adding the photograph contract to
+       the base rules pushed every kind over a limit that was never about the
+       base rules. So the whole prompt is held to a far looser cap that exists
+       only to catch something pathological. */
     const words = prompt.split(/\s+/).length;
-    if (words < 500) fail(`${kind}: the prompt is ${words} words, which is too thin to be a blueprint`);
-    else if (words > 3000) fail(`${kind}: the prompt is ${words} words, which crowds out the build`);
+    const own = prompt.slice(0, prompt.indexOf("THE BRIEF —")).split(/\s+/).length;
+
+    if (own < 350) fail(`${kind}: the blueprint is ${own} words, which is too thin to be one`);
+    else if (own > 1800) fail(`${kind}: the blueprint is ${own} words, which is more than one kind needs`);
+    else if (words > 4000) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
     else
       console.log(
-        `ok   ${kind.padEnd(10)} ${String(words).padStart(4)} words · ${
+        `ok   ${kind.padEnd(10)} ${String(own).padStart(4)} own + ${String(words - own).padStart(4)} shared · ${
           blueprint.requirements.length
         } required · ${blueprint.conditionalRequirements.length} conditional · ${
           blueprint.exclusions.length

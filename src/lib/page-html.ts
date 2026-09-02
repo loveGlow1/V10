@@ -9,10 +9,27 @@
  * Nothing here trusts the input. It is model output shaped by a user's prompt,
  * arriving over HTTP from a workflow anyone with n8n access can edit. */
 
-/* A page has to be finishable and storable. Past this it is not a landing page
-   any more, and it is worth refusing rather than putting a megabyte of
-   something into a row that is read on every preview. */
-const MAX_HTML_BYTES = 400_000;
+/* Two limits now, because a page has two kinds of weight and only one of them
+   is a problem.
+ *
+ * MAX_MARKUP_BYTES is the old 400KB, and it still guards the thing it was
+ * written for: markup and script that have run away. Past that it is not a page
+ * any more.
+ *
+ * MAX_HTML_BYTES is what may actually be stored, and it is larger because
+ * pictures are embedded now — real photographs as base64 data URIs, put in
+ * after generation by src/lib/builder/images.ts. Base64 costs a third more than
+ * the bytes it carries, so a storefront with a dozen photographs is measured in
+ * megabytes rather than kilobytes. fillImages spends against its own budget and
+ * stops; this is the backstop under it. */
+const MAX_MARKUP_BYTES = 400_000;
+const MAX_HTML_BYTES = 4_000_000;
+
+/* Everything that is not an embedded picture. Measuring the markup with a
+   megabyte of base64 in it would make the first limit meaningless. */
+function markupBytes(html: string): number {
+  return Buffer.byteLength(html.replace(/data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+/gi, ""), "utf8");
+}
 
 export class PageHtmlError extends Error {
   constructor(
@@ -56,8 +73,11 @@ export function readGeneratedDocument(value: unknown): string {
     );
   }
 
+  if (markupBytes(html) > MAX_MARKUP_BYTES) {
+    throw new PageHtmlError("The page's markup is too large to store.", 413);
+  }
   if (Buffer.byteLength(html, "utf8") > MAX_HTML_BYTES) {
-    throw new PageHtmlError("The page is too large to store.", 413);
+    throw new PageHtmlError("The page is too large to store, even for one with photographs in it.", 413);
   }
 
   return html;

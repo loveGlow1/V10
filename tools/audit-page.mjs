@@ -101,6 +101,48 @@ const external = [...html.matchAll(/(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["
 check(external.length === 0, "no external images or scripts", external.slice(0, 4).join(" "));
 check(count(/<img\b/gi) === 0 || external.length === 0, "no <img> pointing at an invented URL");
 
+/* ── Photographs ────────────────────────────────────────────────────────
+   The defect this catches is the one that made every generated page look
+   generated: an SVG drawing a photograph. A vector of a person, a garment or a
+   plate of food reads as clip art however well it is drawn, and the fix was to
+   stop drawing them and declare a slot instead (src/lib/builder/images.ts).
+
+   So SVGs are read for what they claim to be. A chart, a diagram, a logo or an
+   icon is meant to be drawn and passes; one whose own alt text describes a
+   photograph is the failure. */
+const slots = [...markup.matchAll(/<img\b[^>]*\bdata-shot\s*=\s*"([^"]*)"[^>]*>/gi)];
+const svgLabels = [...markup.matchAll(/<svg\b[^>]*aria-label\s*=\s*"([^"]*)"/gi)].map((m) => m[1]);
+
+const DRAWN_IS_RIGHT = /\b(chart|graph|plot|diagram|map|logo|wordmark|monogram|icon|pattern|flow|layout|schematic|curve|axis)\b/i;
+const PHOTO_WORDS = /\b(photo|photograph|portrait|person|woman|man|model wearing|garment|gown|dress|shirt|kaftan|fabric|food|plate|dish|room|interior|building|landscape|product shot|bag|shoe)\b/i;
+
+const drawnPhotos = svgLabels.filter((label) => PHOTO_WORDS.test(label) && !DRAWN_IS_RIGHT.test(label));
+check(
+  drawnPhotos.length === 0,
+  "no photographs drawn as SVG",
+  drawnPhotos.slice(0, 3).map((l) => `"${l.slice(0, 60)}"`).join(" · "),
+);
+
+/* A slot is only useful if it says what the picture is. An empty brief gets a
+   generic stock photograph, which is its own kind of demo. */
+const thinSlots = slots.filter((m) => m[1].trim().split(/\s+/).length < 4);
+check(thinSlots.length === 0, `every photo slot carries real art direction (${slots.length} slots)`, `${thinSlots.length} too thin`);
+
+const slotsWithoutAlt = slots.filter((m) => !/\balt\s*=\s*"[^"]{4,}"/i.test(m[0]));
+check(slotsWithoutAlt.length === 0, "every photo slot has alt text", `${slotsWithoutAlt.length} without`);
+
+/* How much of the stored page is picture. Reported, not judged: an unfilled
+   page is not wrong, it is a page whose provider is not configured. */
+const embedded = [...html.matchAll(/data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)/gi)];
+const embeddedBytes = embedded.reduce((sum, m) => sum + m[2].length, 0);
+console.log(
+  `      pictures: ${slots.length} slot${slots.length === 1 ? "" : "s"} declared · ${
+    embedded.length
+  } filled${embeddedBytes ? ` (${Math.round(embeddedBytes / 1024)}KB)` : ""}${
+    slots.length && !embedded.length ? " · placeholders only, no provider configured" : ""
+  }`,
+);
+
 /* Locale, reported as one line rather than judged. The default is American
    (see LOCALE in blueprints/base.ts) but a brief naming a country overrules
    it, so a page in pounds is only wrong if nobody asked for one — which this
