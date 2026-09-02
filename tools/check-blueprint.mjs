@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { SETS } from "./blueprint-corpus.mjs";
+import { MARKETS, SETS } from "./blueprint-corpus.mjs";
 
 /* Compiled rather than imported: the heuristics and the blueprints are
    TypeScript and this is a plain node script. Built under node_modules/.cache
@@ -54,6 +54,7 @@ writeFileSync(
     },
     files: [
       join(process.cwd(), "src/lib/builder/kinds.ts"),
+      join(process.cwd(), "src/lib/builder/market.ts"),
       join(process.cwd(), "src/lib/builder/blueprints/index.ts"),
     ],
   }),
@@ -95,6 +96,9 @@ try {
   const { composeBuildPrompt, BLUEPRINTS } = await import(
     join(out, "lib/builder/blueprints/index.js")
   );
+  const { detectMarket, DEFAULT_MARKET, MARKETS: MARKET_IDS } = await import(
+    join(out, "lib/builder/market.js")
+  );
 
   /* ── Routing ─────────────────────────────────────────────────────────── */
   let totalCases = 0;
@@ -135,6 +139,26 @@ try {
   const deferralRate = ((totalDeferred / totalCases) * 100).toFixed(0);
   console.log(
     `\n${totalCases} briefs · ${totalDeferred} handed to the model (${deferralRate}%)`,
+  );
+
+  /* ── Which market ────────────────────────────────────────────────────── */
+  let marketWrong = 0;
+  let assumed = 0;
+
+  for (const [brief, want] of MARKETS) {
+    const got = detectMarket(brief);
+    const answer = got.source === "default" ? "default" : got.market;
+    if (answer === "default") assumed++;
+    if (answer !== want) {
+      marketWrong++;
+      failed++;
+      console.log(`       want ${String(want).padEnd(8)} got ${answer.padEnd(8)} ${brief}`);
+    }
+  }
+  console.log(
+    `${marketWrong === 0 ? "ok  " : "FAIL"} market  n=${String(MARKETS.length).padStart(3)}  correct ${String(
+      MARKETS.length - marketWrong,
+    ).padStart(3)}  wrong ${String(marketWrong).padStart(2)}  on the default ${assumed} (${DEFAULT_MARKET})`,
   );
 
   /* ── The prompts ─────────────────────────────────────────────────────── */
@@ -222,25 +246,69 @@ try {
       continue;
     }
 
-    /* The prompt's own spelling is an instruction about the output's spelling,
-       so a British form left in one is a British form that leaks into the
-       page. The locale section is exempt because it names both sides on
-       purpose — it is the rule, not a violation of it. */
-    const withoutLocale =
-      prompt.slice(0, prompt.indexOf("WHERE THIS IS SET")) +
-      prompt.slice(prompt.indexOf("THE BAR"));
-    const anglicised = ["catalogue", "colour", "licence number", "postcode", "fulfilment", "cheque"].filter(
-      (word) => withoutLocale.toLowerCase().includes(word),
-    );
-    if (anglicised.length > 0) {
-      fail(`${kind}: the prompt still spells the output British`, anglicised.join(", "));
-      continue;
-    }
+    /* Every market composes, and each one carries its own conventions rather
+       than the other's with the currency swapped. These are the pairs that
+       would make a page read as a translation: a Nigerian build quoting sales
+       tax, a US build quoting VAT, either one wearing the other's spelling. */
+    const WRONG_FOR = {
+      us: ["₦", "naira", "vat at 7.5%", "dispatch rider", "rc number", "colour", "catalogue"],
+      ng: ["zip code", "sales tax", "two-letter state", "ein", "fahrenheit", " color,", " catalog,"],
+    };
+    const REQUIRED_FOR = {
+      us: ["the build is American", "$1,299", "555-01"],
+      ng: ["the build is Nigerian", "₦1,250,000", "bank transfer comes first", "british spelling"],
+    };
 
-    if (!prompt.includes("the build is American")) {
-      fail(`${kind}: the composed prompt lost its locale default`);
-      continue;
+    let localeBad = false;
+    for (const market of MARKET_IDS) {
+      const forMarket = composeBuildPrompt(kind, BRIEF, { projectName: "Harbour & Vine", market });
+      const section = forMarket.slice(
+        forMarket.indexOf("WHERE THIS IS SET"),
+        forMarket.indexOf("THE BAR"),
+      );
+
+      const missing = REQUIRED_FOR[market].filter(
+        (phrase) => !section.toLowerCase().includes(phrase.toLowerCase()),
+      );
+      if (missing.length > 0) {
+        fail(`${kind}/${market}: the locale block lost its own conventions`, missing.join(", "));
+        localeBad = true;
+        break;
+      }
+
+      /* Naming the other market's convention in order to reject it is the
+         point, not a leak: the Nigerian block says "VAT at 7.5% rather than
+         sales tax" and "an RC number rather than an EIN", and the closing line
+         names both markets to forbid mixing them. So contrastive clauses and
+         that closing line come out before the scan, and what remains is only
+         what the block actually prescribes. */
+      const prescribed = section
+        .split("\n")
+        .filter((line) => !line.includes("Never mix two markets"))
+        .join("\n")
+        .replace(/ rather than [^.\n]+/gi, " ")
+        .replace(/, or a [^.\n]+ beside [^.\n]+/gi, " ")
+        .replace(/Do this even when[^.\n]+/gi, " ")
+        .replace(/where a US business would[^.\n]+/gi, " ");
+
+      const leaked = WRONG_FOR[market].filter((phrase) =>
+        prescribed.toLowerCase().includes(phrase.toLowerCase()),
+      );
+      if (leaked.length > 0) {
+        fail(`${kind}/${market}: the locale block carries the other market's conventions`, leaked.join(", "));
+        localeBad = true;
+        break;
+      }
+
+      /* Both blocks must hand precedence back to the brief, or a Leeds bakery
+         is built in whichever market the regexes defaulted to. */
+      if (!section.includes("the brief overrules it")) {
+        fail(`${kind}/${market}: the locale block no longer defers to the brief`);
+        localeBad = true;
+        break;
+      }
     }
+    if (localeBad) continue;
 
     const excludes = prompt.slice(
       prompt.indexOf("NOT PART OF THIS BUILD"),

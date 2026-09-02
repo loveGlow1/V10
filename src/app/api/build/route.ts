@@ -16,6 +16,7 @@ import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
 import { isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
+import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { SITE_URL } from "@/lib/site";
@@ -67,6 +68,10 @@ type BuildRequestBody = {
      project whose kind is settled); otherwise the brief is classified. As with
      intentOverride, an explicit choice beats a guess. */
   buildKind?: unknown;
+  /* Which market's conventions the content follows — "us" or "ng". Sent only
+     when something already knows; otherwise it is read out of the brief, and
+     either way a brief that names a country overrules it. */
+  market?: unknown;
   /* Files uploaded with this message: a screenshot to match, a logo to use, a
      page of copy to lay out. Ids only — the bytes are read on the server. */
   attachmentIds?: unknown;
@@ -990,6 +995,16 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
   );
 
+  /* ── And where it is set ────────────────────────────────────────────────
+     The blueprint decides what is built; this decides the world it is built
+     in — the currency on every price, the shape of an address, how people pay,
+     which way round a date goes, and which English it is spelled in. Free, and
+     read from the brief rather than assumed: "a storefront with Paystack
+     checkout" is Nigerian without anybody typing the word. See
+     src/lib/builder/market.ts. */
+  const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
+  steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
+
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. The brief is stored
      rather than the message, so the row says what was built rather than the
@@ -1041,6 +1056,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         attachmentText: attachedText,
         imageCount: imageUrls.length,
         carriedFrom: brief.carried,
+        market: market.market,
       }),
     });
   } catch (error) {
@@ -1098,6 +1114,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
        result from it, and the composer can send it back as buildKind to keep a
        follow-up build on the same blueprint. */
     buildKind: kind.kind,
+    market: market.market,
     build: result,
     project: synced ?? null,
   });

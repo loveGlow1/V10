@@ -1,9 +1,11 @@
-import { BAR, BASE, LOCALE, type Blueprint } from "@/lib/builder/blueprints/base";
+import { BAR, BASE, type Blueprint } from "@/lib/builder/blueprints/base";
+import { localeFor } from "@/lib/builder/blueprints/locale";
 import { blog } from "@/lib/builder/blueprints/blog";
 import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
 import { webapp } from "@/lib/builder/blueprints/webapp";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
+import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
 
 /* Four blueprints, and the one place a build prompt is assembled.
  *
@@ -54,6 +56,10 @@ export type ProjectContext = {
   imageCount?: number;
   /** The earlier description a one-word message leant on, when it leant on one. */
   carriedFrom?: string | null;
+  /* Which market's conventions the content defaults to — see
+     src/lib/builder/market.ts. Only a default: the locale section it selects
+     opens by handing precedence back to the brief. */
+  market?: Market;
 };
 
 function list(items: readonly string[]): string {
@@ -167,7 +173,7 @@ THE BRIEF — what to build, in their words. Where it is more specific than anyt
 
 ${brief.trim()}
 ${projectContext(context)}
-${LOCALE}
+${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 
 ${BAR}

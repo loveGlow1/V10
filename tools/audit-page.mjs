@@ -53,6 +53,13 @@ function soft(ok, text, detail) {
 
 const count = (pattern) => (html.match(pattern) ?? []).length;
 
+/* The markup with the scripts taken out, for anything that counts things on
+   the page. A product is an element carrying data-product; a querySelector
+   naming that attribute is code about products, and counting both reported
+   twelve products as fifteen. */
+const markup = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
+const countIn = (pattern) => (markup.match(pattern) ?? []).length;
+
 /* ── What every build has to be, whatever kind it is ───────────────────── */
 console.log(`\n── ${file} · ${kind} ──\n`);
 
@@ -100,20 +107,43 @@ check(count(/<img\b/gi) === 0 || external.length === 0, "no <img> pointing at an
    cannot know. What it can catch is the mixture, which is never right. */
 const money = {
   usd: count(/\$\d/g),
+  ngn: count(/₦\d/g),
   gbp: count(/£\d/g),
   eur: count(/€\d/g),
 };
-const anglicised = ["postcode", "colour", "catalogue", "licence", "fulfilment"].filter((w) => prose.includes(w));
-const mixed = [money.usd > 0, money.gbp > 0, money.eur > 0].filter(Boolean).length > 1;
-check(!mixed, "one currency throughout", `$ ×${money.usd} · £ ×${money.gbp} · € ×${money.eur}`);
+const mixed = Object.values(money).filter((n) => n > 0).length > 1;
 check(
-  !(money.usd > 0 && anglicised.length > 0),
-  "spelling matches the currency",
-  `dollars beside ${anglicised.join(", ")}`,
+  !mixed,
+  "one currency throughout",
+  `$ ×${money.usd} · ₦ ×${money.ngn} · £ ×${money.gbp} · € ×${money.eur}`,
 );
+
+/* The conventions that have to travel together. A page in naira with a ZIP
+   code, or in dollars with a dispatch rider, is the mixture the locale rules
+   forbid — and it is the failure mode of writing one market's page and
+   swapping the currency, which is the whole reason the two blocks are written
+   separately rather than parameterised. */
+const usTells = ["zip code", "sales tax", " ein", "fahrenheit"].filter((w) => prose.includes(w));
+const ngTells = ["naira", "lagos", "abuja", "dispatch rider", "paystack", "flutterwave", "bank transfer", "vat"]
+  .filter((w) => prose.includes(w));
+const anglicised = ["postcode", "colour", "catalogue", "licence", "fulfilment"].filter((w) => prose.includes(w));
+
+check(
+  !(money.usd > 0 && (ngTells.length > 0 || anglicised.length > 0)),
+  "a dollar page carries US conventions",
+  `dollars beside ${[...ngTells, ...anglicised].join(", ")}`,
+);
+check(
+  !(money.ngn > 0 && usTells.length > 0),
+  "a naira page carries Nigerian conventions",
+  `naira beside ${usTells.join(", ")}`,
+);
+
+const currency =
+  money.ngn > 0 ? "₦ NGN" : money.gbp > 0 ? "£ GBP" : money.eur > 0 ? "€ EUR" : money.usd > 0 ? "$ USD" : "no prices";
 console.log(
-  `      locale: ${money.gbp > 0 ? "£ GBP" : money.eur > 0 ? "€ EUR" : money.usd > 0 ? "$ USD" : "no prices"}${
-    anglicised.length ? ` · British spelling (${anglicised.join(", ")})` : ""
+  `      locale: ${currency}${ngTells.length ? ` · Nigerian markers (${ngTells.slice(0, 4).join(", ")})` : ""}${
+    anglicised.length ? ` · British spelling` : ""
   }`,
 );
 
@@ -130,7 +160,7 @@ if (kind === "landing") {
 }
 
 if (kind === "ecommerce") {
-  const products = count(/data-product\b/gi) || count(/\bclass="[^"]*product-card/gi);
+  const products = countIn(/<[a-z]+[^>]*\sdata-product[\s=>]/gi) || countIn(/\bclass="[^"]*product-card/gi);
   soft(products >= 8, `at least 8 products marked up (${products})`, "counted by data-product / .product-card");
   check(/\bcart\b/i.test(html), "there is a cart");
   check(/\bcheckout\b/i.test(html), "there is a checkout");
@@ -156,7 +186,7 @@ if (kind === "webapp") {
   /* Counted from data-view="…" specifically. data-view-btn is the control that
      reaches a view, not a view, and counting both made a four-view app look
      like nineteen. */
-  const views = count(/data-view\s*=\s*["'][^"']+["']/gi) || sections;
+  const views = countIn(/data-view\s*=\s*["'][^"']+["']/gi) || sections;
   soft(views >= 4, `at least 4 views or workflows (${views})`);
   check(!/\b(add to (cart|basket)|checkout)\b/i.test(html), "no storefront mechanics");
   const marketing = /\b(testimonial|pricing tier|trusted by|start your free trial)\b/i.test(html);

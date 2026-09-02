@@ -92,32 +92,6 @@ FINISHING — how this is judged before anything else:
 - Never imply functionality that is not there. It is better to leave a feature out than to draw a control for it.
 - The last line of the document is </html>, and what precedes it is a complete product rather than a screenshot of one.`;
 
-/* Where the generated content lives, when the brief does not say.
- *
- * Every build has to be set somewhere: a price needs a currency, an address
- * needs a country, a date needs a format, and "professional" copy is spelled
- * one way or the other. Nothing used to say which, so the model chose — and it
- * chose differently every time, which is how a US business asking for a
- * landing page got pounds sterling, a Manchester address and a phone number in
- * an 0161 area code.
- *
- * The United States by default, and only by default: a brief that names a
- * country, a city or a currency has said where it is, and that always wins.
- * This is the answer to the question nobody asked, not an override of the one
- * they did. */
-export const LOCALE = `WHERE THIS IS SET — the default, which the brief overrules the moment it says otherwise:
-
-- If the brief names a country, a city, a region or a currency, follow it exactly and ignore everything else in this section. A brief that says "for my bakery in Leeds" is British, prices in pounds and spells it "colour".
-- Otherwise the build is American, and consistently so:
-  - Prices and every figure in US dollars, written $1,299 and $24.50.
-  - American spelling throughout the copy: color, catalog, license, center, organize, fulfillment, analyze, check (not cheque).
-  - Addresses as street, city, two-letter state and ZIP: 1420 Larkin Street, Suite 300, Denver, CO 80204. Real cities in real states.
-  - Phone numbers as (415) 555-0142, using the 555-01xx range, which is reserved and cannot ring a real person.
-  - Dates as March 4, 2026 or 03/04/2026, and one of those two throughout.
-  - US units where units appear: miles, pounds, square feet, Fahrenheit.
-  - US business vocabulary: sales tax rather than VAT, Inc. or LLC rather than Ltd, EIN rather than a company number, ZIP rather than postcode, cell rather than mobile.
-- Never mix the two. A page with dollars and a postcode, or an American address beside "colour", reads as carelessly assembled — which is exactly the impression this whole build is trying not to give.`;
-
 export const BAR = `THE BAR — you are building the real thing, not a demonstration of it:
 
 - Write for THIS product. Every heading, sentence, price, name and number is specific to the brief: the industry's own vocabulary, plausible figures, real-sounding names of people and places. A reader who knows the field should recognise it.

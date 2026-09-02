@@ -167,12 +167,31 @@ storefront, blog, web app — and built from the blueprint for that kind:
 | `blog` | A publication: a lead story, seven or more articles, categories that filter, and one full article of eight hundred words. WordPress briefs are built here. | No pricing table, no pricing tiers, no cart, no marketing hero |
 | `webapp` | The product that was asked for: a shell that fits it, four or more real workflows, and loading, empty, success and error states. | No marketing hero, no storefront, no fake dashboard widgets |
 
-Generated content is **American by default** — dollars, US addresses and ZIP
-codes, `(415) 555-0142` phone numbers, `March 4, 2026` dates, American spelling,
-sales tax rather than VAT. A brief that names a country, city or currency
-overrules it outright: "for my bakery in Leeds" comes back British, in pounds.
-The default exists because nothing used to state one, so the model picked, and
-picked differently every time. It lives in `LOCALE` in `blueprints/base.ts`.
+**Two markets, read from the brief.** The United States and Nigeria each get a
+locale block written for them, and `src/lib/builder/market.ts` decides which
+travels with a build:
+
+| | United States | Nigeria |
+| --- | --- | --- |
+| Money | `$1,299`, card first, Stripe | `₦1,250,000`, **bank transfer first**, then card, USSD, pay-on-delivery; Paystack or Flutterwave |
+| Address | street, city, two-letter state, ZIP | building, street, area, city and state — no postcode |
+| Phone | `(415) 555-0142`, reserved range | `0803 123 4567`; no reserved range exists, so keep invented numbers illustrative |
+| Dates | March 4, 2026 | 4 March 2026 |
+| Spelling | American | British |
+| Tax / registration | sales tax, Inc./LLC, EIN | VAT at 7.5%, Ltd, RC number |
+| Delivery | national, business days | within-city by dispatch rider, 2–4 working days to other states |
+
+Detection reads places, currencies and the services a business actually uses,
+because nobody writes "in Nigeria" when they write "checkout with Paystack".
+Whichever it picks is only a default: both blocks open by handing precedence
+back to the brief, so "for my bakery in Leeds" comes back British, in pounds,
+without either market having to enumerate the world. A brief naming nowhere
+gets `DEFAULT_MARKET` — one constant, one line to change.
+
+The two blocks are written separately rather than parameterised on purpose. A
+US page with ₦ in front of the numbers reads as a translation; what makes a
+Nigerian storefront read as Nigerian is transfer above card and delivery quoted
+by state.
 
 Every blueprint fills in the same nine-field contract — identity,
 requirements, optional features, depth floors, interactions, **conditional

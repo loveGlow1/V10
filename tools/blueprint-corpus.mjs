@@ -126,3 +126,42 @@ export const WILD = [
 ];
 
 export const SETS = { corpus: CORPUS, mixed: MIXED, ladder: LADDER, wild: WILD };
+
+/* Which market a brief is set in — see src/lib/builder/market.ts.
+ *
+ * Two markets are served, so a default is a decision rather than a fallback.
+ * Most of these name no country at all: what identifies a Nigerian brief in
+ * practice is a city, a payment processor or a courier, because nobody writes
+ * "in Nigeria" when they write "checkout with Paystack".
+ *
+ * "default" is the expected answer where the brief genuinely names nowhere.
+ * Those are not failures — they are the cases the assumption exists for, and
+ * counting them is how you tell how often it is load-bearing.
+ */
+export const MARKETS = [
+  // named Nigeria, one way or another
+  ["a landing page for my bakery in Lagos", "ng"],
+  ["an online store selling ankara fabric with Paystack checkout", "ng"],
+  ["build a fintech app for Nigerian SMEs", "ng"],
+  ["a store with delivery across Lagos and Abuja", "ng"],
+  ["a blog about Nollywood and afrobeats", "ng"],
+  ["landing page for a school in Lekki", "ng"],
+  ["storefront that takes bank transfer and Flutterwave", "ng"],
+  ["a logistics app for dispatch riders in Port Harcourt", "ng"],
+  ["a landing page for my salon, prices in naira", "ng"],
+  ["web app for a pharmacy chain in Ibadan and Enugu", "ng"],
+
+  // named the United States, one way or another
+  ["a landing page for a dental clinic in Austin", "us"],
+  ["an online store with Stripe checkout and free shipping over $75", "us"],
+  ["a SaaS dashboard for restaurants in Chicago", "us"],
+  ["landing page for an LLC doing tax prep", "us"],
+  ["a store shipping nationwide from Denver, sales tax included", "us"],
+  ["blog about high school football in Texas", "us"],
+
+  // named nowhere: the default is doing the work
+  ["build me a landing page for my gym", "default"],
+  ["an online store for handmade candles", "default"],
+  ["a blog about woodworking", "default"],
+  ["a task manager with team accounts", "default"],
+];
