@@ -44,6 +44,11 @@ export async function resolveAssets(opts: {
   providers: AssetProvider[];
   /** Storing needs a service key; without it a supplied image is carried inline. */
   store?: boolean;
+  /* How long the whole resolution may take. /api/build answers inside 55s and
+     a storefront is a dozen requests, so this is a real ceiling rather than a
+     precaution: past it the remaining slots go unresolved, become toned panels,
+     and the build ships on time. A late picture is worth less than a page. */
+  deadlineMs?: number;
 }): Promise<ResolveResult> {
   const { projectId, plan, library, providers } = opts;
 
@@ -54,8 +59,20 @@ export async function resolveAssets(opts: {
   const created: Asset[] = [];
   const bySource: Partial<Record<ProviderId, number>> = {};
 
+  const deadline = Date.now() + (opts.deadlineMs ?? 20_000);
+
   for (const request of plan.requests) {
     alt[request.slot] = request.alt;
+
+    /* Out of time. Everything left is unresolved, which the manifest already
+       knows how to describe — so this degrades to the same state as having no
+       provider at all, which is a state the page handles. */
+    if (Date.now() > deadline) {
+      assets[request.slot] = "";
+      if (isPhoto(request.type)) unresolvedSlots.push(request.slot);
+      else drawnSlots.push(request.slot);
+      continue;
+    }
 
     /* Drawn assets never reach a source. A logo, an icon or an avatar is made
        by the code generator; only an upload can pre-empt that, and the project

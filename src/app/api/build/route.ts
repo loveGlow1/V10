@@ -12,6 +12,10 @@ import {
   editPage,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { planAssets } from "@/lib/builder/assets/asset-planner";
+import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
+import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
+import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
@@ -1005,6 +1009,48 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
   steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
 
+  /* ── The pictures, decided before a line of the page is written ─────────
+     The architectural rule, at the point it actually applies: the model that
+     writes the code is not asked what imagery this project needs. That is
+     settled here — one visual direction for the whole project, a plan of what
+     it needs, and every slot filled from the first source in the chain that can
+     answer. See src/lib/builder/assets/.
+
+     Every part of it degrades. No providers configured, no storage, no table,
+     no network: the plan still exists, the direction still reaches the code
+     generator, and the slots nothing could fill become toned panels. A build
+     never fails over a photograph. */
+  steps.begin("assets", "Planning the imagery", "one look for the whole project…");
+
+  const library = { assets: await loadAssets(project.id) };
+  const plan = planAssets({ kind: kind.kind, brief: brief.text });
+  const providers = await usableProviders(library);
+  const pictures = await resolveAssets({
+    projectId: project.id,
+    plan,
+    library,
+    providers,
+    /* Stored where there is a service key, so the next build reuses these
+       rather than paying for them again. */
+    store: Boolean(service),
+    deadlineMs: 20_000,
+  });
+
+  /* Recorded, but never blocking: a build must not fail because a row did not
+     write. recordAsset logs its own failures. */
+  await Promise.all(pictures.created.map((asset) => recordAsset(asset).catch(() => false)));
+
+  const sources = Object.entries(pictures.bySource)
+    .map(([id, count]) => `${count} from ${id}`)
+    .join(", ");
+  steps.mark(
+    "assets",
+    `Chose the imagery — ${plan.direction.register}`,
+    sources
+      ? `${sources}${pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""}`
+      : "no image source configured, so the layout holds plain panels",
+  );
+
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. The brief is stored
      rather than the message, so the row says what was built rather than the
@@ -1057,6 +1103,8 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         imageCount: imageUrls.length,
         carriedFrom: brief.carried,
         market: market.market,
+        /* What the code generator is told about imagery, and all it is told. */
+        manifest: pictures.manifest,
       }),
     });
   } catch (error) {
