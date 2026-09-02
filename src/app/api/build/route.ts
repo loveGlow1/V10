@@ -1060,6 +1060,34 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * finishes is never billed, which is the right answer for a build nobody
    * got. */
 
+  /* A build that came back already failed is not a build that started.
+   *
+   * The orchestrator answers `status: "Failed"` when a step before the build
+   * branch gave out — its own classifier being unreachable is the one that
+   * happens — and that reply used to be stored as `build_started` in the normal
+   * tone. So the thread said "the build could not be completed" in the voice it
+   * uses for "your build is underway", under a row this route had set to
+   * Building a moment earlier and which nothing was going to move off it. A
+   * session reopened later read a build still in flight.
+   *
+   * Told as what it is instead: the row goes to Failed here rather than waiting
+   * on the orchestrator's own Supabase step, which is the step that has already
+   * been skipped if the run got this far. */
+  if (result.status === "Failed" || !result.ok) {
+    await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+
+    const stored = await deliver(result.message, {
+      kind: "build_failed",
+      tone: "error",
+      key: "build-failed",
+    });
+
+    return NextResponse.json(
+      { error: result.message, stored, steps: steps.list(), buildKind: kind.kind, build: result },
+      { status: 502 },
+    );
+  }
+
   /* The build is running and the thread says so — from here, not from the
      browser. It is what a session reopened five minutes later reads to know
      there is something still in flight to pick back up. */
