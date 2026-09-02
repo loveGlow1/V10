@@ -20,7 +20,7 @@ import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent } from "@/lib/builder/intent";
-import { isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
+import { BUILD_KINDS, isBuildKind, KIND_BLURB, KIND_LABEL } from "@/lib/builder/kinds";
 import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
@@ -1009,6 +1009,53 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      src/lib/builder/market.ts. */
   const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
   steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
+
+  /* ── Ask, rather than guess, when the rules could not decide ────────────
+     A full build is minutes of generation and real money, and building the
+     wrong kind wastes both — a storefront when somebody wanted a landing page
+     is not an edit away, it is a rebuild. One question costs a round trip.
+
+     But only when it is a real question. Asking every time would interrogate
+     somebody who typed "an online store with a cart and checkout", and a
+     builder that checks what you plainly said is worse than one that acts on
+     it. So the line is exactly where the deterministic rules give up: a chip
+     that was pressed, a brief that names its kind, and a brief that demands
+     one kind's machinery all go straight through. What reaches the model —
+     about one brief in ten — is what nobody could read confidently, and that
+     is worth thirty seconds of somebody's time.
+
+     Nothing has happened yet and nothing will until an answer comes back
+     carrying buildKind, which arrives as an override and cannot ask again. */
+  if (kind.source === "model") {
+    const asked =
+      `I can build this a few different ways and I would rather ask than guess. ` +
+      `Which is it?`;
+    const stored = await deliver(asked, { key: "which-kind" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsKind: true,
+      /* The four, with the leading reading first so the likeliest answer is
+         the first thing under the thumb. */
+      kindOptions: [kind.kind, ...BUILD_KINDS.filter((option) => option !== kind.kind)].map(
+        (option) => ({ kind: option, label: KIND_LABEL[option], blurb: KIND_BLURB[option] }),
+      ),
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: kind.kind,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
 
   /* ── The pictures, decided before a line of the page is written ─────────
      The architectural rule, at the point it actually applies: the model that

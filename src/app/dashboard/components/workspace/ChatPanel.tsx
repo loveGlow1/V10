@@ -174,6 +174,12 @@ export default function ChatPanel({
   /* A message that would replace the page, waiting to be confirmed. Held whole
      so the same text can be sent again either way. */
   const [pendingConfirm, setPendingConfirm] = useState<{ text: string } | null>(null);
+  /* The four kinds, offered because the classifier could not tell. Nothing has
+     happened yet; pressing one re-sends the same message with the kind
+     attached, which the server takes as a choice rather than a reading. */
+  const [pendingKind, setPendingKind] = useState<
+    { text: string; options: { kind: BuildKind; label: string; blurb: string }[] } | null
+  >(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -740,6 +746,16 @@ export default function ChatPanel({
 
       /* A build that would replace the page. Nothing has happened yet, and
          nothing will until one of the two buttons is pressed. */
+      /* The rules could not read what kind of thing this is. Asked rather than
+         guessed, because building the wrong kind is a rebuild rather than an
+         edit — and nothing has run yet, so nothing is wasted by waiting. */
+      if (reply.needsKind && reply.kindOptions) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingKind({ text, options: reply.kindOptions });
+        setAttached(sent);
+        return;
+      }
+
       if (reply.needsConfirmation) {
         /* Asked, not warned. This is the panel checking before it replaces a
            page — the two buttons under it are the whole point, and marking the
@@ -753,6 +769,7 @@ export default function ChatPanel({
       }
 
       setPendingConfirm(null);
+      setPendingKind(null);
       const outcome = reply.outcome;
       /* The server's own account of what it did, which replaces the one this
          panel was guessing at. It names the operations and what each cost —
@@ -1254,6 +1271,38 @@ export default function ChatPanel({
           </p>
         )}
         </div>
+        )}
+
+        {/* Which of the four this is. Only ever shown when the rules genuinely
+            could not tell — a chip that was pressed, or a brief that names its
+            kind, never reaches this. The leading reading is first, so the
+            likeliest answer is the first thing under the thumb. */}
+        {pendingKind && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            {pendingKind.options.map((option) => (
+              <button
+                key={option.kind}
+                type="button"
+                title={option.blurb}
+                onClick={() => {
+                  const { text } = pendingKind;
+                  setPendingKind(null);
+                  setMode("auto");
+                  void send(text, { buildKind: option.kind, silent: true });
+                }}
+                className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPendingKind(null)}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
         )}
 
         {/* The one question worth interrupting for. Nothing has happened yet,
