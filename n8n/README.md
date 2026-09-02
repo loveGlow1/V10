@@ -4,8 +4,11 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
 
 - **Workflow**: `QuickStark.Ai — Build Orchestrator` (`pIJ3Fu5QpGTotf2m`)
 - **Editor**: https://neauraissystems.app.n8n.cloud/workflow/pIJ3Fu5QpGTotf2m
-- **Source of truth**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
-  Edit it here, re-validate, and push the change to n8n rather than hand-editing the canvas.
+- **Source of truth**: the live workflow. [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts)
+  is the SDK version and **has drifted** — it still carries the removed WordPress
+  and e-commerce branches, and it predates `Kind Decided By App`, the asset
+  manifest and the app-composed system prompt. Read the canvas, or
+  `get_workflow_details`, before trusting it.
 
 ## Shape
 

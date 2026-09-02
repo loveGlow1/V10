@@ -55,7 +55,16 @@ sign-in, three tables and a SQL schema.
 }
 ```
 
-## What the workflow has to do
+## What the workflow does
+
+**This is wired.** Verified against the live workflow `pIJ3Fu5QpGTotf2m` on
+2026-09-02: `Normalize Build Request` carries both fields, a new
+`Kind Decided By App` IF node routes straight to the build branch when
+`buildKind` is present — skipping the classifier and its model call entirely —
+and `Generate Page` sends `systemPrompt || $json.system`, so the app's composed
+prompt is what runs and the node's own text is only a fallback.
+
+For reference, that is:
 
 **`Normalize Build Request`** carries the two new fields through, the same way it
 carries `prompt`:
@@ -80,7 +89,27 @@ disagree with the prompt the page was actually built from.
 
 The classifier node inside the workflow is now redundant for builds that come
 from this app. It stays for the moment because it is also the route's "none of
-these fit" fallback, but it must not overrule `buildKind`.
+these fit" fallback, but it must not overrule `buildKind` — and the IF node in
+front of it means a build with a kind never reaches it at all. That was worth
+doing for its own sake: the classifier was the one node every build passed
+through, so an Anthropic outage took down every build in order to re-decide
+something the app had already decided.
+
+### Two fallbacks that are now stale
+
+Both only run for a caller that sends no `buildKind`, which the app never does.
+Neither is urgent; both are wrong if they ever fire.
+
+- **`Compose Page Prompt`'s own system text** is the original single prompt,
+  including "no external images: use inline SVG … for artwork" — the rule that
+  produced the clip-art look. A build that fell back to it would come out in the
+  old style, with no blueprint, no locale and no asset manifest.
+- **`Intent Classifier`'s categories** describe one category and say a blog, a
+  WordPress site or a store "is not this". The app now routes four kinds.
+
+The honest fix for both is to delete them rather than maintain a second copy:
+if `buildKind` is absent the caller is not this app, and answering it with a
+five-year-old prompt is worse than answering it with "send a buildKind".
 
 ## How a kind is decided
 
