@@ -29,6 +29,7 @@ import {
   KIND_LABEL,
   type KindResult,
 } from "@/lib/builder/kinds";
+import { builderAvailability } from "@/lib/builder/availability";
 import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
 import { DEFAULT_MODEL, PROVIDER_LABEL, resolveModel } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
@@ -495,6 +496,36 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       kind: options.kind ?? "chat",
       dedupeKey: `${options.key}:${requestId}`,
     });
+  }
+
+  /* Not taking work at all.
+   *
+   * Above the classifier, because classifying is itself a model call — asking a
+   * dead key what a message means, in order to tell somebody the key is dead,
+   * is the same mistake one level down.
+   *
+   * This is the case a configured key cannot catch: present, valid, and refused
+   * for having no balance. Nothing below runs — no classification, no credit,
+   * no "Building" on the row, and above all no spinner counting up toward
+   * something that cannot happen. The person keeps their words and their
+   * attachments and is told plainly whose problem it is.
+   *
+   * Two things are still allowed through, because neither needs a model and
+   * both still work: handing over the file, which is a rule and a URL, and the
+   * Undo button, which sends its own intent and replays a stored page. Refusing
+   * those would be an outage pretending to be bigger than it is.
+   *
+   * See src/lib/builder/availability.ts for why this is a switch rather than
+   * something the app tries to work out for itself. */
+  const availability = builderAvailability();
+  const worksWhilePaused = (currentHtml && wantsDownload(prompt)) || override === "revert";
+  if (availability.paused && !worksWhilePaused) {
+    const stored = await deliver(availability.message, {
+      kind: "build_failed",
+      tone: "error",
+      key: "builder-paused",
+    });
+    return NextResponse.json({ error: availability.message, stored, paused: true }, { status: 503 });
   }
 
   /* Announced before the call, not after it. Classifying is a round trip when

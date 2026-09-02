@@ -9,6 +9,7 @@
     "lint": "next lint",
     "check:assets": "node tools/check-assets.mjs",
     "check:auth-domain": "node tools/check-auth-domain.mjs",
+    "check:availability": "node tools/check-availability.mjs",
     "check:blueprint": "node tools/check-blueprint.mjs",
     "check:brief": "node tools/check-brief.mjs",
     "check:builder": "node tools/check-builder.mjs",
