@@ -92,7 +92,9 @@ try {
   rewrite(out);
 
   const { heuristicKind, BUILD_KINDS } = await import(join(out, "lib/builder/kinds.js"));
-  const { composeBuildPrompt } = await import(join(out, "lib/builder/blueprints/index.js"));
+  const { composeBuildPrompt, BLUEPRINTS } = await import(
+    join(out, "lib/builder/blueprints/index.js")
+  );
 
   /* ── Routing ─────────────────────────────────────────────────────────── */
   let totalCases = 0;
@@ -139,38 +141,90 @@ try {
   console.log("");
 
   /* Every prompt has to keep its frame. These are the headings composition
-     writes, and a blueprint emptied of sections or exclusions loses one. */
+     writes, and a blueprint emptied of a field loses one. */
   const FRAME = [
     "WHAT THIS IS:",
     "BUILD THESE, IN THIS ORDER:",
+    "REQUIRED ONLY WHEN THE BRIEF CALLS FOR IT",
     "THIS HAS TO WORK, NOT BE DEPICTED:",
     "NOT PART OF THIS BUILD",
-    "HOW MUCH:",
+    "HOW MUCH",
+    "THE STANDARD FOR THIS KIND:",
+    "DONE MEANS:",
+    "THE BRIEF",
     "THE BAR",
-    "OUTPUT FORMAT",
+    "THE INTERACTION RULE",
+    "THE SECTION DEPTH RULE",
     "CONTENT GOES IN THE HTML",
+    "FINISHING",
   ];
 
   /* The separations that were actually being got wrong, asserted as words that
      must appear in the exclusions. Each pair is one production complaint. */
   const SEPARATION = {
-    landing: ["cart", "checkout", "sign-in", "blog index", "admin"],
-    ecommerce: ["dashboard", "blog"],
-    blog: ["cart", "checkout", "pricing tiers", "dashboard"],
-    webapp: ["hero", "cart", "blog"],
+    landing: ["cart", "checkout", "sign-in wall", "blog index", "admin dashboard"],
+    ecommerce: ["sign-in wall", "admin dashboard", "inventory back office", "blog"],
+    blog: ["pricing table", "pricing tiers", "cart", "checkout", "marketing hero"],
+    webapp: ["marketing hero", "storefront", "fake dashboard"],
   };
 
+  /* One brief, used for every kind, so the composed prompts differ only by
+     blueprint. It is deliberately a real sentence: a prompt that only holds
+     together around a placeholder is not being checked. */
+  const BRIEF = "Build something for Harbour & Vine, a small business in Bristol.";
+
   for (const kind of BUILD_KINDS) {
-    const prompt = composeBuildPrompt(kind);
+    const blueprint = BLUEPRINTS[kind];
+
+    /* The contract before the prose. Every field carries a floor, because an
+       emptied array still composes a prompt — one with a heading and nothing
+       under it, which is exactly the thin output this whole thing exists to
+       stop. */
+    const empty = [
+      ["identity", blueprint.identity.length > 40],
+      ["requirements", blueprint.requirements.length >= blueprint.depth.minimumSections],
+      ["interactions", blueprint.interactions.length >= 3],
+      ["exclusions", blueprint.exclusions.length >= 3],
+      ["qualityRules", blueprint.qualityRules.length >= 3],
+      ["completionRules", blueprint.completionRules.length >= 2],
+      ["depth.floors", blueprint.depth.floors.length >= 3],
+      ["conditionalRequirements", blueprint.conditionalRequirements.length >= 3],
+      ["kind matches its file", blueprint.kind === kind],
+    ]
+      .filter(([, ok]) => !ok)
+      .map(([field]) => field);
+
+    if (empty.length > 0) {
+      fail(`${kind}: the blueprint no longer meets its own contract`, empty.join(", "));
+      continue;
+    }
+
+    /* Conditional requirements are the field that keeps a calculator from
+       being handed a CRM's back end, and they only work if each one states
+       what brings it in. */
+    const shapeless = blueprint.conditionalRequirements.filter(
+      (rule) => !rule.when || !rule.require || rule.when.length < 15 || rule.require.length < 15,
+    );
+    if (shapeless.length > 0) {
+      fail(`${kind}: a conditional requirement has no condition or no requirement`);
+      continue;
+    }
+
+    const prompt = composeBuildPrompt(kind, BRIEF, { projectName: "Harbour & Vine" });
     const missing = FRAME.filter((heading) => !prompt.includes(heading));
     if (missing.length > 0) {
       fail(`${kind}: the composed prompt lost part of its frame`, missing.join(", "));
       continue;
     }
 
+    if (!prompt.includes(BRIEF)) {
+      fail(`${kind}: the brief did not reach the composed prompt`);
+      continue;
+    }
+
     const excludes = prompt.slice(
       prompt.indexOf("NOT PART OF THIS BUILD"),
-      prompt.indexOf("HOW MUCH:"),
+      prompt.indexOf("HOW MUCH"),
     );
     const unsaid = SEPARATION[kind].filter(
       (word) => !excludes.toLowerCase().includes(word.toLowerCase()),
@@ -183,9 +237,16 @@ try {
     /* Long enough to be a blueprint rather than a sentence, short enough to
        leave the model room to answer with a whole document. */
     const words = prompt.split(/\s+/).length;
-    if (words < 400) fail(`${kind}: the prompt is ${words} words, which is too thin to be a blueprint`);
-    else if (words > 2200) fail(`${kind}: the prompt is ${words} words, which crowds out the page`);
-    else console.log(`ok   ${kind.padEnd(10)} ${words} words, frame intact, exclusions in place`);
+    if (words < 500) fail(`${kind}: the prompt is ${words} words, which is too thin to be a blueprint`);
+    else if (words > 2600) fail(`${kind}: the prompt is ${words} words, which crowds out the build`);
+    else
+      console.log(
+        `ok   ${kind.padEnd(10)} ${String(words).padStart(4)} words · ${
+          blueprint.requirements.length
+        } required · ${blueprint.conditionalRequirements.length} conditional · ${
+          blueprint.exclusions.length
+        } excluded · min ${blueprint.depth.minimumSections}`,
+      );
   }
 
   if (failed > 0) {

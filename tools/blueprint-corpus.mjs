@@ -88,6 +88,29 @@ export const MIXED = [
   ["an admin dashboard for managing store inventory and orders", "webapp"],
 ];
 
+/* The ladder, exercised rung by rung. Each of these exists because one rung
+   has to beat another: a label beats the subject it is about, machinery beats
+   the label, and neither may fire on words that only look like them. */
+export const LADDER = [
+  // rung 2 — the brief names its kind, and the subject does not overrule it
+  ["build me a landing page for my fashion brand", "landing"],
+  ["create an ecommerce store for my fashion brand", "ecommerce"],
+  ["build a blog about technology", "blog"],
+  ["create a web app for managing projects", "webapp"],
+  // rung 3 — machinery beats the label
+  ["build a landing page with products, a cart and checkout", "ecommerce"],
+  ["a landing page where customers log in and see their orders", "webapp"],
+  // rung 3 must NOT fire on words that only resemble machinery. A sign-up
+  // field and a payment button are on half the landing pages ever built.
+  ["a landing page with a sign up form", "landing"],
+  ["landing page for a charity with a donate button", "landing"],
+  // lightweight products are still web apps — the blueprint decides how much
+  // architecture they get, not the router
+  ["build me a mortgage repayment calculator", "webapp"],
+  ["an AI tool that rewrites emails", "webapp"],
+  ["a unit converter for cooking measurements", "webapp"],
+];
+
 /** Written before it was run, and used once to find what the rules missed. */
 export const WILD = [
   ["something for my restaurant", "landing"],
@@ -102,4 +125,4 @@ export const WILD = [
   ["internal crm, accounts, roles, postgres behind it", "webapp"],
 ];
 
-export const SETS = { corpus: CORPUS, mixed: MIXED, wild: WILD };
+export const SETS = { corpus: CORPUS, mixed: MIXED, ladder: LADDER, wild: WILD };

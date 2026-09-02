@@ -1,70 +1,132 @@
 import type { Blueprint } from "@/lib/builder/blueprints/base";
 
-/* A web application: both halves of one.
+/* A web application.
  *
- * The instruction this file is written to is that a web app is a full front end
- * AND a full back end — not a screenshot of an app, and not a front end that
- * pretends there is something behind it.
+ * The kind that must not be one shape. "Web app" covers a SaaS platform, a CRM,
+ * a project tracker, a finance tool, an AI utility, a booking system, an
+ * internal tool, an analytics product — and the first version of this blueprint
+ * required all of them to have sign-in, three related tables, an API surface
+ * and a SQL appendix. That is right for a CRM and absurd for a unit converter,
+ * and a blueprint that demands a back end from a calculator produces the same
+ * fake dashboard the whole split was meant to stop.
  *
- * One HTML file has no server, and no amount of prompting changes that. What it
- * can carry, and what this blueprint requires, is the back end designed rather
- * than implied: every read and write in the interface goes through one data
- * layer that behaves like a real API — asynchronous, validating, failing where
- * a real one would fail — over tables that are declared in one place; and the
- * document ends with the schema and the endpoint list written out, so what the
- * preview demonstrates is a design somebody could go and build.
+ * So the requirements here are what every application has whatever it is — a
+ * shell, navigation, four real workflows, and the four states that separate an
+ * application from a screenshot of one — and everything architectural moved
+ * into `conditionalRequirements`, each with the test that brings it in.
  *
- * That is the difference between an app and a mockup of one, and it is why the
- * data layer section below is not optional decoration: it is the half of the
- * product the old prompt never produced. */
+ * When a product does need a back end, it is designed rather than implied: one
+ * HTML file has no server, and no amount of prompting changes that. What it can
+ * carry is a data layer that behaves like an API over declared tables, and the
+ * schema and endpoint list written out at the end, so what the preview
+ * demonstrates is a design somebody could go and build. */
 
 export const webapp: Blueprint = {
-  purpose:
-    "A working application in two halves: an interface people sign into and use, and the back end it runs on — a data layer with real tables and a real API surface, declared and used rather than implied.",
+  kind: "webapp",
 
-  sections: [
-    "Data layer — FIRST, at the top of the script, before any interface code. Declare the tables this app needs as ordinary arrays of records with explicit ids, foreign keys, timestamps and enums, seeded with realistic rows. Then one `api` object whose methods are the only way the interface touches data: list with filtering, sorting and pagination; get by id; create; update; delete; plus sign-in, sign-up and sign-out. Every method is async, validates its input, enforces who may do it, and returns either data or a typed error. No interface code reads a table directly.",
-    "Authentication — sign-in, sign-up and sign-out that work against that data layer. Validate properly: required fields, a plausible email shape, a minimum password length, a password confirmation on sign-up, and errors shown inline beside the field rather than in an alert. SEED ONE DEMO ACCOUNT AND PRINT ITS EMAIL AND PASSWORD ON THE SIGN-IN SCREEN — a preview nobody can get into is a locked door, and nobody guesses a password you invented.",
-    "App shell — a persistent sidebar with the product's real navigation, a top bar with search, notifications and a user menu that signs out, and a content area the views render into. It collapses sensibly on a phone.",
-    "Overview — the landing view once signed in. Four KPI tiles with real figures and a period-on-period change, two charts drawn as inline SVG from the seeded data (never a charting library), and a recent-activity feed with names, actions and relative times.",
-    "The primary record view — the app's main table: columns that matter for this product, sortable headers, a search field, filters by status or owner, pagination with a real count, per-row actions, and bulk selection with an action on the selection.",
-    "Record detail — opened from a row: the record's fields, its status, its history, and any related records, all read through the api layer.",
-    "Create and edit — a dialog with a properly labelled form, field-level validation with inline errors, a busy state while the api call is in flight, a success toast, and the table updated from the returned record rather than optimistically faked.",
-    "Delete — with a confirmation naming what is being deleted, and an undo affordance.",
-    "A second working view specific to this product — a pipeline, a calendar, a queue, a report, whatever this app is actually for — reading the same data through the same api.",
-    "Settings — profile, team members with roles, notification preferences, and a danger zone. The forms save through the api and reflect the result.",
-    "Empty, loading and error states for every list and every form. An app is judged on these, and a demo never has them.",
-    "Back-end appendix — an HTML comment at the end of the document containing the SQL schema (tables, columns, types, primary and foreign keys, indexes, and row-level security policies in Postgres/Supabase form) and the REST endpoint list the api object stands in for, one line each with method, path and what it returns.",
+  identity:
+    "A working application: the product the brief describes, with the shell, the navigation and the real workflows it would actually have — shaped by what it is, not forced into a dashboard.",
+
+  requirements: [
+    "An application shell appropriate to THIS product. A tool with one job gets a workspace and a slim bar; a multi-object product gets a sidebar, a top bar and a content area. Choose the shell the product needs and say nothing about a dashboard unless it needs one.",
+    "Navigation that names the real parts of this product, and leads to every one of them. Nothing in the navigation is unbuilt.",
+    "At least four meaningful views, states or workflows — the things people actually come here to do. A workflow counts when it changes something and can be carried out end to end; a view that only displays does not.",
+    "The product's primary workflow, built in full and prominent: the thing this application is for, from starting it to finishing it, including whatever it produces.",
+    "Meaningful data representation — whatever this product's information actually is, written into the HTML: records, entries, results, documents, events, messages. Real values, varied, plausible for the domain.",
+    "Create and edit, where the product has anything to create: a properly labelled form, field-level validation with inline errors, a busy state while it runs, and the result reflected everywhere it appears.",
+    "Destructive actions confirmed by name, with an undo affordance where one makes sense.",
+    "The four states, everywhere they apply: loading while something runs, empty when there is nothing yet (with the way to start), success when something lands, and error when something fails — stated in the interface, not in an alert.",
+    "A settings or preferences surface appropriate to the product's size.",
   ],
 
-  optional: [
+  optionalFeatures: [
     "A command palette on ctrl/cmd-K over content already in the page.",
+    "Keyboard shortcuts for the primary workflow.",
     "A dark-mode toggle.",
-    "An onboarding checklist on first sign-in.",
+    "An onboarding checklist or first-run state.",
   ],
 
-  behaviour: [
-    "Views are sections of the same document, shown and hidden by script. Never navigate away, never use a router, never open a second page.",
-    "A protected view must not render until someone is signed in, and signing out must return to the sign-in screen with the session cleared.",
-    "Every mutation goes through the api layer and the interface re-renders from what it returns. A row edited in a dialog changes in the table, in the detail panel, and in any KPI derived from it.",
-    "The api layer behaves like a network: a short delay, a busy state in the interface while it runs, and at least one path that returns a real error the interface shows properly.",
-    "Permissions are enforced in the api layer, not hidden in the interface: a viewer role that cannot delete gets an error from the call, not merely a missing button.",
-    "Sorting, filtering, searching and pagination all operate on records the HTML already contains.",
+  depth: {
+    minimumSections: 4,
+    counts: "views, states or workflows",
+    floors: [
+      "All of them built. A navigation of six items where four do nothing is the tell.",
+      "Enough seeded content to look used rather than new: for a records product, twenty or more rows with varied names, dates spread over months, several statuses and realistic amounts; for a tool, enough worked examples and history to show what it does.",
+      "The primary workflow deep enough to be judged on: not one screen, but the sequence a real use of it takes.",
+      "Depth appropriate to the product asked for. A team platform is bigger than a personal utility, and neither should be padded to look like the other.",
+    ],
+  },
+
+  interactions: [
+    "Views are sections of one document, shown and hidden by script. Never navigate away, never use a router, never open a second page.",
+    "Every mutation re-renders what it affects. A record edited in a dialog changes in the list, in the detail panel, and in any figure derived from it.",
+    "Sorting, filtering, searching and pagination all operate on content the HTML already contains.",
+    "Anything that would take time shows a busy state while it runs, and at least one path returns a real error the interface handles properly.",
+    "Forms validate specifically and inline. Nothing posts anywhere.",
   ],
 
-  excludes: [
-    "Not a marketing page for an app. There is no hero, no pricing table and no testimonials; the first screen is sign-in and everything after it is the product.",
-    "No cart or checkout unless the brief asks for billing, and then it is a settings screen, not a storefront.",
-    "No blog or article archive.",
-    "No fetch to any URL, no real network calls, no server to post to. The api layer is the back end.",
-    "No storage APIs — the session lives in a variable. Say once, quietly, that data resets when the tab closes.",
+  conditionalRequirements: [
+    {
+      when: "the product has user accounts, personal workspaces, saved data, private content, or more than one user",
+      require:
+        "sign-in, sign-up and sign-out that work, validating properly with inline errors; a protected area that does not render until someone is signed in; and ONE SEEDED DEMO ACCOUNT WHOSE EMAIL AND PASSWORD ARE PRINTED ON THE SIGN-IN SCREEN — a preview nobody can get into is a locked door",
+    },
+    {
+      when: "the product has admins, team members, different access levels, or actions only some people may take",
+      require:
+        "roles on the seeded people, and permissions enforced where the action is carried out rather than by hiding the button — a viewer who cannot delete gets a refusal, not a missing control",
+    },
+    {
+      when: "the product holds structured data that persists between uses",
+      require:
+        "a declared data model at the top of the script: tables as arrays of records with explicit ids, foreign keys, timestamps and enums, seeded realistically, with nothing in the interface reading a table directly",
+    },
+    {
+      when: "the product needs a front end and a back end to talk to each other",
+      require:
+        "one api object as the only way the interface touches data — async methods that validate, enforce permissions, and return either data or a typed error; and the endpoint list it stands in for written out at the end of the document as an HTML comment, one line each with method, path and what it returns",
+    },
+    {
+      when: "the product genuinely needs server-side work — persistence, authentication, integrations, scheduled or protected operations",
+      require:
+        "the back end designed and written down: the SQL schema (tables, columns, types, primary and foreign keys, indexes, and row-level security policies in Postgres/Supabase form) in an HTML comment at the end of the document, alongside the endpoints",
+    },
+    {
+      when: "the product is a calculator, converter, generator, editor, single-purpose AI tool or other lightweight utility",
+      require:
+        "NONE of the four requirements above. No sign-in, no tables, no api layer, no schema. Build the tool itself properly instead: the input, the work, the result, the history of what has been done in this session, and the states around all of it. Forcing a CRM's architecture onto a utility is the failure this rule exists to prevent",
+    },
+    {
+      when: "the product is analytics, reporting or monitoring",
+      require: "charts drawn as inline SVG from the seeded data, with real axes and real values — never a charting library, never a decorative shape",
+    },
+    {
+      when: "the product involves scheduling, bookings or a calendar",
+      require: "a working calendar or availability view with real slots, and a booking that can be made, seen afterwards and cancelled",
+    },
   ],
 
-  depth: [
-    "At least four working views reachable from the sidebar, all built. A sidebar of six links where four do nothing is the tell.",
-    "At least three tables in the data layer, related to each other by id, and at least twenty rows in the main one.",
-    "At least eight columns worth having on the primary table.",
-    "Seeded data that reads like a real account: varied names, dates spread over months, several statuses, realistic amounts.",
-    "The back-end appendix is required, not optional. A build without it is half a product.",
+  exclusions: [
+    "No marketing hero, no feature grid, no testimonials, no pricing section inside the application. The first screen is the product (or its sign-in, when it has one).",
+    "No storefront mechanics — cart, checkout, product grid — unless the brief explicitly asked for them.",
+    "No fake dashboard widgets. A tile, chart or counter that does not read from something real in the page is worse than no tile.",
+    "No navigation item, tab or view that is not built.",
+    "No fetch to any URL and no real network calls. Where the product needs a back end, the api layer is it.",
+    "No storage APIs — state lives in variables. Say once, quietly, that it resets when the tab closes.",
+  ],
+
+  qualityRules: [
+    "The structure matches the product that was asked for. If the brief says invoicing, the objects are invoices, clients and payments — not 'Items' on a generic dashboard.",
+    "Use the domain's own vocabulary throughout: its words for its objects, its statuses, its actions.",
+    "Density belongs to the kind of product. A data tool may be dense; a consumer tool should not be.",
+    "Seeded content reads like a real account in use: varied, uneven, with history behind it.",
+    "Do not add architecture the product does not need, and do not skip architecture it does.",
+  ],
+
+  completionRules: [
+    "Every item in the navigation opens something that was built.",
+    "The primary workflow can be carried out from start to finish, and what it produces persists for the rest of the session.",
+    "Loading, empty, success and error states exist wherever they apply, not only on the first screen.",
+    "Where a conditional requirement applied, it is met in full — and where none applied, none was invented.",
   ],
 };

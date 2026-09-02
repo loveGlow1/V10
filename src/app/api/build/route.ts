@@ -984,7 +984,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     brief: brief.text,
     override: isBuildKind(body.buildKind) ? body.buildKind : null,
   });
-  steps.mark("kind", `Building ${KIND_LABEL[kind.kind].toLowerCase()}`, KIND_BLURB[kind.kind]);
+  steps.mark(
+    "kind",
+    `Building ${KIND_LABEL[kind.kind].toLowerCase()}`,
+    `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
+  );
 
   /* Stored before the build runs, so a build that times out on the way back
      still leaves the workspace showing why it is not idle. The brief is stored
@@ -1010,22 +1014,34 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       "Building your page",
       "handed to the orchestrator — this one takes minutes, not seconds…",
     );
+    /* What was attached, in the two forms a workflow can carry: signed
+       addresses for images, and text already read for everything else. Read
+       once here rather than twice, because the composed prompt needs to know
+       about them as well as the orchestrator. */
+    const imageUrls = await signedImageUrls(attachments);
+    const attachedText = await attachmentText(attachments);
+
     result = await startBuild({
       prompt: brief.text,
       projectName: project.name,
       userId: user.id,
       projectId: project.id,
       requestId,
-      /* What was attached, in the two forms a workflow can carry: signed
-         addresses for images, and text already read for everything else. */
-      attachmentUrls: await signedImageUrls(attachments),
-      attachmentText: await attachmentText(attachments),
-      /* What to build, and the prompt to build it from. The workflow is handed
-         both rather than deciding for itself: prompts that live in a node can
-         only be changed in a browser, with no diff and no review, and that is
-         how one prompt came to serve four different kinds of page. */
+      attachmentUrls: imageUrls,
+      attachmentText: attachedText,
+      /* What to build, and the whole prompt to build it from: the base rules,
+         the blueprint for this kind, the brief, and what the app knows about
+         the project. The workflow is handed both rather than deciding for
+         itself — prompts that live in a node can only be changed in a browser,
+         with no diff and no review, and that is how one prompt came to serve
+         four different kinds of product. */
       buildKind: kind.kind,
-      systemPrompt: composeBuildPrompt(kind.kind),
+      systemPrompt: composeBuildPrompt(kind.kind, brief.text, {
+        projectName: project.name,
+        attachmentText: attachedText,
+        imageCount: imageUrls.length,
+        carriedFrom: brief.carried,
+      }),
     });
   } catch (error) {
     if (error instanceof BuilderError) {

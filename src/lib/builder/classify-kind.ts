@@ -52,13 +52,23 @@ export async function classifyKind(opts: {
   brief: string;
   override?: BuildKind | null;
 }): Promise<KindResult> {
-  if (opts.override) return { kind: opts.override, confidence: 1, source: "override" };
+  /* Rung one: a choice, not a reading. The target chips above the composer say
+     what someone wants before they have written a word of it, and nothing
+     below is allowed to talk them out of it. */
+  if (opts.override) {
+    return { kind: opts.override, confidence: 1, source: "selection", reason: "you chose it" };
+  }
 
   const quick = heuristicKind(opts.brief);
   if (quick) return quick;
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return { kind: bestKindGuess(opts.brief), confidence: 0.4, source: "model" };
+    return {
+      kind: bestKindGuess(opts.brief),
+      confidence: 0.4,
+      source: "model",
+      reason: "closest reading of what you described",
+    };
   }
 
   try {
@@ -86,8 +96,14 @@ export async function classifyKind(opts: {
       kind: isBuildKind(parsed.kind) ? parsed.kind : bestKindGuess(opts.brief),
       confidence: Number(parsed.confidence ?? 0.5),
       source: "model",
+      reason: "read from what you described",
     };
   } catch {
-    return { kind: bestKindGuess(opts.brief), confidence: 0.4, source: "model" };
+    return {
+      kind: bestKindGuess(opts.brief),
+      confidence: 0.4,
+      source: "model",
+      reason: "closest reading of what you described",
+    };
   }
 }
