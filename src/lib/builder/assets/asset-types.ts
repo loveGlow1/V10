@@ -171,6 +171,11 @@ export type AssetManifest = {
   assets: Record<string, string>;
   /** slot → alt text, so the markup can be written accessibly. */
   alt: Record<string, string>;
-  /** Slots that ended up as placeholders, named so the page can cope. */
+  /** Slots with no picture, named so the layout can hold their shape anyway. */
   unresolved: string[];
+  /* Slots the code generator makes itself — a logo, an icon, an avatar
+     monogram. Not a failure and not a placeholder: these were never going to be
+     photographs, and telling a generator to leave a blank panel where it should
+     draw a monogram is how a page ends up with holes in it. */
+  drawn: string[];
 };

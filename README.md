@@ -162,6 +162,36 @@ brief → classify → blueprint → visual planner → asset planner
 Quality defaults to `premium`. `npm run check:assets` covers the whole path
 offline: no key, no network, no cost.
 
+#### Image sources are plug-ins, never dependencies
+
+The builder must produce a complete project with every API key missing, every
+external provider disabled or down, and every rate limit reached. So the sources
+sit behind one `AssetProvider` interface and the chain is configuration:
+
+```
+project assets → curated library → Unsplash → Pexels → AI generation → panel
+```
+
+| Provider | Cost | Default |
+| --- | --- | --- |
+| **Project assets** — uploads, then anything this project already made | free | always on, nothing to configure |
+| **QuickStark curated library** — our own catalogue, the source that needs no third party | free | on when `CURATED_ASSETS_BASE_URL` points at the bucket |
+| **Unsplash / Pexels** | low | off unless a key is set |
+| **AI generation** | high | off unless explicitly enabled |
+
+Every provider reports one of `available`, `disabled`, `misconfigured`,
+`rate_limited` or `temporarily_unavailable`. A missing key is `misconfigured` —
+an ordinary, silent state, not an error. The resolver skips it and carries on.
+A provider that throws mid-build is skipped for that slot. **Nothing is ever
+shown to the person building the site, and nothing asks them to configure an
+API.**
+
+`ASSET_PROVIDER_ORDER` reorders or narrows the chain without touching code, and
+a per-build cost ceiling keeps the expensive source out of a build that can't
+afford it. Keys stay server-side: the generated project receives an asset URL
+and nothing else. `GET /api/health` reports `imagesConfigured`, plus per-provider
+states outside production.
+
 ### Photographs
 
 Generated pages used to draw everything — a product, a person, a plate of food,

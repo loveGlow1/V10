@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { fingerprint, reusable, uploaded, type Library } from "@/lib/builder/assets/asset-library";
-import { generateWithFallback, type ImageProvider } from "@/lib/builder/assets/asset-generator";
+import { fingerprint, type Library } from "@/lib/builder/assets/asset-library";
 import { thumbnail } from "@/lib/builder/assets/asset-optimizer";
 import { storeAsset } from "@/lib/builder/assets/asset-storage";
+import type { AssetProvider, ProviderId } from "@/lib/builder/assets/providers/types";
 import {
   isPhoto,
   type Asset,
@@ -12,163 +12,178 @@ import {
 } from "@/lib/builder/assets/asset-types";
 import type { AssetPlan } from "@/lib/builder/assets/asset-planner";
 
-/* Turning a plan into a manifest: for each slot, the best asset actually
- * available, in a fixed order of preference.
+/* Filling every slot a plan asked for, by walking the configured chain.
  *
- *   1. Something the user uploaded. Their logo is their logo, and nothing here
- *      may ever redraw it or replace their product photograph with a better
- *      one somebody else took.
- *   2. Something this project already made. Cheaper, faster, and the reason two
- *      builds of the same page look like the same page.
- *   3. Something generated or sourced now.
- *   4. A placeholder — and only here, at the end, having tried everything.
+ * The ladder is no longer written here, which is the change that matters. It is
+ * a list of providers the registry handed over — already ordered, already
+ * health-checked, already filtered to what this build can afford — and this
+ * walks it. Reordering sources, disabling one, or adding a sixth is
+ * configuration; nothing in this file knows the difference between a curated
+ * photograph and a generated one.
  *
- * The order is the whole value. Any single step of it is obvious; what is not
- * obvious, and what a code model gets wrong every time, is that these are
- * ranked rather than alternatives, and that the last one is a failure state
- * rather than a design choice.
- *
- * Nothing here throws. A project with no provider, no storage and no uploads
- * still resolves — every slot to a placeholder — because the alternative is a
- * build that fails over a picture. */
+ * What is written here, and stays written here, is that nothing throws. A
+ * provider that fails is a provider that is skipped. A chain that is empty
+ * resolves every slot to a placeholder. A build with no keys, no library and no
+ * network still produces a page, and nobody is ever asked to configure
+ * anything. */
 
 export type ResolveResult = {
   manifest: AssetManifest;
   /** Everything created along the way, for recording against the project. */
   created: Asset[];
-  used: { user: number; reused: number; made: number; placeholder: number };
+  /** Which source answered how often — for logs and an admin view, never a user. */
+  bySource: Partial<Record<ProviderId, number>>;
+  unresolved: number;
 };
 
 export async function resolveAssets(opts: {
   projectId: string;
   plan: AssetPlan;
   library: Library;
-  providers: ImageProvider[];
-  /** Off by default: storing is the caller's decision and needs a service key. */
+  /** In order, healthy, affordable. See providers/registry.usableProviders. */
+  providers: AssetProvider[];
+  /** Storing needs a service key; without it a supplied image is carried inline. */
   store?: boolean;
 }): Promise<ResolveResult> {
   const { projectId, plan, library, providers } = opts;
 
   const assets: Record<string, string> = {};
   const alt: Record<string, string> = {};
-  const unresolved: string[] = [];
+  const unresolvedSlots: string[] = [];
+  const drawnSlots: string[] = [];
   const created: Asset[] = [];
-  const used = { user: 0, reused: 0, made: 0, placeholder: 0 };
+  const bySource: Partial<Record<ProviderId, number>> = {};
 
   for (const request of plan.requests) {
     alt[request.slot] = request.alt;
 
-    /* Drawn assets never reach a provider. A logo, an icon or an avatar is made
-       by the code generator, and the manifest says so rather than pointing at a
-       picture of one. */
-    if (!isPhoto(request.type)) {
-      const own = uploaded(library, request);
-      if (own) {
-        assets[request.slot] = own.url;
-        used.user += 1;
-      } else {
-        assets[request.slot] = "";
-        unresolved.push(request.slot);
+    /* Drawn assets never reach a source. A logo, an icon or an avatar is made
+       by the code generator; only an upload can pre-empt that, and the project
+       provider is the one that knows about uploads. */
+    const chain = isPhoto(request.type)
+      ? providers
+      : providers.filter((provider) => provider.id === "project");
+
+    let filled = false;
+
+    for (const provider of chain) {
+      let supply = null;
+      try {
+        supply = await provider.supply(request, {
+          projectId,
+          direction: plan.direction,
+        });
+      } catch {
+        /* A source that throws is a source that is skipped. Its own health call
+           reports why on the next build; this one carries on. */
+        supply = null;
       }
-      continue;
+      if (!supply) continue;
+
+      const asset = await materialise(projectId, request, supply, opts.store === true);
+      if (!asset) continue;
+
+      assets[request.slot] = asset.url;
+      /* Only what we newly acquired is reported as created — a reuse from the
+         project's own library is not a new asset and must not be recorded as
+         one, or every build would double the row count. */
+      if (supply.provider !== "project") created.push(asset);
+      library.assets.push(asset);
+      bySource[supply.provider] = (bySource[supply.provider] ?? 0) + 1;
+      filled = true;
+      break;
     }
 
-    // 1 — the user's own
-    const theirs = uploaded(library, request);
-    if (theirs) {
-      assets[request.slot] = theirs.url;
-      used.user += 1;
-      continue;
+    if (!filled) {
+      assets[request.slot] = "";
+      /* A drawn slot nobody uploaded for is not a hole — it is the code
+         generator's own work, which is what it was always going to be. Only a
+         photograph that no source could supply is unresolved. */
+      if (isPhoto(request.type)) {
+        unresolvedSlots.push(request.slot);
+        created.push(unfilled(projectId, request));
+      } else {
+        drawnSlots.push(request.slot);
+      }
     }
-
-    // 2 — something this project already has
-    const existing = reusable(library, request);
-    if (existing) {
-      assets[request.slot] = existing.url;
-      used.reused += 1;
-      continue;
-    }
-
-    // 3 — made now
-    const made = await make(projectId, request, providers, opts.store === true);
-    if (made) {
-      assets[request.slot] = made.url;
-      created.push(made);
-      library.assets.push(made);
-      used.made += 1;
-      continue;
-    }
-
-    // 4 — nothing worked
-    assets[request.slot] = "";
-    unresolved.push(request.slot);
-    used.placeholder += 1;
-    created.push(failedAsset(projectId, request));
   }
 
   return {
-    manifest: { projectId, kind: plan.kind, direction: plan.direction, assets, alt, unresolved },
+    manifest: {
+      projectId,
+      kind: plan.kind,
+      direction: plan.direction,
+      assets,
+      alt,
+      unresolved: unresolvedSlots,
+      drawn: drawnSlots,
+    },
     created,
-    used,
+    bySource,
+    unresolved: unresolvedSlots.length,
   };
 }
 
-async function make(
+/* A supply becomes an asset: stored where it can be served from, or carried
+   inline when there is nowhere to store it. A source that answered with a URL
+   already has one and is left alone. */
+async function materialise(
   projectId: string,
   request: AssetRequest,
-  providers: ImageProvider[],
+  supply: NonNullable<Awaited<ReturnType<AssetProvider["supply"]>>>,
   store: boolean,
 ): Promise<Asset | null> {
-  if (!request.spec || providers.length === 0) return null;
-
-  const job = await generateWithFallback(providers, request.spec, request.quality);
-  if (job.status !== "ready" || !job.image) return null;
-
   const id = randomUUID();
-  const format = job.image.contentType.includes("png") ? "png" : "jpeg";
+  let url = supply.url ?? "";
 
-  /* Stored where it can be served from, or carried inline when there is nowhere
-     to store it. Inline is the lesser answer — it is regenerated with the page
-     and cannot be reused — and it is still better than no picture. */
-  let url: string;
-  if (store) {
-    const stored = await storeAsset({
-      projectId,
-      assetId: id,
-      bytes: job.image.bytes,
-      contentType: job.image.contentType,
-      format,
-    });
-    if (!stored) return null;
-    url = stored.url;
-  } else {
-    url = `data:${job.image.contentType};base64,${job.image.bytes.toString("base64")}`;
+  if (!url && supply.bytes) {
+    const format = (supply.contentType ?? "image/png").includes("png") ? "png" : "jpeg";
+    if (store) {
+      const stored = await storeAsset({
+        projectId,
+        assetId: id,
+        bytes: supply.bytes,
+        contentType: supply.contentType ?? "image/png",
+        format,
+      });
+      if (!stored) return null;
+      url = stored.url;
+    } else {
+      url = `data:${supply.contentType ?? "image/png"};base64,${supply.bytes.toString("base64")}`;
+    }
   }
+
+  if (!url) return null;
 
   return {
     id,
     projectId,
     type: request.type,
-    source: providers[0]?.kind === "library" ? "external" : "generated",
+    source:
+      supply.provider === "project"
+        ? "user"
+        : supply.provider === "ai"
+          ? "generated"
+          : "external",
     status: "ready",
     url,
     thumbnailUrl: url.startsWith("data:") ? undefined : thumbnail(url),
-    width: job.image.width,
-    height: job.image.height,
-    format: format === "png" ? "png" : "jpeg",
+    width: supply.width,
+    height: supply.height,
+    format: url.includes(".png") ? "png" : "jpeg",
     quality: request.quality,
     /* The fingerprint rather than the sentence: it is what reuse looks itself
-       up by, and it is stable where a prompt's wording is not. */
-    prompt: fingerprint(request.spec),
-    provider: job.image.provider,
+       up by, and it is stable where wording is not. */
+    prompt: request.spec ? fingerprint(request.spec) : undefined,
+    provider: supply.provider,
     altText: request.alt,
     tags: [request.slot, request.type],
-    createdAt: new Date().toISOString(),
+    createdAt: supply.retrievedAt,
     generationVersion: 1,
   };
 }
 
-function failedAsset(projectId: string, request: AssetRequest): Asset {
+function unfilled(projectId: string, request: AssetRequest): Asset {
   return {
     id: randomUUID(),
     projectId,
@@ -189,18 +204,23 @@ function failedAsset(projectId: string, request: AssetRequest): Asset {
  *
  * Flat and boring on purpose. This is the only thing the generating model is
  * told about imagery, and every decision behind it — what was needed, where it
- * came from, what it cost, what to do when it failed — has already been made.
+ * came from, what it cost, what to do when nothing answered — has been made.
+ *
+ * No key, no URL template and no provider name appears here. The generated
+ * project receives an address and nothing else.
  */
 export function manifestForPrompt(manifest: AssetManifest): string {
-  const lines = Object.entries(manifest.assets).map(([slot, url]) =>
-    url
-      ? `- ${slot}: ${url}   (alt: ${manifest.alt[slot] ?? ""})`
-      : `- ${slot}: NOT AVAILABLE — draw a plain toned panel at the right aspect ratio, never an <img> and never a drawing of the subject`,
-  );
+  const lines = Object.entries(manifest.assets).map(([slot, url]) => {
+    if (url) return `- ${slot}: ${url}   (alt: ${manifest.alt[slot] ?? ""})`;
+    if (manifest.drawn.includes(slot)) {
+      return `- ${slot}: DRAW THIS YOURSELF in inline SVG or CSS — a mark, a monogram, an icon. It was never a photograph`;
+    }
+    return `- ${slot}: NOT AVAILABLE — lay it out as a plain toned panel at the right aspect ratio, never an <img> and never a drawing of the subject`;
+  });
 
-  return `THE ASSETS FOR THIS BUILD — use these exact URLs and no others. Do not invent an image address, and do not draw a photograph you were not given:
+  return `THE ASSETS FOR THIS BUILD — use these exact URLs and no others. Do not invent an image address:
 
-VISUAL DIRECTION (every picture on this page was made to it, so write the design to match):
+VISUAL DIRECTION (every picture here was chosen to it, so write the design to match):
 - Register: ${manifest.direction.register}
 - Palette: ${manifest.direction.palette}
 - Lighting: ${manifest.direction.lighting}
@@ -210,5 +230,10 @@ SLOTS:
 ${lines.join("\n")}
 
 - Reference a slot by its URL exactly as written, in an <img> with the alt text given, width and height set, loading="lazy" below the fold, and object-fit: cover.
-- ${manifest.unresolved.length > 0 ? `These slots have no picture: ${manifest.unresolved.join(", ")}. Lay them out as toned panels holding their aspect ratio — never a broken <img>, and never an SVG drawing of what the photograph would have shown.` : "Every slot has a picture."}`;
+- ${manifest.drawn.length > 0 ? `Draw these yourself, as you would any icon or logo: ${manifest.drawn.join(", ")}.` : "Nothing here is left for you to draw."}
+- ${
+    manifest.unresolved.length > 0
+      ? `These slots have no picture: ${manifest.unresolved.join(", ")}. Lay them out as toned panels holding their aspect ratio — never a broken <img>, and never an SVG drawing of what the photograph would have shown. Do not mention that an image is missing anywhere in the copy.`
+      : "Every slot has a picture."
+  }`;
 }

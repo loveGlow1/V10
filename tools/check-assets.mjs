@@ -33,6 +33,7 @@ writeFileSync(
       join(process.cwd(), "src/lib/builder/assets/asset-resolver.ts"),
       join(process.cwd(), "src/lib/builder/assets/asset-optimizer.ts"),
       join(process.cwd(), "src/lib/builder/assets/asset-library.ts"),
+      join(process.cwd(), "src/lib/builder/assets/providers/registry.ts"),
     ],
   }),
 );
@@ -106,67 +107,166 @@ try {
   is(a === b, true, "the same request fingerprints the same way twice");
   is(a !== c, true, "and a different one does not");
 
-  // ── The priority ladder ─────────────────────────────────────────────────
+  // ── Providers: the resilience requirement ───────────────────────────────
+  const registry = await import(join(out, "lib/builder/assets/providers/registry.js"));
+
+  /* The state that matters most: nothing configured at all. Every external key
+     absent, the curated library unpopulated. This must be silent and it must
+     still build. */
+  for (const key of ["UNSPLASH_ACCESS_KEY", "PEXELS_API_KEY", "CURATED_ASSETS_BASE_URL", "AI_IMAGE_ENDPOINT", "AI_IMAGE_API_KEY", "AI_IMAGE_ENABLED", "ASSET_PROVIDER_ORDER"]) {
+    delete process.env[key];
+  }
+
+  const bare = await registry.providerStatus({ assets: [] });
+  is(bare.length, 5, "every provider reports a status, configured or not");
+  is(bare.find((p) => p.id === "project").health, "available", "project assets are always available");
+  is(bare.find((p) => p.id === "curated").health, "misconfigured", "an unpopulated library says so rather than serving 404s");
+  is(bare.find((p) => p.id === "unsplash").health, "misconfigured", "a missing key is misconfigured, not an error");
+  is(bare.find((p) => p.id === "ai").health, "disabled", "generation is off until somebody turns it on");
+
+  const bareChain = await registry.usableProviders({ assets: [] });
+  is(bareChain.length, 1, "with nothing configured the chain is project assets alone");
+  is(bareChain[0].id, "project", "and that is the source that needs no configuration");
+
+  /* The curated library, populated, must carry a project by itself. */
+  process.env.CURATED_ASSETS_BASE_URL = "https://assets.example.test/curated";
+  const curatedChain = await registry.usableProviders({ assets: [] });
+  is(curatedChain.map((p) => p.id).join(","), "project,curated",
+     "a populated library joins the chain with no API key anywhere");
+
+  const restaurant = planner.planAssets({ kind: "landing", brief: "a luxury restaurant in Denver" });
+  const fromLibrary = await resolver.resolveAssets({
+    projectId: "p", plan: restaurant, library: { assets: [] }, providers: curatedChain,
+  });
+  is(fromLibrary.unresolved < restaurant.requests.length, true,
+     "and it actually fills slots — the library alone produces a visual page");
+  is(fromLibrary.bySource.curated > 0, true, "with photographs that came from us");
+  is(Object.values(fromLibrary.manifest.assets).some((url) => url.startsWith("https://assets.example.test/")), true,
+     "served from the configured base rather than an invented address");
+
+  /* Two products must not be the same photograph. */
+  const shop = planner.planAssets({ kind: "ecommerce", brief: "a luxury skincare store" });
+  const shopFilled = await resolver.resolveAssets({
+    projectId: "p", plan: shop, library: { assets: [] },
+    providers: await registry.usableProviders({ assets: [] }),
+  });
+  const productUrls = Object.entries(shopFilled.manifest.assets)
+    .filter(([slot, url]) => slot.startsWith("product-") && url)
+    .map(([, url]) => url);
+  is(new Set(productUrls).size, productUrls.length,
+     "a catalogue never shows the same curated photograph twice");
+
+  // ── Order and cost are configuration ────────────────────────────────────
+  process.env.ASSET_PROVIDER_ORDER = "curated,project";
+  is((await registry.usableProviders({ assets: [] })).map((p) => p.id).join(","), "curated,project",
+     "the chain order is configuration, not code");
+  delete process.env.ASSET_PROVIDER_ORDER;
+
+  process.env.AI_IMAGE_ENABLED = "true";
+  process.env.AI_IMAGE_ENDPOINT = "https://ai.example.test/v1";
+  process.env.AI_IMAGE_API_KEY = "test";
+  const withAi = await registry.usableProviders({ assets: [] });
+  is(withAi.some((p) => p.id === "ai"), true, "an enabled generative provider joins the chain");
+  const cheapOnly = await registry.usableProviders({ assets: [] }, { maxCost: "free" });
+  is(cheapOnly.some((p) => p.id === "ai"), false, "and a cost ceiling keeps it out of a build that cannot afford it");
+  is(cheapOnly.every((p) => p.cost === "free"), true, "leaving only the free sources");
+  delete process.env.AI_IMAGE_ENABLED;
+
+  /* Disabling by name, without unsetting the key. */
+  process.env.CURATED_LIBRARY_ENABLED = "false";
+  is((await registry.providerStatus({ assets: [] })).find((p) => p.id === "curated").health, "disabled",
+     "a provider can be switched off without removing its configuration");
+  delete process.env.CURATED_LIBRARY_ENABLED;
+
+  // ── No key ever reaches the generated project ───────────────────────────
+  process.env.UNSPLASH_ACCESS_KEY = "secret-key-value";
+  const leaky = await resolver.resolveAssets({
+    projectId: "p", plan: restaurant, library: { assets: [] },
+    providers: await registry.usableProviders({ assets: [] }),
+  });
+  const rendered = resolver.manifestForPrompt(leaky.manifest);
+  is(rendered.includes("secret-key-value"), false, "no provider key appears in what the code generator is given");
+  is(JSON.stringify(leaky.manifest).includes("secret-key-value"), false, "nor anywhere in the manifest");
+  delete process.env.UNSPLASH_ACCESS_KEY;
+  delete process.env.CURATED_ASSETS_BASE_URL;
+
+  // ── The priority ladder, now walked through providers ───────────────────
   const plan = planner.planAssets({ kind: "landing", brief: "a landing page for a gym" });
   const ready = (over) => ({
     id: "x", projectId: "p", status: "ready", quality: "premium",
     createdAt: new Date().toISOString(), ...over,
   });
 
+  const chainFor = async (assets) => registry.usableProviders({ assets });
+
+  const theirLibrary = { assets: [ready({ type: "hero", source: "user", url: "https://theirs/hero.jpg" })] };
   const withUpload = await resolver.resolveAssets({
-    projectId: "p", plan, providers: [],
-    library: { assets: [ready({ type: "hero", source: "user", url: "https://theirs/hero.jpg" })] },
+    projectId: "p", plan, library: theirLibrary, providers: await chainFor(theirLibrary.assets),
   });
   is(withUpload.manifest.assets.hero, "https://theirs/hero.jpg", "an uploaded asset wins the slot");
-  is(withUpload.used.user, 1, "and is counted as theirs, not as something we made");
+  is(withUpload.bySource.project, 1, "and is counted to the project, not to a paid source");
+  is(withUpload.created.some((a) => a.url === "https://theirs/hero.jpg"), false,
+     "their own asset is not recorded again as something we acquired");
 
-  const existing = await resolver.resolveAssets({
-    projectId: "p", plan, providers: [],
-    library: { assets: [ready({
-      type: "hero", source: "generated", url: "https://ours/hero.jpg",
-      prompt: library.fingerprint(plan.requests.find((r) => r.slot === "hero").spec),
-    })] },
+  const mine = library.fingerprint(plan.requests.find((r) => r.slot === "hero").spec);
+  const mineLibrary = {
+    assets: [ready({ type: "hero", source: "generated", url: "https://ours/hero.jpg", prompt: mine })],
+  };
+  const reusedRun = await resolver.resolveAssets({
+    projectId: "p", plan, library: mineLibrary, providers: await chainFor(mineLibrary.assets),
   });
-  is(existing.manifest.assets.hero, "https://ours/hero.jpg", "an asset this project already made is reused");
-  is(existing.used.reused, 1, "and is not paid for again");
+  is(reusedRun.manifest.assets.hero, "https://ours/hero.jpg", "an asset this project already made is reused");
+  is(reusedRun.bySource.project, 1, "and is not paid for again");
 
-  const PIXEL = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-    "base64");
+  /* A source that throws must be skipped, not fatal. */
+  const angry = {
+    id: "pexels", label: "Angry", cost: "low",
+    capabilities: { bespoke: false, edit: false, upscale: false },
+    health: () => "available",
+    async supply() { throw new Error("429"); },
+  };
   const stub = {
-    name: "stub", kind: "generative",
-    async generate() {
-      return { id: "j", status: "ready", image: { bytes: PIXEL, contentType: "image/png", width: 1600, height: 900, provider: "stub" } };
+    id: "curated", label: "Stub", cost: "free",
+    capabilities: { bespoke: false, edit: false, upscale: false },
+    health: () => "available",
+    async supply() {
+      return { url: "https://stub/img.jpg", provider: "curated", retrievedAt: new Date().toISOString() };
     },
   };
-  const made = await resolver.resolveAssets({ projectId: "p", plan, providers: [stub], library: { assets: [] } });
-  is(made.used.made > 0, true, "with nothing to reuse, assets are made");
-  is(made.manifest.assets.hero.startsWith("data:image/png;base64,"), true, "and land in the manifest");
-  is(made.created.every((asset) => asset.status === "ready"), true, "each one recorded as ready");
 
-  // ── Failure ─────────────────────────────────────────────────────────────
-  const angry = { name: "angry", kind: "generative", async generate() { throw new Error("429"); } };
-  const broke = await resolver.resolveAssets({ projectId: "p", plan, providers: [angry], library: { assets: [] } });
-  is(broke.manifest.unresolved.length > 0, true, "a provider that throws leaves slots unresolved");
-  is(broke.created.every((asset) => asset.status === "failed"), true, "recorded as failed, not as ready");
-  is(Object.keys(broke.manifest.assets).length, plan.requests.length, "and every slot still appears in the manifest");
-
-  const fallback = await resolver.resolveAssets({
-    projectId: "p", plan, providers: [angry, stub], library: { assets: [] },
+  const survived = await resolver.resolveAssets({
+    projectId: "p", plan, library: { assets: [] }, providers: [angry],
   });
-  is(fallback.used.made > 0, true, "a second provider is tried when the first fails");
+  is(survived.unresolved, plan.requests.filter((r) => r.spec).length,
+     "a source that throws leaves only its PHOTOGRAPHS unresolved");
+  is(survived.manifest.drawn.length, plan.requests.filter((r) => !r.spec).length,
+     "and the drawn slots are handed back to the code generator rather than blanked");
+  is(survived.created.every((a) => a.status === "failed"), true, "recorded as failed, not as ready");
 
-  const none = await resolver.resolveAssets({ projectId: "p", plan, providers: [], library: { assets: [] } });
-  is(none.manifest.unresolved.length, plan.requests.length, "with no provider at all, everything is unresolved");
-  is(none.manifest.direction.register.length > 0, true, "and the direction still reaches the code generator");
+  const fellThrough = await resolver.resolveAssets({
+    projectId: "p", plan, library: { assets: [] }, providers: [angry, stub],
+  });
+  is(fellThrough.bySource.curated > 0, true, "and the next source in the chain answers instead");
+
+  const nothing = await resolver.resolveAssets({
+    projectId: "p", plan, library: { assets: [] }, providers: [],
+  });
+  is(Object.keys(nothing.manifest.assets).length, plan.requests.length,
+     "an empty chain still returns every slot");
+  is(nothing.manifest.direction.register.length > 0, true,
+     "and the visual direction still reaches the code generator");
+
+  const made = fellThrough;
 
   // ── What the code generator is told ─────────────────────────────────────
   const text = resolver.manifestForPrompt(made.manifest);
   is(text.includes("use these exact URLs and no others"), true, "the manifest forbids inventing an address");
   is(text.includes("VISUAL DIRECTION"), true, "and carries the direction so the design matches the pictures");
-  const emptyText = resolver.manifestForPrompt(none.manifest);
+  const emptyText = resolver.manifestForPrompt(nothing.manifest);
   is(emptyText.includes("never an SVG drawing of what the photograph would have shown"), true,
-     "an unresolved slot is told to be a panel, not a drawing of the subject");
+     "an unresolved photograph is told to be a panel, not a drawing of the subject");
+  is(emptyText.includes("DRAW THIS YOURSELF"), true,
+     "and a drawn slot is told to be drawn");
 
   // ── Delivery ────────────────────────────────────────────────────────────
   const delivery = optimizer.deliveryFor("https://cdn/a.webp", { maxDisplayWidth: 640, quality: "premium", aboveTheFold: true });

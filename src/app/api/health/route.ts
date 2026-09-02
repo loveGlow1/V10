@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { providerStatus } from "@/lib/builder/assets/providers/registry";
+
 import {
   isCryptoCheckoutConfigured,
   isSettlementCallbackConfigured,
@@ -48,6 +50,15 @@ export async function GET() {
      honest answer to "will a download come out styled". */
   const compile = await canCompile();
 
+  /* Which image sources this deployment can use, and why not where it cannot.
+   *
+   * Names and states only — never a key, never a URL template. And detail is
+   * held back in production like everything else here, because "Unsplash is
+   * misconfigured" is an administrator's business and nobody else's: a person
+   * building a website must never learn that an optional API exists, let alone
+   * be asked to configure one. */
+  const imageProviders = await providerStatus({ assets: [] });
+
   return NextResponse.json({
     status: "ok",
     supabaseConfigured: isSupabaseConfigured,
@@ -64,6 +75,14 @@ export async function GET() {
     /* False means downloads are going out unstyled. See canCompile. The reason
        rides alongside it when there is one: this failed once in production
        while passing every test, and a bare false said nothing about why. */
+    /* True when at least one source can supply a picture. False is not a
+       failure: every slot becomes a toned panel and the build still ships. */
+    imagesConfigured: imageProviders.some((provider) => provider.usable && provider.id !== "project"),
+    ...(includeDetails
+      ? {
+          imageProviders: imageProviders.map(({ id, health, cost }) => ({ id, health, cost })),
+        }
+      : {}),
     downloadsCompile: compile.ok,
     ...(compile.error ? { downloadsCompileError: compile.error } : {}),
     /* Whether this deployment can take money, in the two halves that fail
