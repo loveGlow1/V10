@@ -200,17 +200,43 @@ export const CREDIT_ACTIONS: Record<CreditActionId, CreditAction> = {
   chat: {
     id: "chat",
     label: "Pure chat / planning",
-    min: 0,
-    max: 1,
+    /* The floor is 1 rather than 0, and the zero was the mistake.
+     *
+     * "Pure chat" is not cheap here, because answering a question about a
+     * project means sending the project: the answer path in builder/edit.ts
+     * puts the whole page in front of the model before it says anything. That
+     * is tens of thousands of input tokens whatever comes back, so a one-line
+     * reply is the *worst* case for us — real money spent, and under the old
+     * band it was billed at zero because the band only ever looked at output.
+     *
+     * A floor of 1 says the true thing: the cost of a question is reading the
+     * page, and reading the page happens before the length of the answer is
+     * known. */
+    min: 1,
+    max: 2,
     description:
-      "Low-overhead conversational prompts, error troubleshooting, and architecture planning.",
+      "Conversational prompts, error troubleshooting, and architecture planning. Priced from a floor because answering a question means reading the whole page first.",
     billedInCredits: true,
   },
   generate: {
     id: "generate",
     label: "Code generation / file editing",
-    min: 0.5,
-    max: 2.5,
+    /* Raised roughly threefold in 2026-09, because the old band sold every
+       generation below cost.
+     *
+     * A full build is one long call at the top of the model range, and it
+     * answers with a whole document: tens of thousands of output tokens, plus
+     * the thinking that produced them, which bills as output too. That is
+     * about a dollar of model time. The old ceiling of 2.5 credits charged
+     * fifty cents for it at the top-up rate, so the better the build, the more
+     * it lost — and a free account's signup grant bought two of them.
+     *
+     * The ceiling is 8 rather than the 10-20 the same page costs elsewhere.
+     * This is a deliberate half-step: it clears cost with a margin on every
+     * shape of build without repricing the product in one move. The number to
+     * revisit is this one. */
+    min: 1.5,
+    max: 8,
     description:
       "Variable cost based on output token length and scope of file modifications.",
     billedInCredits: true,
@@ -258,12 +284,18 @@ export type UsageSignal = {
 };
 
 /* Tuning constants for the bands above. Named rather than inlined so the shape
-   of the curve is legible: a chat turn reaches its 1-credit ceiling at roughly
-   a full page of output, and a generation reaches its 2.5 ceiling at a large
-   multi-file change. */
-const CHAT_TOKENS_PER_CREDIT = 1200;
-const GENERATE_TOKENS_PER_CREDIT = 2000;
-const GENERATE_CREDITS_PER_FILE = 0.25;
+   of the curve is legible: a chat turn leaves its floor once the answer runs
+   past a paragraph and reaches the 2-credit ceiling at roughly a page and a
+   half, and a generation reaches its 8-credit ceiling at a large multi-section
+   build.
+
+   All three moved with the bands in 2026-09. The per-file rate did most of the
+   work — it is what separates a one-patch edit from a twelve-section build, and
+   at 0.25 the two ended up close enough that a whole generated page priced
+   like a typo fix. */
+const CHAT_TOKENS_PER_CREDIT = 900;
+const GENERATE_TOKENS_PER_CREDIT = 1500;
+const GENERATE_CREDITS_PER_FILE = 0.6;
 
 /** Credits carry two decimals, the same precision the balance is displayed in. */
 export function roundCredits(value: number): number {
