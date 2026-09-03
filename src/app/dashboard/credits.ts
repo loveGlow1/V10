@@ -63,7 +63,7 @@ export const PUBLISH_COST = 50;
    a build, so it is priced like one. */
 export const REDEPLOY_COST = 1;
 
-/* Everything a new account ever gets for free: five credits, once, at signup.
+/* Everything a new account ever gets for free: four credits, once, at signup.
  *
  * They land in the top-up bucket rather than the daily one, which is what makes
  * them a one-time balance instead of an allowance — top-ups never expire and
@@ -71,11 +71,18 @@ export const REDEPLOY_COST = 1;
  *
  * Written in credits rather than dollars because credits are what the account
  * holds and what every screen counts in; at the top-up pack's rate of fifty
- * credits for ten dollars, five credits is a dollar's worth.
+ * credits for ten dollars, four credits is eighty cents' worth.
+ *
+ * Four is below the full-build door on purpose. FULL_BUILD_ENTRY_COST in
+ * api/build/route.ts is CREDIT_ACTIONS.generate.max, so a full build cannot be
+ * started on the signup grant at all — what it buys is a look at the workspace:
+ * an edit or two, a question, and the composer refusing the big one with a note
+ * about topping up. That is the intended shape of the free tier, not an
+ * oversight. Someone who wants a build pays for it.
  *
  * Keep this in step with public.signup_bonus_credits() in supabase/schema.sql,
  * which is the copy that actually runs at signup. */
-export const SIGNUP_CREDITS = 5;
+export const SIGNUP_CREDITS = 4;
 
 export type Plan = {
   id: PlanId;
@@ -118,7 +125,11 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Standard community support",
     features: [
       `${SIGNUP_CREDITS} credits to start, on the house`,
-      "Build and change pages in your workspace",
+      /* "Change", not "build". The signup grant sits below the full-build door
+         deliberately (see SIGNUP_CREDITS), so a card promising a free account
+         it can build is promising the one thing it will be refused. Editing and
+         asking questions are what four credits actually reach. */
+      "Change and refine pages in your workspace",
       /* Said plainly rather than left to be discovered. A Free balance does not
          refill, so "what happens when it runs out" is the question the card has
          to answer, not one a person should hit mid-build. */

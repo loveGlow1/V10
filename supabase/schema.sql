@@ -352,7 +352,7 @@ grant select on public.credit_plans to authenticated;
 -- Read by handle_new_user() above, which runs after this file has been applied
 -- in full, so the definition order here does not matter at runtime.
 -- ─────────────────────────────────────────────────────────────────────────────
--- Everything a new account ever gets for free: five credits, once.
+-- Everything a new account ever gets for free: four credits, once.
 --
 -- It lands in the top-up bucket, which is what makes it a one-time balance
 -- rather than an allowance — top-ups never expire and nothing refills them.
@@ -367,7 +367,7 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select 5::numeric(10,2);
+  select 4::numeric(10,2);
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
