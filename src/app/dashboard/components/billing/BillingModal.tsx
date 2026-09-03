@@ -103,8 +103,8 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
 
                 {/* The other thing a person opens this sheet to do. Somebody who
                     needs one more publish today is not looking for a plan, and
-                    making them take one to get five dollars' worth of credits is
-                    how a top-up becomes a cancellation. */}
+                    making them take a monthly subscription to get one pack's
+                    worth of credits is how a top-up becomes a cancellation. */}
                 <button
                   onClick={() => setCheckout({ kind: "topup", packs: 1 })}
                   className="mt-4 w-full rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3 text-sm font-semibold text-ink active:scale-[0.99]"

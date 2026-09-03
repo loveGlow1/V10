@@ -362,8 +362,12 @@ that is gated on every enabled node having a credential attached.
      | Service Role Secret | Supabase dashboard → Project Settings → API Keys → `service_role` |
 
      That is the `loveGlow1's Project` database the app already runs against —
-     verified to hold `projects` with all six build columns, and the
-     `spend_credits` RPC with the signature `/api/build` calls.
+     verified to hold `projects` with all six build columns, and the credit
+     RPCs the app calls: `charge_credits` for work already delivered (the build
+     charge in `/api/builder/webapp/save`, and edits and questions in
+     `/api/build`), `spend_credits` for a charge that must be refused when the
+     pool cannot cover it (`/api/credits/spend`, which is how publishing is
+     paid for), and `ensure_credit_balance` behind both.
 
      It needs the **service_role** key, not the anon key: the node updates a row
      on the user's behalf with no user session, and `projects` is owner-scoped by
