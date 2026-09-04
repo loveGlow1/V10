@@ -135,18 +135,47 @@ export async function createBtcPayInvoice(input: {
       destination?: unknown;
       amount?: unknown;
       rate?: unknown;
+      /* BTCPay 1.x. */
       paymentMethod?: unknown;
+      /* BTCPay 2.x, where "BTC" became "BTC-CHAIN" and "BTC-LN". */
+      paymentMethodId?: unknown;
     }[];
 
-    /* On-chain BTC, not Lightning: the row stores one address and the Lightning
-       path in this app is a separate branch with its own field. */
-    const onChain = paid.find(
-      (method) => typeof method.paymentMethod === "string" && method.paymentMethod === "BTC",
-    ) ?? paid[0];
+    /* On-chain BTC, and only on-chain: this app stores one address per order and
+       treats Lightning as a separate branch with its own field.
+     *
+     * Both spellings, because the name changed. BTCPay 1.x said
+     * `paymentMethod: "BTC"`; 2.x says `paymentMethodId: "BTC-CHAIN"` — verified
+     * against a real 2.4.4 response, which is also where the rest of these field
+     * names come from.
+     *
+     * The old code matched 1.x only and leaned on a `?? paid[0]` fallback, which
+     * hid the mismatch completely: with one payment method enabled the first
+     * entry IS the on-chain one, so it worked by accident. Turn Lightning on and
+     * it would have started handing out a Lightning destination as though it
+     * were an address. Matching explicitly and refusing when nothing matches is
+     * the difference between working and appearing to work. */
+    const isOnChain = (method: (typeof paid)[number]) => {
+      const id = method.paymentMethodId ?? method.paymentMethod;
+      return typeof id === "string" && (id === "BTC" || id === "BTC-CHAIN");
+    };
 
-    const address = typeof onChain?.destination === "string" ? onChain.destination : null;
-    const cryptoAmount = Number(onChain?.amount);
-    const rateUsd = Number(onChain?.rate);
+    const onChain = paid.find(isOnChain);
+
+    if (!onChain) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "btcpay: no on-chain BTC payment method on the invoice:",
+        paid.map((method) => method.paymentMethodId ?? method.paymentMethod),
+      );
+      return null;
+    }
+
+    /* All three arrive as STRINGS — "0.00030822", "81111.12" — so they go
+       through Number() rather than being trusted as numbers. */
+    const address = typeof onChain.destination === "string" ? onChain.destination : null;
+    const cryptoAmount = Number(onChain.amount);
+    const rateUsd = Number(onChain.rate);
 
     if (!address || !Number.isFinite(cryptoAmount) || cryptoAmount <= 0) return null;
 
