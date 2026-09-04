@@ -6,6 +6,7 @@ import {
   type CreditActionId,
   type UsageSignal,
 } from "@/app/dashboard/credits";
+import { EDIT_MODEL } from "@/lib/builder/edit";
 import { isPublishedStatus } from "@/lib/project-status";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -134,7 +135,17 @@ export async function POST(request: Request) {
     alreadyPublished = isPublishedStatus(project.status);
   }
 
-  const cost = creditCostOf(body.action, { outputTokens, filesTouched, alreadyPublished });
+  /* EDIT_MODEL rather than anything the caller sent. A model id is worth money
+     now, and this route's whole premise is that the browser is not trusted with
+     the cost — taking a model id from it would hand back exactly the lever that
+     premise removes. Chat is the only priced action that reaches here; publish
+     is flat and unscaled. */
+  const cost = creditCostOf(body.action, {
+    outputTokens,
+    filesTouched,
+    alreadyPublished,
+    modelId: EDIT_MODEL,
+  });
 
   const { data, error } = await supabase.rpc("spend_credits", {
     p_action: body.action,

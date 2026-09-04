@@ -260,7 +260,9 @@ export async function POST(request: Request) {
   await chargeCredits(supabase, {
     userId: claim.userId,
     action: "generate",
-    cost: creditCostOf("generate", { filesTouched }),
+    /* The model n8n reports, which is the one the app sent in a signed
+       request and the workflow forwarded — not a browser's word for it. */
+    cost: creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined }),
     description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
     projectId: project.id,
     filesTouched,

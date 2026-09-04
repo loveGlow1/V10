@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
+import {
+  CREDIT_ACTIONS,
+  canAfford,
+  creditCostOf,
+  formatCredits,
+  roundCredits,
+} from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { carryBrief, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
@@ -31,7 +37,12 @@ import {
 } from "@/lib/builder/kinds";
 import { builderAvailability } from "@/lib/builder/availability";
 import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
-import { DEFAULT_MODEL, PROVIDER_LABEL, resolveModel } from "@/app/dashboard/models";
+import {
+  DEFAULT_MODEL,
+  PROVIDER_LABEL,
+  creditMultiplierFor,
+  resolveModel,
+} from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
@@ -723,7 +734,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: EDIT_MODEL }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -782,7 +793,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens }),
+          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL }),
           description: `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
@@ -933,7 +944,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, editUsage(edited.applied)),
+      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL }),
       description: `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
@@ -1006,10 +1017,24 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      edit or another build may have been charged in between. */
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
-  if (beforeBuild && !canAfford(beforeBuild, FULL_BUILD_ENTRY_COST)) {
-    const said = `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
+  /* Scaled by the model they asked for, because the ceiling is now per-model:
+     the band describes a turn on the default, and Opus multiplies it by 2.5,
+     Fable by 5. Checking the unscaled ceiling would let somebody holding eight
+     credits start a Fable build that prices at forty and land the account deep
+     in overdraft — charge_credits takes what is there and reports the rest, so
+     nothing bounces, it just goes unpaid.
+
+     Read straight off the request rather than from the resolved model, which
+     is settled further down: an unknown id is charged the default rate here
+     and refused outright there, so no request gets past both. */
+  const entryCost = roundCredits(
+    FULL_BUILD_ENTRY_COST * creditMultiplierFor(typeof body.model === "string" ? body.model : DEFAULT_MODEL),
+  );
+
+  if (beforeBuild && !canAfford(beforeBuild, entryCost)) {
+    const said = `A full build on this model costs up to ${formatCredits(entryCost)} credits and you have ${formatCredits(
       beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
-    )}. Ask for a change to the page instead — an edit costs far less — or top up.`;
+    )}. Pick a cheaper model, ask for a change to the page instead — an edit costs far less — or top up.`;
     const stored = await deliver(said, { tone: "error", key: "no-credits" });
     return NextResponse.json({ error: said, code: "insufficient_credits", stored }, { status: 402 });
   }

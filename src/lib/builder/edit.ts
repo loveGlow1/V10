@@ -20,7 +20,26 @@ import {
  * in n8n; changing one that exists does not, and should not make someone wait
  * as though it did. */
 
-export const EDIT_MODEL = "claude-opus-5";
+/* Sonnet, not Opus, and for the same reason Auto is Sonnet — see AUTO_MODEL in
+   dashboard/models.ts.
+ *
+ * This one is arguably the bigger saving of the two. A build happens once; an
+ * edit or a question happens all afternoon, and each one sends the WHOLE page
+ * as input before the model says anything. That input is the cost, it is paid
+ * per turn, and it was being paid at Opus rates on every "make the heading
+ * bigger".
+ *
+ * The work here suits it. Deciding which lines to change and copying them
+ * exactly is careful rather than hard — the call already runs at `effort: low`
+ * on that reasoning, which is an odd setting to pair with the most expensive
+ * model in the range.
+ *
+ * NOTE: this is still a constant, so the composer's model picker does not reach
+ * it — pick Opus for a build and the edits afterwards are Sonnet. Threading the
+ * choice through is a real change (this module's signatures, three call sites
+ * in api/build/route.ts, and the step labels that name the model) and is worth
+ * doing; it is not done here. */
+export const EDIT_MODEL = "claude-sonnet-5";
 
 export class EditError extends Error {
   constructor(

@@ -7,7 +7,14 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
-import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
+import {
+  DEFAULT_MODEL,
+  UNAVAILABLE_LABEL,
+  groupedModels,
+  isModelAvailable,
+  modelById,
+  shortModelName,
+} from "./models";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import WorkspaceTabs from "./components/WorkspaceTabs";
@@ -741,17 +748,23 @@ export default function DashboardPage() {
                     )}
                     {group.models.map((option) => {
                       const selected = model === option.id;
+                      /* Shown either way. A model this deployment cannot reach
+                         is greyed and unpickable rather than missing — "check
+                         back soon" is information, an absence is not. */
+                      const ready = isModelAvailable(option);
                       return (
                         <button
                           key={option.id}
                           role="menuitem"
+                          disabled={!ready}
+                          title={ready ? undefined : UNAVAILABLE_LABEL}
                           onClick={() => {
                             setModel(option.id);
                             setIsModelPopoverOpen(false);
                           }}
-                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
-                            selected ? "bg-layer/[0.06]" : ""
-                          }`}
+                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
+                            ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
+                          } ${selected ? "bg-layer/[0.06]" : ""}`}
                         >
                           <span className="mt-0.5 shrink-0">
                             <ProviderMark provider={option.provider} />
@@ -766,9 +779,14 @@ export default function DashboardPage() {
                               >
                                 {option.name}
                               </span>
-                              {option.badge && (
+                              {option.badge && ready && (
                                 <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
                                   {option.badge}
+                                </span>
+                              )}
+                              {!ready && (
+                                <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
+                                  {UNAVAILABLE_LABEL}
                                 </span>
                               )}
                             </span>

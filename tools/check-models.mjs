@@ -104,6 +104,58 @@ try {
   is(models.resolveModel("gpt-9-ultra"), null, "a model this app does not offer is refused");
   is(models.resolveModel(""), null, "an empty string is refused");
 
+  /* ── Availability ───────────────────────────────────────────────────────
+     A model with no working credential is refused by the resolver as well as
+     greyed in the picker: the picker is a courtesy, this is the rule. The
+     shape tests below deliberately go through modelById instead, because how
+     a request is BUILT for a vendor does not stop being worth checking while
+     that vendor's key is missing. */
+  for (const model of models.MODELS.filter((entry) => entry.provider !== "auto")) {
+    const resolved = models.resolveModel(model.id);
+    if (models.isModelAvailable(model)) {
+      has(resolved !== null, `${model.name} is offered and resolves`, "resolveModel returned null");
+    } else {
+      is(resolved, null, `${model.name} is unavailable and is refused`);
+    }
+  }
+  has(
+    models.MODELS.some((entry) => entry.provider === "claude" && models.isModelAvailable(entry)),
+    "at least one model is actually callable",
+    "every model is marked unavailable — the picker would be entirely dead",
+  );
+
+  /* ── The credit rate ────────────────────────────────────────────────────
+     A model somebody switches on without a multiplier is priced as though it
+     were the default, which sells the dearest thing at the cheapest price and
+     does it silently. Caught here rather than on the bill. */
+  for (const model of models.MODELS.filter(
+    (entry) => entry.provider !== "auto" && models.isModelAvailable(entry),
+  )) {
+    has(
+      typeof model.creditMultiplier === "number" && model.creditMultiplier > 0,
+      `${model.name} carries a credit multiplier`,
+      "available with no creditMultiplier — it would be charged at the default rate",
+    );
+  }
+  is(models.creditMultiplierFor(models.AUTO_MODEL), 1, "the default model is the anchor at 1");
+  is(models.creditMultiplierFor("auto"), 1, "Auto prices as the model it resolves to");
+  is(models.creditMultiplierFor("nonsense"), 1, "an unknown model falls back to the default rate");
+  has(
+    models.creditMultiplierFor("claude-fable-5") > models.creditMultiplierFor("claude-opus-5"),
+    "Fable costs more than Opus",
+    "Fable is meant to be the dearest thing on the menu",
+  );
+  has(
+    models.creditMultiplierFor("claude-opus-5") > models.creditMultiplierFor(models.AUTO_MODEL),
+    "Opus costs more than the default",
+    "picking Opus has to cost more than not picking it",
+  );
+  has(
+    models.creditMultiplierFor("claude-haiku-4-5") < models.creditMultiplierFor(models.AUTO_MODEL),
+    "Haiku costs less than the default",
+    "the cheapest model should price as the cheapest model",
+  );
+
   // ── Anthropic's shape ───────────────────────────────────────────────────
   const claude = wire.generationRequest(models.resolveModel("claude-opus-5"), SYSTEM, USER, IMAGES);
   is(claude.shape, "anthropic", "Claude uses the anthropic shape");
@@ -115,7 +167,7 @@ try {
   is(claude.headers["anthropic-version"], "2023-06-01", "the version header is set");
 
   // ── OpenAI's shape ──────────────────────────────────────────────────────
-  const gpt = wire.generationRequest(models.resolveModel("gpt-5"), SYSTEM, USER, IMAGES);
+  const gpt = wire.generationRequest(models.modelById("gpt-5"), SYSTEM, USER, IMAGES);
   is(gpt.shape, "openai", "GPT uses the openai shape");
   is(gpt.body.messages[0].role, "system", "the system prompt is a message, not a field");
   is(gpt.body.messages[0].content, SYSTEM, "and it carries the whole blueprint");
@@ -125,7 +177,7 @@ try {
   is(gpt.body.messages[1].content[0].type, "image_url", "images use image_url");
 
   // ── Google's shape ──────────────────────────────────────────────────────
-  const gemini = wire.generationRequest(models.resolveModel("gemini-3-pro"), SYSTEM, USER, IMAGES);
+  const gemini = wire.generationRequest(models.modelById("gemini-3-pro"), SYSTEM, USER, IMAGES);
   is(gemini.shape, "google", "Gemini uses the google shape");
   has(gemini.url.includes("gemini-3-pro:generateContent"), "the wire id rides in the path", gemini.url);
   is(gemini.body.systemInstruction.parts[0].text, SYSTEM, "the blueprint goes in systemInstruction");
@@ -136,7 +188,7 @@ try {
 
   /* The wire id is what Google puts in the URL, so a model id with a slash or a
      space in it would silently address a different endpoint. */
-  const flash = wire.generationRequest(models.resolveModel("gemini-2-5-flash"), SYSTEM, USER);
+  const flash = wire.generationRequest(models.modelById("gemini-2-5-flash"), SYSTEM, USER);
   has(flash.url.endsWith("gemini-2.5-flash:generateContent"), "the dotted wire id survives the path", flash.url);
 
   // ── No images is not an empty image ─────────────────────────────────────
