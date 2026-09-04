@@ -244,8 +244,44 @@ function addedModelNames(planId: PlanId): string {
 }
 
 /* Bought mid-cycle when the pool runs dry. Top-ups are the only credits with
-   no expiry, which is why they are spent last. */
-export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
+   no expiry, which is why they are spent last.
+
+   ── The price, and why it is not $10 ────────────────────────────────────────
+
+   It was 50 credits for $10, which is 20 cents a credit against Standard's 25 —
+   so the casual purchase was CHEAPER per credit than the commitment. That is
+   backwards, and not subtly: it made subscribing the worse deal, and the
+   rational move for anyone paying attention was to never take a plan and buy
+   packs forever. A subscription has to be the better rate or it is not a
+   subscription, it is a worse way to buy the same thing.
+
+   $15 for 50 puts a top-up at 30 cents a credit — a 20% premium over the plan
+   rate, which is what buying without committing should cost.
+
+   The SIZE stays at 50, and that is deliberate rather than left alone. A pack
+   is exactly one first publish (PUBLISH_COST), which is the whole reason the
+   button exists: somebody who needs one more publish today is not looking for a
+   plan, and a pack that no longer covers the thing it was sized for would send
+   them to the plan or away. Shrinking the pack to fix the rate would have
+   broken that; raising the price does not.
+
+   check:credits enforces the ordering, so this cannot quietly invert again. */
+export const TOP_UP_PACK = { credits: 50, priceUsd: 15 } as const;
+
+/** What a credit costs on a plan, in dollars. Free has no rate — dividing by
+ *  its zero price says "infinitely cheap", which is true and useless — so it
+ *  answers null and callers skip it. */
+export function pricePerCredit(planId: PlanId): number | null {
+  const plan = PLANS[planId];
+  if (plan.monthlyPriceUsd <= 0 || plan.monthlyCredits <= 0) return null;
+  return plan.monthlyPriceUsd / plan.monthlyCredits;
+}
+
+/** What a credit costs when bought as a one-off. Must exceed every plan's rate:
+ *  see the note on TOP_UP_PACK. */
+export function topUpPricePerCredit(): number {
+  return TOP_UP_PACK.priceUsd / TOP_UP_PACK.credits;
+}
 
 /* ── The consumption matrix ────────────────────────────────────────────────
    Every billable thing the platform does is one of these four. `min`/`max`

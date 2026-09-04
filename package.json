@@ -13,6 +13,7 @@
     "check:blueprint": "node tools/check-blueprint.mjs",
     "check:brief": "node tools/check-brief.mjs",
     "check:builder": "node tools/check-builder.mjs",
+    "check:credits": "node tools/check-credits.mjs",
     "check:images": "node tools/check-images.mjs",
     "check:intent": "node tools/check-intent.mjs",
     "check:live": "node tools/check-model-live.mjs",
