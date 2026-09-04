@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { addressFunding, btcToSats, fundingTxid } from "@/lib/chain-watch";
 import { isOperatorAlertConfigured, sendOperatorAlert } from "@/lib/operator-alert";
 import { decideOrder } from "@/lib/reconcile-decision";
@@ -92,6 +94,48 @@ function authorized(request: Request): boolean {
   return sent.length > 0 && sent === secret;
 }
 
+/* A status change, and whether it actually happened.
+ *
+ * Split out because the first version of this sweep did not ask. It counted
+ * the changes it had DECIDED on, reported five orders expired, and five orders
+ * sat untouched in the database — an unchecked error and a matched-nothing
+ * update are indistinguishable from a success when nobody looks at the result,
+ * and a sweep whose whole purpose is to notice things nobody is watching must
+ * not be the thing nobody is watching.
+ *
+ * `.select("id")` is what makes the three cases separable: PostgREST returns
+ * the rows it changed, so zero rows back is a filter that matched nothing
+ * rather than a write that failed, and the two want different fixes.
+ */
+async function changeStatus(
+  service: SupabaseClient,
+  id: string,
+  from: string[],
+  patch: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; why: string }> {
+  const { data, error } = await service
+    .from("crypto_payments")
+    .update(patch)
+    .eq("id", id)
+    .in("status", from)
+    .select("id");
+
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("reconcile: could not update", id, error);
+    return { ok: false, why: error.message };
+  }
+
+  if (!data || data.length === 0) {
+    /* No error and nothing changed. Something else moved the row between the
+       read and the write, or the write was silently filtered. Either way it is
+       not the success the counter would otherwise have claimed. */
+    return { ok: false, why: `no row matched id=${id} in status ${from.join("/")}` };
+  }
+
+  return { ok: true };
+}
+
 export async function GET(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
@@ -131,6 +175,9 @@ export async function GET(request: Request) {
   let expired = 0;
   let unreadable = 0;
   const stranded: { id: string; reason: string; expectedSats: number; receivedSats: number }[] = [];
+  /* Writes this sweep meant to make and could not. Never empty silently: an
+     unreported failed write is the whole reason this field exists. */
+  const failures: { id: string; action: string; why: string }[] = [];
 
   for (const order of orders) {
     const funding = await addressFunding(order.address);
@@ -179,24 +226,28 @@ export async function GET(request: Request) {
     if (action.kind === "mark-submitted") {
       /* Guarded on the status it was read at, so a webhook that settled this
          order mid-sweep is not walked backwards into submitted. */
-      await service
-        .from("crypto_payments")
-        .update({ status: "submitted", submitted_at: new Date().toISOString() })
-        .eq("id", order.id)
-        .eq("status", "awaiting_payment");
+      const result = await changeStatus(service, order.id, ["awaiting_payment"], {
+        status: "submitted",
+        submitted_at: new Date().toISOString(),
+      });
 
-      seen += 1;
+      if (result.ok) seen += 1;
+      else failures.push({ id: order.id, action: "mark-submitted", why: result.why });
+
       continue;
     }
 
     if (action.kind === "expire") {
-      await service
-        .from("crypto_payments")
-        .update({ status: "expired" })
-        .eq("id", order.id)
-        .in("status", ["awaiting_payment", "submitted"]);
+      const result = await changeStatus(
+        service,
+        order.id,
+        ["awaiting_payment", "submitted"],
+        { status: "expired" },
+      );
 
-      expired += 1;
+      if (result.ok) expired += 1;
+      else failures.push({ id: order.id, action: "expire", why: result.why });
+
       continue;
     }
 
@@ -231,10 +282,20 @@ export async function GET(request: Request) {
        next real one. */
     void delivered;
 
-    await service
+    const { error: markError } = await service
       .from("crypto_payments")
       .update({ alerted_at: new Date().toISOString() })
       .in("id", toAlert.map((item) => item.id));
+
+    if (markError) {
+      /* Not fatal — the alert went out, and the worst case is sending it again
+         tomorrow. Still reported: a mark that never lands turns a daily
+         reminder into a per-sweep one, which is how an inbox learns to ignore
+         it. */
+      // eslint-disable-next-line no-console
+      console.error("reconcile: could not record the alert:", markError);
+      failures.push({ id: "(alert marks)", action: "record-alert", why: markError.message });
+    }
   }
 
   return NextResponse.json({
@@ -246,6 +307,10 @@ export async function GET(request: Request) {
        the sweep is not actually watching anything. */
     unreadable,
     stranded,
+    /* Changes this sweep decided on and could not make. Anything here means the
+       counters above are lower than the work that was due, and the reason is
+       carried rather than logged out of reach. */
+    failures,
     alertsConfigured: isOperatorAlertConfigured(),
   });
 }
