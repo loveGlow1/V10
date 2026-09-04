@@ -70,6 +70,7 @@ type OpenOrder = {
   lightning: boolean;
   expires_at: string;
   alerted_at: string | null;
+  shared_address: boolean;
 };
 
 /**
@@ -153,7 +154,9 @@ export async function GET(request: Request) {
 
   const { data, error } = await service
     .from("crypto_payments")
-    .select("id, status, address, crypto_amount, amount_usd, currency, lightning, expires_at, alerted_at")
+    .select(
+      "id, status, address, crypto_amount, amount_usd, currency, lightning, expires_at, alerted_at, shared_address",
+    )
     /* On-chain BTC only. Lightning carries its own proof of payment and no
        address to read, and the other coins are not watched here yet. */
     .eq("currency", "btc")
@@ -180,6 +183,23 @@ export async function GET(request: Request) {
      unreported failed write is the whole reason this field exists. */
   const failures: { id: string; action: string; why: string }[] = [];
 
+  /* Transactions already credited to something. Only shared addresses need
+     this: there the amount identifies the order, and amounts are unique among
+     OPEN orders rather than across all history — so a payment that settled a
+     $25 order last month would match the next $25 order asking for the same
+     nudged figure. Read once for the whole sweep. */
+  const { data: spent } = await service
+    .from("crypto_payments")
+    .select("tx_reference")
+    .eq("status", "confirmed")
+    .not("tx_reference", "is", null);
+
+  const usedTxids = new Set(
+    (spent ?? [])
+      .map((row) => (row as { tx_reference: string | null }).tx_reference)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
   for (const order of orders) {
     const funding = await addressFunding(order.address);
 
@@ -193,15 +213,25 @@ export async function GET(request: Request) {
     const expectedSats = btcToSats(Number(order.crypto_amount));
 
     const action = decideOrder(
-      { status: order.status, expectedSats, expiresAt: new Date(order.expires_at).getTime() },
+      {
+        status: order.status,
+        expectedSats,
+        expiresAt: new Date(order.expires_at).getTime(),
+        sharedAddress: order.shared_address,
+      },
       funding,
       now,
+      usedTxids,
     );
 
     if (action.kind === "leave") continue;
 
     if (action.kind === "settle") {
-      const txid = await fundingTxid(order.address);
+      /* The transaction the decision actually matched, where it could name one.
+         On a shared address that is the payment carrying this order's exact
+         amount — which is also what keeps it from being counted twice, since
+         the next sweep reads it back as spent. */
+      const txid = action.txid ?? (await fundingTxid(order.address));
 
       const { error: settleError } = await service.rpc("settle_crypto_payment", {
         p_payment_id: order.id,
@@ -220,6 +250,7 @@ export async function GET(request: Request) {
         continue;
       }
 
+      if (txid) usedTxids.add(txid);
       settled += 1;
       continue;
     }

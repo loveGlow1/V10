@@ -1188,6 +1188,23 @@ create table if not exists public.crypto_payments (
 -- touches this column.
 alter table public.crypto_payments add column if not exists alerted_at timestamptz;
 
+-- Whether this order's address is shared with other orders.
+--
+-- Recorded rather than inferred, because the reconciler reads the chain
+-- differently for each and getting it wrong pays out orders nobody paid.
+--
+-- A BTCPay invoice derives an address for one order alone, so that order can be
+-- judged by what the address has received in total. The static fallback address
+-- is shared by every order that ever used it, so its total says nothing about
+-- any single one of them — there the amount is the identifier, which is what
+-- the create route's nudging is for, and a payment has to match it exactly.
+--
+-- Defaults true: an order whose provenance is unknown is the conservative
+-- reading, since exact matching can only fail to settle, while total matching
+-- can settle something that was never paid.
+alter table public.crypto_payments
+  add column if not exists shared_address boolean not null default true;
+
 create index if not exists crypto_payments_user_created_idx
   on public.crypto_payments (user_id, created_at desc);
 
