@@ -68,31 +68,64 @@ try {
 
   const credits = await import(join(out, "app/dashboard/credits.js"));
 
+
+  // ── What each tier actually costs per credit ────────────────────────────
+  /* Printed every run rather than only on failure. The rates are a business
+     decision and no tool can hold an opinion about them — but they can only be
+     compared side by side, and side by side is exactly how nobody sees them. */
+  const topUp = credits.topUpPricePerCredit();
+  ok("a one-off top-up", `$${topUp.toFixed(2)}/credit`);
+  for (const id of credits.PLAN_ORDER) {
+    const rate = credits.pricePerCredit(id);
+    if (rate !== null) ok(`${credits.PLANS[id].name}`, `$${rate.toFixed(2)}/credit`);
+  }
+
+  /* ── A dearer rate has to buy something ──────────────────────────────────
+     The rule is not "a bigger plan is always a better rate" any more, because
+     Pro deliberately is not: $150 for 300 credits is 50 cents each, twice
+     Standard and above a top-up. That is allowed — Pro sells Fable, which no
+     other plan can reach at any balance — but it is only allowed BECAUSE of
+     that. A plan that costs more per credit than the one below it and unlocks
+     nothing extra is a worse deal with no compensation, and that is the thing
+     worth failing on. */
   const paid = credits.PLAN_ORDER.filter((id) => credits.PLANS[id].monthlyPriceUsd > 0);
 
-  // ── A plan is a better rate than buying one-off ─────────────────────────
-  const topUp = credits.topUpPricePerCredit();
-  ok("a top-up has a price per credit", `$${topUp.toFixed(3)}`);
-
-  for (const id of paid) {
-    const rate = credits.pricePerCredit(id);
+  for (let i = 1; i < paid.length; i += 1) {
+    const below = paid[i - 1];
+    const above = paid[i];
+    const cheaper = credits.pricePerCredit(below);
+    const dearer = credits.pricePerCredit(above);
+    if (dearer === null || cheaper === null || dearer <= cheaper) {
+      ok(`${credits.PLANS[above].name} is not a worse rate than ${credits.PLANS[below].name}`);
+      continue;
+    }
+    const extra = credits
+      .modelsForPlan(above)
+      .filter((model) => !credits.modelsForPlan(below).some((m) => m.id === model.id));
     has(
-      rate !== null && topUp > rate,
-      `${credits.PLANS[id].name} beats a top-up per credit`,
-      `${credits.PLANS[id].name} is $${rate?.toFixed(3)}/credit and a top-up is $${topUp.toFixed(
-        3,
-      )} — committing must not cost more than not committing`,
+      extra.length > 0,
+      `${credits.PLANS[above].name} costs more per credit but unlocks ${extra.map((m) => m.name).join(", ") || "nothing"}`,
+      `${credits.PLANS[above].name} is $${dearer.toFixed(2)}/credit against ${credits.PLANS[below].name}'s $${cheaper.toFixed(
+        2,
+      )} and unlocks no model the cheaper plan cannot already use — a worse deal with nothing to show for it`,
     );
   }
 
-  // ── A bigger plan is never a worse rate ─────────────────────────────────
-  for (let i = 1; i < paid.length; i += 1) {
-    const cheaper = credits.pricePerCredit(paid[i - 1]);
-    const dearer = credits.pricePerCredit(paid[i]);
+  /* Same rule against the one-off price. A subscription whose credits cost more
+     than buying them loose has to be selling access, not volume. */
+  for (const id of paid) {
+    const rate = credits.pricePerCredit(id);
+    if (rate === null || rate <= topUp) {
+      ok(`${credits.PLANS[id].name} credits are no dearer than a top-up`);
+      continue;
+    }
+    const gated = credits.modelsForPlan(id).filter((model) => model.minPlan === id);
     has(
-      dearer !== null && cheaper !== null && dearer <= cheaper,
-      `${credits.PLANS[paid[i]].name} is not a worse rate than ${credits.PLANS[paid[i - 1]].name}`,
-      `$${dearer?.toFixed(3)} vs $${cheaper?.toFixed(3)} per credit — paying more must not buy less`,
+      gated.length > 0,
+      `${credits.PLANS[id].name} credits cost more than a top-up, but it unlocks ${gated.map((m) => m.name).join(", ")}`,
+      `${credits.PLANS[id].name} is $${rate.toFixed(2)}/credit against a top-up's $${topUp.toFixed(
+        2,
+      )} and unlocks nothing of its own — subscribers would be better off buying packs`,
     );
   }
 

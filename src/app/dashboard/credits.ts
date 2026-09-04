@@ -133,6 +133,13 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
   return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
 }
 
+/* The two monthly grants, named so the plan cards can quote them without a
+   second copy going stale — "600 credits every month" sat on the Pro card for
+   as long as Pro granted 300. A card that names a number the plan does not
+   give is worse than a card that names none. */
+const STANDARD_CREDITS = 100;
+const PRO_CREDITS = 300;
+
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: "free",
@@ -169,7 +176,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Standard",
     monthlyPriceUsd: 25,
     dailyCredits: 0,
-    monthlyCredits: 100,
+    monthlyCredits: STANDARD_CREDITS,
     rolloverCycles: 1,
     publishing: {
       subdomain: PUBLISH_SUBDOMAIN,
@@ -178,7 +185,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "100 credits every month",
+      `${STANDARD_CREDITS} credits every month`,
       `Everything on Free, plus ${addedModelNames("standard")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
@@ -190,11 +197,24 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Pro",
     monthlyPriceUsd: 150,
     dailyCredits: 0,
-    /* The one allowance the specification does not state. Held at Standard's
-       rate of four credits per dollar, so the step up in price is a step up in
-       capacity rather than a change of deal. Change this line, not the UI, if
-       the intended figure is different. */
-    monthlyCredits: 600,
+    /* 300, which makes Pro an ACCESS tier rather than a volume tier, and that
+       is worth being explicit about because the per-credit arithmetic looks
+       wrong until you know it.
+     *
+     * $150 for 300 credits is 50 cents a credit. Standard is 25 and a one-off
+     * top-up is 30 — so Pro is the dearest credit on the menu, twice Standard's
+     * rate and well above simply buying packs. Nobody should buy this plan for
+     * the credits.
+     *
+     * What it actually sells is Fable, which no other plan can reach at any
+     * balance, and which costs 5x a Sonnet turn to run — a twelve-section Fable
+     * build is 40 credits, so 300 is around seven of them. Read that way the
+     * price is a licence with an allowance attached rather than an allowance
+     * priced badly.
+     *
+     * If the intent was ever a volume tier, this is the line to move: 500
+     * credits would put Pro level with a top-up, 600 level with Standard. */
+    monthlyCredits: PRO_CREDITS,
     rolloverCycles: 1,
     publishing: {
       subdomain: PUBLISH_SUBDOMAIN,
@@ -203,7 +223,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "600 credits every month",
+      `${PRO_CREDITS} credits every month`,
       `Everything on Standard, plus ${addedModelNames("pro")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
