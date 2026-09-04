@@ -3,13 +3,17 @@ import { NextResponse } from "next/server";
 import {
   CREDIT_ACTIONS,
   PLANS,
+  affordableModels,
+  buildDoorFor,
   canAfford,
+  cannotAffordBuildMessage,
   creditCostOf,
+  downgradedModelMessage,
   formatCredits,
   modelAllowedOnPlan,
   modelsForPlan,
   planRequiredFor,
-  roundCredits,
+  resolveBuildModel,
 } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { carryBrief, priorTurns } from "@/lib/builder/brief";
@@ -1021,26 +1025,86 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      edit or another build may have been charged in between. */
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
-  /* Scaled by the model they asked for, because the ceiling is now per-model:
-     the band describes a turn on the default, and Opus multiplies it by 2.5,
-     Fable by 5. Checking the unscaled ceiling would let somebody holding eight
-     credits start a Fable build that prices at forty and land the account deep
-     in overdraft — charge_credits takes what is there and reports the rest, so
-     nothing bounces, it just goes unpaid.
+  const viewerPlan = beforeBuild?.planId ?? "free";
 
-     Read straight off the request rather than from the resolved model, which
-     is settled further down: an unknown id is charged the default rate here
-     and refused outright there, so no request gets past both. */
-  const entryCost = roundCredits(
-    FULL_BUILD_ENTRY_COST * creditMultiplierFor(typeof body.model === "string" ? body.model : DEFAULT_MODEL),
-  );
+  /* The model is settled HERE rather than further down, because affordability
+     and model choice are the same decision and pretending otherwise is what
+     produced the refusal this replaces: "a full build on this model costs 8.00
+     and you have 5.25 — pick a cheaper model", to somebody whose plan included
+     a cheaper model that would have run.
 
-  if (beforeBuild && !canAfford(beforeBuild, entryCost)) {
-    const said = `A full build on this model costs up to ${formatCredits(entryCost)} credits and you have ${formatCredits(
-      beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
-    )}. Pick a cheaper model, ask for a change to the page instead — an edit costs far less — or top up.`;
+     Asking for "auto" now means asking this account's balance what it can
+     have. autoModelFor starts at the default and steps down; an explicitly
+     picked model is honoured exactly as picked, because a person who chose
+     Opus asked for Opus and would rather be refused than quietly downgraded. */
+  const wanted = typeof body.model === "string" && body.model ? body.model : DEFAULT_MODEL;
+  /* resolveModel turns "auto" into AUTO_MODEL and refuses anything this app
+     does not offer or cannot currently call. */
+  const requested = resolveModel(wanted);
+
+  if (!requested) {
+    return NextResponse.json(
+      { error: "That is not a model this app can build with." },
+      { status: 400 },
+    );
+  }
+
+  /* The plan gate runs on what was ASKED FOR, before the balance is consulted.
+     The two refusals are different things and must not be confused: a plan
+     cannot be solved by spending less, so a Free account that picks Fable is
+     told about the plan rather than quietly given Sonnet. Affordability, below,
+     IS solved by spending less, and so it is. */
+  const requiredPlan = planRequiredFor(requested);
+  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(requested, viewerPlan)) {
+    const usable = affordableModels(beforeBuild, viewerPlan).length
+      ? affordableModels(beforeBuild, viewerPlan)
+      : modelsForPlan(viewerPlan);
+    const said = `${requested.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to build with it, or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
+    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
+    return NextResponse.json(
+      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
+      { status: 402 },
+    );
+  }
+
+  /* Affordability, which steps down rather than refusing. The door is scaled
+     per model — the band describes a turn on the default and every other model
+     multiplies it — so an account holding eight credits cannot open a Fable
+     build that prices at forty. What it CAN do is build on something cheaper. */
+  const choice = resolveBuildModel(requested, beforeBuild, viewerPlan);
+
+  if (!choice) {
+    /* The only refusal left: nothing on this plan fits this balance. The
+       message names the plan above, or the top-up, because there is no cheaper
+       model left to name. */
+    const said = cannotAffordBuildMessage(requested, beforeBuild!, viewerPlan);
     const stored = await deliver(said, { tone: "error", key: "no-credits" });
-    return NextResponse.json({ error: said, code: "insufficient_credits", stored }, { status: 402 });
+    return NextResponse.json(
+      {
+        error: said,
+        code: "insufficient_credits",
+        model: requested.id,
+        needed: buildDoorFor(requested),
+        plan: viewerPlan,
+        stored,
+      },
+      { status: 402 },
+    );
+  }
+
+  const model = choice.model;
+
+  /* Said before the build starts, not after it finishes. A page built on a
+     smaller model than the chip promised, with nothing said, is
+     indistinguishable from a page that came back badly — and that is the
+     conclusion somebody reaches on their own. */
+  if (choice.downgradedFrom && beforeBuild) {
+    await deliver(downgradedModelMessage(choice, beforeBuild), {
+      /* Normal, not error: nothing failed. The build is running, just not on
+         the model that was asked for, and colouring that as a failure would
+         make a working build look broken. */
+      key: "model-downgraded",
+    });
   }
 
   /* ── What is actually being built ────────────────────────────────────────
@@ -1086,32 +1150,6 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * whose provider has no key configured is refused for the opposite reason:
    * it is our misconfiguration, not the person's mistake, and it should read
    * as one rather than as a build that failed for no stated cause. */
-  const model = resolveModel(body.model ?? DEFAULT_MODEL);
-  if (!model) {
-    return NextResponse.json(
-      { error: "That is not a model this app can build with." },
-      { status: 400 },
-    );
-  }
-  /* The plan gate, and it is the rule rather than the courtesy: the picker
-     greys a locked model, but a request naming one did not necessarily come
-     from the picker.
-
-     Gated only when the plan is actually known. A balance that could not be
-     read leaves beforeBuild null, and the affordability check above already
-     skips in that case rather than refusing an account it cannot see — this
-     matches, so one Supabase hiccup does not tell a paying customer their plan
-     does not include what they pay for. */
-  const requiredPlan = planRequiredFor(model);
-  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(model, beforeBuild.planId)) {
-    const said = `${model.name} is on the ${requiredPlan.name} plan. You are on ${PLANS[beforeBuild.planId].name} — upgrade to build with it, or pick ${modelsForPlan(beforeBuild.planId).filter((entry) => entry.provider !== "auto").map((entry) => entry.name).join(" or ")}.`;
-    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
-    return NextResponse.json(
-      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
-      { status: 402 },
-    );
-  }
-
   if (!providerConfigured(model.provider)) {
     return NextResponse.json(
       {

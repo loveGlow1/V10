@@ -135,16 +135,20 @@ export const MODELS: Model[] = [
   {
     id: "auto",
     name: "Auto",
-    blurb: "Always selects the best model",
+    /* It now does what this says. Auto starts at AUTO_MODEL and steps DOWN the
+       ladder when the balance cannot cover that model's build — never up, so
+       Auto can never spend more than the default. See autoModelFor() in
+       credits.ts. */
+    blurb: "Picks the best model your balance can run",
     provider: "auto",
   },
 
   // Claude — newest first, then Opus, then down the range.
   {
     id: "claude-fable-5",
-    /* $10/$50 per Mtok against Haiku's $1/$5 — ten times the default, and the
-       dearest thing on the menu. */
-    creditMultiplier: 10,
+    /* $10/$50 per Mtok against Sonnet's $2/$10 — five times the default, and
+       the dearest thing on the menu. */
+    creditMultiplier: 5,
     reasoning: "adaptive",
     /* The dearest model on the menu, behind the dearest plan. At 10x a
        twelve-section build is 80 credits — most of Standard's entire monthly
@@ -160,8 +164,8 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-opus-5",
-    /* $5/$25 per Mtok against Haiku's $1/$5. */
-    creditMultiplier: 5,
+    /* $5/$25 per Mtok against Sonnet's $2/$10. */
+    creditMultiplier: 2.5,
     reasoning: "adaptive",
     minPlan: "standard",
     name: "Claude Opus 5",
@@ -172,8 +176,8 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-sonnet-5",
-    /* $2/$10 per Mtok against Haiku's $1/$5. */
-    creditMultiplier: 2,
+    /* The anchor: AUTO_MODEL, so by definition 1. */
+    creditMultiplier: 1,
     reasoning: "adaptive",
     name: "Claude Sonnet 5",
     blurb: "Intelligent and cost effective",
@@ -183,10 +187,9 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-haiku-4-5",
-    /* The anchor: AUTO_MODEL, so by definition 1. Everything else is a
-       multiple of it, and the four Claude models happen to land on exactly
-       1 : 2 : 5 : 10. */
-    creditMultiplier: 1,
+    /* $1/$5 per Mtok — half the default, and the reason Auto can fall back to
+       it: half the price means half the door. */
+    creditMultiplier: 0.5,
     /* Pre-4.6. See `reasoning` on the type: sending effort here is a 400. */
     reasoning: "none",
     name: "Claude Haiku 4.5",
@@ -258,27 +261,23 @@ export const MODELS: Model[] = [
 
 export const DEFAULT_MODEL = MODELS[0].id;
 
-/* What "Auto" comes out as.
+/* What "Auto" comes out as, before affordability is considered.
  *
- * Named rather than implied, because "Auto" is the default and therefore what
- * almost every build actually runs on — leaving that to fall out of list order
- * means the model most people use is decided by where someone pasted an entry.
+ * Sonnet: the most capable model that is still cheap enough to be a default,
+ * and the one a Free account gets. Not Haiku — a build is one long call that
+ * has to produce a complete document in one pass, and Haiku's own entry says
+ * "for small edits". Not Opus, which costs 2.5x and is what Standard buys.
  *
- * Haiku: the cheapest model on the menu, and the deliberate floor. This was
- * Opus, then Sonnet, and the direction of travel is the point — the default is
- * the setting nearly nobody changes, so it should cost the least the product
- * can stand, and anyone who wants more is one click away in the picker.
+ * This is the CEILING for Auto rather than a fixed answer. autoModelFor() in
+ * credits.ts starts here and steps down to Haiku when the balance cannot cover
+ * a Sonnet build, so somebody with 5 credits gets a Haiku build instead of a
+ * refusal. It never steps up: Auto cannot cost more than this line says, and
+ * reaching Opus or Fable is always a deliberate choice in the picker.
  *
- * The tradeoff is stated rather than hidden. A build is one long call that has
- * to produce a complete document in one pass — eleven sections, working
- * interactions, a closing </html> — and Haiku's own entry in this list says
- * "for small edits". If pages start coming back thin, this constant is the
- * first thing to move, and moving it to claude-sonnet-5 is a one-line change.
- *
- * Haiku is also the one model here that predates adaptive thinking, so making
- * it the default is what forced `reasoning` onto the type above: the request
- * builder cannot send one body to every model any more. */
-export const AUTO_MODEL = "claude-haiku-4-5";
+ * EDIT_MODEL is deliberately different — edits run on Haiku, because an edit is
+ * a search-and-replace over a page that already exists and happens all
+ * afternoon. See src/lib/builder/edit.ts. */
+export const AUTO_MODEL = "claude-sonnet-5";
 
 export function modelById(id: string) {
   return MODELS.find((model) => model.id === id) ?? MODELS[0];
