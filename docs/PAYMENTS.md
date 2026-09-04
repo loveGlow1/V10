@@ -111,10 +111,48 @@ Nothing else settles an order. There is no button in the app that does this, and
 that is deliberate: the browser can only record that a payer *says* they have
 paid.
 
-If you later move to a processor (BTCPay, Coinbase Commerce, NOWPayments), it
-issues a fresh address per order and calls that same webhook itself — the
-manual step and the distinct-amount nudging both become unnecessary, and
-nothing else about the flow changes.
+## Automatic settlement, with BTCPay
+
+Everything above is the manual path, and it stays. This is how to stop needing
+it.
+
+Set `BTCPAY_URL`, `BTCPAY_STORE_ID`, `BTCPAY_API_KEY` and
+`BTCPAY_WEBHOOK_SECRET` (see `.env.local.example`) and the flow changes at two
+points and nowhere else:
+
+- `/api/payments/crypto` asks BTCPay for an invoice instead of handing out the
+  static address. The invoice owns both the address AND the amount, and both are
+  stored exactly as given — asking someone for a figure BTCPay is not watching
+  for is a payment that arrives and never settles. Amount-nudging is skipped,
+  because a per-invoice address makes the amount stop being the identifier.
+- `/api/payments/crypto/btcpay` receives the callback and calls
+  `settle_crypto_payment`, the same function `npm run settle` reaches.
+
+It is a **separate route** from `/api/payments/crypto/webhook` because the
+signatures differ: this app signs `timestamp.hmac` over `${issuedAt}\n${body}`
+and checks a five-minute window, while BTCPay signs `sha256=<hmac>` over the raw
+body with no timestamp. One verifier accepting both would accept anything valid
+under the weaker scheme.
+
+Because BTCPay's signature carries no timestamp, a captured callback can be
+replayed forever — so the route treats the signature as the door and re-reads
+the invoice from BTCPay for the decision. A replayed body asks the same question
+and gets the same answer, which `settle_crypto_payment` then ignores as a
+duplicate.
+
+**BTCPay never holds the money.** Configure the store watch-only from an account
+xpub/zpub and payments go straight into that wallet; BTCPay only observes. Use a
+wallet created for this, not a personal one — an xpub reveals every address and
+every balance it will ever derive.
+
+Everything is optional and fails soft. With BTCPay unset, or if it errors, or
+for any coin but on-chain BTC, the static address and the nudging are used
+exactly as before and settlement is manual again. Check which state a deployment
+is in with `/api/health`: `btcpayInvoicing` and `btcpaySettlement`.
+
+Coinbase Commerce and NOWPayments would each need their own adapter route for
+the same reason BTCPay does — the shape of the callback and the signature are
+per-processor. The half that grants credits is already written and shared.
 
 ## Environment variables
 

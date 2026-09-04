@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { providerStatus } from "@/lib/builder/assets/providers/registry";
 
+import { isBtcPayConfigured, isBtcPayWebhookConfigured } from "@/lib/btcpay";
 import {
   isCryptoCheckoutConfigured,
   isSettlementCallbackConfigured,
@@ -92,6 +93,13 @@ export async function GET() {
        is the failure worth being able to see from outside. */
     cryptoCheckoutConfigured: isCryptoCheckoutConfigured(),
     cryptoSettlementConfigured: isSettlementCallbackConfigured(),
+    /* Whether anything is WATCHING. The two above can both be true while
+       settlement is still a person reading their own wallet — which was the
+       state this deployment shipped in. False here means payments arrive and
+       wait for `npm run settle`; true means BTCPay notices and credits within
+       a confirmation. */
+    btcpayInvoicing: isBtcPayConfigured(),
+    btcpaySettlement: isBtcPayWebhookConfigured(),
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
   });
