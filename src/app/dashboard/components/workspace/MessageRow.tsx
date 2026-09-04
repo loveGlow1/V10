@@ -138,20 +138,23 @@ export default function MessageRow({
         </p>
       )}
 
-      {/* Mobile only, from `md` down.
+      {/* Hidden per chip rather than as a row, because the two kinds are not
+       * the same thing.
        *
-       * At `md` and above the preview pane sits beside the conversation and
-       * carries every one of these: open, download, copy a link, and the repo
-       * URL under Manage. Repeating them in the thread gives a desktop reader
-       * two of everything and makes them decide which is the real one — and
-       * the pane is the real one, because it is the thing that stays put while
-       * the conversation scrolls away from it.
+       * A DOWNLOAD chip is a duplicate on desktop: the pane beside the
+       * conversation has its own, permanently. Two buttons for one file only
+       * makes a reader decide which is the real one.
        *
-       * Below `md` there is no pane on screen — chat and preview are one at a
-       * time behind a toggle — so these chips are the only way to reach the
-       * page from the thread, and they stay exactly as they were. */}
+       * An OPEN chip is not a duplicate. The pane shows the page in a framed
+       * panel; this opens it in a real browser tab, at full width, where links
+       * and scrolling and the address bar behave normally. That is a different
+       * thing to want, and it is worth a chip of its own at every size.
+       *
+       * Below `md` nothing hides at all: there is no pane on screen — chat and
+       * preview are one at a time behind a toggle — so every chip here is the
+       * only route from the thread to the page. */}
       {message.links && !actionsLive && (
-        <div className="mt-2 flex flex-wrap gap-1.5 md:hidden">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {message.links.map((link) => {
             /* A chip that saves a file rather than opening a place.
                Both the arrow and the new tab would be wrong for it: the route
@@ -163,7 +166,9 @@ export default function MessageRow({
                 key={link.href}
                 href={link.href}
                 {...(saves ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
-                className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18]"
+                className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18] ${
+                  saves ? "md:hidden" : ""
+                }`}
               >
                 {link.label}
                 {saves ? <Download className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
