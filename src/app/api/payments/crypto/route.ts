@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { createBtcPayInvoice, isBtcPayConfigured } from "@/lib/btcpay";
+import { RECONCILE_SERVICE, readHeartbeat } from "@/lib/heartbeat";
 
 import {
   CRYPTO_CURRENCIES,
@@ -195,14 +196,23 @@ export async function POST(request: Request) {
      amount-nudging that makes a shared address workable. That fallback is the
      reason this can ship before the BTCPay instance exists.
 
-     What is NOT a fallback is BTCPay being configured and failing. Falling
-     through to the static address there looks harmless and is not: the invoice
-     is what watches for the payment, so an order written without one is an
-     address a customer pays into that nothing is watching. The money arrives,
-     settle_crypto_payment is never called, and the order sits awaiting_payment
-     until a person notices — which is the exact failure the invoice was added
-     to remove. So this refuses instead. A customer who cannot pay for two
-     minutes comes back; a customer who pays and receives nothing does not. */
+     BTCPay being configured and failing is the interesting case, and the rule
+     is not "refuse" or "fall back" — it is whether ANYTHING IS WATCHING.
+
+     The danger was never the static address itself. It was writing an order
+     against an address nothing would notice a payment to: the invoice was the
+     only sensor, so losing it meant money arriving, settle_crypto_payment never
+     being called, and the order sitting open until a person happened to look.
+     Refusing was right while that was true.
+
+     It is not true any more. The reconciliation sweep reads the chain directly
+     and settles from it, needing no processor at all — so with the sweep alive,
+     the static address is watched and the fallback is safe. With the sweep dead
+     or never run, nothing is watching and refusing is right again.
+
+     So the heartbeat decides. That is the honest question and it is the only
+     one that matters: a customer who cannot pay for two minutes comes back; a
+     customer who pays and receives nothing does not. */
   const wantsInvoice = currency === "btc" && !lightning && isBtcPayConfigured();
 
   const invoice = wantsInvoice
@@ -215,15 +225,30 @@ export async function POST(request: Request) {
     : null;
 
   if (wantsInvoice && !invoice) {
+    const sweep = await readHeartbeat(service, RECONCILE_SERVICE);
+
+    if (sweep.stale) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "crypto payments: BTCPay issued no invoice and the sweep is not running; refusing the order",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Bitcoin checkout is briefly unavailable. Try again in a few minutes, or pay in another currency.",
+          code: "invoicing_unavailable",
+        },
+        { status: 503 },
+      );
+    }
+
+    /* Watched by the sweep instead. Logged rather than passed over in silence:
+       the order is about to be taken on the older, slower path, and somebody
+       should be able to see from the logs that BTCPay was down when it was. */
     // eslint-disable-next-line no-console
-    console.error("crypto payments: BTCPay is configured but issued no invoice; refusing the order");
-    return NextResponse.json(
-      {
-        error:
-          "Bitcoin checkout is briefly unavailable. Try again in a few minutes, or pay in another currency.",
-        code: "invoicing_unavailable",
-      },
-      { status: 503 },
+    console.warn(
+      `crypto payments: BTCPay issued no invoice; falling back to the static address, `
+        + `watched by a sweep that last ran ${sweep.minutesAgo} minutes ago`,
     );
   }
 
