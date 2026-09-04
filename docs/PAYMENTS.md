@@ -152,12 +152,20 @@ with `/api/health`: `btcpayInvoicing`, `btcpaySettlement`, and
 because four variables being set says a deployment intends to invoice, not that
 it can.
 
-**Configured and failing is not fallen back from.** If BTCPay is set up but
-issues no invoice, `/api/payments/crypto` refuses the Bitcoin order rather than
-writing one against the static address. That looks like the unfriendlier choice
-and is the opposite: the invoice is what watches for the payment, so an order
-written without one is an address a customer pays into that nothing is watching.
-Two minutes of "try again" against a customer who pays and receives nothing.
+**Configured and failing asks a different question: is anything watching?**
+
+The danger was never the static address. It was writing an order against an
+address nothing would notice a payment to — with the invoice as the only sensor,
+losing it meant money arriving, `settle_crypto_payment` never being called, and
+the order sitting open until a person happened to look.
+
+The sweep changed that. It reads the chain directly and needs no processor, so
+the static address is watched whenever the sweep is alive. `/api/payments/crypto`
+therefore reads the reconcile heartbeat when BTCPay issues no invoice: alive, and
+the order falls back to the static address and the amount-nudging as before;
+stale or never run, and the order is refused, because then nothing really is
+watching. A customer who cannot pay for two minutes comes back; a customer who
+pays and receives nothing does not.
 
 Coinbase Commerce and NOWPayments would each need their own adapter route for
 the same reason BTCPay does — the shape of the callback and the signature are
