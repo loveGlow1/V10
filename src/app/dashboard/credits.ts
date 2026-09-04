@@ -24,7 +24,7 @@
    balance, which is what lets the same functions run in the composer to
    preview a cost and on the server to enforce one. */
 
-import { MODELS, creditMultiplierFor, type Model } from "@/app/dashboard/models";
+import { AUTO_MODEL, MODELS, creditMultiplierFor, modelById, type Model } from "@/app/dashboard/models";
 import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 export type PlanId = "free" | "standard" | "pro";
@@ -552,4 +552,100 @@ export function applyTopUp(balance: CreditBalance, packs = 1): CreditBalance {
 /** The two-decimal form every credit figure in the UI is written in. */
 export function formatCredits(value: number): string {
   return value.toFixed(2);
+}
+
+/* ── Knowing what this account can actually do ─────────────────────────────
+
+   The refusal that prompted this said "A full build on this model costs up to
+   8.00 credits and you have 5.25. Pick a cheaper model." It was true and it was
+   useless: there WAS a cheaper model, on the same plan, whose build the balance
+   covered — Haiku, at half the price. The person was told to solve a problem the
+   system had already solved and simply not mentioned.
+
+   So the rule here is: never refuse without naming what would work. Everything
+   below exists to answer one question — given this balance and this plan, what
+   can this person do right now. */
+
+/** What must be in the pool before a full build on `model` may START.
+ *
+ *  The band describes a turn on the default model; every other model scales it,
+ *  so the door does too — otherwise an account holding eight credits could open
+ *  a Fable build that prices at forty. */
+export function buildDoorFor(model: Model): number {
+  return roundCredits(CREDIT_ACTIONS.generate.max * creditMultiplierFor(model.id));
+}
+
+/** Every model this account may pick AND can afford a build on, dearest first —
+ *  so the head of the list is the best thing they can run right now. */
+export function affordableModels(balance: CreditBalance, planId: PlanId): Model[] {
+  return modelsForPlan(planId)
+    .filter((model) => canAfford(balance, buildDoorFor(model)))
+    .sort((a, b) => creditMultiplierFor(b.id) - creditMultiplierFor(a.id));
+}
+
+/**
+ * What "Auto" actually resolves to for this account.
+ *
+ * Starts at AUTO_MODEL and steps DOWN until the balance covers the build.
+ * Never up: Auto is capped at the default, so it cannot quietly spend Opus
+ * money on somebody who asked for nothing in particular. Reaching the dearer
+ * models stays a deliberate press in the picker.
+ *
+ * With no balance to read it returns the ceiling unchanged — the same
+ * fail-open the affordability gate takes, since refusing an account we cannot
+ * see is worse than letting one build.
+ */
+export function autoModelFor(balance: CreditBalance | null, planId: PlanId): Model {
+  const ceiling = modelById(AUTO_MODEL);
+  if (!balance) return ceiling;
+
+  const capped = affordableModels(balance, planId).filter(
+    (model) => creditMultiplierFor(model.id) <= creditMultiplierFor(AUTO_MODEL),
+  );
+
+  /* affordableModels is dearest-first, so the head is the best affordable model
+     at or below the default. Nothing affordable leaves the ceiling, and the
+     caller turns that into a refusal that can still name a price. */
+  return capped[0] ?? ceiling;
+}
+
+/** The plan above this one, or null at the top. */
+export function nextPlanUp(planId: PlanId): Plan | null {
+  const next = PLAN_ORDER[PLAN_ORDER.indexOf(planId) + 1];
+  return next ? PLANS[next] : null;
+}
+
+/**
+ * Why a build cannot start, written for someone who wants to build one.
+ *
+ * Three shapes, in the order they help:
+ *   1. Something cheaper on this plan would run  → name it and its price.
+ *   2. Nothing runs, but a bigger plan exists    → name the plan and what it grants.
+ *   3. Nothing runs and they are on the top plan → top up.
+ *
+ * An edit is offered in all three, because it is the one thing that stays
+ * affordable when a build is not.
+ */
+export function cannotAffordBuildMessage(
+  model: Model,
+  balance: CreditBalance,
+  planId: PlanId,
+): string {
+  const held = formatCredits(totalCredits(balance));
+  const door = formatCredits(buildDoorFor(model));
+  const opening = `A full build on ${model.name} needs ${door} credits and you have ${held}.`;
+
+  const alternative = affordableModels(balance, planId).find((entry) => entry.id !== model.id);
+  if (alternative) {
+    return `${opening} ${alternative.name} can build it now for up to ${formatCredits(
+      buildDoorFor(alternative),
+    )} — pick it from the model menu. An edit to the page costs far less again.`;
+  }
+
+  const upgrade = nextPlanUp(planId);
+  if (upgrade) {
+    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits, or top up ${TOP_UP_PACK.credits} for $${TOP_UP_PACK.priceUsd}. Asking for a change to the page costs far less than a build.`;
+  }
+
+  return `${opening} Top up ${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd} to keep building. Asking for a change to the page costs far less than a build.`;
 }

@@ -164,6 +164,75 @@ try {
     "AUTO_MODEL is gated behind a paid plan — free accounts could not build",
   );
 
+  /* ── Auto actually selects ──────────────────────────────────────────────
+     The refusal this replaces told somebody holding 5.25 credits that a build
+     cost 8.00 and to "pick a cheaper model", while a cheaper model on their own
+     plan would have run. Auto now steps down to it. */
+  const purse = (n) => ({ daily: 0, rollover: 0, monthly: 0, topUp: n });
+
+  is(
+    credits.autoModelFor(purse(5.25), "free").id,
+    "claude-haiku-4-5",
+    "Auto steps down to Haiku when Sonnet's build is out of reach",
+  );
+  is(
+    credits.autoModelFor(purse(500), "free").id,
+    models.AUTO_MODEL,
+    "Auto stays at the default when the balance is ample",
+  );
+  /* The cap matters more than the step-down: Auto must never reach for a model
+     dearer than the default, or "I did not choose anything" starts spending
+     Opus money. */
+  for (const plan of ["free", "standard", "pro"]) {
+    const picked = credits.autoModelFor(purse(100000), plan);
+    has(
+      models.creditMultiplierFor(picked.id) <= models.creditMultiplierFor(models.AUTO_MODEL),
+      `Auto never steps above the default on ${plan}`,
+      `picked ${picked.id}, which costs more than ${models.AUTO_MODEL}`,
+    );
+  }
+  is(
+    credits.autoModelFor(null, "free").id,
+    models.AUTO_MODEL,
+    "Auto falls back to the default when no balance can be read",
+  );
+
+  /* Doors scale with the model, or an eight-credit account could open a
+     forty-credit build. */
+  has(
+    credits.buildDoorFor(models.modelById("claude-fable-5")) >
+      credits.buildDoorFor(models.modelById(models.AUTO_MODEL)),
+    "a dearer model has a higher door",
+    "the entry cost is not scaling with the model",
+  );
+
+  /* ── A refusal always names a way forward ───────────────────────────────
+     Never "pick a cheaper model" with no cheaper model named. */
+  const withAlternative = credits.cannotAffordBuildMessage(
+    models.modelById("claude-sonnet-5"), purse(5.25), "free",
+  );
+  has(
+    withAlternative.includes("Claude Haiku 4.5"),
+    "a refusal names the cheaper model that would run",
+    withAlternative,
+  );
+  const noAlternative = credits.cannotAffordBuildMessage(
+    models.modelById("claude-sonnet-5"), purse(1), "free",
+  );
+  has(
+    noAlternative.includes("Standard") && noAlternative.includes("top up"),
+    "with nothing affordable, a free account is offered the plan above and a top-up",
+    noAlternative,
+  );
+  const atTheTop = credits.cannotAffordBuildMessage(
+    models.modelById("claude-fable-5"), purse(1), "pro",
+  );
+  has(
+    !atTheTop.includes("a month for") && atTheTop.includes("Top up"),
+    "the top plan is never told to upgrade",
+    atTheTop,
+  );
+
   /* A locked model names the plan that unlocks it, so the picker has something
      to say beyond "no". */
   for (const model of models.MODELS.filter((entry) => entry.minPlan && entry.minPlan !== "free")) {
@@ -192,10 +261,13 @@ try {
       "the ladder has to climb: cheapest model, cheapest price",
     );
   }
-  is(
-    models.creditMultiplierFor(ladder[0]),
-    1,
-    "the cheapest model is the anchor",
+  /* The anchor is the DEFAULT, not the cheapest — Auto is what almost every
+     build runs on, so it is the natural 1. Haiku sits below it at 0.5, which is
+     exactly what lets Auto step down to a cheaper door. */
+  has(
+    models.creditMultiplierFor(ladder[0]) < 1,
+    "the cheapest model prices below the anchor",
+    "Auto has nothing cheaper to step down to",
   );
 
   /* ── Reasoning fields go only to models that take them ──────────────────
