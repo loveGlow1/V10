@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { modelById } from "@/app/dashboard/models";
+
 import { applyPatches, describeFailures, noteAfterPatches, type PatchFailure } from "./patch";
 import {
   CLARIFY_SYSTEM,
@@ -20,8 +22,8 @@ import {
  * in n8n; changing one that exists does not, and should not make someone wait
  * as though it did. */
 
-/* Sonnet, not Opus, and for the same reason Auto is Sonnet — see AUTO_MODEL in
-   dashboard/models.ts.
+/* Haiku, the same as Auto — see AUTO_MODEL in dashboard/models.ts, which
+   carries the reasoning and the tradeoff.
  *
  * This one is arguably the bigger saving of the two. A build happens once; an
  * edit or a question happens all afternoon, and each one sends the WHOLE page
@@ -39,7 +41,7 @@ import {
  * choice through is a real change (this module's signatures, three call sites
  * in api/build/route.ts, and the step labels that name the model) and is worth
  * doing; it is not done here. */
-export const EDIT_MODEL = "claude-sonnet-5";
+export const EDIT_MODEL = "claude-haiku-4-5";
 
 export class EditError extends Error {
   constructor(
@@ -130,17 +132,28 @@ async function ask(
        final message is still what the caller gets, so nothing downstream
        changes shape. */
     const stream = client().messages.stream({
-      model: EDIT_MODEL,
+      model: modelById(EDIT_MODEL).apiId ?? EDIT_MODEL,
       max_tokens: maxTokens,
-      /* Adaptive thinking, low effort. Working out which lines to change and
-         copying them exactly is careful work rather than hard work, and this
-         call is on the path of someone watching a cursor.
+      /* Sent only to a model that takes them. Haiku 4.5 predates both fields
+         and answers `output_config.effort` with a 400 rather than ignoring it,
+         so they travel together and only when the catalogue says so.
 
-         `display: "summarized"` is what makes the reasoning readable at all —
-         the default on this model omits it, and the raw chain of thought is
-         never returned by any of them. */
-      thinking: { type: "adaptive", display: "summarized" },
-      output_config: { effort: "low" },
+         Where they do apply: adaptive thinking at low effort, because working
+         out which lines to change and copying them exactly is careful work
+         rather than hard work, and this call is on the path of someone
+         watching a cursor. `display: "summarized"` is what makes that
+         reasoning readable at all — the default omits it, and the raw chain of
+         thought is never returned by any model.
+
+         With reasoning off there is simply no thinking to narrate, and the
+         progress handler below renders an empty string for it, which is the
+         correct thing to show for a model that does not think out loud. */
+      ...(modelById(EDIT_MODEL).reasoning === "none"
+        ? {}
+        : {
+            thinking: { type: "adaptive" as const, display: "summarized" as const },
+            output_config: { effort: "low" as const },
+          }),
       system,
       messages: [
         ...prior,
