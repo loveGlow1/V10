@@ -124,6 +124,38 @@ try {
     "every model is marked unavailable — the picker would be entirely dead",
   );
 
+  /* ── The credit rate ────────────────────────────────────────────────────
+     A model somebody switches on without a multiplier is priced as though it
+     were the default, which sells the dearest thing at the cheapest price and
+     does it silently. Caught here rather than on the bill. */
+  for (const model of models.MODELS.filter(
+    (entry) => entry.provider !== "auto" && models.isModelAvailable(entry),
+  )) {
+    has(
+      typeof model.creditMultiplier === "number" && model.creditMultiplier > 0,
+      `${model.name} carries a credit multiplier`,
+      "available with no creditMultiplier — it would be charged at the default rate",
+    );
+  }
+  is(models.creditMultiplierFor(models.AUTO_MODEL), 1, "the default model is the anchor at 1");
+  is(models.creditMultiplierFor("auto"), 1, "Auto prices as the model it resolves to");
+  is(models.creditMultiplierFor("nonsense"), 1, "an unknown model falls back to the default rate");
+  has(
+    models.creditMultiplierFor("claude-fable-5") > models.creditMultiplierFor("claude-opus-5"),
+    "Fable costs more than Opus",
+    "Fable is meant to be the dearest thing on the menu",
+  );
+  has(
+    models.creditMultiplierFor("claude-opus-5") > models.creditMultiplierFor(models.AUTO_MODEL),
+    "Opus costs more than the default",
+    "picking Opus has to cost more than not picking it",
+  );
+  has(
+    models.creditMultiplierFor("claude-haiku-4-5") < models.creditMultiplierFor(models.AUTO_MODEL),
+    "Haiku costs less than the default",
+    "the cheapest model should price as the cheapest model",
+  );
+
   // ── Anthropic's shape ───────────────────────────────────────────────────
   const claude = wire.generationRequest(models.resolveModel("claude-opus-5"), SYSTEM, USER, IMAGES);
   is(claude.shape, "anthropic", "Claude uses the anthropic shape");

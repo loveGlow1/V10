@@ -24,6 +24,7 @@
    balance, which is what lets the same functions run in the composer to
    preview a cost and on the server to enforce one. */
 
+import { creditMultiplierFor } from "@/app/dashboard/models";
 import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 export type PlanId = "free" | "standard" | "pro";
@@ -283,6 +284,21 @@ export type UsageSignal = {
   /** Files the turn created, edited or deleted. */
   filesTouched?: number;
   /**
+   * Which model did the work, as a picker id.
+   *
+   * The band below prices the SHAPE of a turn — how much was written, how far
+   * it reached. This is the other half: what that turn cost to run. A page
+   * generated on Fable and the same page on Haiku are the same work and ten
+   * times apart on the bill, and a credit economy that cannot tell them apart
+   * charges the Haiku user for the Fable one.
+   *
+   * Absent means the default rate, which is what an older caller that does not
+   * send it will get. Never read from the browser: a model id is worth money
+   * here, so /api/credits/spend uses the server's own constant and the build
+   * path uses what the signed request actually ran on.
+   */
+  modelId?: string;
+  /**
    * Whether the project is already live — the difference between provisioning
    * one and redeploying it.
    *
@@ -331,7 +347,11 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
 
   /* A publish is one of two flat prices, decided only by whether the project is
      already live. Returned before any usage is read, so no token count or file
-     count can move a deploy off its advertised price in either direction. */
+     count can move a deploy off its advertised price in either direction.
+
+     Not multiplied by the model either, and that is deliberate: no model runs
+     during a deploy. It is a commit, a build and a subdomain, and it costs the
+     same whoever wrote the page. */
   if (action === "publish") {
     return signal.alreadyPublished ? REDEPLOY_COST : PUBLISH_COST;
   }
@@ -339,10 +359,23 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
   const outputTokens = Math.max(0, signal.outputTokens ?? 0);
   const filesTouched = Math.max(0, signal.filesTouched ?? 0);
 
+  /* The model's rate, applied AFTER the band rather than inside it.
+   *
+   * Order matters and this is the way round that means what it says. Clamping
+   * first and multiplying second makes the band a description of the DEFAULT
+   * model's turn, which each model then scales: Sonnet's ceiling is 8, Opus's
+   * is 20, Fable's is 40. Multiplying first and clamping second would let the
+   * shared ceiling swallow the difference — every model above the default
+   * would price identically at the top, which is exactly where the expensive
+   * ones are expensive. */
+  const rate = creditMultiplierFor(signal.modelId);
+
   if (action === "chat") {
-    /* A one-line answer is free; a long one costs the single credit the band
-       allows. Troubleshooting a build should not feel metered. */
-    return clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max);
+    /* A short answer sits at the floor; a long one reaches the band's ceiling.
+       Troubleshooting a build should not feel metered — though asking Fable
+       about it costs what asking Fable costs. */
+    const base = clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max);
+    return roundCredits(base * rate);
   }
 
   /* Generation starts at the floor — any edit is worth something — and grows
@@ -352,7 +385,7 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     outputTokens / GENERATE_TOKENS_PER_CREDIT +
     filesTouched * GENERATE_CREDITS_PER_FILE;
 
-  return clamp(roundCredits(cost), spec.min, spec.max);
+  return roundCredits(clamp(roundCredits(cost), spec.min, spec.max) * rate);
 }
 
 /* ── The balance ───────────────────────────────────────────────────────────
