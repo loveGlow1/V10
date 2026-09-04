@@ -206,6 +206,30 @@ a judgement, and guessing either shorts the customer or pays out more than
 arrived. `decideOrder` in `src/lib/reconcile-decision.ts` holds these rules as a
 pure function; `npm run check:reconcile` asserts them.
 
+### Shared addresses are read differently, and it is not optional
+
+An order on a **dedicated** address — one BTCPay derived for that invoice alone
+— can be judged by what the address has received in total. Nothing else will
+ever pay it, so "received at least what was asked" is the whole question.
+
+An order on the **shared** static address cannot. That address's total is every
+order that ever used it added together, so judging one order against it settles
+that order the moment anybody has ever paid the address — including orders
+nobody paid, and including every future order the instant one real payment
+lands. On a shared address the AMOUNT is the identifier. That is what the create
+route's nudging exists for, and it means nothing unless the chain is read
+payment by payment rather than in total.
+
+`crypto_payments.shared_address` records which kind an order used, written at
+creation from whether an invoice was issued. It defaults to true, because exact
+matching can only fail to settle while total matching can settle something that
+was never paid.
+
+Matched transactions are recorded in `tx_reference` and excluded from later
+matching. Amounts are unique among *open* orders, not across history — without
+that exclusion, the payment that settled a $25 order last month would settle the
+next order nudged to the same figure.
+
 **Scheduling it.** `CRON_SECRET` is required or the endpoint refuses every
 caller — a cron endpoint that opens whenever a variable is missing is a public
 one. Schedule it from anywhere that can send a header: n8n does it every thirty

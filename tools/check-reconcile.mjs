@@ -69,10 +69,35 @@ try {
   const { btcToSats } = await import(join(out, "lib/chain-watch.js"));
 
   const NOW = 1_800_000_000_000;
-  const live = { status: "awaiting_payment", expectedSats: 50_000, expiresAt: NOW + 60_000 };
+  /* A dedicated address — one BTCPay derived for this order alone. */
+  const live = {
+    status: "awaiting_payment", expectedSats: 50_000, expiresAt: NOW + 60_000, sharedAddress: false,
+  };
   const dead = { ...live, expiresAt: NOW - 60_000 };
-  const chain = (confirmedSats, pendingSats = 0) => ({ confirmedSats, pendingSats });
-  const act = (order, funding) => decideOrder(order, funding, NOW).kind;
+  /* The same order on the shared static address. */
+  const shared = { ...live, sharedAddress: true };
+  const sharedDead = { ...dead, sharedAddress: true };
+
+  let txSeq = 0;
+  const pay = (sats, confirmed = true) => ({ txid: `tx${++txSeq}`, sats, confirmed });
+
+  /* Totals with no itemisation — how a dedicated address reads. */
+  const chain = (confirmedSats, pendingSats = 0) => ({
+    confirmedSats, pendingSats,
+    payments: [
+      ...(confirmedSats > 0 ? [pay(confirmedSats, true)] : []),
+      ...(pendingSats > 0 ? [pay(pendingSats, false)] : []),
+    ],
+  });
+
+  /* Itemised — how a shared address must be read. */
+  const chainOf = (...payments) => ({
+    confirmedSats: payments.filter((p) => p.confirmed).reduce((n, p) => n + p.sats, 0),
+    pendingSats: payments.filter((p) => !p.confirmed).reduce((n, p) => n + p.sats, 0),
+    payments,
+  });
+
+  const act = (order, funding, used) => decideOrder(order, funding, NOW, used).kind;
 
   // ── Satoshis ────────────────────────────────────────────────────────────
   /* The orders carry BTC to ten decimal places; the chain counts whole
@@ -116,6 +141,82 @@ try {
   /* The table forbids it, so reaching here means something upstream is broken —
      and 0 >= 0 would settle every such order for free. */
   is(act({ ...live, expectedSats: 0 }, chain(0)), "strand", "an order asking for nothing is stranded");
+
+  // ── The shared address ──────────────────────────────────────────────────
+  /* The bug this section exists for, found by asking what happens when a $25
+     order lands on the static address.
+     
+     A shared address's total is every order that ever used it added together.
+     Judged against that total, an order settles the moment ANYBODY has ever
+     paid the address — so one real payment makes every later order free. The
+     amount is the identifier there, which is what the create route's nudging is
+     for, and it means nothing unless the chain is read payment by payment. */
+
+  is(
+    act(shared, chainOf(pay(50_000))),
+    "settle",
+    "a shared address settles on a payment of the exact amount",
+  );
+
+  /* The one that was wrong. Total is 90,000 — far more than the 50,000 asked —
+     and not one satoshi of it was sent against this order. */
+  is(
+    act(shared, chainOf(pay(40_000), pay(50_001))),
+    "leave",
+    "a shared address does NOT settle on someone else's payments",
+  );
+
+  is(
+    act(sharedDead, chainOf(pay(40_000), pay(50_001))),
+    "expire",
+    "expired with only other orders' money on the address is an ordinary expiry",
+  );
+
+  /* An overpayment is unambiguous on a dedicated address and unidentifiable on
+     a shared one: nothing says which order it was meant for. */
+  is(act(live, chain(60_000)), "settle", "a dedicated address settles on an overpayment");
+  is(
+    act(shared, chainOf(pay(60_000))),
+    "leave",
+    "a shared address does not settle on an amount it did not quote",
+  );
+
+  is(
+    act(sharedDead, chainOf(pay(60_000))),
+    "expire",
+    "an unmatched overpayment after expiry is not this order's to claim",
+  );
+
+  is(
+    act(shared, chainOf(pay(50_000, false))),
+    "mark-submitted",
+    "a shared address sees its own payment arrive in the mempool",
+  );
+
+  is(
+    act(shared, chainOf(pay(40_000, false))),
+    "leave",
+    "someone else's mempool payment is not this order arriving",
+  );
+
+  /* Amounts are unique among OPEN orders, not across history. Without this, a
+     transaction that settled a $25 order last month would settle the next one
+     asking the same nudged figure. */
+  const settledAlready = chainOf(pay(50_000));
+  const usedTxid = new Set(settledAlready.payments.map((p) => p.txid));
+  is(
+    act(shared, settledAlready, usedTxid),
+    "leave",
+    "a payment already credited to another order cannot settle this one",
+  );
+  is(
+    act(sharedDead, settledAlready, usedTxid),
+    "expire",
+    "and after expiry it is an expiry, not a claim on spent money",
+  );
+
+  /* Both readings still agree that an unreadable chain settles nothing. */
+  is(act(shared, null), "leave", "an unreadable chain leaves a shared order alone too");
 
   console.log(failed === 0 ? "\nreconciliation decides correctly." : `\n${failed} failed.`);
   process.exit(failed === 0 ? 0 : 1);

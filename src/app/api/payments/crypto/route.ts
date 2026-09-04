@@ -273,6 +273,10 @@ export async function POST(request: Request) {
     /* Only carried on chains that need one, and only from configuration —
        a payment sent to a tagged address without its tag is not credited. */
     destination_tag: lightning ? null : wallet.destinationTag,
+    /* Which way the reconciler must read the chain for this order. An invoice
+       derives an address for this order alone; everything else lands on the
+       static address that every other order shares. See shared_address. */
+    shared_address: !invoice,
     rate_usd: invoice && invoice.rateUsd > 0 ? invoice.rateUsd : rateUsd,
     receipt_email: receiptEmail,
     expires_at: expiresAt,
