@@ -40,6 +40,8 @@ writeFileSync(
     files: [
       join(process.cwd(), "src/lib/builder/model-request.ts"),
       join(process.cwd(), "src/app/dashboard/models.ts"),
+      join(process.cwd(), "src/app/dashboard/credits.ts"),
+      join(process.cwd(), "src/lib/site.ts"),
     ],
   }),
 );
@@ -72,6 +74,7 @@ try {
 
   const models = await import(join(out, "app/dashboard/models.js"));
   const wire = await import(join(out, "lib/builder/model-request.js"));
+  const credits = await import(join(out, "app/dashboard/credits.js"));
 
   const SYSTEM = "SYSTEM-PROMPT-MARKER";
   const USER = "USER-MESSAGE-MARKER";
@@ -138,6 +141,35 @@ try {
     );
   }
   is(models.creditMultiplierFor(models.AUTO_MODEL), 1, "the default model is the anchor at 1");
+
+  /* ── Which plan may pick what ───────────────────────────────────────────
+     Free: Haiku and Sonnet. Standard adds Opus. Pro adds Fable. */
+  const expected = {
+    free: ["claude-haiku-4-5", "claude-sonnet-5"],
+    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+    pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"],
+  };
+  for (const [plan, ids] of Object.entries(expected)) {
+    const got = credits.modelsForPlan(plan).map((model) => model.id).sort();
+    is(got.join(","), [...ids].sort().join(","), `${plan} may pick exactly its own models`);
+  }
+
+  /* The invariant that matters most: the DEFAULT has to be reachable by the
+     cheapest plan. A gated AUTO_MODEL means a free account cannot build at
+     all, and the failure would read as a billing problem rather than a
+     misconfigured constant. */
+  has(
+    credits.modelAllowedOnPlan(models.modelById(models.AUTO_MODEL), "free"),
+    "the default model is available on the free plan",
+    "AUTO_MODEL is gated behind a paid plan — free accounts could not build",
+  );
+
+  /* A locked model names the plan that unlocks it, so the picker has something
+     to say beyond "no". */
+  for (const model of models.MODELS.filter((entry) => entry.minPlan && entry.minPlan !== "free")) {
+    const plan = credits.planRequiredFor(model);
+    has(Boolean(plan?.name), `${model.name} names the plan that includes it`, "planRequiredFor returned null");
+  }
   is(models.creditMultiplierFor("auto"), 1, "Auto prices as the model it resolves to");
   is(models.creditMultiplierFor("nonsense"), 1, "an unknown model falls back to the default rate");
   has(

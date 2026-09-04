@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { ThemeProvider } from './components/ThemeProvider';
 import { CreditsProvider } from './useCredits';
-import type { CreditBalance } from './credits';
+import { PLAN_ORDER, type CreditBalance, type PlanId } from './credits';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 
 export const metadata: Metadata = {
@@ -38,7 +38,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
      only return their row. */
   const { data: balanceRow } = await supabase
     .from('credit_balances')
-    .select('daily, rollover, monthly, top_up')
+    .select('daily, rollover, monthly, top_up, plan_id')
     .maybeSingle();
 
   const balance: CreditBalance | null = balanceRow
@@ -50,13 +50,18 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       }
     : null;
 
+  /* Read here for the same reason the balance is: the model picker greys what
+     the plan cannot reach, and a picker that renders every model unlocked and
+     then corrects itself has already shown somebody a model they cannot use. */
+  const planId: PlanId = PLAN_ORDER.find((id) => id === balanceRow?.plan_id) ?? 'free';
+
   return (
     <ThemeProvider>
     {/* Above every dashboard screen, because the set of open workspaces has to
         survive moving between them: a tab strip that reset on navigation would
         be a list of one. */}
     <WorkspaceTabsProvider>
-    <CreditsProvider initial={balance}>
+    <CreditsProvider initial={balance} initialPlan={planId}>
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop.

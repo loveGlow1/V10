@@ -82,6 +82,21 @@ export type Model = {
    * the model is here because it is the cheapest, and its budget_tokens form
    * of thinking would spend the saving it was picked for. */
   reasoning?: "adaptive" | "none";
+  /* ── The cheapest plan allowed to pick it ──────────────────────────────
+   *
+   * Absent means every plan, which is the right default: a model nobody has
+   * decided to gate should be available, not accidentally locked.
+   *
+   * Written as the literal union rather than importing PlanId, because
+   * credits.ts imports THIS file for the credit multiplier and the reverse
+   * import would be a cycle. credits.ts asserts at compile time that the two
+   * stay identical — see PLAN_GATED_MODELS there — so this cannot drift into
+   * naming a plan that does not exist.
+   *
+   * Enforced twice, and it has to be. The picker greys what a plan cannot
+   * reach, and /api/build refuses it: a locked model is worth money, so the
+   * picker is a courtesy and the route is the rule. */
+  minPlan?: "free" | "standard" | "pro";
 };
 
 /** What the picker shows against a model this deployment cannot reach yet. */
@@ -131,6 +146,10 @@ export const MODELS: Model[] = [
        dearest thing on the menu. */
     creditMultiplier: 10,
     reasoning: "adaptive",
+    /* The dearest model on the menu, behind the dearest plan. At 10x a
+       twelve-section build is 80 credits — most of Standard's entire monthly
+       grant in one press, which is the other reason this is not sold there. */
+    minPlan: "pro",
     name: "Claude Fable 5",
     blurb: "Highest intelligence available",
     provider: "claude",
@@ -144,6 +163,7 @@ export const MODELS: Model[] = [
     /* $5/$25 per Mtok against Haiku's $1/$5. */
     creditMultiplier: 5,
     reasoning: "adaptive",
+    minPlan: "standard",
     name: "Claude Opus 5",
     blurb: "Peak intelligence for ambitious apps",
     provider: "claude",
