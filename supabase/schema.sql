@@ -778,6 +778,38 @@ revoke execute on function public.rls_auto_enable() from anon, authenticated;
 grant execute on function public.rls_auto_enable() to service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- service_heartbeats — the last time a background job actually ran.
+--
+-- Written because two failures in a row were invisible for the same reason: the
+-- reconciliation sweep is the thing that watches when nobody else is, and there
+-- was nothing watching IT. It stopped running — first because its writes were
+-- lost, then because the route was missing from a deployment — and in both
+-- cases the only way anyone found out was a person querying the database by
+-- hand. A job that silently stops is indistinguishable from a job with nothing
+-- to do, and the difference is exactly what matters.
+--
+-- One row per service, overwritten each run. There is no history here on
+-- purpose: the question this answers is "is it still running", and a table that
+-- grows a row every thirty minutes forever answers it worse.
+--
+-- `detail` carries whatever the job wants to say about its last run — the
+-- sweep's counters, so /api/health can show what it did and not merely that it
+-- breathed.
+--
+-- Service role only. RLS is on with no policy BY DESIGN, and the API grants are
+-- revoked: nothing in the browser has any business reading when a cron last
+-- fired.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.service_heartbeats (
+  service    text primary key,
+  ran_at     timestamptz not null default now(),
+  detail     jsonb
+);
+
+alter table public.service_heartbeats enable row level security;
+revoke all on public.service_heartbeats from anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- The n8n agent — documents, n8n_chat_histories.
 --
 -- Backs the "AI Agent with Postgres Memory and Supabase RAG" workflow in n8n

@@ -3,13 +3,14 @@ import { NextResponse } from "next/server";
 import { providerStatus } from "@/lib/builder/assets/providers/registry";
 
 import { btcPayReachable, isBtcPayConfigured, isBtcPayWebhookConfigured } from "@/lib/btcpay";
+import { RECONCILE_SERVICE, readHeartbeat } from "@/lib/heartbeat";
 import {
   isCryptoCheckoutConfigured,
   isSettlementCallbackConfigured,
 } from "@/lib/crypto-payments-server";
 import { isBuilderConfigured } from "@/lib/n8n";
 import { canCompile } from "@/lib/standalone-page";
-import { isServiceRoleConfigured } from "@/lib/supabase-service";
+import { createSupabaseServiceClient, isServiceRoleConfigured } from "@/lib/supabase-service";
 import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 /* Whether this deployment is wired up, without having to try it.
@@ -64,6 +65,12 @@ export async function GET() {
      compile. See btcPayReachable. */
   const btcpay = await btcPayReachable();
 
+  /* Whether the sweep that settles payments is still running at all. A job that
+     has stopped and a job with nothing to do are silent in exactly the same
+     way, and this deployment has now been caught out by that twice. */
+  const service = createSupabaseServiceClient();
+  const reconcile = service ? await readHeartbeat(service, RECONCILE_SERVICE) : null;
+
   return NextResponse.json({
     status: "ok",
     supabaseConfigured: isSupabaseConfigured,
@@ -109,6 +116,15 @@ export async function GET() {
        taking money nothing is watching, so it is visible to a customer long
        before it is visible here — which is backwards, and this is the fix. */
     btcpayReachable: btcpay === "ok",
+    /* The dead-man's switch. True means no sweep has completed in hours — so
+       payments may be arriving and going uncredited right now, which is the one
+       failure on this page that costs a customer rather than a feature.
+       `reconcileScheduled` separates "never wired up" from "wired up and
+       stopped": without CRON_SECRET nothing can call the sweep at all. */
+    reconcileScheduled: Boolean(process.env.CRON_SECRET?.trim()),
+    reconcileStale: reconcile?.stale ?? true,
+    reconcileLastRunAt: reconcile?.lastRunAt ?? null,
+    ...(includeDetails && reconcile?.detail ? { reconcileLastRun: reconcile.detail } : {}),
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
   });
