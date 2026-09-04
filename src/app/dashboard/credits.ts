@@ -24,7 +24,7 @@
    balance, which is what lets the same functions run in the composer to
    preview a cost and on the server to enforce one. */
 
-import { creditMultiplierFor } from "@/app/dashboard/models";
+import { MODELS, creditMultiplierFor, type Model } from "@/app/dashboard/models";
 import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 export type PlanId = "free" | "standard" | "pro";
@@ -108,6 +108,31 @@ export type Plan = {
   features: string[];
 };
 
+/* The order the plans are offered in, cheapest first. Also the ranking the
+   model gate below reads: a plan may pick anything its own tier or lower. */
+export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
+
+/* ── Which models a plan may pick ──────────────────────────────────────────
+
+   The rule lives on the model — `minPlan` in dashboard/models.ts — because a
+   model is what gets added and removed, and a rule kept anywhere else is a rule
+   somebody forgets to update. This is the half that knows what a plan IS.
+
+   Haiku and Sonnet are unmarked, so every plan including Free can pick them.
+   Opus needs Standard, Fable needs Pro.
+
+   The assignment below is the compile-time tie between the two files. Model's
+   `minPlan` is written as a literal union rather than PlanId, because credits.ts
+   already imports models.ts and the reverse would be a cycle; if the two ever
+   disagree about what a plan is called, this line stops building. */
+const PLAN_GATED_MODELS: readonly { minPlan?: PlanId }[] = MODELS;
+
+/** Whether an account on `planId` is allowed to pick `model`. */
+export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
+  const needed = model.minPlan ?? "free";
+  return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
+}
+
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: "free",
@@ -135,6 +160,7 @@ export const PLANS: Record<PlanId, Plan> = {
          refill, so "what happens when it runs out" is the question the card has
          to answer, not one a person should hit mid-build. */
       "Credits do not refill — top up or upgrade to keep going",
+      `Build with ${modelNames("free")}`,
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
     ],
   },
@@ -153,6 +179,7 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Priority support",
     features: [
       "100 credits every month",
+      `Everything on Free, plus ${addedModelNames("standard")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "GitHub integration",
@@ -177,6 +204,7 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Priority support",
     features: [
       "600 credits every month",
+      `Everything on Standard, plus ${addedModelNames("pro")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "Priority support",
@@ -184,8 +212,36 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
-/* The order the plans are offered in, cheapest first. */
-export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
+/** The plan a locked model needs, for saying so on the picker. Null when the
+ *  model is not gated at all. */
+export function planRequiredFor(model: Model): Plan | null {
+  return model.minPlan && model.minPlan !== "free" ? PLANS[model.minPlan as PlanId] : null;
+}
+
+/** Every model this plan may pick, in picker order. "Auto" is a pointer rather
+ *  than a model and never appears. */
+export function modelsForPlan(planId: PlanId): Model[] {
+  return MODELS.filter(
+    (model) => model.provider !== "auto" && model.available !== false && modelAllowedOnPlan(model, planId),
+  );
+}
+
+/* The plan cards below name their own models rather than repeating a list
+   somebody has to remember to update. Function declarations, so they can be
+   called from the PLANS initializer. */
+function modelNames(planId: PlanId): string {
+  return modelsForPlan(planId).map((model) => model.name).join(" and ");
+}
+
+/** What this plan adds over the one below it — what an upgrade actually buys. */
+function addedModelNames(planId: PlanId): string {
+  const below = PLAN_ORDER[PLAN_ORDER.indexOf(planId) - 1];
+  const already = new Set(modelsForPlan(below).map((model) => model.id));
+  return modelsForPlan(planId)
+    .filter((model) => !already.has(model.id))
+    .map((model) => model.name)
+    .join(" and ");
+}
 
 /* Bought mid-cycle when the pool runs dry. Top-ups are the only credits with
    no expiry, which is why they are spent last. */

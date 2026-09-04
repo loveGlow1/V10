@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 
+import { modelAllowedOnPlan, planRequiredFor } from "../../credits";
 import {
   DEFAULT_MODEL,
   UNAVAILABLE_LABEL,
@@ -31,6 +32,7 @@ import {
   modelById,
   shortModelName,
 } from "../../models";
+import { useCredits } from "../../useCredits";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
@@ -964,6 +966,9 @@ export default function ChatPanel({
     }
   }
 
+  /* The plan, for the picker: it greys what this account cannot reach and
+     names the tier that includes it. */
+  const { planId } = useCredits();
   const chosen = modelById(model);
 
   const control =
@@ -1607,17 +1612,30 @@ export default function ChatPanel({
                           )}
                           {group.models.map((option) => {
                             const selected = model === option.id;
-                            /* Shown either way. A model this deployment cannot
-                               reach is greyed and unpickable rather than
-                               missing — "check back soon" is information, an
-                               absence is not. */
-                            const ready = isModelAvailable(option);
+                            /* Shown either way, and for the same reason in
+                               both cases: a model that is greyed with a reason
+                               is information, and an absent one is not. One
+                               says "check back soon", the other names the plan
+                               that includes it — which is the only place in
+                               the product a person meets the difference
+                               between the tiers while actually wanting it. */
+                            const available = isModelAvailable(option);
+                            const needsPlan = modelAllowedOnPlan(option, planId)
+                              ? null
+                              : planRequiredFor(option);
+                            const ready = available && !needsPlan;
                             return (
                               <button
                                 key={option.id}
                                 role="menuitem"
                                 disabled={!ready}
-                                title={ready ? undefined : UNAVAILABLE_LABEL}
+                                title={
+                                  needsPlan
+                                    ? `Included with the ${needsPlan.name} plan`
+                                    : available
+                                      ? undefined
+                                      : UNAVAILABLE_LABEL
+                                }
                                 onClick={() => {
                                   setModel(option.id);
                                   setModelOpen(false);
@@ -1644,9 +1662,14 @@ export default function ChatPanel({
                                         {option.badge}
                                       </span>
                                     )}
-                                    {!ready && (
+                                    {!available && (
                                       <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
                                         {UNAVAILABLE_LABEL}
+                                      </span>
+                                    )}
+                                    {available && needsPlan && (
+                                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                                        {needsPlan.name}
                                       </span>
                                     )}
                                   </span>

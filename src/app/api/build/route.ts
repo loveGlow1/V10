@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 
 import {
   CREDIT_ACTIONS,
+  PLANS,
   canAfford,
   creditCostOf,
   formatCredits,
+  modelAllowedOnPlan,
+  modelsForPlan,
+  planRequiredFor,
   roundCredits,
 } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
@@ -1089,6 +1093,25 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       { status: 400 },
     );
   }
+  /* The plan gate, and it is the rule rather than the courtesy: the picker
+     greys a locked model, but a request naming one did not necessarily come
+     from the picker.
+
+     Gated only when the plan is actually known. A balance that could not be
+     read leaves beforeBuild null, and the affordability check above already
+     skips in that case rather than refusing an account it cannot see — this
+     matches, so one Supabase hiccup does not tell a paying customer their plan
+     does not include what they pay for. */
+  const requiredPlan = planRequiredFor(model);
+  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(model, beforeBuild.planId)) {
+    const said = `${model.name} is on the ${requiredPlan.name} plan. You are on ${PLANS[beforeBuild.planId].name} — upgrade to build with it, or pick ${modelsForPlan(beforeBuild.planId).filter((entry) => entry.provider !== "auto").map((entry) => entry.name).join(" or ")}.`;
+    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
+    return NextResponse.json(
+      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
+      { status: 402 },
+    );
+  }
+
   if (!providerConfigured(model.provider)) {
     return NextResponse.json(
       {

@@ -10,7 +10,13 @@ import {
 } from "react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
-import { formatCredits, totalCredits, type CreditBalance } from "./credits";
+import {
+  PLAN_ORDER,
+  formatCredits,
+  totalCredits,
+  type CreditBalance,
+  type PlanId,
+} from "./credits";
 
 /* The credit figure in the header.
  *
@@ -40,6 +46,9 @@ export type CreditsState = {
   label: string;
   /** Null only when the balance could not be read. */
   balance: CreditBalance | null;
+  /** Which plan this account is on. "free" until something says otherwise —
+   *  the safe default, since the plan is what unlocks the dearer models. */
+  planId: PlanId;
   loading: boolean;
   /** Re-reads the balance — call after anything that spends. */
   refresh: () => Promise<void>;
@@ -53,13 +62,17 @@ const CreditsContext = createContext<CreditsState | null>(null);
 
 export function CreditsProvider({
   initial,
+  initialPlan = "free",
   children,
 }: {
   /** What the server read for this account, or null if it could not. */
   initial: CreditBalance | null;
+  /** The plan the server read alongside it. */
+  initialPlan?: PlanId;
   children: ReactNode;
 }) {
   const [balance, setBalance] = useState<CreditBalance | null>(initial);
+  const [planId, setPlanId] = useState<PlanId>(initialPlan);
   const [loading, setLoading] = useState(initial === null);
 
   const refresh = useCallback(async () => {
@@ -70,7 +83,7 @@ export function CreditsProvider({
 
     const { data, error } = await createSupabaseBrowserClient()
       .from("credit_balances")
-      .select("daily, rollover, monthly, top_up")
+      .select("daily, rollover, monthly, top_up, plan_id")
       .maybeSingle();
 
     setLoading(false);
@@ -86,6 +99,10 @@ export function CreditsProvider({
       monthly: Number(data.monthly ?? 0),
       topUp: Number(data.top_up ?? 0),
     });
+    /* An upgrade taking effect is exactly the moment a refresh happens, so the
+       plan is re-read with the buckets rather than left at whatever the page
+       was rendered with. */
+    setPlanId(PLAN_ORDER.find((id) => id === data.plan_id) ?? "free");
   }, []);
 
   /* Only when the server could not supply one. A seeded balance was read a
@@ -98,6 +115,7 @@ export function CreditsProvider({
   const value: CreditsState = {
     label: balance ? formatCredits(totalCredits(balance)) : UNKNOWN,
     balance,
+    planId,
     loading,
     refresh,
   };

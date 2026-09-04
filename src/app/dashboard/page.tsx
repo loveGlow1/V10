@@ -7,6 +7,7 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
+import { modelAllowedOnPlan, planRequiredFor } from "./credits";
 import {
   DEFAULT_MODEL,
   UNAVAILABLE_LABEL,
@@ -213,7 +214,7 @@ export default function DashboardPage() {
   /* The account's own balance rather than a constant. useCredits reads
      credit_balances directly, so it does not need the projects provider this
      page renders below it. */
-  const { label: credits } = useCredits();
+  const { label: credits, planId } = useCredits();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   /* The send button, reachable from the box above it. Home renders the provider
      the button reads from, so it cannot start a build itself — Enter goes
@@ -748,16 +749,27 @@ export default function DashboardPage() {
                     )}
                     {group.models.map((option) => {
                       const selected = model === option.id;
-                      /* Shown either way. A model this deployment cannot reach
-                         is greyed and unpickable rather than missing — "check
-                         back soon" is information, an absence is not. */
-                      const ready = isModelAvailable(option);
+                      /* Shown either way, and for the same reason in both
+                         cases: a model greyed with a reason is information, an
+                         absent one is not. One says "check back soon", the
+                         other names the plan that includes it. */
+                      const available = isModelAvailable(option);
+                      const needsPlan = modelAllowedOnPlan(option, planId)
+                        ? null
+                        : planRequiredFor(option);
+                      const ready = available && !needsPlan;
                       return (
                         <button
                           key={option.id}
                           role="menuitem"
                           disabled={!ready}
-                          title={ready ? undefined : UNAVAILABLE_LABEL}
+                          title={
+                            needsPlan
+                              ? `Included with the ${needsPlan.name} plan`
+                              : available
+                                ? undefined
+                                : UNAVAILABLE_LABEL
+                          }
                           onClick={() => {
                             setModel(option.id);
                             setIsModelPopoverOpen(false);
@@ -784,9 +796,14 @@ export default function DashboardPage() {
                                   {option.badge}
                                 </span>
                               )}
-                              {!ready && (
+                              {!available && (
                                 <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
                                   {UNAVAILABLE_LABEL}
+                                </span>
+                              )}
+                              {available && needsPlan && (
+                                <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                                  {needsPlan.name}
                                 </span>
                               )}
                             </span>
