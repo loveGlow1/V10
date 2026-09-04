@@ -583,6 +583,71 @@ export function affordableModels(balance: CreditBalance, planId: PlanId): Model[
     .sort((a, b) => creditMultiplierFor(b.id) - creditMultiplierFor(a.id));
 }
 
+/** What a build will actually run on, and whether that is what was asked for. */
+export type BuildModelChoice = {
+  /** The model to build with. Always affordable, always allowed on the plan. */
+  model: Model;
+  /** What they asked for, when it is not what they got. Null when it is. */
+  downgradedFrom: Model | null;
+};
+
+/**
+ * The model a build should run on, given what was asked for and what is left.
+ *
+ * A balance too low for the requested model is not a refusal any more — it is a
+ * step down to the dearest model this plan allows and this balance covers,
+ * which on every plan bottoms out at Haiku. Refusing outright while a model
+ * that would have run sat one row down in the same menu is the behaviour this
+ * replaces.
+ *
+ * Only down, never up: a request can always cost less than asked, never more.
+ *
+ * Returns null when nothing at all fits, which is the only remaining refusal
+ * and the one case where cannotAffordBuildMessage has the last word.
+ *
+ * The caller MUST tell the person when downgradedFrom is set. A page built on a
+ * smaller model than the one on the chip, with nothing said, is indistinguishable
+ * from a page that came back badly — and the second is the conclusion they will
+ * reach.
+ */
+export function resolveBuildModel(
+  requested: Model,
+  balance: CreditBalance | null,
+  planId: PlanId,
+): BuildModelChoice | null {
+  /* No balance to read: build what was asked for. The same fail-open the
+     affordability gate takes — refusing an account we cannot see is worse than
+     letting one build. */
+  if (!balance) return { model: requested, downgradedFrom: null };
+
+  if (canAfford(balance, buildDoorFor(requested))) {
+    return { model: requested, downgradedFrom: null };
+  }
+
+  /* Dearest first, so the step down is as small as it can be: somebody short of
+     Fable gets Opus if they can afford Opus, not Haiku. */
+  const fallback = affordableModels(balance, planId).find(
+    (entry) => creditMultiplierFor(entry.id) < creditMultiplierFor(requested.id),
+  );
+
+  return fallback ? { model: fallback, downgradedFrom: requested } : null;
+}
+
+/** What to say when a build was moved to a cheaper model. Names both, the
+ *  reason, and the way back — a swap nobody explained is a bug report. */
+export function downgradedModelMessage(
+  choice: BuildModelChoice,
+  balance: CreditBalance,
+): string {
+  const from = choice.downgradedFrom;
+  if (!from) return "";
+  return `${from.name} needs ${formatCredits(buildDoorFor(from))} credits for a build and you have ${formatCredits(
+    totalCredits(balance),
+  )}, so this one is running on ${choice.model.name} instead — it costs ${formatCredits(
+    buildDoorFor(choice.model),
+  )}. Top up or upgrade to build on ${from.name} next time.`;
+}
+
 /**
  * What "Auto" actually resolves to for this account.
  *
@@ -599,14 +664,10 @@ export function autoModelFor(balance: CreditBalance | null, planId: PlanId): Mod
   const ceiling = modelById(AUTO_MODEL);
   if (!balance) return ceiling;
 
-  const capped = affordableModels(balance, planId).filter(
-    (model) => creditMultiplierFor(model.id) <= creditMultiplierFor(AUTO_MODEL),
-  );
-
-  /* affordableModels is dearest-first, so the head is the best affordable model
-     at or below the default. Nothing affordable leaves the ceiling, and the
+  /* Auto is the ceiling asking to be stepped down from, which is exactly what
+     resolveBuildModel does. Nothing affordable leaves the ceiling, and the
      caller turns that into a refusal that can still name a price. */
-  return capped[0] ?? ceiling;
+  return resolveBuildModel(ceiling, balance, planId)?.model ?? ceiling;
 }
 
 /** The plan above this one, or null at the top. */

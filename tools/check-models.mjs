@@ -197,6 +197,46 @@ try {
     "Auto falls back to the default when no balance can be read",
   );
 
+  /* ── Stepping down applies to a chosen model too ────────────────────────
+     Not just Auto. A balance short of the model on the chip builds on a
+     cheaper one and says so, rather than refusing next to a model that would
+     have run. */
+  const stepped = credits.resolveBuildModel(models.modelById("claude-sonnet-5"), purse(5.25), "free");
+  is(stepped?.model.id, "claude-haiku-4-5", "an explicit Sonnet steps down to Haiku when short");
+  is(stepped?.downgradedFrom?.id, "claude-sonnet-5", "and the swap is recorded, not silent");
+
+  /* As little as possible: short of Fable with 25 credits is Opus, not Haiku.
+     Dropping to the floor when a nearer rung is affordable throws away quality
+     the balance could have paid for. */
+  is(
+    credits.resolveBuildModel(models.modelById("claude-fable-5"), purse(25), "pro")?.model.id,
+    "claude-opus-5",
+    "the step down is the smallest one the balance allows",
+  );
+
+  is(
+    credits.resolveBuildModel(models.modelById("claude-haiku-4-5"), purse(100000), "pro")?.downgradedFrom,
+    null,
+    "an affordable model is never swapped",
+  );
+  is(
+    credits.resolveBuildModel(models.modelById("claude-sonnet-5"), purse(1), "free"),
+    null,
+    "nothing affordable is the one remaining refusal",
+  );
+  is(
+    credits.resolveBuildModel(models.modelById("claude-fable-5"), null, "free")?.model.id,
+    "claude-fable-5",
+    "with no balance readable the request is honoured rather than downgraded",
+  );
+
+  const swapNote = credits.downgradedModelMessage(stepped, purse(5.25));
+  has(
+    swapNote.includes("Claude Sonnet 5") && swapNote.includes("Claude Haiku 4.5"),
+    "the swap message names both the model asked for and the one that ran",
+    swapNote,
+  );
+
   /* Doors scale with the model, or an eight-credit account could open a
      forty-credit build. */
   has(

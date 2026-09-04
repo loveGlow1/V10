@@ -4,15 +4,16 @@ import {
   CREDIT_ACTIONS,
   PLANS,
   affordableModels,
-  autoModelFor,
   buildDoorFor,
   canAfford,
   cannotAffordBuildMessage,
   creditCostOf,
+  downgradedModelMessage,
   formatCredits,
   modelAllowedOnPlan,
   modelsForPlan,
   planRequiredFor,
+  resolveBuildModel,
 } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
 import { carryBrief, priorTurns } from "@/lib/builder/brief";
@@ -1037,38 +1038,73 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      picked model is honoured exactly as picked, because a person who chose
      Opus asked for Opus and would rather be refused than quietly downgraded. */
   const wanted = typeof body.model === "string" && body.model ? body.model : DEFAULT_MODEL;
-  const model =
-    wanted === "auto" ? autoModelFor(beforeBuild, viewerPlan) : resolveModel(wanted);
+  /* resolveModel turns "auto" into AUTO_MODEL and refuses anything this app
+     does not offer or cannot currently call. */
+  const requested = resolveModel(wanted);
 
-  if (!model) {
+  if (!requested) {
     return NextResponse.json(
       { error: "That is not a model this app can build with." },
       { status: 400 },
     );
   }
 
-  /* The door, scaled: the band describes a turn on the default and every other
-     model multiplies it, so checking the unscaled ceiling would let somebody
-     holding eight credits open a Fable build that prices at forty.
-     charge_credits takes what is there and reports the rest, so nothing
-     bounces — it just goes unpaid. */
-  if (beforeBuild && !canAfford(beforeBuild, buildDoorFor(model))) {
-    /* Never a refusal on its own. The message names the cheapest thing that
-       WOULD run on this plan, or the plan that would fix it, or the top-up —
-       in that order, because that is the order they help. */
-    const said = cannotAffordBuildMessage(model, beforeBuild, viewerPlan);
+  /* The plan gate runs on what was ASKED FOR, before the balance is consulted.
+     The two refusals are different things and must not be confused: a plan
+     cannot be solved by spending less, so a Free account that picks Fable is
+     told about the plan rather than quietly given Sonnet. Affordability, below,
+     IS solved by spending less, and so it is. */
+  const requiredPlan = planRequiredFor(requested);
+  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(requested, viewerPlan)) {
+    const usable = affordableModels(beforeBuild, viewerPlan).length
+      ? affordableModels(beforeBuild, viewerPlan)
+      : modelsForPlan(viewerPlan);
+    const said = `${requested.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to build with it, or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
+    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
+    return NextResponse.json(
+      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
+      { status: 402 },
+    );
+  }
+
+  /* Affordability, which steps down rather than refusing. The door is scaled
+     per model — the band describes a turn on the default and every other model
+     multiplies it — so an account holding eight credits cannot open a Fable
+     build that prices at forty. What it CAN do is build on something cheaper. */
+  const choice = resolveBuildModel(requested, beforeBuild, viewerPlan);
+
+  if (!choice) {
+    /* The only refusal left: nothing on this plan fits this balance. The
+       message names the plan above, or the top-up, because there is no cheaper
+       model left to name. */
+    const said = cannotAffordBuildMessage(requested, beforeBuild!, viewerPlan);
     const stored = await deliver(said, { tone: "error", key: "no-credits" });
     return NextResponse.json(
       {
         error: said,
         code: "insufficient_credits",
-        model: model.id,
-        needed: buildDoorFor(model),
+        model: requested.id,
+        needed: buildDoorFor(requested),
         plan: viewerPlan,
         stored,
       },
       { status: 402 },
     );
+  }
+
+  const model = choice.model;
+
+  /* Said before the build starts, not after it finishes. A page built on a
+     smaller model than the chip promised, with nothing said, is
+     indistinguishable from a page that came back badly — and that is the
+     conclusion somebody reaches on their own. */
+  if (choice.downgradedFrom && beforeBuild) {
+    await deliver(downgradedModelMessage(choice, beforeBuild), {
+      /* Normal, not error: nothing failed. The build is running, just not on
+         the model that was asked for, and colouring that as a failure would
+         make a working build look broken. */
+      key: "model-downgraded",
+    });
   }
 
   /* ── What is actually being built ────────────────────────────────────────
@@ -1114,31 +1150,6 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * whose provider has no key configured is refused for the opposite reason:
    * it is our misconfiguration, not the person's mistake, and it should read
    * as one rather than as a build that failed for no stated cause. */
-  /* The plan gate, and it is the rule rather than the courtesy: the picker
-     greys a locked model, but a request naming one did not necessarily come
-     from the picker.
-
-     Gated only when the plan is actually known. A balance that could not be
-     read leaves beforeBuild null, and the affordability check above already
-     skips in that case rather than refusing an account it cannot see — this
-     matches, so one Supabase hiccup does not tell a paying customer their plan
-     does not include what they pay for. */
-  const requiredPlan = planRequiredFor(model);
-  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(model, viewerPlan)) {
-    /* Names what they CAN run, not just what they cannot. Affordable first,
-       falling back to everything the plan allows when the balance is the
-       binding constraint rather than the plan. */
-    const usable = affordableModels(beforeBuild, viewerPlan).length
-      ? affordableModels(beforeBuild, viewerPlan)
-      : modelsForPlan(viewerPlan);
-    const said = `${model.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to build with it, or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
-    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
-    return NextResponse.json(
-      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
-      { status: 402 },
-    );
-  }
-
   if (!providerConfigured(model.provider)) {
     return NextResponse.json(
       {
