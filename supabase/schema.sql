@@ -1205,6 +1205,15 @@ alter table public.crypto_payments add column if not exists alerted_at timestamp
 alter table public.crypto_payments
   add column if not exists shared_address boolean not null default true;
 
+-- When the chain was last read for this order.
+--
+-- The checkout screen polls every few seconds while somebody waits, and each
+-- poll can ask the chain about that one order rather than leaving them to wait
+-- for the next batch sweep. Without a throttle that is ten block-explorer
+-- requests a minute per open tab, against a free public API, for an answer that
+-- cannot change faster than a block. This is the throttle.
+alter table public.crypto_payments add column if not exists chain_checked_at timestamptz;
+
 create index if not exists crypto_payments_user_created_idx
   on public.crypto_payments (user_id, created_at desc);
 
