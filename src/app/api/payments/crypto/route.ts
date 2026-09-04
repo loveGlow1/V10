@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
+
+import { createBtcPayInvoice, isBtcPayConfigured } from "@/lib/btcpay";
 
 import {
   CRYPTO_CURRENCIES,
@@ -171,10 +175,43 @@ export async function POST(request: Request) {
     CRYPTO_CURRENCIES[currency].decimals,
   );
 
-  const address = lightning ? wallet.lightningAddress! : wallet.address;
   const expiresAt = new Date(Date.now() + RATE_LOCK_MINUTES * 60_000).toISOString();
 
+  /* Generated here rather than by the database, because BTCPay has to be told
+     the order id while the invoice is being created and the row does not exist
+     yet. The insert below supplies it explicitly. */
+  const paymentId = randomUUID();
+
+  /* ── Where this order is actually paid ────────────────────────────────────
+
+     With BTCPay configured, the invoice owns the address AND the amount. Both
+     come back from it and are stored as given: asking someone for an amount
+     BTCPay is not watching for is a payment that arrives and never settles, so
+     there is exactly one authority on the figure and it is whoever is doing the
+     watching.
+
+     Without it — or if it fails, or for any coin but on-chain BTC — nothing
+     changes: the static address, our own rate, and the amount-nudging that
+     makes a shared address workable. That fallback is the reason this can ship
+     before the BTCPay instance exists. */
+  const invoice =
+    currency === "btc" && !lightning && isBtcPayConfigured()
+      ? await createBtcPayInvoice({
+          orderId: paymentId,
+          amountUsd,
+          expiryMinutes: RATE_LOCK_MINUTES,
+          receiptEmail,
+        })
+      : null;
+
+  const address = invoice
+    ? invoice.address
+    : lightning
+      ? wallet.lightningAddress!
+      : wallet.address;
+
   const row = {
+    id: paymentId,
     user_id: user.id,
     status: "awaiting_payment",
     purchase_kind: purchase.kind,
@@ -188,7 +225,7 @@ export async function POST(request: Request) {
     /* Only carried on chains that need one, and only from configuration —
        a payment sent to a tagged address without its tag is not credited. */
     destination_tag: lightning ? null : wallet.destinationTag,
-    rate_usd: rateUsd,
+    rate_usd: invoice && invoice.rateUsd > 0 ? invoice.rateUsd : rateUsd,
     receipt_email: receiptEmail,
     expires_at: expiresAt,
   };
@@ -203,8 +240,15 @@ export async function POST(request: Request) {
      A Lightning invoice needs none of this: it is issued per payment and
      carries its own identity. The loop still runs, finds no collision on the
      first attempt, and costs nothing. */
-  for (let attempt = 0; attempt < UNIQUE_AMOUNT_ATTEMPTS; attempt += 1) {
-    const attemptAmount = nudgeAmount(cryptoAmount, currency, attempt);
+  /* An invoice has its own address, so its amount is already unique — and must
+     not be touched, because BTCPay is watching for the exact figure it quoted.
+     Nudging is only for the shared-address case it replaces. */
+  const attempts = invoice ? 1 : UNIQUE_AMOUNT_ATTEMPTS;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const attemptAmount = invoice
+      ? invoice.cryptoAmount
+      : nudgeAmount(cryptoAmount, currency, attempt);
 
     const { data, error } = await service
       .from("crypto_payments")

@@ -133,6 +133,13 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
   return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
 }
 
+/* The two monthly grants, named so the plan cards can quote them without a
+   second copy going stale — "600 credits every month" sat on the Pro card for
+   as long as Pro granted 300. A card that names a number the plan does not
+   give is worse than a card that names none. */
+const STANDARD_CREDITS = 100;
+const PRO_CREDITS = 300;
+
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: "free",
@@ -169,7 +176,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Standard",
     monthlyPriceUsd: 25,
     dailyCredits: 0,
-    monthlyCredits: 100,
+    monthlyCredits: STANDARD_CREDITS,
     rolloverCycles: 1,
     publishing: {
       subdomain: PUBLISH_SUBDOMAIN,
@@ -178,7 +185,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "100 credits every month",
+      `${STANDARD_CREDITS} credits every month`,
       `Everything on Free, plus ${addedModelNames("standard")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
@@ -190,11 +197,24 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Pro",
     monthlyPriceUsd: 150,
     dailyCredits: 0,
-    /* The one allowance the specification does not state. Held at Standard's
-       rate of four credits per dollar, so the step up in price is a step up in
-       capacity rather than a change of deal. Change this line, not the UI, if
-       the intended figure is different. */
-    monthlyCredits: 600,
+    /* 300, which makes Pro an ACCESS tier rather than a volume tier, and that
+       is worth being explicit about because the per-credit arithmetic looks
+       wrong until you know it.
+     *
+     * $150 for 300 credits is 50 cents a credit. Standard is 25 and a one-off
+     * top-up is 30 — so Pro is the dearest credit on the menu, twice Standard's
+     * rate and well above simply buying packs. Nobody should buy this plan for
+     * the credits.
+     *
+     * What it actually sells is Fable, which no other plan can reach at any
+     * balance, and which costs 5x a Sonnet turn to run — a twelve-section Fable
+     * build is 40 credits, so 300 is around seven of them. Read that way the
+     * price is a licence with an allowance attached rather than an allowance
+     * priced badly.
+     *
+     * If the intent was ever a volume tier, this is the line to move: 500
+     * credits would put Pro level with a top-up, 600 level with Standard. */
+    monthlyCredits: PRO_CREDITS,
     rolloverCycles: 1,
     publishing: {
       subdomain: PUBLISH_SUBDOMAIN,
@@ -203,7 +223,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Priority support",
     features: [
-      "600 credits every month",
+      `${PRO_CREDITS} credits every month`,
       `Everything on Standard, plus ${addedModelNames("pro")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
@@ -244,8 +264,44 @@ function addedModelNames(planId: PlanId): string {
 }
 
 /* Bought mid-cycle when the pool runs dry. Top-ups are the only credits with
-   no expiry, which is why they are spent last. */
-export const TOP_UP_PACK = { credits: 50, priceUsd: 10 } as const;
+   no expiry, which is why they are spent last.
+
+   ── The price, and why it is not $10 ────────────────────────────────────────
+
+   It was 50 credits for $10, which is 20 cents a credit against Standard's 25 —
+   so the casual purchase was CHEAPER per credit than the commitment. That is
+   backwards, and not subtly: it made subscribing the worse deal, and the
+   rational move for anyone paying attention was to never take a plan and buy
+   packs forever. A subscription has to be the better rate or it is not a
+   subscription, it is a worse way to buy the same thing.
+
+   $15 for 50 puts a top-up at 30 cents a credit — a 20% premium over the plan
+   rate, which is what buying without committing should cost.
+
+   The SIZE stays at 50, and that is deliberate rather than left alone. A pack
+   is exactly one first publish (PUBLISH_COST), which is the whole reason the
+   button exists: somebody who needs one more publish today is not looking for a
+   plan, and a pack that no longer covers the thing it was sized for would send
+   them to the plan or away. Shrinking the pack to fix the rate would have
+   broken that; raising the price does not.
+
+   check:credits enforces the ordering, so this cannot quietly invert again. */
+export const TOP_UP_PACK = { credits: 50, priceUsd: 15 } as const;
+
+/** What a credit costs on a plan, in dollars. Free has no rate — dividing by
+ *  its zero price says "infinitely cheap", which is true and useless — so it
+ *  answers null and callers skip it. */
+export function pricePerCredit(planId: PlanId): number | null {
+  const plan = PLANS[planId];
+  if (plan.monthlyPriceUsd <= 0 || plan.monthlyCredits <= 0) return null;
+  return plan.monthlyPriceUsd / plan.monthlyCredits;
+}
+
+/** What a credit costs when bought as a one-off. Must exceed every plan's rate:
+ *  see the note on TOP_UP_PACK. */
+export function topUpPricePerCredit(): number {
+  return TOP_UP_PACK.priceUsd / TOP_UP_PACK.credits;
+}
 
 /* ── The consumption matrix ────────────────────────────────────────────────
    Every billable thing the platform does is one of these four. `min`/`max`
