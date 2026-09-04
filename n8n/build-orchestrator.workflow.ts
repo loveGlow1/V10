@@ -1,34 +1,64 @@
+/* QuickStark.Ai — Build Orchestrator, as deployed.
+
+   This file is a MIRROR of the workflow running on n8n Cloud
+   (`pIJ3Fu5QpGTotf2m`), regenerated from it on 2026-09-03. It is documentation
+   in the shape of code: nothing imports it, `n8n` is excluded from tsconfig,
+   and `@n8n/workflow-sdk` is not a dependency of this repo — so it is never
+   compiled and never type-checked. Read it to learn what the workflow does;
+   change the workflow in n8n, then bring the change back here.
+
+   It had drifted badly before this regeneration. The version it replaces
+   described an Intent Classifier and WordPress / e-commerce provisioning
+   branches that no longer exist, and did not describe the multi-provider
+   generation branch that does. Ten of twenty-three nodes matched. If you find
+   yourself reading this file and the workflow disagreeing again, the workflow
+   is right.
+
+   Two things in the deployment are wrong rather than merely surprising, and
+   they are reproduced here faithfully because a mirror that quietly corrects
+   its subject is not a mirror. Both are marked DEPLOYED DEFECT below:
+
+     1. `Generate With Claude` has TWO success connections — one to `Save Page`
+        and one to `Collect Generation`. Only the second is right.
+     2. Several `notes` on live nodes still describe the deleted classifier.
+
+   The shape, in one line: the app decides everything, this workflow answers the
+   chat immediately, and then generates the page after the answer has already
+   gone out. No model runs before generation. */
+
 import {
   workflow,
   node,
   trigger,
   sticky,
-  placeholder,
   newCredential,
   merge,
-  languageModel,
   expr,
 } from '@n8n/workflow-sdk';
+
+/* ── 1. Entry ──────────────────────────────────────────────────────────────
+   Only NEW BUILDS arrive here. The app classifies every message first — edit,
+   new_project, question or revert — and handles three of the four itself. */
 
 const buildWebhook = trigger({
   type: 'n8n-nodes-base.webhook',
   version: 2.1,
   config: {
     name: 'Build Request Webhook',
-    position: [-1120, 380],
+    position: [-1120, 384],
     parameters: {
       httpMethod: 'POST',
       path: 'api/v1/build',
-      responseMode: 'responseNode',
       /* Required, not optional. Sync Project Row writes with the service_role
-         key, which bypasses RLS, and this node's body carries the projectId it
-         writes to — so an open webhook here is a way to overwrite anyone's
-         project. The credential's value is the app's N8N_WEBHOOK_TOKEN. */
+         key, which bypasses RLS, and the body carries the projectId it writes
+         to — so an open webhook here is a way to overwrite anyone's project.
+         The credential's value is the app's N8N_WEBHOOK_TOKEN. */
       authentication: 'headerAuth',
+      responseMode: 'responseNode',
       /* Only the app's server calls this; a browser never should. */
       options: { allowedOrigins: 'https://www.quickstark.tech' },
     },
-    credentials: { httpHeaderAuth: newCredential('QuickStark.Ai Build Webhook') },
+    credentials: { httpHeaderAuth: newCredential('Header Auth account 2') },
   },
   output: [
     {
@@ -37,678 +67,185 @@ const buildWebhook = trigger({
         userId: '5e9f1a2c-1111-4c3a-9c11-8f2b6d4a7e10',
         projectId: '',
         projectName: 'Aurora Storefront',
-        prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
+        prompt: 'Build me a storefront that sells handmade ceramics.',
         buildKind: 'ecommerce',
-        systemPrompt: 'You are building an online store as a single self-contained HTML file…',
+        systemPrompt: '<composed by the app for that kind>',
+        signature: '<hmac over requestId|projectId|userId>',
+        provider: 'claude',
+        model: 'claude-opus-5',
+        generationUrl: 'https://api.anthropic.com/v1/messages',
+        responseShape: 'anthropic',
       },
-      headers: { 'content-type': 'application/json' },
-      query: {},
     },
   ],
 });
 
+/* Everything the rest of the workflow reads, normalized off both `body.*` and
+   the top level so a browser call and a test run behave the same.
+
+   The last six fields are the interesting ones: the app does not send a prompt
+   for n8n to shape into a request, it sends THE REQUEST — url, headers and body
+   already built for whichever vendor was picked. See generationRequest() in
+   src/lib/builder/model-request.ts. Nothing in this workflow knows what a system
+   prompt is, which is why adding a model is a change in the app and not here. */
 const normalizeRequest = node({
   type: 'n8n-nodes-base.set',
   version: 3.4,
   config: {
     name: 'Normalize Build Request',
-    position: [-900, 380],
+    position: [-896, 384],
     parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
       assignments: {
         assignments: [
-          {
-            id: 'request-id',
-            name: 'requestId',
-            type: 'string',
-            value: expr('{{ $json.body?.requestId ?? $json.requestId ?? $execution.id }}'),
-          },
-          {
-            id: 'user-id',
-            name: 'userId',
-            type: 'string',
-            value: expr('{{ $json.body?.userId ?? $json.userId ?? "" }}'),
-          },
-          {
-            id: 'project-id',
-            name: 'projectId',
-            type: 'string',
-            value: expr('{{ $json.body?.projectId ?? $json.projectId ?? "" }}'),
-          },
-          {
-            id: 'project-name',
-            name: 'projectName',
-            type: 'string',
-            value: expr('{{ $json.body?.projectName ?? $json.projectName ?? "Untitled Build" }}'),
-          },
-          {
-            id: 'prompt',
-            name: 'prompt',
-            type: 'string',
-            value: expr('{{ $json.body?.prompt ?? $json.prompt ?? $json.body?.message ?? $json.message ?? "" }}'),
-          },
-          /* What kind of thing to build, decided by the app rather than here.
-             The classifier below still runs — it is also the "none of these
-             fit" route — but it must not overrule this: the system prompt that
-             arrives with it was composed for this kind, and a branch that
-             disagrees builds one thing from another thing's instructions.
-             See src/lib/builder/kinds.ts. */
-          {
-            id: 'build-kind',
-            name: 'buildKind',
-            type: 'string',
-            value: expr('{{ $json.body?.buildKind ?? $json.buildKind ?? "landing" }}'),
-          },
-          /* The whole system prompt the page is generated from, one per kind,
-             composed in the app from files that can be diffed and reviewed.
-             Compose Page Prompt uses this when it is present and falls back to
-             its own text only for a caller that is not the app. See
-             n8n/page-prompt.md. */
-          {
-            id: 'system-prompt',
-            name: 'systemPrompt',
-            type: 'string',
-            value: expr('{{ $json.body?.systemPrompt ?? $json.systemPrompt ?? "" }}'),
-          },
-          {
-            id: 'requested-at',
-            name: 'requestedAt',
-            type: 'string',
-            value: expr('{{ $now.toISO() }}'),
-          },
+          { id: 'request-id', name: 'requestId', type: 'string',
+            value: expr('{{ $json.body?.requestId ?? $json.requestId ?? $execution.id }}') },
+          { id: 'user-id', name: 'userId', type: 'string',
+            value: expr('{{ $json.body?.userId ?? $json.userId ?? "" }}') },
+          { id: 'project-id', name: 'projectId', type: 'string',
+            value: expr('{{ $json.body?.projectId ?? $json.projectId ?? "" }}') },
+          { id: 'project-name', name: 'projectName', type: 'string',
+            value: expr('{{ $json.body?.projectName ?? $json.projectName ?? "Untitled Build" }}') },
+          { id: 'prompt', name: 'prompt', type: 'string',
+            value: expr('{{ $json.body?.prompt ?? $json.prompt ?? $json.body?.message ?? $json.message ?? "" }}') },
+          /* No default. An empty buildKind is what Kind Decided By App turns
+             away — see the note there; defaulting it would build the wrong
+             thing rather than ask. */
+          { id: 'build-kind', name: 'buildKind', type: 'string',
+            value: expr('{{ $json.body?.buildKind ?? $json.buildKind ?? "" }}') },
+          { id: 'system-prompt', name: 'systemPrompt', type: 'string',
+            value: expr('{{ $json.body?.systemPrompt ?? $json.systemPrompt ?? "" }}') },
+          { id: 'signature', name: 'signature', type: 'string',
+            value: expr('{{ $json.body?.signature ?? $json.signature ?? "" }}') },
+          /* Images arrive as signed URLs rather than base64: pushing megabytes
+             through a webhook to say the same thing costs a timeout. */
+          { id: 'attachment-urls', name: 'attachmentUrls', type: 'array',
+            value: expr('{{ $json.body?.attachmentUrls ?? $json.attachmentUrls ?? [] }}') },
+          { id: 'attachment-text', name: 'attachmentText', type: 'string',
+            value: expr('{{ $json.body?.attachmentText ?? $json.attachmentText ?? "" }}') },
+          { id: 'requested-at', name: 'requestedAt', type: 'string',
+            value: expr('{{ $now.toISO() }}') },
+          /* Which vendor, and therefore which credential. Claude when absent. */
+          { id: 'provider', name: 'provider', type: 'string',
+            value: expr('{{ $json.body?.provider ?? $json.provider ?? "claude" }}') },
+          { id: 'model', name: 'model', type: 'string',
+            value: expr('{{ $json.body?.model ?? $json.model ?? "" }}') },
+          { id: 'model-name', name: 'modelName', type: 'string',
+            value: expr('{{ $json.body?.modelName ?? $json.modelName ?? "" }}') },
+          { id: 'generation-url', name: 'generationUrl', type: 'string',
+            value: expr('{{ $json.body?.generationUrl ?? $json.generationUrl ?? "" }}') },
+          { id: 'generation-headers', name: 'generationHeaders', type: 'object',
+            value: expr('{{ $json.body?.generationHeaders ?? $json.generationHeaders ?? {} }}') },
+          { id: 'generation-body', name: 'generationBody', type: 'object',
+            value: expr('{{ $json.body?.generationBody ?? $json.generationBody ?? {} }}') },
+          { id: 'response-shape', name: 'responseShape', type: 'string',
+            value: expr('{{ $json.body?.responseShape ?? $json.responseShape ?? "anthropic" }}') },
         ],
       },
+      options: {},
     },
-  },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      userId: '5e9f1a2c-1111-4c3a-9c11-8f2b6d4a7e10',
-      projectId: '',
-      projectName: 'Aurora Storefront',
-      prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
-      buildKind: 'ecommerce',
-      systemPrompt: 'You are building an online store as a single self-contained HTML file…',
-      requestedAt: '2026-08-30T09:15:00.000Z',
-    },
-  ],
-});
-
-/* Routing is the whole job here: pick one of three build branches, or say none
-   fit. That is a small call made on every build, so it runs at low effort.
-
-   Adaptive thinking rather than thinking disabled. The Text Classifier parses
-   this model's output against a JSON schema, and with thinking switched off
-   Opus 5 can leak reasoning tags into the visible response — which is the text
-   being parsed. Low effort is the cheap setting; off is the broken one.
-
-   No temperature: newer Anthropic models ignore it, so setting it to 0 would
-   look like determinism was configured when nothing had been. */
-const classifierModel = languageModel({
-  type: '@n8n/n8n-nodes-langchain.lmChatAnthropic',
-  version: 1.6,
-  config: {
-    name: 'Intent Classifier Model',
-    position: [-700, 640],
-    parameters: {
-      model: { __rl: true, mode: 'list', value: 'claude-opus-5', cachedResultName: 'Claude Opus 5' },
-      options: { thinkingMode: 'adaptive', effort: 'low' },
-    },
-    credentials: { anthropicApi: newCredential('Anthropic') },
   },
 });
 
-const intentClassifier = node({
-  type: '@n8n/n8n-nodes-langchain.textClassifier',
-  version: 1.1,
+/* ── 2. The kind, decided by the app ───────────────────────────────────────
+
+   NO MODEL RUNS IN THIS WORKFLOW BEFORE GENERATION, and that is the whole point
+   of this node.
+
+   A Text Classifier used to sit here and re-decide what the app had already
+   decided. It was the one node every build passed through, so an Anthropic
+   outage — or a key out of credit — took down every build in the product to
+   answer a question nobody had asked. It was deleted. A routing call must never
+   be able to fail a build that needs no routing.
+
+   Both fields are required because the prompt is composed FOR the kind: one
+   without the other is half an instruction. */
+const kindDecidedByApp = node({
+  type: 'n8n-nodes-base.if',
+  version: 2.3,
   config: {
-    name: 'Intent Classifier',
-    position: [-680, 380],
+    name: 'Kind Decided By App',
+    position: [-688, 384],
     parameters: {
-      inputText: expr('{{ $json.prompt }}'),
-      categories: {
-        categories: [
-          {
-            category: 'webapp',
-            description:
-              'A web application, SaaS product, internal tool, dashboard, or marketing landing page built from scratch. Examples: "a task manager with team accounts", "a landing page for my agency", "a dashboard showing my sales numbers".',
-          },
-          {
-            category: 'wordpress',
-            description:
-              'A blog, magazine, publication, or content/CMS-driven site, or anything that explicitly mentions WordPress, WooCommerce-free blogging, themes, or plugins. Examples: "a blog about hiking", "migrate my WordPress site to a custom theme".',
-          },
-          {
-            category: 'ecommerce',
-            description:
-              'An online store that sells products: catalogue, cart, checkout, payments, inventory, or anything that mentions Shopify. Examples: "a store selling handmade ceramics", "a Shopify shop with subscriptions".',
-          },
+      conditions: {
+        combinator: 'and',
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          { id: 'has-build-kind', leftValue: expr('{{ $json.buildKind }}'), rightValue: '',
+            operator: { type: 'string', operation: 'notEmpty', singleValue: true } },
+          { id: 'has-system-prompt', leftValue: expr('{{ $json.systemPrompt }}'), rightValue: '',
+            operator: { type: 'string', operation: 'notEmpty', singleValue: true } },
         ],
       },
-      options: { multiClass: false, fallback: 'other' },
+      options: {},
     },
-    subnodes: { model: classifierModel },
-    /* Every build passes through this node, and it is the one that depends on
-       an outside model. Without an error output its failure ends the execution
-       with no response at all — the webhook never answers and the app sits out
-       its 60s timeout before saying the build "may still finish". It has not.
-       The error output turns that silence into a Failed payload the chat can
-       show, which is also what stops /api/build from billing for it. */
-    onError: 'continueErrorOutput',
   },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      projectName: 'Aurora Storefront',
-      prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
-    },
-  ],
 });
+
+/* ── 3. The build branch ───────────────────────────────────────────────────
+   One branch, not four. landing / ecommerce / blog / webapp all run through it,
+   because what differs between them is the system prompt the app composed, not
+   the plumbing here.
+
+   The old WordPress and E-Commerce branches were removed. Restore them from the
+   workflow's version history rather than rebuilding by hand. */
 
 const webappSpec = node({
   type: 'n8n-nodes-base.set',
   version: 3.4,
   config: {
     name: 'WebApp Build Spec',
-    position: [-400, -20],
+    position: [-400, -16],
     parameters: {
-      mode: 'manual',
-      includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'webapp' },
-          { id: 'stack', name: 'stack', type: 'string', value: 'nextjs-app-router' },
-          {
-            id: 'spec',
-            name: 'spec',
-            type: 'object',
-            value: expr(
-              '{{ { "framework": "Next.js 15 (App Router)", "styling": "Tailwind CSS", "database": "Supabase", "auth": "Supabase SSR", "features": ["responsive marketing pages", "authenticated dashboard", "row level security"] } }}',
-            ),
-          },
+          { id: 'intent', name: 'intent', type: 'string',
+            value: expr('{{ $("Normalize Build Request").item.json.buildKind || "webapp" }}') },
+          { id: 'stack', name: 'stack', type: 'string', value: 'standalone-html' },
         ],
       },
-    },
-  },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      projectName: 'Aurora Dashboard',
-      prompt: 'Build me a dashboard showing my sales numbers.',
-      intent: 'webapp',
-      stack: 'nextjs-app-router',
-      spec: { framework: 'Next.js 15 (App Router)', styling: 'Tailwind CSS' },
-    },
-  ],
-});
-
-const scaffoldNextApp = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.5,
-  config: {
-    name: 'Scaffold Next.js App',
-    position: [-160, -20],
-    onError: 'continueRegularOutput',
-    parameters: {
-      method: 'POST',
-      url: placeholder('Builder service endpoint that scaffolds a Next.js app, e.g. https://builder.quickstark.tech/v1/webapp/scaffold'),
-      sendBody: true,
-      specifyBody: 'json',
-      jsonBody: expr(
-        '{{ JSON.stringify({ requestId: $json.requestId, projectName: $json.projectName, prompt: $json.prompt, stack: $json.stack, spec: $json.spec }) }}',
-      ),
+      includeOtherFields: true,
       options: {},
     },
   },
-  output: [
-    {
-      previewUrl: 'https://aurora-dashboard.preview.quickstark.tech',
-      repoUrl: 'https://github.com/quickstark/aurora-dashboard',
-      files: 42,
-      error: null,
-    },
-  ],
 });
 
-const applySupabaseSchema = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.5,
-  config: {
-    name: 'Apply Supabase Schema',
-    position: [80, -20],
-    onError: 'continueRegularOutput',
-    parameters: {
-      method: 'POST',
-      url: placeholder('Endpoint that applies the generated Supabase schema, e.g. https://builder.quickstark.tech/v1/supabase/schema'),
-      sendBody: true,
-      specifyBody: 'json',
-      jsonBody: expr(
-        '{{ JSON.stringify({ requestId: $("Normalize Build Request").item.json.requestId, projectName: $("Normalize Build Request").item.json.projectName, intent: "webapp" }) }}',
-      ),
-      options: {},
-    },
-  },
-  output: [
-    {
-      schemaApplied: true,
-      projectUrl: 'https://xyz.supabase.co',
-      tables: ['user_profiles', 'projects'],
-      anonKey: 'sb_publishable_xxx',
-    },
-  ],
-});
-
+/* The branch's result in the shape Assemble Build Result expects. The URLs are
+   empty on purpose: nothing has been generated yet at this point in the run —
+   the page is made after the chat has been answered, further down. */
 const collectWebappResult = node({
   type: 'n8n-nodes-base.set',
   version: 3.4,
   config: {
     name: 'Collect WebApp Result',
-    position: [320, -20],
+    position: [320, -16],
     parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
       assignments: {
         assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'webapp' },
-          {
-            id: 'preview-url',
-            name: 'previewUrl',
-            type: 'string',
-            value: expr('{{ $("Scaffold Next.js App").item.json.previewUrl ?? "" }}'),
-          },
-          {
-            id: 'repo-url',
-            name: 'repoUrl',
-            type: 'string',
-            value: expr('{{ $("Scaffold Next.js App").item.json.repoUrl ?? "" }}'),
-          },
-          {
-            id: 'admin-url',
-            name: 'adminUrl',
-            type: 'string',
-            value: '',
-          },
-          {
-            id: 'config-keys',
-            name: 'configKeys',
-            type: 'object',
-            value: expr(
-              '{{ { "NEXT_PUBLIC_SUPABASE_URL": $("Apply Supabase Schema").item.json.projectUrl ?? "", "NEXT_PUBLIC_SUPABASE_ANON_KEY": $("Apply Supabase Schema").item.json.anonKey ?? "" } }}',
-            ),
-          },
-          {
-            id: 'artifacts',
-            name: 'artifacts',
-            type: 'object',
-            value: expr(
-              '{{ { "stack": "Next.js App Router + Tailwind CSS + Supabase", "schemaApplied": $("Apply Supabase Schema").item.json.schemaApplied ?? false, "tables": $("Apply Supabase Schema").item.json.tables ?? [], "filesTouched": $("Scaffold Next.js App").item.json.filesTouched ?? $("Scaffold Next.js App").item.json.files ?? 0 } }}',
-            ),
-          },
-          {
-            id: 'branch-status',
-            name: 'branchStatus',
-            type: 'string',
-            value: expr('{{ $("Scaffold Next.js App").item.json.error ? "failed" : "provisioned" }}'),
-          },
+          { id: 'intent', name: 'intent', type: 'string',
+            value: expr('{{ $("Normalize Build Request").item.json.buildKind || "webapp" }}') },
+          { id: 'preview-url', name: 'previewUrl', type: 'string', value: '' },
+          { id: 'repo-url', name: 'repoUrl', type: 'string', value: '' },
+          { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
+          { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
+          { id: 'artifacts', name: 'artifacts', type: 'object',
+            value: expr('{{ { "stack": "Standalone HTML page", "filesTouched": 0 } }}') },
+          { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'provisioned' },
         ],
       },
-    },
-  },
-  output: [
-    {
-      intent: 'webapp',
-      previewUrl: 'https://aurora-dashboard.preview.quickstark.tech',
-      repoUrl: 'https://github.com/quickstark/aurora-dashboard',
-      adminUrl: '',
-      configKeys: { NEXT_PUBLIC_SUPABASE_URL: 'https://xyz.supabase.co' },
-      artifacts: { stack: 'Next.js App Router + Tailwind CSS + Supabase' },
-      branchStatus: 'provisioned',
-    },
-  ],
-});
-
-const wordpressSpec = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'WordPress Build Spec',
-    position: [-400, 240],
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: true,
-      assignments: {
-        assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'wordpress' },
-          { id: 'stack', name: 'stack', type: 'string', value: 'wordpress-headless' },
-          {
-            id: 'spec',
-            name: 'spec',
-            type: 'object',
-            value: expr(
-              '{{ { "delivery": "Headless WordPress via REST API / WPGraphQL", "theme": "Custom block theme", "plugins": ["wp-graphql", "yoast-seo", "wp-super-cache"], "features": ["editorial workflow", "SEO defaults", "media library"] } }}',
-            ),
-          },
-        ],
-      },
-    },
-  },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      projectName: 'Trailhead Journal',
-      prompt: 'Build me a blog about hiking trails.',
-      intent: 'wordpress',
-      stack: 'wordpress-headless',
-      spec: { delivery: 'Headless WordPress via REST API / WPGraphQL' },
-    },
-  ],
-});
-
-const provisionWordpress = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.5,
-  config: {
-    name: 'Provision WordPress Site',
-    position: [-160, 240],
-    onError: 'continueRegularOutput',
-    parameters: {
-      method: 'POST',
-      url: placeholder('Endpoint that provisions the WordPress instance and installs plugins, e.g. https://builder.quickstark.tech/v1/wordpress/provision'),
-      sendBody: true,
-      specifyBody: 'json',
-      jsonBody: expr(
-        '{{ JSON.stringify({ requestId: $json.requestId, projectName: $json.projectName, prompt: $json.prompt, spec: $json.spec }) }}',
-      ),
       options: {},
     },
   },
-  output: [
-    {
-      siteUrl: 'https://trailhead-journal.preview.quickstark.tech',
-      adminUrl: 'https://trailhead-journal.preview.quickstark.tech/wp-admin',
-      restApiUrl: 'https://trailhead-journal.preview.quickstark.tech/wp-json/wp/v2',
-      graphqlUrl: 'https://trailhead-journal.preview.quickstark.tech/graphql',
-      themeRepoUrl: 'https://github.com/quickstark/trailhead-theme',
-      pluginsInstalled: ['wp-graphql', 'yoast-seo'],
-      error: null,
-    },
-  ],
 });
 
-const createStarterPage = node({
-  type: 'n8n-nodes-base.wordpress',
-  version: 1,
-  config: {
-    name: 'Create Starter Page',
-    position: [80, 240],
-    /* Disabled until there is a WordPress account to point it at. n8n's publish
-       gate skips disabled nodes, so this is what lets the workflow go live
-       without parking a junk credential in the account to satisfy a presence
-       check. Re-enable it alongside a real `wordpressApi` credential. */
-    disabled: true,
-    onError: 'continueRegularOutput',
-    parameters: {
-      resource: 'page',
-      operation: 'create',
-      authType: 'basicAuth',
-      title: expr('{{ $("Normalize Build Request").item.json.projectName }}'),
-      additionalFields: {
-        status: 'draft',
-        content: expr('{{ $("Normalize Build Request").item.json.prompt }}'),
-      },
-    },
-    credentials: { wordpressApi: newCredential('WordPress') },
-  },
-  output: [
-    {
-      id: 12,
-      link: 'https://trailhead-journal.preview.quickstark.tech/?page_id=12',
-      status: 'draft',
-    },
-  ],
-});
-
-const collectWordpressResult = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'Collect WordPress Result',
-    position: [320, 240],
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
-      assignments: {
-        assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'wordpress' },
-          {
-            id: 'preview-url',
-            name: 'previewUrl',
-            type: 'string',
-            value: expr('{{ $("Provision WordPress Site").item.json.siteUrl ?? "" }}'),
-          },
-          { id: 'repo-url', name: 'repoUrl', type: 'string', value: expr('{{ $("Provision WordPress Site").item.json.themeRepoUrl ?? "" }}') },
-          {
-            id: 'admin-url',
-            name: 'adminUrl',
-            type: 'string',
-            value: expr('{{ $("Provision WordPress Site").item.json.adminUrl ?? "" }}'),
-          },
-          {
-            id: 'config-keys',
-            name: 'configKeys',
-            type: 'object',
-            value: expr(
-              '{{ { "WORDPRESS_API_URL": $("Provision WordPress Site").item.json.restApiUrl ?? "", "WPGRAPHQL_URL": $("Provision WordPress Site").item.json.graphqlUrl ?? "" } }}',
-            ),
-          },
-          {
-            id: 'artifacts',
-            name: 'artifacts',
-            type: 'object',
-            value: expr(
-              '{{ { "stack": "Headless WordPress + custom theme", "plugins": $("Provision WordPress Site").item.json.pluginsInstalled ?? [], "starterPageUrl": $("Create Starter Page").item.json.link ?? "", "filesTouched": $("Provision WordPress Site").item.json.filesTouched ?? $("Provision WordPress Site").item.json.files ?? 0 } }}',
-            ),
-          },
-          {
-            id: 'branch-status',
-            name: 'branchStatus',
-            type: 'string',
-            value: expr('{{ $("Provision WordPress Site").item.json.error ? "failed" : "provisioned" }}'),
-          },
-        ],
-      },
-    },
-  },
-  output: [
-    {
-      intent: 'wordpress',
-      previewUrl: 'https://trailhead-journal.preview.quickstark.tech',
-      repoUrl: 'https://github.com/quickstark/trailhead-theme',
-      adminUrl: 'https://trailhead-journal.preview.quickstark.tech/wp-admin',
-      configKeys: { WORDPRESS_API_URL: 'https://trailhead-journal.preview.quickstark.tech/wp-json/wp/v2' },
-      artifacts: { stack: 'Headless WordPress + custom theme' },
-      branchStatus: 'provisioned',
-    },
-  ],
-});
-
-const commerceSpec = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'E-Commerce Build Spec',
-    position: [-400, 500],
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: true,
-      assignments: {
-        assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'ecommerce' },
-          { id: 'stack', name: 'stack', type: 'string', value: 'shopify-supabase' },
-          {
-            id: 'spec',
-            name: 'spec',
-            type: 'object',
-            value: expr(
-              '{{ { "commerce": "Shopify Admin API", "identity": "Supabase Auth & DB", "features": ["product catalogue", "cart and checkout", "inventory sync", "order webhooks"] } }}',
-            ),
-          },
-        ],
-      },
-    },
-  },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      projectName: 'Aurora Storefront',
-      prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
-      intent: 'ecommerce',
-      stack: 'shopify-supabase',
-      spec: { commerce: 'Shopify Admin API' },
-    },
-  ],
-});
-
-const seedShopifyCatalog = node({
-  type: 'n8n-nodes-base.shopify',
-  version: 1,
-  config: {
-    name: 'Seed Shopify Catalog',
-    position: [-160, 500],
-    /* Disabled for the same reason as Create Starter Page. Re-enable it
-       alongside a real `shopifyAccessTokenApi` credential. */
-    disabled: true,
-    onError: 'continueRegularOutput',
-    parameters: {
-      resource: 'product',
-      operation: 'create',
-      authentication: 'accessToken',
-      title: expr('{{ $json.projectName }} — Sample Product'),
-      additionalFields: {
-        body_html: expr('{{ $json.prompt }}'),
-        product_type: 'Sample',
-        tags: 'quickstark-ai,scaffold',
-        published_scope: 'web',
-      },
-    },
-    credentials: { shopifyAccessTokenApi: newCredential('Shopify Admin API') },
-  },
-  output: [
-    {
-      id: 8899001122,
-      title: 'Aurora Storefront — Sample Product',
-      handle: 'aurora-storefront-sample-product',
-      status: 'active',
-    },
-  ],
-});
-
-const registerStoreWebhooks = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.5,
-  config: {
-    name: 'Register Store Webhooks',
-    position: [80, 500],
-    onError: 'continueRegularOutput',
-    parameters: {
-      method: 'POST',
-      url: placeholder('Endpoint that registers Shopify order/inventory webhooks and provisions Supabase auth, e.g. https://builder.quickstark.tech/v1/commerce/provision'),
-      sendBody: true,
-      specifyBody: 'json',
-      jsonBody: expr(
-        '{{ JSON.stringify({ requestId: $("Normalize Build Request").item.json.requestId, projectName: $("Normalize Build Request").item.json.projectName, seedProductId: $json.id ?? null, topics: ["orders/create", "products/update", "inventory_levels/update"] }) }}',
-      ),
-      options: {},
-    },
-  },
-  output: [
-    {
-      storefrontUrl: 'https://aurora-storefront.preview.quickstark.tech',
-      adminUrl: 'https://admin.shopify.com/store/aurora-storefront',
-      storeDomain: 'aurora-storefront.myshopify.com',
-      repoUrl: 'https://github.com/quickstark/aurora-storefront',
-      webhooksRegistered: ['orders/create', 'products/update'],
-      supabaseUrl: 'https://xyz.supabase.co',
-      supabaseAnonKey: 'sb_publishable_xxx',
-      error: null,
-    },
-  ],
-});
-
-const collectCommerceResult = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'Collect E-Commerce Result',
-    position: [320, 500],
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
-      assignments: {
-        assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'ecommerce' },
-          {
-            id: 'preview-url',
-            name: 'previewUrl',
-            type: 'string',
-            value: expr('{{ $("Register Store Webhooks").item.json.storefrontUrl ?? "" }}'),
-          },
-          { id: 'repo-url', name: 'repoUrl', type: 'string', value: expr('{{ $("Register Store Webhooks").item.json.repoUrl ?? "" }}') },
-          {
-            id: 'admin-url',
-            name: 'adminUrl',
-            type: 'string',
-            value: expr('{{ $("Register Store Webhooks").item.json.adminUrl ?? "" }}'),
-          },
-          {
-            id: 'config-keys',
-            name: 'configKeys',
-            type: 'object',
-            value: expr(
-              '{{ { "NEXT_PUBLIC_SUPABASE_URL": $("Register Store Webhooks").item.json.supabaseUrl ?? "", "NEXT_PUBLIC_SUPABASE_ANON_KEY": $("Register Store Webhooks").item.json.supabaseAnonKey ?? "", "SHOPIFY_STORE_DOMAIN": $("Register Store Webhooks").item.json.storeDomain ?? "" } }}',
-            ),
-          },
-          {
-            id: 'artifacts',
-            name: 'artifacts',
-            type: 'object',
-            value: expr(
-              '{{ { "stack": "Shopify Admin API + Supabase Auth & DB", "seedProductId": $("Seed Shopify Catalog").item.json.id ?? null, "webhooks": $("Register Store Webhooks").item.json.webhooksRegistered ?? [], "filesTouched": $("Register Store Webhooks").item.json.filesTouched ?? $("Register Store Webhooks").item.json.files ?? 0 } }}',
-            ),
-          },
-          {
-            id: 'branch-status',
-            name: 'branchStatus',
-            type: 'string',
-            value: expr('{{ $("Register Store Webhooks").item.json.error ? "failed" : "provisioned" }}'),
-          },
-        ],
-      },
-    },
-  },
-  output: [
-    {
-      intent: 'ecommerce',
-      previewUrl: 'https://aurora-storefront.preview.quickstark.tech',
-      repoUrl: 'https://github.com/quickstark/aurora-storefront',
-      adminUrl: 'https://admin.shopify.com/store/aurora-storefront',
-      configKeys: { NEXT_PUBLIC_SUPABASE_URL: 'https://xyz.supabase.co' },
-      artifacts: { stack: 'Shopify Admin API + Supabase Auth & DB' },
-      branchStatus: 'provisioned',
-    },
-  ],
-});
-
+/* The false side of Kind Decided By App. A caller sending neither field is not
+   the app, and is told so plainly rather than having something guessed for it. */
 const flagForManualReview = node({
   type: 'n8n-nodes-base.set',
   version: 3.4,
   config: {
     name: 'Flag For Manual Review',
-    position: [320, 760],
+    position: [320, 240],
     parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
       assignments: {
         assignments: [
           { id: 'intent', name: 'intent', type: 'string', value: 'unclassified' },
@@ -716,91 +253,31 @@ const flagForManualReview = node({
           { id: 'repo-url', name: 'repoUrl', type: 'string', value: '' },
           { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
           { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
-          {
-            id: 'artifacts',
-            name: 'artifacts',
-            type: 'object',
+          { id: 'artifacts', name: 'artifacts', type: 'object',
             value: expr(
-              '{{ { "reason": "The prompt did not clearly match a web app, WordPress site or e-commerce build.", "prompt": $("Normalize Build Request").item.json.prompt } }}',
-            ),
-          },
+              '{{ { "reason": "This request arrived without a buildKind and a systemPrompt, so there is nothing to build it from. ' +
+              'The app decides the kind and composes the prompt before calling this workflow; a caller that sends neither is not the app.", ' +
+              '"buildKind": $("Normalize Build Request").item.json.buildKind, ' +
+              '"prompt": $("Normalize Build Request").item.json.prompt } }}',
+            ) },
           { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'needs_clarification' },
         ],
       },
+      options: {},
     },
   },
-  output: [
-    {
-      intent: 'unclassified',
-      previewUrl: '',
-      repoUrl: '',
-      adminUrl: '',
-      configKeys: {},
-      artifacts: { reason: 'The prompt did not clearly match a web app, WordPress site or e-commerce build.' },
-      branchStatus: 'needs_clarification',
-    },
-  ],
 });
 
-/* Where the classifier's error output lands.
- *
- * Not the same thing as Flag For Manual Review, which is a prompt nobody could
- * classify — a normal answer, and one the account is charged for. This is the
- * classifier itself being unreachable: nothing was built, so it reports
- * `failed`, which becomes status "Failed" and is not billed. */
-const flagClassifierFailure = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'Flag Classifier Failure',
-    position: [320, 1000],
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
-      assignments: {
-        assignments: [
-          { id: 'intent', name: 'intent', type: 'string', value: 'unclassified' },
-          { id: 'preview-url', name: 'previewUrl', type: 'string', value: '' },
-          { id: 'repo-url', name: 'repoUrl', type: 'string', value: '' },
-          { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
-          { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
-          {
-            id: 'artifacts',
-            name: 'artifacts',
-            type: 'object',
-            value: expr(
-              '{{ { "reason": "The intent classifier could not be reached, so the build was never routed to a branch.", "error": String($json.error?.message ?? $json.error?.description ?? $json.error ?? "The classifier model failed."), "prompt": $("Normalize Build Request").item.json.prompt } }}',
-            ),
-          },
-          { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'failed' },
-        ],
-      },
-    },
-  },
-  output: [
-    {
-      intent: 'unclassified',
-      previewUrl: '',
-      repoUrl: '',
-      adminUrl: '',
-      configKeys: {},
-      artifacts: {
-        reason: 'The intent classifier could not be reached, so the build was never routed to a branch.',
-        error: 'Bad request - please check your parameters',
-      },
-      branchStatus: 'failed',
-    },
-  ],
-});
+/* ── 4. Status sync and response ───────────────────────────────────────────
+   Two inputs, not five: the build branch, and the request that arrived without
+   a kind. The three extra inputs went with the classifier and its branches. */
 
 const collectBuildOutcome = merge({
   version: 3.2,
   config: {
     name: 'Collect Build Outcome',
-    position: [580, 380],
-    /* Five: three build branches, the unclassifiable prompt, and the
-       classifier having failed outright. */
-    parameters: { mode: 'append', numberInputs: 5 },
+    position: [592, 384],
+    parameters: { numberInputs: 2 },
   },
 });
 
@@ -809,9 +286,8 @@ const assembleBuildResult = node({
   version: 2,
   config: {
     name: 'Assemble Build Result',
-    position: [800, 380],
+    position: [800, 384],
     parameters: {
-      mode: 'runOnceForAllItems',
       jsCode:
         'const request = $("Normalize Build Request").first().json;\n' +
         'const branch = $input.first().json;\n' +
@@ -838,72 +314,46 @@ const assembleBuildResult = node({
         '}];',
     },
   },
-  output: [
-    {
-      requestId: 'req_01HZY',
-      userId: '5e9f1a2c-1111-4c3a-9c11-8f2b6d4a7e10',
-      projectId: '',
-      projectName: 'Aurora Storefront',
-      prompt: 'Build me a storefront that sells handmade ceramics with checkout and inventory.',
-      intent: 'ecommerce',
-      status: 'Building',
-      previewUrl: 'https://aurora-storefront.preview.quickstark.tech',
-      repoUrl: 'https://github.com/quickstark/aurora-storefront',
-      adminUrl: 'https://admin.shopify.com/store/aurora-storefront',
-      configKeys: { NEXT_PUBLIC_SUPABASE_URL: 'https://xyz.supabase.co' },
-      artifacts: { stack: 'Shopify Admin API + Supabase Auth & DB' },
-      requestedAt: '2026-08-30T09:15:00.000Z',
-      completedAt: '2026-08-30T09:16:12.000Z',
-    },
-  ],
 });
 
+/* Writes status, intent and last_build_at — and nothing else. NOTHING IN THIS
+   WORKFLOW CHARGES CREDITS. Billing happens in the app, in
+   /api/builder/webapp/save, priced from the document that arrives there. A
+   build that never reaches save is never billed.
+
+   onError continues: the chat is answered from Assemble Build Result, not from
+   this node, so a Supabase failure must not swallow the reply. */
 const syncProjectRow = node({
   type: 'n8n-nodes-base.supabase',
   version: 1,
   config: {
     name: 'Sync Project Row',
-    position: [1020, 380],
+    position: [1024, 384],
     onError: 'continueRegularOutput',
+    alwaysOutputData: true,
     parameters: {
-      resource: 'row',
       operation: 'update',
       tableId: 'projects',
-      filterType: 'manual',
-      /* Both conditions, not either: this runs with the service_role key, so
-         RLS is not going to stop a write to the wrong row. Matching user_id as
-         well as id means a leaked project UUID on its own is not enough to
-         reach someone's project. */
       matchType: 'allFilters',
       filters: {
         conditions: [
           { keyName: 'id', condition: 'eq', keyValue: expr('{{ $json.projectId }}') },
+          /* Both, always. The service_role key bypasses RLS, so user_id here is
+             the only thing stopping one account's projectId reaching another's
+             row. */
           { keyName: 'user_id', condition: 'eq', keyValue: expr('{{ $json.userId }}') },
         ],
       },
-      dataToSend: 'defineBelow',
       fieldsUi: {
         fieldValues: [
           { fieldId: 'status', fieldValue: expr('{{ $json.status }}') },
           { fieldId: 'intent', fieldValue: expr('{{ $json.intent }}') },
-          { fieldId: 'preview_url', fieldValue: expr('{{ $json.previewUrl }}') },
-          { fieldId: 'repo_url', fieldValue: expr('{{ $json.repoUrl }}') },
-          { fieldId: 'admin_url', fieldValue: expr('{{ $json.adminUrl }}') },
           { fieldId: 'last_build_at', fieldValue: expr('{{ $json.completedAt }}') },
         ],
       },
     },
-    credentials: { supabaseApi: newCredential('Supabase QuickStark.Ai') },
+    credentials: { supabaseApi: newCredential('Supabase account') },
   },
-  output: [
-    {
-      id: 'b2b1c0d9-2222-4a55-9f10-3c7de1a48b21',
-      user_id: '5e9f1a2c-1111-4c3a-9c11-8f2b6d4a7e10',
-      name: 'Aurora Storefront',
-      status: 'Building',
-      created_at: '2026-08-30T09:16:12.000Z',
-    },
-  ],
 });
 
 const buildChatPayload = node({
@@ -911,124 +361,397 @@ const buildChatPayload = node({
   version: 3.4,
   config: {
     name: 'Build Chat Payload',
-    position: [1240, 380],
+    position: [1248, 384],
     parameters: {
-      mode: 'manual',
-      includeOtherFields: false,
       assignments: {
         assignments: [
-          { id: 'ok', name: 'ok', type: 'boolean', value: expr('{{ $("Assemble Build Result").item.json.status !== "Failed" }}') },
-          { id: 'request-id', name: 'requestId', type: 'string', value: expr('{{ $("Assemble Build Result").item.json.requestId }}') },
-          {
-            id: 'project-id',
-            name: 'projectId',
-            type: 'string',
-            value: expr('{{ $("Assemble Build Result").item.json.projectId }}'),
-          },
-          { id: 'intent', name: 'intent', type: 'string', value: expr('{{ $("Assemble Build Result").item.json.intent }}') },
-          { id: 'status', name: 'status', type: 'string', value: expr('{{ $("Assemble Build Result").item.json.status }}') },
-          {
-            id: 'links',
-            name: 'links',
-            type: 'object',
+          { id: 'ok', name: 'ok', type: 'boolean',
+            value: expr('{{ $("Assemble Build Result").first().json.status !== "Failed" }}') },
+          { id: 'request-id', name: 'requestId', type: 'string',
+            value: expr('{{ $("Assemble Build Result").first().json.requestId }}') },
+          { id: 'project-id', name: 'projectId', type: 'string',
+            value: expr('{{ $("Assemble Build Result").first().json.projectId }}') },
+          { id: 'intent', name: 'intent', type: 'string',
+            value: expr('{{ $("Assemble Build Result").first().json.intent }}') },
+          { id: 'status', name: 'status', type: 'string',
+            value: expr('{{ $("Assemble Build Result").first().json.status }}') },
+          { id: 'links', name: 'links', type: 'object',
             value: expr(
-              '{{ { "preview": $("Assemble Build Result").item.json.previewUrl, "repo": $("Assemble Build Result").item.json.repoUrl, "admin": $("Assemble Build Result").item.json.adminUrl } }}',
-            ),
-          },
-          { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ $("Assemble Build Result").item.json.configKeys }}') },
-          { id: 'artifacts', name: 'artifacts', type: 'object', value: expr('{{ $("Assemble Build Result").item.json.artifacts }}') },
-          {
-            id: 'message',
-            name: 'message',
-            type: 'string',
+              '{{ { "preview": $("Assemble Build Result").first().json.previewUrl, ' +
+              '"repo": $("Assemble Build Result").first().json.repoUrl, ' +
+              '"admin": $("Assemble Build Result").first().json.adminUrl } }}',
+            ) },
+          { id: 'config-keys', name: 'configKeys', type: 'object',
+            value: expr('{{ $("Assemble Build Result").first().json.configKeys }}') },
+          { id: 'artifacts', name: 'artifacts', type: 'object',
+            value: expr('{{ $("Assemble Build Result").first().json.artifacts }}') },
+          /* Three outcomes, three sentences. The Needs Clarification one says
+             "Nothing has been charged", which is true precisely because billing
+             lives in the save route and this request will never reach it. */
+          { id: 'message', name: 'message', type: 'string',
             value: expr(
-              '{{ $("Assemble Build Result").item.json.status === "Failed" ? "The build could not be completed - " + ($("Assemble Build Result").item.json.artifacts?.reason ?? "a step in the build failed.") : $("Assemble Build Result").item.json.status === "Needs Clarification" ? "I could not tell whether you want a web app, a WordPress site or a store. Could you say a little more about what you are building?" : "Your " + $("Assemble Build Result").item.json.intent + " build is underway - the preview link updates as it finishes." }}',
-            ),
-          },
+              '{{ $("Assemble Build Result").first().json.status === "Failed" ' +
+              '? "The build could not be completed - " + ($("Assemble Build Result").first().json.artifacts?.reason ?? "a step in the build failed.") ' +
+              ': $("Assemble Build Result").first().json.status === "Needs Clarification" ' +
+              '? "That request reached the builder without a build kind, so there was nothing to build it from. Nothing has been charged. Try again from the app." ' +
+              ': "Your build is underway - the preview link updates as it finishes." }}',
+            ) },
         ],
       },
+      options: {},
     },
   },
-  output: [
-    {
-      ok: true,
-      requestId: 'req_01HZY',
-      projectId: 'b2b1c0d9-2222-4a55-9f10-3c7de1a48b21',
-      intent: 'ecommerce',
-      status: 'Building',
-      links: { preview: 'https://aurora-storefront.preview.quickstark.tech', repo: '', admin: '' },
-      configKeys: { NEXT_PUBLIC_SUPABASE_URL: 'https://xyz.supabase.co' },
-      artifacts: { stack: 'Shopify Admin API + Supabase Auth & DB' },
-      message: 'Your ecommerce build is underway - the preview link updates as it finishes.',
-    },
-  ],
 });
 
+/* The chat is answered HERE, and generation happens after this point. Everything
+   below this node runs with nobody waiting on it. */
 const respondToChatUi = node({
   type: 'n8n-nodes-base.respondToWebhook',
   version: 1.5,
   config: {
     name: 'Return Payload to Chat UI',
-    position: [1460, 380],
+    position: [1472, 384],
+    parameters: { options: { responseCode: 200 } },
+  },
+});
+
+/* ── 5. Generation, after the answer ───────────────────────────────────────
+   Only a build that is actually underway has anything left to do. A request
+   that arrived without a buildKind was already answered in full. */
+
+const ifPageIsToBeBuilt = node({
+  type: 'n8n-nodes-base.if',
+  version: 2.3,
+  config: {
+    name: 'If A Page Is To Be Built',
+    position: [1696, 384],
     parameters: {
-      respondWith: 'firstIncomingItem',
-      options: { responseCode: 200 },
+      conditions: {
+        combinator: 'and',
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          { id: 'is-building', leftValue: expr('{{ $json.status }}'), rightValue: 'Building',
+            operator: { type: 'string', operation: 'equals' } },
+        ],
+      },
+      options: {},
     },
   },
 });
 
+/* Three outputs rather than one node with an expression for the credential,
+   because a credential is not a parameter in n8n — it is bound to the node.
+   Three nodes is the only way to have three keys.
+
+   The fallback is Claude: a request arriving with no provider is a request from
+   an older app version, and Claude is what every build ran on before this
+   existed. */
+const routeByProvider = node({
+  type: 'n8n-nodes-base.switch',
+  version: 3.2,
+  config: {
+    name: 'Route By Provider',
+    position: [1920, 384],
+    parameters: {
+      rules: {
+        values: ['claude', 'openai', 'google'].map((key) => ({
+          outputKey: key,
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+            conditions: [
+              { leftValue: expr('{{ $json.provider }}'), rightValue: key,
+                operator: { type: 'string', operation: 'equals' } },
+            ],
+            combinator: 'and',
+          },
+        })),
+      },
+      options: { fallbackOutput: '0' },
+    },
+  },
+});
+
+/* The three generation calls are the same call three times, against three keys.
+   URL, headers and body all arrive already shaped by the app, so none of these
+   nodes knows anything about models — not the id, not max_tokens, not the
+   thinking or effort settings. All of that is in
+   src/lib/builder/model-request.ts, which is where to go to change what a build
+   costs to run.
+
+   A raw HTTP node rather than an LLM chain node, in all three cases: a generated
+   page is full of { and }, and a chain reads those as template variables.
+
+   Ten-minute timeout because nothing is waiting — the chat was answered before
+   any of this started. */
+
+const generateWithClaude = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Generate With Claude',
+    position: [2144, 384],
+    onError: 'continueErrorOutput',
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Normalize Build Request").item.json.generationUrl }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'anthropicApi',
+      sendHeaders: true,
+      specifyHeaders: 'json',
+      jsonHeaders: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationHeaders) }}'),
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
+      options: { timeout: 600000 },
+    },
+    credentials: { anthropicApi: newCredential('Anthropic account') },
+  },
+});
+
+/* CREDENTIAL: the shared "n8n free OpenAI API credits" pool, which is
+   EXHAUSTED — it returns `400 … used all your free n8n AI credits`. Attach a
+   real OpenAI key before offering GPT models to anyone. */
+const generateWithOpenAi = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Generate With OpenAI',
+    position: [2144, 560],
+    onError: 'continueErrorOutput',
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Normalize Build Request").item.json.generationUrl }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'openAiApi',
+      sendHeaders: true,
+      specifyHeaders: 'json',
+      jsonHeaders: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationHeaders) }}'),
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
+      options: { timeout: 600000 },
+    },
+    credentials: { openAiApi: newCredential('n8n free OpenAI API credits') },
+  },
+});
+
+/* CREDENTIAL: NONE ATTACHED, and no Google credential exists on the instance.
+   A build that picks a Gemini model fails at this node and is flagged — correct
+   behaviour, but not a working one. Create a Google Gemini (PaLM) credential
+   from an AI Studio key and attach it.
+
+   The wire model id rides in the URL path for Google rather than in the body,
+   which is the other reason the URL comes from the app rather than being fixed
+   on the node. */
+const generateWithGemini = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Generate With Gemini',
+    position: [2144, 736],
+    onError: 'continueErrorOutput',
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Normalize Build Request").item.json.generationUrl }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'googlePalmApi',
+      sendHeaders: true,
+      specifyHeaders: 'json',
+      jsonHeaders: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationHeaders) }}'),
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
+      options: { timeout: 600000 },
+    },
+  },
+});
+
+const collectGeneration = merge({
+  version: 3.2,
+  config: {
+    name: 'Collect Generation',
+    position: [2368, 560],
+    /* Three branches, one path onward. Exactly one of them ran. */
+    parameters: { numberInputs: 3, mode: 'append' },
+  },
+});
+
+/* The page, out of whichever answer came back.
+
+   All three vendors bury the document at a different depth, and Anthropic
+   returns the thinking as the FIRST content block when thinking is on — so
+   taking content[0] would store the model's reasoning as the web page. That is
+   why this joins the text blocks rather than indexing.
+
+   Mirrors textFromResponse() in src/lib/builder/model-request.ts. Two copies,
+   deliberately: this one runs in the workflow, that one is what the check tool
+   exercises. Change one, change both. */
+const extractPage = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Page',
+    position: [2592, 560],
+    parameters: {
+      jsCode:
+        "const request = $('Normalize Build Request').first().json;\n" +
+        "const shape = request.responseShape || 'anthropic';\n" +
+        'const answer = $input.first().json;\n' +
+        '\n' +
+        "let html = '';\n" +
+        '\n' +
+        "if (shape === 'anthropic') {\n" +
+        '  const content = Array.isArray(answer.content) ? answer.content : [];\n' +
+        "  html = content.filter((block) => block && block.type === 'text').map((block) => block.text || '').join('');\n" +
+        "} else if (shape === 'openai') {\n" +
+        '  const choice = Array.isArray(answer.choices) ? answer.choices[0] : null;\n' +
+        '  const content = choice && choice.message ? choice.message.content : null;\n' +
+        "  if (typeof content === 'string') html = content;\n" +
+        "  else if (Array.isArray(content)) html = content.map((part) => (part && part.text) || '').join('');\n" +
+        '} else {\n' +
+        '  const candidate = Array.isArray(answer.candidates) ? answer.candidates[0] : null;\n' +
+        '  const parts = candidate && candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts : [];\n' +
+        "  html = parts.map((part) => (part && part.text) || '').join('');\n" +
+        '}\n' +
+        '\n' +
+        "return [{ json: { html, model: request.model || '', modelName: request.modelName || '', provider: request.provider || '', responseShape: shape } }];",
+    },
+  },
+});
+
+/* Where the build is stored AND where it is billed. The app prices it from the
+   document that arrives here — see /api/builder/webapp/save — which is why
+   nothing this workflow sends decides what anyone is charged.
+
+   It refuses anything unsigned, and refuses a document with no <html>. */
+const savePage = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Save Page',
+    position: [2368, 384],
+    onError: 'continueErrorOutput',
+    parameters: {
+      method: 'POST',
+      url: 'https://www.quickstark.tech/api/builder/webapp/save',
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: expr(
+        '{{ JSON.stringify({ requestId: $("Normalize Build Request").item.json.requestId, ' +
+        'projectId: $("Normalize Build Request").item.json.projectId, ' +
+        'userId: $("Normalize Build Request").item.json.userId, ' +
+        'signature: $("Normalize Build Request").item.json.signature, ' +
+        'prompt: $("Normalize Build Request").item.json.prompt, ' +
+        'model: $json.model, html: $json.html }) }}',
+      ),
+      options: { timeout: 60000 },
+    },
+  },
+});
+
+/* Generation runs after the chat has been answered, so a failure here cannot
+   travel in the response. It is written to the project row instead — the same
+   row the workspace is polling — so the chat can say the build did not finish
+   rather than waiting out its timeout in silence. */
+const flagBuildFailure = node({
+  type: 'n8n-nodes-base.supabase',
+  version: 1,
+  config: {
+    name: 'Flag Build Failure',
+    position: [2368, 608],
+    parameters: {
+      operation: 'update',
+      tableId: 'projects',
+      matchType: 'allFilters',
+      filters: {
+        conditions: [
+          { keyName: 'id', condition: 'eq',
+            keyValue: expr('{{ $("Normalize Build Request").item.json.projectId }}') },
+          { keyName: 'user_id', condition: 'eq',
+            keyValue: expr('{{ $("Normalize Build Request").item.json.userId }}') },
+        ],
+      },
+      fieldsUi: {
+        fieldValues: [
+          { fieldId: 'status', fieldValue: 'Failed' },
+          { fieldId: 'last_build_at', fieldValue: expr('{{ $now.toISO() }}') },
+        ],
+      },
+    },
+    credentials: { supabaseApi: newCredential('Supabase account') },
+  },
+});
+
+/* ── Sticky notes, as they read on the canvas ──────────────────────────────
+   Reproduced verbatim. Note that note 3 still describes "Compose Page Prompt"
+   and "Generate Page", which are not the names of any node in the deployed
+   workflow — the generation branch was rebuilt as Route By Provider plus the
+   three Generate With … nodes and the sticky was not updated. */
+
 const entryNote = sticky(
-  '## 1 - Chat UI entry point\n\nThe QuickStark.Ai chat POSTs to /webhook/api/v1/build with { prompt, projectName, userId, projectId?, requestId? }. The Set node normalizes both body.* and top-level shapes so browser calls and test runs behave the same.',
+  '## 1 - Chat UI entry point\n\nThe app POSTs to /webhook/api/v1/build with { prompt, projectName, userId, projectId, requestId, signature, attachmentUrls, attachmentText }.\n\nONLY NEW BUILDS ARRIVE HERE. The app classifies every message first — edit, new_project, question or revert — and handles three of the four itself: an edit is a search/replace patch applied in the app in seconds, and questions and reverts never leave it. A build that would replace an existing page is confirmed with the person before it is sent.\n\nATTACHMENTS. Images come as signed URLs and become image blocks in the request to the model — URLs rather than base64, because pushing megabytes through a webhook to say the same thing costs a timeout.',
   [buildWebhook, normalizeRequest],
   { color: 4 },
 );
 
-const classifierNote = sticky(
-  '## 2 - Intent classifier\n\nThe Text Classifier is the routing switch: one output per build type, an "other" fallback so nothing is dropped silently, and an error output so a model that cannot be reached returns a Failed payload instead of ending the run with no response.\n\nThe model is Anthropic (claude-opus-5), adaptive thinking at low effort. Not thinking-disabled: this node parses the model\'s output against a JSON schema, and with thinking off Opus 5 can leak reasoning tags into that text. No temperature - newer Anthropic models ignore it.\n\nRouting is decided in the app now, not here: /api/build classifies the brief into landing / ecommerce / blog / webapp and sends it as buildKind alongside the system prompt composed for that kind (src/lib/builder/blueprints, n8n/page-prompt.md). This node stays as the fallback for callers that send neither, and must not overrule buildKind.',
-  [intentClassifier, classifierModel],
+const kindNote = sticky(
+  '## 2 - The kind, decided by the app\n\nThe app classifies every message before it calls this workflow and sends the kind as buildKind with the whole system prompt composed for it. Kind Decided By App checks BOTH are present and routes straight to the build branch.\n\nNO MODEL RUNS IN THIS WORKFLOW BEFORE GENERATION. The Text Classifier that used to sit here was deleted, and that is the fix for every build failing with "the intent classifier could not be reached": it re-decided something the app had already decided, and it was the one node every build passed through, so an Anthropic outage or a key out of credit was a total outage. A routing call must never be able to fail a build that needs no routing.',
+  [kindDecidedByApp],
   { color: 3 },
 );
 
 const branchNote = sticky(
-  '## 3 - Build branches\n\nEach branch writes its spec, calls the provisioning services, then normalizes to the same shape: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus. artifacts.filesTouched is what the app prices a build from.\n\nStill to do: fill in the four placeholder URLs, and connect the Supabase credential on Sync Project Row.\n\nCreate Starter Page and Seed Shopify Catalog are DISABLED, not unconfigured. n8n\'s publish gate skips disabled nodes, so this is what lets the workflow go live without parking a junk credential to satisfy a presence check. Re-enable either one alongside a real credential.',
-  [webappSpec, collectCommerceResult],
+  '## 3 - The build branch\n\nOne branch. It writes its spec, then normalizes to: intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts, branchStatus.\n\nintent comes from the app\'s buildKind - landing, ecommerce, blog or webapp. All four are built from the same branch, because what differs between them is the SYSTEM PROMPT the app composed, not the plumbing here. The old WordPress and E-Commerce branches were removed; restore them from version history rather than rebuilding by hand.\n\nThe page itself is generated after the chat has been answered: Compose Page Prompt builds only the user message, Generate Page calls Anthropic directly with the app\'s system prompt, and Save Page posts the document back to the app.',
+  [webappSpec, collectWebappResult],
   { color: 5 },
 );
 
 const syncNote = sticky(
-  '## 4 - Status sync and response\n\nFive branches fan into one Merge - three build types, the unclassifiable prompt, and the classifier having failed outright. They are assembled into a single result, written to the projects table in Supabase, and returned to the chat UI as preview links, config keys and artifacts.\n\nBuild Chat Payload reads from Assemble Build Result rather than from Sync Project Row, so the chat still gets an answer when the Supabase step is not connected.',
+  '## 4 - Status sync and response\n\nTwo inputs fan into one Merge: the build branch, and a request that arrived without a buildKind and a systemPrompt. They are assembled into a single result, written to the projects table in Supabase, and returned to the chat UI as preview links, config keys and artifacts.\n\nBuild Chat Payload reads from Assemble Build Result rather than from Sync Project Row, so the chat still gets an answer when the Supabase step fails.',
   [collectBuildOutcome, respondToChatUi],
   { color: 6 },
 );
 
-export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai - Build Orchestrator')
+export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai — Build Orchestrator')
   .add(buildWebhook)
   .to(normalizeRequest)
-  .to(intentClassifier)
-  .add(
-    intentClassifier
-      .output(0)
-      .to(webappSpec.to(scaffoldNextApp.to(applySupabaseSchema.to(collectWebappResult.to(collectBuildOutcome.input(0)))))),
-  )
-  .add(
-    intentClassifier
-      .output(1)
-      .to(wordpressSpec.to(provisionWordpress.to(createStarterPage.to(collectWordpressResult.to(collectBuildOutcome.input(1)))))),
-  )
-  .add(
-    intentClassifier
-      .output(2)
-      .to(commerceSpec.to(seedShopifyCatalog.to(registerStoreWebhooks.to(collectCommerceResult.to(collectBuildOutcome.input(2)))))),
-  )
-  .add(intentClassifier.output(3).to(flagForManualReview.to(collectBuildOutcome.input(3))))
-  /* Output 4 is the error output added by onError: 'continueErrorOutput'. */
-  .add(intentClassifier.output(4).to(flagClassifierFailure.to(collectBuildOutcome.input(4))))
+  .to(kindDecidedByApp)
+  /* True: the app said what to build and gave the prompt for it. */
+  .add(kindDecidedByApp.output(0).to(webappSpec.to(collectWebappResult.to(collectBuildOutcome.input(0)))))
+  /* False: it did not, and gets told so. */
+  .add(kindDecidedByApp.output(1).to(flagForManualReview.to(collectBuildOutcome.input(1))))
   .add(collectBuildOutcome)
   .to(assembleBuildResult)
   .to(syncProjectRow)
   .to(buildChatPayload)
   .to(respondToChatUi)
+  /* Everything past the response runs with nobody waiting on it. */
+  .to(ifPageIsToBeBuilt)
+  .add(ifPageIsToBeBuilt.output(0).to(routeByProvider))
+  /* DEPLOYED DEFECT — reproduced, not corrected.
+     Claude's success output fans out to TWO nodes: Collect Generation (right)
+     and Save Page (wrong). The direct edge hands Save Page the raw Anthropic
+     response, which has no `html` field, so that call posts html: undefined,
+     is refused by the save route, and takes its error output to Flag Build
+     Failure — marking the project Failed even when the real path through
+     Extract Page succeeded moments later. OpenAI and Gemini do not have this
+     second edge. Delete the Generate With Claude → Save Page connection in
+     n8n; nothing else needs to change. */
+  .add(routeByProvider.output(0).to(generateWithClaude))
+  .add(generateWithClaude.output(0).to(savePage))
+  .add(generateWithClaude.output(0).to(collectGeneration.input(0)))
+  .add(generateWithClaude.output(1).to(flagBuildFailure))
+  .add(routeByProvider.output(1).to(generateWithOpenAi))
+  .add(generateWithOpenAi.output(0).to(collectGeneration.input(1)))
+  .add(generateWithOpenAi.output(1).to(flagBuildFailure))
+  .add(routeByProvider.output(2).to(generateWithGemini))
+  .add(generateWithGemini.output(0).to(collectGeneration.input(2)))
+  .add(generateWithGemini.output(1).to(flagBuildFailure))
+  .add(collectGeneration.to(extractPage.to(savePage)))
+  /* Save Page's success output goes nowhere: the app owns everything after the
+     document lands. Only its error output is wired. */
+  .add(savePage.output(1).to(flagBuildFailure))
   .add(entryNote)
-  .add(classifierNote)
+  .add(kindNote)
   .add(branchNote)
   .add(syncNote);

@@ -6,15 +6,18 @@ The workflow behind the QuickStark.Ai chat "build my app" flow.
 - **Editor**: https://neauraissystems.app.n8n.cloud/workflow/pIJ3Fu5QpGTotf2m
 - **Reference**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
 
-  **It has drifted from what runs.** The canvas has been hand-edited since, and
-  the live workflow is now the one to read: it has no WordPress or e-commerce
-  branch, it generates and saves the page itself, and it carries
-  `Kind Decided By App`. It has drifted further since that was written — the
-  Text Classifier and its model are gone, the merge takes two inputs rather
-  than three, `Compose Page Prompt` no longer holds a system prompt of its own,
-  and the app now sends an asset manifest inside `systemPrompt`. Treat this
-  file as history until someone re-exports it; check a change against the
-  editor, or `get_workflow_details`, before believing it.
+  **Regenerated from the live workflow on 2026-09-03**, and a mirror of it:
+  every node name, type, position and connection was diffed against
+  `get_workflow_details` output, and the two agree. It had drifted badly before
+  that — it still described the Text Classifier and the WordPress and
+  e-commerce branches, and said nothing about the three generation nodes — so
+  ten of twenty-three nodes matched.
+
+  Nothing imports it, `n8n` is excluded from `tsconfig.json`, and
+  `@n8n/workflow-sdk` is not a dependency, so it is never compiled and nothing
+  will tell you when it goes stale again. Change the workflow in n8n, then
+  bring the change back here by hand. When the two disagree, the workflow is
+  right.
 
 ## What runs a model, and what does not
 
@@ -54,9 +57,11 @@ page with different words in it. See `src/lib/builder/kinds.ts`,
 
 **So when `buildKind` arrives, nothing here calls a model to route.**
 `Kind Decided By App` sends the request straight to the build branch, the
-branch's `intent` is the kind the app decided, and `Generate Page` sends the
-`systemPrompt` that came with it. The Text Classifier is reached only by a
-caller that sends no `buildKind`.
+branch's `intent` is the kind the app decided, and the generation node for the
+chosen provider sends the `systemPrompt` that came with it — inside
+`generationBody`, which the app composed. A caller that sends no `buildKind`
+reaches `Flag For Manual Review` and is answered plainly; there is no longer a
+classifier behind that door.
 
 That is not a saving, it is the fix for an outage. For a while the workflow
 carried neither field: it dropped both in `Normalize Build Request` and
@@ -73,22 +78,16 @@ must not be able to fail the request.
           ▼
 [ Build Request Webhook ] → [ Normalize Build Request ]
           ▼
-[ Kind Decided By App ]  ── buildKind present ──┐   ← no model is called
-          │                                     │
-    no buildKind                                │
-          ▼                                     │
-[ Intent Classifier ]  (fallback only)          │
-          │                                     │
-  ┌───────┴────────────────────────┐            │
-  ▼                                ▼            ▼
-Manual Review                      └────→ • Build Spec
-(fallback — a prompt for something          (landing / ecommerce /
- not built yet is answered, not dropped)     blog / webapp)
-  └───────┬─────────────────────────────────────┘
-          ▼
-[ Collect Build Outcome ]  (Merge, append, 3 inputs)
-          │  the classifier's own error output is the third:
-          │  [ Intent Classifier ] --error--> [ Flag Classifier Failure ]
+[ Kind Decided By App ]  ── buildKind + systemPrompt ──┐   ← no model is called
+          │                                            │
+    neither field                                      │
+          ▼                                            ▼
+[ Flag For Manual Review ]                    [ WebApp Build Spec ]
+(answered plainly, not guessed at)                     │
+          │                                  [ Collect WebApp Result ]
+          └───────────────┬───────────────────────────┘
+                          ▼
+[ Collect Build Outcome ]  (Merge, 2 inputs)
           ▼
 [ Assemble Build Result ] → [ Sync Project Row ]  (status: Building)
           ▼
@@ -99,9 +98,23 @@ Manual Review                      └────→ • Build Spec
                                                      └→ [ Generate With Gemini ] ─┘
                                                                                   ↓
                                           [ Collect Generation ] → [ Extract Page ] → [ Save Page ]
-                                          (Anthropic API)     (→ the app stores it
-                                                                 and sets preview_url)
+                                                                        (→ the app stores it,
+                                                                           prices it, and sets
+                                                                           preview_url)
+
+  Any of the three generation nodes failing, and Save Page failing, go to
+  [ Flag Build Failure ] — the chat was already answered, so a failure here can
+  only be written to the project row.
 ```
+
+> **Deployed defect.** `Generate With Claude` has a *second* success connection
+> straight to `Save Page`, alongside the right one into `Collect Generation`.
+> That edge hands `Save Page` the raw Anthropic response, which has no `html`
+> field, so it posts `html: undefined`, is refused, and takes its error output
+> to `Flag Build Failure` — marking the project Failed even when the real path
+> through `Extract Page` succeeded. `Generate With OpenAI` and
+> `Generate With Gemini` do not have it. The fix is to delete that one
+> connection in the editor; nothing else changes.
 
 **The reply comes before the page.** Everything above the response line takes a
 few seconds — a classification, nothing more. Generating a page takes a minute
@@ -109,7 +122,8 @@ or two, so it runs *after* the webhook has answered, and the app finds out it
 finished by watching the project row rather than by holding a request open.
 
 That is not a preference. A serverless function is killed at sixty seconds, and
-a page takes longer: execution 221 is the proof — `Generate Page` ran for
+a page takes longer: execution 221 is the proof — the generation call (on
+`Generate Page`, the node the three `Generate With …` nodes replaced) ran for
 60,673ms and came back `504 An error occurred with your deployment`, with
 nothing built. An n8n node has no such ceiling, which is the whole reason
 generation lives here and not in the app.
@@ -202,14 +216,12 @@ here cannot move anyone's balance in either direction.
 `configKeys` is empty for now. It carried the environment a provisioned backend
 would need, and there is no provisioning until publishing exists.
 
-**The webhook always answers.** Every outbound call runs with
-`onError: continueRegularOutput`, and `Intent Classifier` runs with
-`onError: continueErrorOutput` into `Flag Classifier Failure`. Without that
-error output a classifier failure ends the execution silently: the webhook never
-responds, and the app waits out its 60-second timeout before telling the user
-the build "may still finish", which is not true. Now it comes back as
-`status: "Failed"` with the reason in `artifacts`, and `/api/build` does not
-bill a build that never ran.
+**The webhook always answers.** Nothing on the path to the response can throw:
+`Sync Project Row` runs with `onError: continueRegularOutput`, and everything
+downstream of the response — the three generation nodes and `Save Page` — runs
+with `onError: continueErrorOutput` into `Flag Build Failure`. The webhook has
+already answered by the time any of those run, so a failure there cannot travel
+in the response and is written to the project row instead.
 
 `Sync Project Row` has `alwaysOutputData` on for the same reason, and it is the
 less obvious one. A Supabase update that matches no row is not an error — it
@@ -218,31 +230,32 @@ succeeds and returns nothing — and a node with no items does not run, so
 answered. A filter that matches nothing has to be a reply saying so, not
 silence.
 
-`Flag Classifier Failure` reports `$json.error.description` ahead of
+**Nothing retries.** No node in the workflow sets `retryOnFail`. That was
+survivable once the classifier went: the calls that remain all run after the
+chat has been answered, so a passing outage costs one build rather than the
+whole product, and it is the project row that says so. If a generation node is
+ever made to retry, remember that its timeout is ten minutes — three tries is
+half an hour of an execution nobody is waiting on.
+
+When a generation call fails, the useful text is `$json.error.description`, not
 `$json.error.message`. n8n's `message` is its own wrapper — "Bad request -
-please check your parameters" — and `description` is what the API actually said,
-which for this one was "Your credit balance is too low to access the Anthropic
-API". Reporting the wrapper sent whoever read it looking for a malformed
-request that did not exist.
+please check your parameters" — while `description` is what the vendor actually
+said, which in the case that prompted this note was "Your credit balance is too
+low to access the Anthropic API". Reading the wrapper sends you looking for a
+malformed request that does not exist.
 
-The classifier also **retries**: three tries, two seconds apart, on both the
-Text Classifier and the model node under it. Execution 215 is why — a build
-came back "the classifier could not be reached" on a bare
-`Service unavailable` from Anthropic, which is a passing outage rather than
-anything wrong with the setup, and the one node every build depends on. Three
-tries fit comfortably inside the app's 60-second timeout. The error output is
-not redundant with this: it is what answers once the retries are spent too.
-
-`Flag Classifier Failure` is not the same thing as `Flag For Manual Review`:
-that one is a prompt nobody could classify, which is a real answer and is
-charged for. This one is the classifier being unreachable.
+`Flag Build Failure` is not the same thing as `Flag For Manual Review`.
+`Flag For Manual Review` is a request that arrived without a `buildKind` and a
+`systemPrompt` — answered in full, never billed, because it never reaches the
+save route. `Flag Build Failure` is generation or saving having failed after the
+chat was answered.
 
 ## Before this can run for real
 
 Where this stands: the workflow is **published** and wired end to end. The
-Webhook node carries a Header Auth credential, `Sync Project Row` the Supabase
-one, `Intent Classifier Model` the Anthropic one, and the app holds the two
-environment variables in step 1. Builds reach n8n, route to a branch, sync to
+Webhook node carries a Header Auth credential, `Sync Project Row` and
+`Flag Build Failure` the Supabase one, `Generate With Claude` the Anthropic one,
+and the app holds the two environment variables in step 1. Builds reach n8n, route to a branch, sync to
 Supabase and answer the chat — verified by production executions 209 and 210.
 
 Builds are real: the branch generates a page and stores it. Verify the chain
@@ -299,10 +312,12 @@ that is gated on every enabled node having a credential attached.
    `attachmentText`. Both are optional; with nothing attached the request is
    exactly what it was.
 
-   **The system prompt** lives on `Compose Page Prompt`, and is mirrored in
-   [`page-prompt.md`](./page-prompt.md) so it can be reviewed and diffed — a
-   prompt that exists only inside a workflow is one nobody can see change. Edit
-   both; if they disagree, n8n is what ran.
+   **The system prompt no longer lives in this workflow at all.** The app
+   composes it per kind and sends it inside `generationBody`, which the
+   generation nodes forward without reading. See `src/lib/builder/blueprints/`
+   for the source, and [`page-prompt.md`](./page-prompt.md) for the mirrored
+   copy kept so it can be reviewed and diffed — a prompt nobody can see change
+   is a prompt nobody reviews. If those two disagree, the app is what ran.
 
    It covers **sign-in and dashboards**: a build asked for accounts produces a
    working demo in the one file — views shown and hidden by script, real
@@ -318,12 +333,15 @@ that is gated on every enabled node having a credential attached.
      State lives in ordinary variables, so accounts last as long as the tab,
      and the page says so quietly rather than implying otherwise.
 
-   `Generate Page` calls the API with an HTTP node rather than an LLM chain on
-   purpose: a generated page is full of `{` and `}`, and a chain reads those as
-   prompt template variables. Editing an existing page would corrupt it.
+   The three `Generate With …` nodes call their APIs with HTTP nodes rather
+   than LLM chain nodes on purpose: a generated page is full of `{` and `}`, and
+   a chain reads those as prompt template variables. Editing an existing page
+   would corrupt it.
 
-   With thinking on, the first content block is the thinking, not the page —
-   `Save Page` joins the `text` blocks rather than reading `content[0]`.
+   With thinking on, the first content block is the thinking, not the page — so
+   `Extract Page` joins the `text` blocks rather than reading `content[0]`. That
+   is `Extract Page`'s job, not `Save Page`'s; `Save Page` receives an `html`
+   string that has already been pulled out.
 
    **`Save Page` refuses anything unsigned.** `/api/build` signs `requestId`,
    `projectId` and `userId` — the three it has already checked ownership of —
@@ -374,23 +392,25 @@ that is gated on every enabled node having a credential attached.
      RLS, so an anon key updates nothing and reports success. It updates the row
      matching the `projectId` the app sent, writing `status, intent,
      preview_url, repo_url, admin_url, last_build_at`.
-4. **Anthropic** — `Intent Classifier Model` is an **Anthropic Chat Model** node on
-   `claude-opus-5`, replacing the OpenAI node that was bound to the shared
-   "n8n free OpenAI API credits" pool (exhausted — it returned
-   `400 … used all your free n8n AI credits`, and nothing routed).
+4. **The generation credentials** — one per provider, because a credential is
+   bound to a node in n8n and cannot be an expression.
 
-   It needs an **Anthropic** credential (type `anthropicApi`): an API key from
-   console.anthropic.com. Until one is attached the classifier fails, which now
-   means every build takes the `Flag Classifier Failure` path rather than
-   hanging.
+   | Node | Credential type | State |
+   | --- | --- | --- |
+   | `Generate With Claude` | `anthropicApi` | Attached (`Anthropic account`). |
+   | `Generate With OpenAI` | `openAiApi` | Attached, but it is the shared "n8n free OpenAI API credits" pool, which is **exhausted** — `400 … used all your free n8n AI credits`. Replace with a real key before offering GPT models. |
+   | `Generate With Gemini` | `googlePalmApi` | **None attached**, and no Google credential exists on the instance. A build picking a Gemini model fails at this node and is flagged. |
 
-   It runs adaptive thinking at **low** effort. Not thinking-disabled: the Text
-   Classifier parses this model's output against a JSON schema, and with
-   thinking off Opus 5 can leak reasoning tags into the visible response. Low
-   effort is the cheap setting; off is the broken one. Routing is a small call
-   on every build, so `claude-sonnet-5` or `claude-haiku-4-5` would also serve
-   and cost less — that is a cost/quality call to make deliberately, not a
-   default to drift into.
+   None of these three nodes knows anything about models. The wire id,
+   `max_tokens`, thinking and effort all arrive inside `generationBody`, built
+   by `generationRequest()` in `src/lib/builder/model-request.ts` — which is
+   therefore where to go to change what a build costs to run, not here.
+
+   The note that used to sit here described an `Intent Classifier Model` node
+   running Opus 5 at low effort for routing, and weighed Sonnet or Haiku against
+   it. That node was deleted along with the classifier, so the tradeoff it
+   described no longer exists: nothing in this workflow picks a model, and no
+   model runs before generation.
 5. **Publish** — and publish again after every change. n8n serves production
    traffic from the *published* version, not from the draft, so an edit that is
    saved but not published is invisible to the app. That is worth knowing
@@ -404,10 +424,14 @@ that is gated on every enabled node having a credential attached.
    ```
    Cannot publish workflow: 2 nodes have configuration issues:
      Node "Sync Project Row":          Missing required credential: supabaseApi
-     Node "Intent Classifier Model":   Missing required credential: anthropicApi
+     Node "Generate With Gemini":      Missing required credential: googlePalmApi
    ```
 
-   Both are credentials this account can supply, so those two are the real gate.
+   (The message above is illustrative — the second line named
+   `Intent Classifier Model` when it was first recorded, and that node is gone.
+   `Generate With Gemini` is the node with no credential today.)
+
+   Supabase is a credential this account can supply, so it is the real gate.
    Until the workflow is published the production webhook answers 404, which the
    app reports as "the workflow is probably not published yet".
 
@@ -419,11 +443,15 @@ Every external call runs with `onError: continueRegularOutput`, so one unconfigu
 integration degrades that branch to `branchStatus: "failed"` instead of killing the
 execution — the chat UI still gets a response.
 
-## What the classifier decides now
+## What decides the kind now
 
-A narrower question than it once answered. The app has already decided the
-message is a build; this decides whether it is a build of something we make —
-a web app or a landing page, or something to be answered with "not yet".
+Nothing in this workflow. The app decides it — see `src/lib/builder/intent.ts`
+and `classify-kind.ts` — and sends it as `buildKind` with the `systemPrompt`
+composed for that kind. `Kind Decided By App` only checks that both arrived.
+
+All four kinds (landing, ecommerce, blog, webapp) run down the same branch,
+because what differs between them is the prompt the app composed, not the
+plumbing here.
 
 ## Adding a build type back
 
@@ -433,7 +461,10 @@ where to restore them from rather than rebuilding eight nodes by hand.
 
 Bringing one back is three changes, and all three or none:
 
-1. A **category** on `Intent Classifier`, or nothing routes to it.
+1. A **route to it.** There is no classifier to add a category to any more, so
+   this means either a new condition on `Kind Decided By App` (which is an If,
+   not a Switch — a third destination makes it a Switch) or, better, keeping the
+   routing in the app and giving the branch its own `buildKind`.
 2. The **branch** itself, ending in a Collect node that sets the same seven
    fields (`intent, previewUrl, repoUrl, adminUrl, configKeys, artifacts,
    branchStatus`).
@@ -443,9 +474,9 @@ Bringing one back is three changes, and all three or none:
 Miss the category and the branch is dead code. Miss the Merge input and the
 build runs and then vanishes, with the chat waiting out its 60-second timeout.
 
-The classifier's outputs are ordered: one per category, then the `other`
-fallback, then the error output. Adding a category shifts the last two along by
-one, so their connections have to move too.
+There is no longer an ordered list of classifier outputs to shift, which was the
+fiddliest part of this when the classifier existed. `Kind Decided By App` has
+two: true to the build branch, false to `Flag For Manual Review`.
 
 Then update `Build Chat Payload`'s Needs Clarification message, which names what
 is currently built, and add a generate step for the new branch under
@@ -477,8 +508,9 @@ It makes the call the app would make and names which link is broken:
 | `200` with a bad shape | A branch stopped setting one of the seven fields. |
 
 The probe sends no `projectId` and no `userId`, so `Sync Project Row` matches no
-row and writes nothing. It does run one real execution, so the classifier bills
-an Anthropic call.
+row and writes nothing. It no longer bills a model call either: nothing runs a
+model before the response, and the probe's request carries no `buildKind`, so it
+is answered by `Flag For Manual Review` and never reaches generation.
 
 ## Database
 
@@ -500,44 +532,22 @@ The build columns live on `public.projects` and are created by
 ## Testing
 
 The whole path — webhook, normalize, branch, merge, assemble, sync, response —
-was verified end to end with pinned data (executions 177, 178 and 183). To repeat
-it, pin `Build Request Webhook`, `Intent Classifier`, the four HTTP nodes and
-`Sync Project Row`, then run from the webhook trigger.
+was verified end to end with pinned data (executions 177, 178 and 183). Those
+runs predate the classifier's removal, so treat the execution numbers as history
+rather than as something to compare against. To repeat the test now, pin
+`Build Request Webhook`, the generation node for the provider you are testing,
+and `Sync Project Row`, then run from the webhook trigger.
 
-The failure path was verified without pinning the classifier, against the
-exhausted OpenAI credential (executions 181 and 182): the run now ends at
-`Return Payload to Chat UI` with `status: "Failed"` and the reason in
-`artifacts`, where execution 176 — the same input before the error output
-existed — ended at `Intent Classifier` having answered nothing at all.
+Two halves worth testing separately, because they are separated by the response:
 
-Pinning `Intent Classifier` is what lets the rest of the graph be tested while
-the model credential is missing; with a working credential, leave it unpinned so
-the routing itself is exercised.
-
-### The error output does not catch a missing model credential
-
-Worth knowing before the Anthropic credential is attached, because it looks like
-correct behaviour and is not.
-
-`onError: continueErrorOutput` catches what the classifier throws while it runs —
-an exhausted quota, a rejected key, a rate limit. It does **not** catch a
-sub-node that fails to resolve at all. With no credential on
-`Intent Classifier Model`, n8n raises a `configuration-node` error before the
-classifier body executes, and the item leaves by **output 0** — the WebApp
-branch — rather than the error output.
-
-Execution 186 is that: "Build me an online store that sells handmade ceramics"
-came back with `intent: "webapp"`, `WebApp Build Spec` sourced from
-`previousNodeOutput: 0`, and `Flag Classifier Failure` never reached. It reported
-`Failed` only because the placeholder URL fails; with the placeholder URLs filled
-in, a store request would have been built as a Next.js app with nothing to say it
-had gone wrong.
-
-Two things keep this out of production. It needs the credential to be *absent*,
-not merely broken — a bad key fails inside the classifier and does reach the
-error output (executions 181 and 182). And n8n refuses to publish the workflow at
-all while `anthropicApi` is missing, so the state cannot reach the production
-webhook. Attaching the credential removes it.
+- **Up to the answer** — webhook, normalize, `Kind Decided By App`, spec,
+  collect, merge, assemble, sync, payload, respond. Fast, no model call, and the
+  half a user actually waits on. Send a request with no `buildKind` to exercise
+  `Flag For Manual Review`.
+- **After the answer** — `If A Page Is To Be Built` onward. This is where the
+  money is spent and where every remaining failure mode lives. Watch for the
+  `Generate With Claude` → `Save Page` defect described above: a Claude build
+  will show `Save Page` running twice, once refused.
 
 ### Node versions
 
