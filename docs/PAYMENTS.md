@@ -145,14 +145,71 @@ xpub/zpub and payments go straight into that wallet; BTCPay only observes. Use a
 wallet created for this, not a personal one — an xpub reveals every address and
 every balance it will ever derive.
 
-Everything is optional and fails soft. With BTCPay unset, or if it errors, or
-for any coin but on-chain BTC, the static address and the nudging are used
-exactly as before and settlement is manual again. Check which state a deployment
-is in with `/api/health`: `btcpayInvoicing` and `btcpaySettlement`.
+With BTCPay unset, and for any coin but on-chain BTC, the static address and
+the nudging are used exactly as before. Check which state a deployment is in
+with `/api/health`: `btcpayInvoicing`, `btcpaySettlement`, and
+`btcpayReachable` — which asks the instance rather than reading the variables,
+because four variables being set says a deployment intends to invoice, not that
+it can.
+
+**Configured and failing is not fallen back from.** If BTCPay is set up but
+issues no invoice, `/api/payments/crypto` refuses the Bitcoin order rather than
+writing one against the static address. That looks like the unfriendlier choice
+and is the opposite: the invoice is what watches for the payment, so an order
+written without one is an address a customer pays into that nothing is watching.
+Two minutes of "try again" against a customer who pays and receives nothing.
 
 Coinbase Commerce and NOWPayments would each need their own adapter route for
 the same reason BTCPay does — the shape of the callback and the signature are
 per-processor. The half that grants credits is already written and shared.
+
+## The sweep, which depends on nobody
+
+Both paths above wait to be told: BTCPay calls back, or a person runs
+`npm run settle`. Both can stop happening without anything saying so, and the
+money still arrives — a payment sits confirmed on a public ledger while the
+order sits `awaiting_payment` and the account holds nothing.
+
+`/api/cron/reconcile` asks instead of waiting. It reads the open on-chain BTC
+orders, reads the chain through a public Esplora host (mempool.space, falling
+back to blockstream.info — no key, no account), and calls
+`settle_crypto_payment` for the ones that were paid in full and confirmed.
+
+This is a floor, not a replacement. With BTCPay healthy its callback still
+settles within a confirmation and the sweep finds nothing to do. With BTCPay
+gone, wiped, or never correctly wired, the sweep pays the customers anyway —
+late, which is survivable, rather than never, which is not.
+
+Safe to run every minute: `settle_crypto_payment` is idempotent, so a sweep
+racing the webhook still ends in one payout.
+
+Every uncertainty resolves towards leaving the order alone and telling a person:
+
+| What the chain says | What happens |
+| --- | --- |
+| No host answered | Nothing. Unknown is not zero — reading it as zero expires paid orders |
+| Confirmed ≥ the amount | Settles, with the txid recorded |
+| Unconfirmed coin, order live | Marked `submitted` — a payment on its way is not a payment missing |
+| Nothing, past expiry | Expired. The ordinary end of an order |
+| Coin present, past expiry | **Stranded** — alerted, never guessed at |
+
+A short payment is never resolved automatically. What it is worth in credits is
+a judgement, and guessing either shorts the customer or pays out more than
+arrived. `decideOrder` in `src/lib/reconcile-decision.ts` holds these rules as a
+pure function; `npm run check:reconcile` asserts them.
+
+**Scheduling it.** `CRON_SECRET` is required or the endpoint refuses every
+caller — a cron endpoint that opens whenever a variable is missing is a public
+one. Vercel's scheduler sends it as `Authorization: Bearer $CRON_SECRET`
+automatically. `vercel.json` schedules it hourly, which is the most a Hobby plan
+allows; for minute-level sweeping, schedule it anywhere that can send a header
+(n8n, a laptop, cron) at the same URL.
+
+**Stranded orders** are reported in the sweep's own JSON response and in the
+log, and emailed if `RESEND_API_KEY` and `ALERT_EMAIL` are set — at most once a
+day per order, tracked in `crypto_payments.alerted_at`. Detection never depends
+on delivery: an alert that cannot be sent must not stop a sweep from finding the
+next problem.
 
 ## Environment variables
 

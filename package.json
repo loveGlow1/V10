@@ -21,6 +21,7 @@
     "check:name": "node tools/check-project-name.mjs",
     "check:narration": "node tools/check-narration.mjs",
     "check:payments": "node tools/check-payments.mjs",
+    "check:reconcile": "node tools/check-reconcile.mjs",
     "check:standalone": "node tools/check-standalone.mjs",
     "check:theme": "node tools/check-theme.mjs",
     "audit:page": "node tools/audit-page.mjs",

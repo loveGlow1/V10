@@ -23,11 +23,15 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  *
  * ── Optional on purpose ────────────────────────────────────────────────────
  *
- * Every function here answers "not configured" rather than throwing, and the
- * checkout falls back to the static address it has always used. That is what
- * lets this ship before the BTCPay instance exists, and what keeps a BTCPay
- * outage from taking payments down entirely — the old path is still there, and
- * `npm run settle` still settles.
+ * Every function here answers "not configured" rather than throwing, and on a
+ * deployment with no BTCPay at all the checkout falls back to the static
+ * address it has always used. That is what lets this ship before the instance
+ * exists, and `npm run settle` still settles those.
+ *
+ * Configured-and-failing is a different case and is NOT fallen back from: see
+ * the refusal in api/payments/crypto/route.ts. An invoice is what watches for
+ * the payment, so quietly writing an order without one takes money nothing is
+ * watching for.
  */
 
 export type BtcPayInvoice = {
@@ -73,9 +77,10 @@ function headers(apiKey: string) {
  * because BTCPay does not derive one until it knows which payment method is
  * being used. The second call asks.
  *
- * Returns null on any failure. The caller falls back to the static address —
- * a checkout that refuses because a payment processor is having a bad morning
- * is worse than a checkout that settles by hand.
+ * Returns null on any failure, and the caller refuses the order rather than
+ * writing one to an address nothing is watching. Refusing is the kinder half
+ * of that trade: two minutes of "try again" against a customer who pays and
+ * receives nothing.
  */
 export async function createBtcPayInvoice(input: {
   orderId: string;
@@ -256,5 +261,50 @@ export async function readBtcPayInvoice(
     // eslint-disable-next-line no-console
     console.error("btcpay: could not read the invoice back:", error);
     return null;
+  }
+}
+
+/**
+ * Whether the configured BTCPay is actually answering, right now.
+ *
+ * Separate from isBtcPayConfigured on purpose, and the difference is the whole
+ * point: four environment variables being set says a deployment INTENDS to
+ * invoice, not that it can. Those two came apart in the worst possible way on
+ * a shared instance that was wiped without notice — the variables stayed set,
+ * every health check stayed green, and invoice creation had been failing for
+ * as long as it took someone to notice by hand.
+ *
+ * So this asks the store about itself. Cheap, unauthenticated of nothing (the
+ * key is sent, and a 401 is as much a failure as a timeout — a revoked key
+ * takes payments down exactly as a dead host does), and short-fused: a health
+ * check that hangs is a health check nobody runs.
+ *
+ * "unconfigured" is not a failure. It is the deployment that never had BTCPay,
+ * whose checkout falls back to the static address by design.
+ */
+export async function btcPayReachable(
+  timeoutMs = 4000,
+): Promise<"ok" | "unreachable" | "unconfigured"> {
+  const conf = config();
+  if (!conf) return "unconfigured";
+
+  try {
+    const response = await fetch(`${conf.url}/api/v1/stores/${conf.storeId}`, {
+      headers: headers(conf.apiKey),
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      // eslint-disable-next-line no-console
+      console.error("btcpay: store is not answering:", response.status);
+      return "unreachable";
+    }
+
+    return "ok";
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("btcpay: store probe failed:", error);
+    return "unreachable";
   }
 }

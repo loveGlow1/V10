@@ -1143,6 +1143,19 @@ create table if not exists public.crypto_payments (
   )
 );
 
+-- When somebody was last told this order needs a human.
+--
+-- Added for the reconciler (api/cron/reconcile), which sweeps open orders
+-- against the chain and settles what it can. What it cannot settle — coin on
+-- the address that does not match the order, an underpayment, a settle that
+-- errored — is a person's problem, and a person has to be told once rather
+-- than every minute forever. The sweep writes the time it told them here and
+-- will not tell them again for a day.
+--
+-- Nullable and never read by settlement: an order that pays out normally never
+-- touches this column.
+alter table public.crypto_payments add column if not exists alerted_at timestamptz;
+
 create index if not exists crypto_payments_user_created_idx
   on public.crypto_payments (user_id, created_at desc);
 

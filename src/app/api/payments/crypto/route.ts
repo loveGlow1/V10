@@ -190,19 +190,42 @@ export async function POST(request: Request) {
      there is exactly one authority on the figure and it is whoever is doing the
      watching.
 
-     Without it — or if it fails, or for any coin but on-chain BTC — nothing
-     changes: the static address, our own rate, and the amount-nudging that
-     makes a shared address workable. That fallback is the reason this can ship
-     before the BTCPay instance exists. */
-  const invoice =
-    currency === "btc" && !lightning && isBtcPayConfigured()
-      ? await createBtcPayInvoice({
-          orderId: paymentId,
-          amountUsd,
-          expiryMinutes: RATE_LOCK_MINUTES,
-          receiptEmail,
-        })
-      : null;
+     For any coin but on-chain BTC, and on any deployment with no BTCPay at
+     all, nothing changes: the static address, our own rate, and the
+     amount-nudging that makes a shared address workable. That fallback is the
+     reason this can ship before the BTCPay instance exists.
+
+     What is NOT a fallback is BTCPay being configured and failing. Falling
+     through to the static address there looks harmless and is not: the invoice
+     is what watches for the payment, so an order written without one is an
+     address a customer pays into that nothing is watching. The money arrives,
+     settle_crypto_payment is never called, and the order sits awaiting_payment
+     until a person notices — which is the exact failure the invoice was added
+     to remove. So this refuses instead. A customer who cannot pay for two
+     minutes comes back; a customer who pays and receives nothing does not. */
+  const wantsInvoice = currency === "btc" && !lightning && isBtcPayConfigured();
+
+  const invoice = wantsInvoice
+    ? await createBtcPayInvoice({
+        orderId: paymentId,
+        amountUsd,
+        expiryMinutes: RATE_LOCK_MINUTES,
+        receiptEmail,
+      })
+    : null;
+
+  if (wantsInvoice && !invoice) {
+    // eslint-disable-next-line no-console
+    console.error("crypto payments: BTCPay is configured but issued no invoice; refusing the order");
+    return NextResponse.json(
+      {
+        error:
+          "Bitcoin checkout is briefly unavailable. Try again in a few minutes, or pay in another currency.",
+        code: "invoicing_unavailable",
+      },
+      { status: 503 },
+    );
+  }
 
   const address = invoice
     ? invoice.address

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { providerStatus } from "@/lib/builder/assets/providers/registry";
 
-import { isBtcPayConfigured, isBtcPayWebhookConfigured } from "@/lib/btcpay";
+import { btcPayReachable, isBtcPayConfigured, isBtcPayWebhookConfigured } from "@/lib/btcpay";
 import {
   isCryptoCheckoutConfigured,
   isSettlementCallbackConfigured,
@@ -60,6 +60,10 @@ export async function GET() {
    * be asked to configure one. */
   const imageProviders = await providerStatus({ assets: [] });
 
+  /* Asked, not inspected — for the same reason downloadsCompile runs the
+     compile. See btcPayReachable. */
+  const btcpay = await btcPayReachable();
+
   return NextResponse.json({
     status: "ok",
     supabaseConfigured: isSupabaseConfigured,
@@ -100,6 +104,11 @@ export async function GET() {
        a confirmation. */
     btcpayInvoicing: isBtcPayConfigured(),
     btcpaySettlement: isBtcPayWebhookConfigured(),
+    /* And whether the instance those variables name is alive. Configured but
+       unreachable is the dangerous shape: checkout refuses BTC rather than
+       taking money nothing is watching, so it is visible to a customer long
+       before it is visible here — which is backwards, and this is the fix. */
+    btcpayReachable: btcpay === "ok",
     ...(includeDetails ? { builderTokenSet: Boolean(process.env.N8N_WEBHOOK_TOKEN) } : {}),
     ...(missingSupabaseEnvVars ? { missingSupabaseEnvVars } : {}),
   });
