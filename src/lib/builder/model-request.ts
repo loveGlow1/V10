@@ -95,6 +95,19 @@ export function generationRequest(
   }
 
   if (model.provider === "claude") {
+    /* Only the 4.6-and-later models take these, and the older one does not
+       merely ignore them — Haiku 4.5 answers `output_config.effort` with a 400.
+       So the two fields travel together and only when the model says it takes
+       them; see `reasoning` in dashboard/models.ts.
+
+       Adaptive rather than a fixed budget, where it applies: a one-section edit
+       and an eleven-section storefront are the same call with very different
+       amounts of thinking worth doing. */
+    const reasoning =
+      model.reasoning === "none"
+        ? {}
+        : { thinking: { type: "adaptive" }, output_config: { effort: "high" } };
+
     return {
       provider: "claude",
       url: ENDPOINTS.claude,
@@ -103,11 +116,7 @@ export function generationRequest(
       body: {
         model: apiId,
         max_tokens: maxOutput,
-        /* Adaptive rather than a fixed budget: a one-section edit and an
-           eleven-section storefront are the same call with very different
-           amounts of thinking worth doing. */
-        thinking: { type: "adaptive" },
-        output_config: { effort: "high" },
+        ...reasoning,
         /* Top-level, not a message. Anthropic is the only one of the three
            that puts it here. */
         system,

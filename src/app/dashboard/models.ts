@@ -67,6 +67,21 @@ export type Model = {
    * because a model switched on without one is priced as though it were the
    * default and quietly sells the dearest thing at the cheapest price. */
   creditMultiplier?: number;
+  /* ── How this model takes reasoning configuration ──────────────────────
+   *
+   * Not cosmetic. The 4.6-and-later family takes `thinking: {type:
+   * "adaptive"}` and `output_config: {effort}`; Haiku 4.5 predates both and
+   * REJECTS effort outright — it is a 400, not an ignored field. The same body
+   * cannot be sent to both, which is why this is a property of the model
+   * rather than a constant in the request builder.
+   *
+   *   "adaptive"  thinking: {type:"adaptive"} + output_config.effort
+   *   "none"      neither field is sent at all
+   *
+   * "none" is a real choice for Haiku rather than a limitation worked around:
+   * the model is here because it is the cheapest, and its budget_tokens form
+   * of thinking would spend the saving it was picked for. */
+  reasoning?: "adaptive" | "none";
 };
 
 /** What the picker shows against a model this deployment cannot reach yet. */
@@ -112,8 +127,10 @@ export const MODELS: Model[] = [
   // Claude — newest first, then Opus, then down the range.
   {
     id: "claude-fable-5",
-    /* $10/$50 per Mtok against Sonnet's $2/$10 — five times the default, and the dearest thing on the menu. */
-    creditMultiplier: 5,
+    /* $10/$50 per Mtok against Haiku's $1/$5 — ten times the default, and the
+       dearest thing on the menu. */
+    creditMultiplier: 10,
+    reasoning: "adaptive",
     name: "Claude Fable 5",
     blurb: "Highest intelligence available",
     provider: "claude",
@@ -124,8 +141,9 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-opus-5",
-    /* $5/$25 per Mtok against Sonnet's $2/$10. */
-    creditMultiplier: 2.5,
+    /* $5/$25 per Mtok against Haiku's $1/$5. */
+    creditMultiplier: 5,
+    reasoning: "adaptive",
     name: "Claude Opus 5",
     blurb: "Peak intelligence for ambitious apps",
     provider: "claude",
@@ -134,8 +152,9 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-sonnet-5",
-    /* The anchor: AUTO_MODEL, so by definition 1. */
-    creditMultiplier: 1,
+    /* $2/$10 per Mtok against Haiku's $1/$5. */
+    creditMultiplier: 2,
+    reasoning: "adaptive",
     name: "Claude Sonnet 5",
     blurb: "Intelligent and cost effective",
     provider: "claude",
@@ -144,8 +163,12 @@ export const MODELS: Model[] = [
   },
   {
     id: "claude-haiku-4-5",
-    /* $1/$5 per Mtok — half the default, and priced as such. */
-    creditMultiplier: 0.5,
+    /* The anchor: AUTO_MODEL, so by definition 1. Everything else is a
+       multiple of it, and the four Claude models happen to land on exactly
+       1 : 2 : 5 : 10. */
+    creditMultiplier: 1,
+    /* Pre-4.6. See `reasoning` on the type: sending effort here is a 400. */
+    reasoning: "none",
     name: "Claude Haiku 4.5",
     blurb: "Fastest, for small edits",
     provider: "claude",
@@ -221,24 +244,21 @@ export const DEFAULT_MODEL = MODELS[0].id;
  * almost every build actually runs on — leaving that to fall out of list order
  * means the model most people use is decided by where someone pasted an entry.
  *
- * Sonnet, not Opus. This used to be Opus on the reasoning that a build is one
- * long call which has to produce a complete document in one pass and Auto was
- * "not the place to save money". The bill disagreed: Auto is what nearly every
- * build runs on, so "not the place to save money" meant every default build
- * cost Opus money — five dollars per million input and twenty-five per million
- * output, against Sonnet's two and ten. Two and a half times, on the path
- * almost nobody deviates from.
+ * Haiku: the cheapest model on the menu, and the deliberate floor. This was
+ * Opus, then Sonnet, and the direction of travel is the point — the default is
+ * the setting nearly nobody changes, so it should cost the least the product
+ * can stand, and anyone who wants more is one click away in the picker.
  *
- * Nobody is denied Opus by this. The picker is one click away and names it, and
- * a person who chooses it gets exactly what they chose. What changed is the
- * direction of the default: a build costs the cheaper capable model unless
- * somebody deliberately asks for the dearer one.
+ * The tradeoff is stated rather than hidden. A build is one long call that has
+ * to produce a complete document in one pass — eleven sections, working
+ * interactions, a closing </html> — and Haiku's own entry in this list says
+ * "for small edits". If pages start coming back thin, this constant is the
+ * first thing to move, and moving it to claude-sonnet-5 is a one-line change.
  *
- * Not Haiku, which is the cheapest thing here: its own entry says "for small
- * edits", and a full eleven-section page in one pass is not a small edit. Cost
- * EFFECTIVE, not cheapest — a build that comes back thin has to be run again,
- * and two Haiku builds and a re-brief cost more than one Sonnet build. */
-export const AUTO_MODEL = "claude-sonnet-5";
+ * Haiku is also the one model here that predates adaptive thinking, so making
+ * it the default is what forced `reasoning` onto the type above: the request
+ * builder cannot send one body to every model any more. */
+export const AUTO_MODEL = "claude-haiku-4-5";
 
 export function modelById(id: string) {
   return MODELS.find((model) => model.id === id) ?? MODELS[0];

@@ -150,11 +150,35 @@ try {
     "Opus costs more than the default",
     "picking Opus has to cost more than not picking it",
   );
-  has(
-    models.creditMultiplierFor("claude-haiku-4-5") < models.creditMultiplierFor(models.AUTO_MODEL),
-    "Haiku costs less than the default",
-    "the cheapest model should price as the cheapest model",
+  /* The whole ladder, in order, rather than a pair at a time: the default has
+     moved twice and each move re-anchors every other number. */
+  const ladder = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"];
+  for (let i = 1; i < ladder.length; i += 1) {
+    has(
+      models.creditMultiplierFor(ladder[i]) > models.creditMultiplierFor(ladder[i - 1]),
+      `${ladder[i]} costs more than ${ladder[i - 1]}`,
+      "the ladder has to climb: cheapest model, cheapest price",
+    );
+  }
+  is(
+    models.creditMultiplierFor(ladder[0]),
+    1,
+    "the cheapest model is the anchor",
   );
+
+  /* ── Reasoning fields go only to models that take them ──────────────────
+     Haiku 4.5 predates adaptive thinking and answers output_config.effort with
+     a 400 rather than ignoring it. Sending one body to every model is how the
+     default becomes an outage. */
+  for (const model of models.MODELS.filter((entry) => entry.provider === "claude")) {
+    const body = wire.generationRequest(model, SYSTEM, USER).body;
+    const sent = "thinking" in body || "output_config" in body;
+    if (model.reasoning === "none") {
+      has(!sent, `${model.name} is sent no thinking or effort`, "this model 400s on output_config");
+    } else {
+      has(sent, `${model.name} is sent adaptive thinking and effort`, "these were dropped");
+    }
+  }
 
   // ── Anthropic's shape ───────────────────────────────────────────────────
   const claude = wire.generationRequest(models.resolveModel("claude-opus-5"), SYSTEM, USER, IMAGES);
