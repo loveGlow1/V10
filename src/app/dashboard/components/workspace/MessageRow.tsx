@@ -138,8 +138,20 @@ export default function MessageRow({
         </p>
       )}
 
+      {/* Mobile only, from `md` down.
+       *
+       * At `md` and above the preview pane sits beside the conversation and
+       * carries every one of these: open, download, copy a link, and the repo
+       * URL under Manage. Repeating them in the thread gives a desktop reader
+       * two of everything and makes them decide which is the real one — and
+       * the pane is the real one, because it is the thing that stays put while
+       * the conversation scrolls away from it.
+       *
+       * Below `md` there is no pane on screen — chat and preview are one at a
+       * time behind a toggle — so these chips are the only way to reach the
+       * page from the thread, and they stay exactly as they were. */}
       {message.links && !actionsLive && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5 md:hidden">
           {message.links.map((link) => {
             /* A chip that saves a file rather than opening a place.
                Both the arrow and the new tab would be wrong for it: the route
@@ -161,8 +173,14 @@ export default function MessageRow({
         </div>
       )}
 
+      {/* Same rule, same reason: the card's thumbnail, Download and Publish
+          are all in the pane on desktop. The thumbnail is the most redundant
+          thing on the screen there — a small picture of the page, directly
+          beside the actual page, at size and live. */}
       {message.result && (
-        <BuildResultCard result={message.result} live={actionsLive} onPublish={onPublish} />
+        <div className="md:hidden">
+          <BuildResultCard result={message.result} live={actionsLive} onPublish={onPublish} />
+        </div>
       )}
 
       {message.activity && (
