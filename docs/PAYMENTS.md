@@ -200,10 +200,23 @@ pure function; `npm run check:reconcile` asserts them.
 
 **Scheduling it.** `CRON_SECRET` is required or the endpoint refuses every
 caller — a cron endpoint that opens whenever a variable is missing is a public
-one. Vercel's scheduler sends it as `Authorization: Bearer $CRON_SECRET`
-automatically. `vercel.json` schedules it hourly, which is the most a Hobby plan
-allows; for minute-level sweeping, schedule it anywhere that can send a header
-(n8n, a laptop, cron) at the same URL.
+one. Schedule it from anywhere that can send a header: n8n does it every thirty
+minutes here, and a laptop's cron or `curl` works identically.
+
+There is deliberately no `vercel.json` cron. Vercel's scheduler is the obvious
+choice and was the first thing tried, but its cron rules are plan-dependent in a
+way the code is not — an interval the plan disallows is a configuration error
+that fails the whole deployment, taking the app down over a schedule. Keeping
+the schedule outside the deployment means the sweep's cadence can never break
+the thing it is sweeping.
+
+**Knowing it still runs.** Every completed sweep writes to
+`service_heartbeats`, and `/api/health` reports `reconcileStale`,
+`reconcileLastRunAt` and `reconcileScheduled`. This is the one number on that
+page worth alerting on: a job that has stopped and a job with nothing to do are
+silent in identical ways, and settlement quietly not happening costs a customer
+rather than a feature. `reconcileScheduled` separates "never wired up" from
+"wired up and stopped".
 
 **Stranded orders** are reported in the sweep's own JSON response and in the
 log, and emailed if `RESEND_API_KEY` and `ALERT_EMAIL` are set — at most once a

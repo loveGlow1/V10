@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { addressFunding, btcToSats, fundingTxid } from "@/lib/chain-watch";
 import { isOperatorAlertConfigured, sendOperatorAlert } from "@/lib/operator-alert";
+import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
 import { decideOrder } from "@/lib/reconcile-decision";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -298,7 +299,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({
+  const summary = {
     checked: orders.length,
     settled,
     seen,
@@ -312,5 +313,12 @@ export async function GET(request: Request) {
        carried rather than logged out of reach. */
     failures,
     alertsConfigured: isOperatorAlertConfigured(),
-  });
+  };
+
+  /* Said out loud, so that a sweep which stops running stops being silent. See
+     heartbeat.ts — this is the record /api/health reads to answer "is
+     settlement still happening" without anybody opening the database. */
+  await recordHeartbeat(service, RECONCILE_SERVICE, summary);
+
+  return NextResponse.json(summary);
 }
