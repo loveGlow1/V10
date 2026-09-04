@@ -37,7 +37,30 @@ export type Model = {
    *  30k, so anything under that truncates mid-document — which is exactly
    *  how six builds died on 2026-08-30 against a 16k ceiling. */
   maxOutput?: number;
+  /* ── Whether this deployment can actually call it ──────────────────────
+   *
+   * False while there is no working credential for the model's provider. The
+   * key lives in n8n, not in this app's environment, so this cannot be
+   * detected — it is asserted here and has to be flipped by hand when a
+   * credential is attached. That is the honest arrangement: a flag someone
+   * changes deliberately beats a probe that guesses.
+   *
+   * An unavailable model is still SHOWN in the picker, greyed and unpickable,
+   * rather than hidden. Hiding it means a person who came for GPT-5 concludes
+   * the product does not have it; showing it as "check back soon" tells them
+   * it is coming and that today is not the day. The server refuses one too —
+   * see resolveModel — because a picker is not a security boundary. */
+  available?: boolean;
 };
+
+/** What the picker shows against a model this deployment cannot reach yet. */
+export const UNAVAILABLE_LABEL = "Check back soon";
+
+/** Whether a model can be picked and run right now. Absent means yes: the
+ *  common case should not need a field on every row. */
+export function isModelAvailable(model: Model): boolean {
+  return model.available !== false;
+}
 
 export const PROVIDER_LABEL: Record<Provider, string> = {
   auto: "",
@@ -94,6 +117,9 @@ export const MODELS: Model[] = [
   {
     id: "gpt-5",
     name: "GPT-5",
+    /* No usable credential on the n8n instance: OpenAI is on the exhausted
+       shared free pool, Google has none at all. */
+    available: false,
     blurb: "OpenAI's flagship for complex work",
     provider: "openai",
     apiId: "gpt-5",
@@ -102,6 +128,9 @@ export const MODELS: Model[] = [
   {
     id: "gpt-5-mini",
     name: "GPT-5 mini",
+    /* No usable credential on the n8n instance: OpenAI is on the exhausted
+       shared free pool, Google has none at all. */
+    available: false,
     blurb: "Cheaper, for everyday changes",
     provider: "openai",
     apiId: "gpt-5-mini",
@@ -110,6 +139,9 @@ export const MODELS: Model[] = [
   {
     id: "gpt-5-nano",
     name: "GPT-5 nano",
+    /* No usable credential on the n8n instance: OpenAI is on the exhausted
+       shared free pool, Google has none at all. */
+    available: false,
     blurb: "Cheapest, for small mechanical edits",
     provider: "openai",
     apiId: "gpt-5-nano",
@@ -120,6 +152,9 @@ export const MODELS: Model[] = [
   {
     id: "gemini-3-pro",
     name: "Gemini 3 Pro",
+    /* No usable credential on the n8n instance: OpenAI is on the exhausted
+       shared free pool, Google has none at all. */
+    available: false,
     blurb: "Google's flagship, strong over long context",
     provider: "google",
     apiId: "gemini-3-pro",
@@ -128,6 +163,9 @@ export const MODELS: Model[] = [
   {
     id: "gemini-2-5-flash",
     name: "Gemini 2.5 Flash",
+    /* No usable credential on the n8n instance: OpenAI is on the exhausted
+       shared free pool, Google has none at all. */
+    available: false,
     blurb: "Fast and inexpensive",
     provider: "google",
     apiId: "gemini-2.5-flash",
@@ -143,11 +181,24 @@ export const DEFAULT_MODEL = MODELS[0].id;
  * almost every build actually runs on — leaving that to fall out of list order
  * means the model most people use is decided by where someone pasted an entry.
  *
- * Opus, because a build is one long call that has to produce a complete
- * document in one pass: eleven full sections, working interactions and a closing
- * </html>. That is the job the blueprints were written against. Auto is not the
- * place to save money — the picker is right there for anyone who wants to. */
-export const AUTO_MODEL = "claude-opus-5";
+ * Sonnet, not Opus. This used to be Opus on the reasoning that a build is one
+ * long call which has to produce a complete document in one pass and Auto was
+ * "not the place to save money". The bill disagreed: Auto is what nearly every
+ * build runs on, so "not the place to save money" meant every default build
+ * cost Opus money — five dollars per million input and twenty-five per million
+ * output, against Sonnet's two and ten. Two and a half times, on the path
+ * almost nobody deviates from.
+ *
+ * Nobody is denied Opus by this. The picker is one click away and names it, and
+ * a person who chooses it gets exactly what they chose. What changed is the
+ * direction of the default: a build costs the cheaper capable model unless
+ * somebody deliberately asks for the dearer one.
+ *
+ * Not Haiku, which is the cheapest thing here: its own entry says "for small
+ * edits", and a full eleven-section page in one pass is not a small edit. Cost
+ * EFFECTIVE, not cheapest — a build that comes back thin has to be run again,
+ * and two Haiku builds and a re-brief cost more than one Sonnet build. */
+export const AUTO_MODEL = "claude-sonnet-5";
 
 export function modelById(id: string) {
   return MODELS.find((model) => model.id === id) ?? MODELS[0];
@@ -171,6 +222,12 @@ export function resolveModel(id: unknown): Model | null {
   const wanted = id === "auto" ? AUTO_MODEL : id;
   const model = MODELS.find((entry) => entry.id === wanted);
   if (!model || model.provider === "auto") return null;
+  /* Refused here as well as greyed in the picker. The picker is a courtesy to
+     a person; this is the rule. Without it, a request naming an unavailable
+     model reaches n8n, routes to a node whose credential is missing or spent,
+     and fails minutes later having promised a build — the exact shape of
+     failure the whole flag exists to prevent. */
+  if (!isModelAvailable(model)) return null;
   return model.apiId && model.maxOutput ? model : null;
 }
 
