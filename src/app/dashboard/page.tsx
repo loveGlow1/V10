@@ -56,6 +56,7 @@ import {
   Github,
   ChevronRight,
   Shuffle,
+  Newspaper,
   Image as ImageIcon,
   Camera,
   FolderOpen,
@@ -107,6 +108,7 @@ const PROMPTS = [
   "Build me an e-commerce platform with...",
   "Build me a SaaS app for...",
   "Build me a CRM system with...",
+  "Build me a news site for...",
   "Build me a dashboard for...",
 ];
 
@@ -136,7 +138,27 @@ const projectTypes = [
   { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
   { id: "ecommerce", label: "Store", icon: ShoppingBag, phoneIcon: ShoppingBag },
   { id: "blog", label: "Blog", icon: FileText, phoneIcon: FileText },
+  { id: "news", label: "News", icon: Newspaper, phoneIcon: Newspaper },
 ] satisfies { id: BuildKind; label: string; icon: LucideIcon; phoneIcon: LucideIcon }[];
+
+/* Every build kind has a chip, checked at compile time.
+ *
+ * `satisfies` above proves each ENTRY is a valid kind. It cannot prove the list
+ * is complete, and that difference shipped: `news` was added to BUILD_KINDS,
+ * given a blueprint, taught to the classifier and covered by its own briefs —
+ * and the row above still showed four, because nothing required it to change.
+ *
+ * This is the missing half. The mapped type is exhaustive over BuildKind, so a
+ * sixth kind fails the build here rather than quietly never appearing. */
+type ChipKind = (typeof projectTypes)[number]["id"];
+type KindWithoutAChip = Exclude<BuildKind, ChipKind>;
+
+/* Reads as `true` only while nothing is missing. Add a kind without a chip and
+   this line stops compiling, naming the kind in the error. */
+const _everyKindHasAChip: [KindWithoutAChip] extends [never]
+  ? true
+  : ["no chip for build kind:", KindWithoutAChip] = true;
+void _everyKindHasAChip;
 
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
