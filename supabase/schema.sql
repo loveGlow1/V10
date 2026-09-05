@@ -438,6 +438,28 @@ create table if not exists public.credit_ledger (
   created_at    timestamptz not null default now()
 );
 
+-- What this charge was for, once.
+--
+-- A request can reach the server twice — a double tap, a browser retrying after
+-- a dropped connection, a platform replaying a request it thinks failed. The
+-- message it writes is already protected against that (project_messages carries
+-- the same request id as dedupe_key), but the CHARGE was not: two arrivals of
+-- one build took the credits twice, for work delivered once. On a Fable build
+-- that is eighty credits off a Pro account's three hundred for a single page.
+--
+-- So the charge is named, and the name may be used once per account. The second
+-- attempt violates the index below, charge_credits catches it, and returns what
+-- the first charge did rather than taking anything further.
+--
+-- Nullable: a charge with no natural request behind it — a manual grant, a
+-- top-up settling — has nothing to be idempotent about, and the partial index
+-- leaves those alone.
+alter table public.credit_ledger add column if not exists dedupe_key text;
+
+create unique index if not exists credit_ledger_dedupe_idx
+  on public.credit_ledger (user_id, dedupe_key)
+  where dedupe_key is not null;
+
 alter table public.credit_ledger enable row level security;
 
 -- Same shape as the balance: readable by its owner, written only by the
@@ -623,7 +645,9 @@ create or replace function public.charge_credits(
   p_description   text default null,
   p_project_id    uuid default null,
   p_output_tokens integer default null,
-  p_files_touched integer default null
+  p_files_touched integer default null,
+  -- Names this charge, so arriving twice costs once. See credit_ledger.dedupe_key.
+  p_dedupe_key    text default null
 )
 returns table (charged numeric, shortfall numeric, remaining numeric)
 language plpgsql
@@ -636,9 +660,33 @@ declare
   v_charged     numeric(10,2);
   v_outstanding numeric(10,2);
   v_taken       numeric(10,2);
+  v_prior       public.credit_ledger;
 begin
   if p_user_id is null then
     raise exception 'charge_credits needs an account' using errcode = '22023';
+  end if;
+
+  -- Already charged under this name. Answered with what that charge did rather
+  -- than taking anything further, and against the CURRENT balance — the caller
+  -- asked what the account holds now, and a figure from an hour ago would be a
+  -- worse answer than the true one.
+  --
+  -- Checked before the work as well as caught after it (see the exception
+  -- handler below): this reads without contending for the balance row, which
+  -- matters when the duplicate is a retry arriving while the first is still in
+  -- flight.
+  if p_dedupe_key is not null then
+    select * into v_prior from public.credit_ledger
+      where user_id = p_user_id and dedupe_key = p_dedupe_key;
+
+    if found then
+      v_balance := public.ensure_credit_balance(p_user_id);
+      charged   := -v_prior.credits;
+      shortfall := greatest(p_cost + v_prior.credits, 0);
+      remaining := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+      return next;
+      return;
+    end if;
   end if;
 
   if p_cost < 0 then
@@ -681,7 +729,7 @@ begin
   -- it stops being the thing a disputed charge can be settled from; the price
   -- that could not be met is written into the description instead.
   insert into public.credit_ledger
-    (user_id, action, credits, description, project_id, output_tokens, files_touched)
+    (user_id, action, credits, description, project_id, output_tokens, files_touched, dedupe_key)
   values
     (p_user_id, p_action, -v_charged,
      case
@@ -690,19 +738,37 @@ begin
               || format(' - priced %s, only %s left', p_cost, v_available), 300)
        else p_description
      end,
-     p_project_id, p_output_tokens, p_files_touched);
+     p_project_id, p_output_tokens, p_files_touched, p_dedupe_key);
 
   charged   := v_charged;
   shortfall := p_cost - v_charged;
   remaining := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
   return next;
+
+-- Two copies of the same request racing each other: both passed the check
+-- above before either had inserted. The index is what actually decides it, and
+-- the loser reports the winner's charge rather than an error — a duplicate is
+-- not a failure, it is a question already answered.
+exception when unique_violation then
+  select * into v_prior from public.credit_ledger
+    where user_id = p_user_id and dedupe_key = p_dedupe_key;
+
+  v_balance := public.ensure_credit_balance(p_user_id);
+  charged   := -v_prior.credits;
+  shortfall := greatest(p_cost + v_prior.credits, 0);
+  remaining := v_balance.daily + v_balance.rollover + v_balance.monthly + v_balance.top_up;
+  return next;
 end;
 $$;
 
-revoke all on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+revoke all on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer, text)
   from public, anon, authenticated;
-grant execute on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer)
+grant execute on function public.charge_credits(uuid, text, numeric, text, uuid, integer, integer, text)
   to service_role;
+
+-- The old seven-argument signature, dropped so a stale caller fails loudly
+-- rather than silently charging without a dedupe key.
+drop function if exists public.charge_credits(uuid, text, numeric, text, uuid, integer, integer);
 
 -- Adds bought credits to the pool. Called by a payment webhook once a charge
 -- has settled — never from the browser, which is why it takes the account as an

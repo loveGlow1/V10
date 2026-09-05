@@ -746,6 +746,11 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
+          /* Namespaced by what the charge is FOR, not just which request it
+             came from: one request takes one of these paths, but a bare request
+             id would make the three indistinguishable if that ever stopped
+             being true. */
+          dedupeKey: `clarify:${requestId}`,
         });
       }
 
@@ -805,6 +810,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
           description: `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
+          dedupeKey: `question:${requestId}`,
         });
       }
 
@@ -956,6 +962,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       description: `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
+      dedupeKey: `edit:${requestId}`,
     });
 
     if (charge) {

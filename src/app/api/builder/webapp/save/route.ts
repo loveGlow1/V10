@@ -266,6 +266,20 @@ export async function POST(request: Request) {
     description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
     projectId: project.id,
     filesTouched,
+    /* The most expensive charge in the system, and the one most exposed to
+       arriving twice: n8n retries a webhook it believes failed, and a build
+       whose save is redelivered would otherwise be paid for twice — eighty
+       credits off a Pro account's three hundred for one page.
+     *
+     * claim.requestId is the right name for it because it comes from the
+     * SIGNED claim: it is the app's own id for this build, carried through the
+     * workflow and returned, not something the caller can vary to charge again.
+     * The same id already dedupes the message on line 240.
+     *
+     * Falling back to the project id when there is no requestId is deliberate.
+     * A build with no request behind it is one save per project, and charging
+     * that once is the safer error. */
+    dedupeKey: `build:${claim.requestId || project.id}`,
   });
 
   return NextResponse.json({ previewUrl, filesTouched });

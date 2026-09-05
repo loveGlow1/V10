@@ -42,6 +42,18 @@ export type ChargeInput = {
   projectId?: string | null;
   outputTokens?: number | null;
   filesTouched?: number | null;
+  /* Names this charge, so the same request arriving twice costs once.
+   *
+   * A request can reach the server more than once — a double tap, a browser
+   * retrying after a dropped connection, a platform replaying one it believes
+   * failed. The message such a request writes has always been protected (it
+   * carries the same id as project_messages.dedupe_key); the charge was not, so
+   * two arrivals of one build took the credits twice for work delivered once.
+   *
+   * Pass the request id that already exists rather than inventing one here: a
+   * key generated at the moment of charging is unique per attempt, which is
+   * precisely the property that makes it useless. */
+  dedupeKey?: string | null;
 };
 
 /**
@@ -63,6 +75,7 @@ export async function chargeCredits(
     p_project_id: input.projectId ?? null,
     p_output_tokens: input.outputTokens ?? null,
     p_files_touched: input.filesTouched ?? null,
+    p_dedupe_key: input.dedupeKey ?? null,
   });
 
   if (error) {
