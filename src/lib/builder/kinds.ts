@@ -24,7 +24,7 @@
  * compiled on its own by tools/check-blueprint.mjs. The model fallback lives
  * next door in classify-kind.ts, which is server-only. */
 
-export const BUILD_KINDS = ["landing", "ecommerce", "blog", "webapp"] as const;
+export const BUILD_KINDS = ["landing", "ecommerce", "blog", "news", "webapp"] as const;
 
 export type BuildKind = (typeof BUILD_KINDS)[number];
 
@@ -37,6 +37,7 @@ export const KIND_LABEL: Record<BuildKind, string> = {
   landing: "Landing page",
   ecommerce: "Online store",
   blog: "Blog",
+  news: "News publication",
   webapp: "Web app",
 };
 
@@ -45,6 +46,7 @@ export const KIND_BLURB: Record<BuildKind, string> = {
   landing: "a landing page — one audience, one offer, one thing to do",
   ecommerce: "a storefront — catalogue, cart and a checkout that adds up",
   blog: "a publication — real articles, categories and an archive",
+  news: "a news publication — a front page that ranks stories, and beats to browse",
   webapp: "a web app — sign-in, views, data, and the back end it runs on",
 };
 
@@ -111,6 +113,26 @@ const COMMERCE_PLATFORM = /\b(stripe|shopify|woo ?commerce|paypal|square|gumroad
 const PUBLISHING =
   /\b(blog|wordpress|word ?press|wp|cms|content site|magazine|publication|newsletter site|news site|editorial|journal|articles?|posts?|essays?|writing site|substack|ghost|medium[- ]style|zine)\b/i;
 
+/* A NEWS publication rather than a blog, which PUBLISHING alone cannot tell
+   apart — "news site" and "magazine" are in there, and both match a personal
+   blog about news as readily as a newsroom.
+ *
+ * What separates them is not subject matter but CADENCE and HIERARCHY. A blog
+ * is written; a publication is published, repeatedly, with some stories
+ * mattering more than others today than they will tomorrow. So the signals are
+ * the vocabulary of a newsroom — breaking, headlines, wire, desk, bulletin —
+ * and the sections a publication has that a blog does not. */
+const NEWS_EXPLICIT =
+  /\b(news (site|website|portal|platform|publication|outlet|blog)|newspaper|newsroom|news ?paper|digital (publication|newspaper)|media (site|outlet|publication)|wire service|press (site|portal))\b/i;
+
+const NEWS_SHAPE =
+  /\b(breaking(?: news)?|headlines?|latest (news|stories|updates)|top stories|trending (stories|news)|front page|bulletins?|dispatches?|live (updates?|blog|coverage)|developing story|newsdesk|news desk|editorial (hierarchy|team)|by[- ]?line)\b/i;
+
+/* The beats a publication is organised into. Two or more of these is somebody
+   describing a masthead rather than a blog with categories. */
+const NEWS_BEATS =
+  /\b(politics|world news|business news|sports?|entertainment|opinion|local news|international|current affairs|weather)\b/gi;
+
 /* The WordPress vocabulary specifically, which the blueprint answers in kind. */
 const WORDPRESS = /\b(wordpress|word ?press|woo ?commerce|gutenberg|elementor|wp[- ](admin|theme|plugin))\b/i;
 
@@ -136,7 +158,14 @@ const ECOMMERCE_LABEL =
   /\b(e[- ]?commerce|online (store|shop)|storefront|web ?shop|shop(ping)? site|store site|marketplace)\b/i;
 
 const BLOG_LABEL =
-  /\b(blog|wordpress|word ?press|magazine|publication|news site|content site|editorial site|zine)\b/i;
+  /\b(blog|wordpress|word ?press|magazine|content site|editorial site|zine)\b/i;
+
+/* The names a NEWS publication calls itself. Taken OUT of BLOG_LABEL rather
+   than added alongside it: "news site" and "publication" were labelling a
+   newsroom as a blog before anything got weighed, and a term that names two
+   kinds is not a label — it is the ambiguity the weighing exists for. */
+const NEWS_LABEL =
+  /\b(news (site|website|portal|platform|publication|outlet)|newspaper|news ?paper|newsroom|digital (publication|newspaper)|media (outlet|publication))\b/i;
 
 const APP_LABEL =
   /\b(web ?app|web application|application|saas|crm|erp|portal|internal tool|admin (panel|tool)|management system|booking system|help ?desk|ticketing|project management (tool|app|system))\b|\b(tool|calculator|converter|generator|editor|planner|tracker)\b/i;
@@ -172,7 +201,7 @@ const MARGIN = 2;
 type Scores = Record<BuildKind, number>;
 
 export function scoreKind(brief: string): Scores {
-  const scores: Scores = { landing: 0, ecommerce: 0, blog: 0, webapp: 0 };
+  const scores: Scores = { landing: 0, ecommerce: 0, blog: 0, news: 0, webapp: 0 };
   const m = brief;
 
   /* Five, which no single signal below can match on its own. Someone who says
@@ -193,6 +222,19 @@ export function scoreKind(brief: string): Scores {
 
   if (PUBLISHING.test(m)) scores.blog += 4;
   if (WORDPRESS.test(m)) scores.blog += 2;
+
+  /* A publication scores everything a blog does — it IS a publishing product —
+     and then the newsroom signals on top, so news wins where they are present
+     and blog keeps everything else. Five for the explicit naming, matching the
+     weight LANDING_EXPLICIT carries, because "news site" is a person telling
+     you the answer.
+
+     The beats need two: one is a blog with a politics category, and several is
+     a masthead. */
+  if (PUBLISHING.test(m)) scores.news += 2;
+  if (NEWS_EXPLICIT.test(m)) scores.news += 5;
+  if (NEWS_SHAPE.test(m)) scores.news += 4;
+  if ((m.match(NEWS_BEATS) ?? []).length > 1) scores.news += 3;
 
   const appFunction = APP_FUNCTION.test(m);
   if (APP_NOUN.test(m)) scores.webapp += 4;
@@ -258,6 +300,13 @@ export function labelledKind(brief: string): BuildKind | null {
      online store" carries two labels and means one thing. Every other pair is
      genuine ambiguity and falls through to be weighed. */
   if (LANDING_EXPLICIT.test(m)) return "landing";
+
+  /* News before the rest, and before blog in particular. "News blog" and
+     "news portal" name two kinds each, and in both the first word is the one
+     that decides the shape: a blog about news is still ranked and stamped, and
+     a portal of news is a front page rather than an application. The more
+     specific label wins rather than the pair cancelling out. */
+  if (NEWS_LABEL.test(m)) return "news";
 
   const labelled = [
     ECOMMERCE_LABEL.test(m) ? ("ecommerce" as const) : null,

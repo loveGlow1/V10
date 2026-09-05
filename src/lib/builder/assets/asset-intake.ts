@@ -66,6 +66,7 @@ const BY_KIND: Record<BuildKind, AssetType | "reference"> = {
   ecommerce: "product",
   landing: "editorial",
   blog: "article-cover",
+  news: "article-cover",
   webapp: "reference",
 };
 
