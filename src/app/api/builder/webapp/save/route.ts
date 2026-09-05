@@ -4,6 +4,7 @@ import { creditCostOf } from "@/app/dashboard/credits";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages } from "@/lib/builder/images";
+import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -101,6 +102,15 @@ export async function POST(request: Request) {
      rather than a dependency. */
   const pictures = await fillImages(html, providerFromEnv());
   html = pictures.html;
+
+  /* Who took them, in the page that publishes them.
+   *
+   * These were being collected and dropped. Unsplash's guidelines require the
+   * photographer and Unsplash to be credited with links back — it is the
+   * condition on which the pictures are free, and the first thing checked when
+   * an application asks to leave the demo tier. A build that filled a dozen
+   * slots and credited nobody was a licence breach on every page it wrote. */
+  html = addPhotoCredits(html, pictures.credits);
 
   if (pictures.filled > 0) {
     // eslint-disable-next-line no-console
