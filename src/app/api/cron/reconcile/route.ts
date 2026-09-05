@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { addressFunding, btcToSats, fundingTxid } from "@/lib/chain-watch";
+import {
+  RECONCILABLE_COLUMNS,
+  loadUsedTxids,
+  reconcileOrder,
+  type ReconcilableOrder,
+} from "@/lib/reconcile-order";
 import { isOperatorAlertConfigured, sendOperatorAlert } from "@/lib/operator-alert";
 import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
-import { decideOrder } from "@/lib/reconcile-decision";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* The sweep that means nobody has to watch.
@@ -60,19 +64,6 @@ const REALERT_AFTER_MS = 24 * 60 * 60 * 1000;
    bounded no matter what the table holds. */
 const MAX_ORDERS_PER_SWEEP = 200;
 
-type OpenOrder = {
-  id: string;
-  status: string;
-  address: string;
-  crypto_amount: number;
-  amount_usd: number;
-  currency: string;
-  lightning: boolean;
-  expires_at: string;
-  alerted_at: string | null;
-  shared_address: boolean;
-};
-
 /**
  * Whether the caller is allowed to run a sweep.
  *
@@ -96,48 +87,6 @@ function authorized(request: Request): boolean {
   return sent.length > 0 && sent === secret;
 }
 
-/* A status change, and whether it actually happened.
- *
- * Split out because the first version of this sweep did not ask. It counted
- * the changes it had DECIDED on, reported five orders expired, and five orders
- * sat untouched in the database — an unchecked error and a matched-nothing
- * update are indistinguishable from a success when nobody looks at the result,
- * and a sweep whose whole purpose is to notice things nobody is watching must
- * not be the thing nobody is watching.
- *
- * `.select("id")` is what makes the three cases separable: PostgREST returns
- * the rows it changed, so zero rows back is a filter that matched nothing
- * rather than a write that failed, and the two want different fixes.
- */
-async function changeStatus(
-  service: SupabaseClient,
-  id: string,
-  from: string[],
-  patch: Record<string, unknown>,
-): Promise<{ ok: true } | { ok: false; why: string }> {
-  const { data, error } = await service
-    .from("crypto_payments")
-    .update(patch)
-    .eq("id", id)
-    .in("status", from)
-    .select("id");
-
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.error("reconcile: could not update", id, error);
-    return { ok: false, why: error.message };
-  }
-
-  if (!data || data.length === 0) {
-    /* No error and nothing changed. Something else moved the row between the
-       read and the write, or the write was silently filtered. Either way it is
-       not the success the counter would otherwise have claimed. */
-    return { ok: false, why: `no row matched id=${id} in status ${from.join("/")}` };
-  }
-
-  return { ok: true };
-}
-
 export async function GET(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
@@ -154,9 +103,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await service
     .from("crypto_payments")
-    .select(
-      "id, status, address, crypto_amount, amount_usd, currency, lightning, expires_at, alerted_at, shared_address",
-    )
+    .select(RECONCILABLE_COLUMNS)
     /* On-chain BTC only. Lightning carries its own proof of payment and no
        address to read, and the other coins are not watched here yet. */
     .eq("currency", "btc")
@@ -171,7 +118,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Could not read the open orders." }, { status: 500 });
   }
 
-  const orders = (data ?? []) as OpenOrder[];
+  const orders = (data ?? []) as ReconcilableOrder[];
   const now = Date.now();
 
   let settled = 0;
@@ -188,107 +135,25 @@ export async function GET(request: Request) {
      OPEN orders rather than across all history — so a payment that settled a
      $25 order last month would match the next $25 order asking for the same
      nudged figure. Read once for the whole sweep. */
-  const { data: spent } = await service
-    .from("crypto_payments")
-    .select("tx_reference")
-    .eq("status", "confirmed")
-    .not("tx_reference", "is", null);
-
-  const usedTxids = new Set(
-    (spent ?? [])
-      .map((row) => (row as { tx_reference: string | null }).tx_reference)
-      .filter((id): id is string => typeof id === "string"),
-  );
+  const usedTxids = await loadUsedTxids(service);
 
   for (const order of orders) {
-    const funding = await addressFunding(order.address);
+    const outcome = await reconcileOrder(service, order, usedTxids, now);
 
-    /* Nobody answered. Not zero — unknown. Counted so a sweep that is not
-       actually watching anything shows up as a number rather than as silence. */
-    if (!funding) {
-      unreadable += 1;
-      continue;
-    }
-
-    const expectedSats = btcToSats(Number(order.crypto_amount));
-
-    const action = decideOrder(
-      {
-        status: order.status,
-        expectedSats,
-        expiresAt: new Date(order.expires_at).getTime(),
-        sharedAddress: order.shared_address,
-      },
-      funding,
-      now,
-      usedTxids,
-    );
-
-    if (action.kind === "leave") continue;
-
-    if (action.kind === "settle") {
-      /* The transaction the decision actually matched, where it could name one.
-         On a shared address that is the payment carrying this order's exact
-         amount — which is also what keeps it from being counted twice, since
-         the next sweep reads it back as spent. */
-      const txid = action.txid ?? (await fundingTxid(order.address));
-
-      const { error: settleError } = await service.rpc("settle_crypto_payment", {
-        p_payment_id: order.id,
-        p_tx_reference: txid,
+    if (outcome.kind === "unreadable") unreadable += 1;
+    else if (outcome.kind === "settled") settled += 1;
+    else if (outcome.kind === "submitted") seen += 1;
+    else if (outcome.kind === "expired") expired += 1;
+    else if (outcome.kind === "stranded") {
+      stranded.push({
+        id: order.id,
+        reason: outcome.reason,
+        expectedSats: outcome.expectedSats,
+        receivedSats: outcome.receivedSats,
       });
-
-      if (settleError) {
-        // eslint-disable-next-line no-console
-        console.error("reconcile: settlement failed for", order.id, settleError);
-        stranded.push({
-          id: order.id,
-          reason: "paid on chain, but settlement failed",
-          expectedSats,
-          receivedSats: funding.confirmedSats,
-        });
-        continue;
-      }
-
-      if (txid) usedTxids.add(txid);
-      settled += 1;
-      continue;
+    } else if (outcome.kind === "failed") {
+      failures.push({ id: order.id, action: outcome.action, why: outcome.why });
     }
-
-    if (action.kind === "mark-submitted") {
-      /* Guarded on the status it was read at, so a webhook that settled this
-         order mid-sweep is not walked backwards into submitted. */
-      const result = await changeStatus(service, order.id, ["awaiting_payment"], {
-        status: "submitted",
-        submitted_at: new Date().toISOString(),
-      });
-
-      if (result.ok) seen += 1;
-      else failures.push({ id: order.id, action: "mark-submitted", why: result.why });
-
-      continue;
-    }
-
-    if (action.kind === "expire") {
-      const result = await changeStatus(
-        service,
-        order.id,
-        ["awaiting_payment", "submitted"],
-        { status: "expired" },
-      );
-
-      if (result.ok) expired += 1;
-      else failures.push({ id: order.id, action: "expire", why: result.why });
-
-      continue;
-    }
-
-    stranded.push({
-      id: order.id,
-      reason: action.reason,
-      expectedSats,
-      receivedSats: funding.confirmedSats,
-    });
   }
 
   /* Tell a person, at most once a day per order. */

@@ -242,6 +242,31 @@ that fails the whole deployment, taking the app down over a schedule. Keeping
 the schedule outside the deployment means the sweep's cadence can never break
 the thing it is sweeping.
 
+### The person watching does not wait for the sweep
+
+Half an hour is a long time to look at an unchanged screen having just sent
+money, so `/api/payments/crypto/[paymentId]` — which the checkout screen already
+polls every few seconds — asks the chain about that one order on the poll that
+is happening anyway. Mempool detection and settlement both land within seconds
+for whoever is sitting there; the batch sweep stays as the backstop for whoever
+closed the tab.
+
+Both callers go through `reconcileOrder` in `src/lib/reconcile-order.ts`. They
+must not drift: if the batch and the poll ever disagreed about what counts as
+paid, which answer a customer got would depend on whether they kept the tab
+open.
+
+Throttled by `chain_checked_at` to one chain read per 20 seconds per order —
+ten requests a minute per open tab, against a free public API, for an answer
+that cannot change faster than a block, is not a reasonable thing to do.
+
+That endpoint used to expire an order on the clock alone, which quietly buried
+late payments: the sweep reads only OPEN orders, so an order expired by a stale
+tab would never be looked at again, and coin already on its address would sit
+uncredited with nothing reporting it. It reconciles first now — settling what
+was paid, stranding what arrived but does not match — and only expires when the
+chain says there is nothing there.
+
 **Knowing it still runs.** Every completed sweep writes to
 `service_heartbeats`, and `/api/health` reports `reconcileStale`,
 `reconcileLastRunAt` and `reconcileScheduled`. This is the one number on that
