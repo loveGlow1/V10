@@ -148,6 +148,26 @@ const BUILD_SLOW_POLL_MS = 8_000;
 const BUILD_SLOW_AFTER_MS = 2 * 60 * 1000;
 const BUILD_WATCH_MS = 25 * 60 * 1000;
 
+/* How long a failed row is given to turn out to be a finished one.
+ *
+ * "Failed" used to end the wait on the spot, which is right when it is true and
+ * indefensible when it is not — and there is a live way for it to be untrue.
+ * The orchestrator's `Generate With Claude` node fans its success output to two
+ * places: `Collect Generation`, which is right, and `Save Page` directly, which
+ * is not (the DEPLOYED DEFECT in n8n/build-orchestrator.workflow.ts). That
+ * direct call carries the raw model response with no document in it, is refused,
+ * takes the node's error output to `Flag Build Failure` — and writes Failed on
+ * the row SECONDS BEFORE the real page arrives through Extract Page and is
+ * stored. Somebody who waited six minutes for a page that was built and is on
+ * screen a moment later was told their build did not finish.
+ *
+ * So a failure has to survive a few polls to be believed. The page lands within
+ * seconds when this is that race; twenty is several polls' worth of room and
+ * costs a genuine failure a short pause at the end of a wait already measured in
+ * minutes. It is the app declining to repeat a wrong answer, not a fix: the fix
+ * is one deleted connection in n8n. */
+const BUILD_FAILED_GRACE_MS = 20_000;
+
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
 const COLUMNS =
@@ -468,6 +488,10 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       const supabase = createSupabaseBrowserClient();
       const startedAt = Date.now();
       const deadline = startedAt + BUILD_WATCH_MS;
+      /* When this run first looked failed. Null again if it stops looking that
+         way, which a row can: Building → Failed → Built is exactly the sequence
+         the grace period exists for. */
+      let firstFailedAt: number | null = null;
 
       while (Date.now() < deadline) {
         const elapsed = Date.now() - startedAt;
@@ -482,17 +506,32 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         if (!row) continue;
 
         const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
-        if (landed > since) {
+        /* Both halves of "this build is over": the stamp says a run finished,
+           and Failed is written by whatever failed it — the orchestrator's error
+           branch, or the save step, which also writes the reason into the
+           thread. A stamp with no failure against it is the page landing, and
+           that is the one answer worth returning the instant it appears. */
+        const failed = row.status === "Failed";
+
+        if (landed > since && !failed) {
           setProjects((current) =>
             current.map((project) => (project.id === id ? { ...project, ...row } : project)),
           );
           return row;
         }
 
-        /* Written to the row by the orchestrator when a build fails, which is
-           the only signal that arrives before the page would have. Returning
-           now turns a twenty-five minute wait into the answer it already has. */
-        if (row.status === "Failed") return row;
+        /* A failure, held for a moment before it is believed. See
+           BUILD_FAILED_GRACE_MS: a page refused by one call and stored by the
+           next arrives seconds after the row says Failed, and reporting the
+           first of those two is how a finished build came to be announced as a
+           dead one. Kept as the moment it was FIRST seen, so the wait is bounded
+           by the failure rather than by however many polls confirm it. */
+        if (failed) {
+          firstFailedAt ??= Date.now();
+          if (Date.now() - firstFailedAt >= BUILD_FAILED_GRACE_MS) return row;
+          continue;
+        }
+        firstFailedAt = null;
       }
 
       /* Out of patience rather than out of hope: the build may still land, and
