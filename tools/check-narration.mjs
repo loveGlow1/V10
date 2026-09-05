@@ -15,7 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -26,23 +26,79 @@ import { join } from "node:path";
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-narration");
 mkdirSync(out, { recursive: true });
 
-execFileSync(
-  "npx",
-  [
-    "tsc", "src/lib/builder/edit.ts",
-    "--outDir", out,
-    /* CommonJS, unlike check-intent.mjs: edit.ts imports its neighbours by
-       relative path, and tsc emits those without the ".js" an ESM loader
-       insists on. require() resolves them the way tsc wrote them. */
-    "--module", "commonjs",
-    "--target", "es2022",
-    "--moduleResolution", "node",
-    "--skipLibCheck",
-  ],
-  { stdio: ["ignore", "ignore", "inherit"] },
+/* A tsconfig rather than command-line flags, which is what broke this.
+ *
+ * edit.ts imports @/app/dashboard/models, and `tsc file.ts` with flags cannot
+ * see that: --paths is not a command-line option, so the alias resolves against
+ * nothing and the compile fails on an import that has nothing to do with the
+ * one function being checked. The same shape as check-credits.mjs and
+ * check-reconcile.mjs, which reach across the same boundary. */
+const config = join(out, "tsconfig.json");
+writeFileSync(
+  config,
+  JSON.stringify({
+    compilerOptions: {
+      outDir: ".",
+      rootDir: join(process.cwd(), "src"),
+      /* CommonJS, unlike check-intent.mjs: edit.ts imports its neighbours by
+         relative path, and tsc emits those without the ".js" an ESM loader
+         insists on. require() resolves them the way tsc wrote them. */
+      module: "commonjs",
+      target: "es2022",
+      moduleResolution: "node",
+      skipLibCheck: true,
+      /* The imports pulled in along the way are typed for the DOM and for
+         React; none of that is exercised here, and asking a bare tsc to prove
+         it would fail on JSX rather than on anything this checks. */
+      noEmitOnError: false,
+      jsx: "react-jsx",
+      types: ["node"],
+      baseUrl: process.cwd(),
+      paths: { "@/*": ["src/*"] },
+    },
+    files: [join(process.cwd(), "src/lib/builder/edit.ts")],
+  }),
 );
 
-const { lastSentence } = createRequire(import.meta.url)(join(out, "edit.js"));
+/* Errors are reported and the emit is used anyway. The @/ import resolves for
+   TYPES here but the emitted require() still says "@/app/dashboard/models",
+   which node cannot resolve — the rewrite below is what fixes that, and it can
+   only run on files that exist. A type error somewhere in the graph must not
+   stop a pure string function from being checked. */
+try {
+  execFileSync("npx", ["tsc", "-p", config], { stdio: ["ignore", "ignore", "inherit"] });
+} catch {
+  /* Reported above by tsc itself. */
+}
+
+/* @/x → the relative path to x, in whatever the emit put on disk. tsc rewrites
+   nothing about a specifier it resolved through paths, so this is the step that
+   makes the compiled output actually runnable. */
+const rewrite = (dir) => {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      rewrite(path);
+      continue;
+    }
+    if (!path.endsWith(".js")) continue;
+
+    const depth = path.slice(out.length + 1).split("/").length - 1;
+    const prefix = depth === 0 ? "./" : "../".repeat(depth);
+
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) => {
+        const asFile = join(out, `${rest}.js`);
+        const target = existsSync(asFile) ? rest : `${rest}/index`;
+        return `${quote}${prefix}${target}${quote}`;
+      }),
+    );
+  }
+};
+rewrite(out);
+
+const { lastSentence } = createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
 
 const CASES = [
   ["", null, "nothing yet"],
