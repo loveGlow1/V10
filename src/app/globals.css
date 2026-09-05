@@ -616,3 +616,10 @@ body {
   0%, 100% { opacity: 0;    transform: scale(0.3) rotate(0deg); }
   50%      { opacity: 0.95; transform: scale(1)   rotate(45deg); }
 }
+
+/* The cursor at the end of an answer being written. steps(1) rather than a
+   fade: a caret is on or off, and easing it makes it read as a glow. */
+@keyframes qs-caret {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}

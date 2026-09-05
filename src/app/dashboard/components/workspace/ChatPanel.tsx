@@ -198,6 +198,19 @@ export default function ChatPanel({
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
+
+  /* The reply as it is being written.
+   *
+   * Held here rather than pushed into the thread a piece at a time, because a
+   * message in the thread is a record of something that was said and this is
+   * not finished being said yet. It is cleared the moment the real message
+   * lands, and the two never coexist — the stored one is the authority, and
+   * what was watched arriving is a preview of it.
+   *
+   * A run that fails partway leaves text here that never became a message;
+   * clearing on every run start rather than only on success is what stops the
+   * previous attempt's half-answer appearing under the next one. */
+  const [streamed, setStreamed] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
@@ -729,6 +742,7 @@ export default function ChatPanel({
          as this machine measured it, which is the one number here the server
          could not have told us. */
       let picked = false;
+      setStreamed("");
 
       const reply = await build(project.id, text, {
         intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
@@ -744,6 +758,10 @@ export default function ChatPanel({
            completing it, and setPhase merges by id — so a row that says
            "Changing the page" becomes the same row saying how many changes
            landed and what it took, rather than a second line below it. */
+        /* Appended, never replaced: the server sends what was written since
+           the last line, so the cost over the wire is the length of the answer
+           rather than the square of it. */
+        onText: (delta) => setStreamed((current) => current + delta),
         onStep: (step) => {
           if (!picked) {
             picked = true;
@@ -905,6 +923,11 @@ export default function ChatPanel({
     } finally {
       setBuilding(false);
       setRunStartedAt(null);
+      /* Cleared in the same batch that ends the run, so the preview and the
+         stored message swap in one commit rather than one frame apart. Two
+         setStates in the same handler are batched by React; separating them
+         would show the answer twice for a frame, or neither. */
+      setStreamed("");
       phases.reset();
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
@@ -1139,6 +1162,27 @@ export default function ChatPanel({
                 QuickStark<span className="wordmark-ai">.Ai</span>
               </p>
             </div>
+            {/* The answer, as it is written.
+             *
+             * Above the tracker rather than below it: this is the thing that
+             * was asked for, and the operations that produced it are the
+             * footnote. Once it is finished the stored message takes its place
+             * in the thread and this disappears — they never both show, so
+             * nothing is read twice.
+             *
+             * The caret is a real cursor rather than a decoration: it marks
+             * where the next character goes, so a pause in the stream reads as
+             * a pause in the writing instead of as the connection dying. */}
+            {streamed && (
+              <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                {streamed}
+                <span
+                  aria-hidden
+                  className="ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.18em] bg-accent/70 motion-safe:animate-[qs-caret_1.1s_steps(1)_infinite]"
+                />
+              </p>
+            )}
+
             <div className="mt-2.5">
               <BuildActivity
                 running

@@ -192,6 +192,18 @@ const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
  * unwraps it, so the statuses are written where they were always written. */
 type StreamLine =
   | { type: "step"; step: BuildStep }
+  /* The reply itself, arriving a piece at a time.
+   *
+   * Only ever sent where the text IS the answer — a question, a clarification.
+   * An edit's output is a stream of search/replace blocks and never reaches
+   * here; see `streamAnswer` in builder/edit.ts.
+   *
+   * Deltas rather than the whole answer each time: the reader appends, so what
+   * crosses the wire is proportional to what was written rather than to the
+   * square of it. The final `result` still carries the complete text, and it is
+   * the authority — this is a preview of an answer that is also being written
+   * down properly. */
+  | { type: "text"; delta: string }
   | { type: "result"; status: number; body: unknown };
 
 /**
@@ -225,7 +237,11 @@ export async function POST(request: Request) {
 
       let response: NextResponse;
       try {
-        response = await handle(request, (step) => write({ type: "step", step }));
+        response = await handle(
+          request,
+          (step) => write({ type: "step", step }),
+          (delta) => write({ type: "text", delta }),
+        );
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error("build: the request failed outright:", error);
@@ -256,7 +272,16 @@ export async function POST(request: Request) {
   });
 }
 
-async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
+/* Where an answer's text goes as it is written. Separate from the step sink
+   because they are different kinds of thing on different clocks: a step is one
+   measured operation, and this is prose appearing. */
+type TextSink = (delta: string) => void;
+
+async function handle(
+  request: Request,
+  emit: StepSink,
+  emitText: TextSink,
+): Promise<NextResponse> {
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
@@ -296,6 +321,15 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * Re-announcing the same id is what makes it a live line rather than a new
    * row: the panel merges by id, so each of these replaces the last. */
   const narrate = (id: string, label: string): OnProgress => (progress) => {
+    /* The reply goes out on its own channel rather than into the step's detail
+       line. A step detail is one line describing an operation; an answer is
+       prose the person is reading, and squeezing it into the tracker would put
+       the thing they asked for inside a collapsible panel about plumbing. */
+    if (progress.kind === "answer") {
+      emitText(progress.delta);
+      return;
+    }
+
     steps.begin(
       id,
       label,

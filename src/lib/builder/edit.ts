@@ -82,7 +82,12 @@ function client(): Anthropic {
  * there is nothing to show and the panel would be back to inventing a line. */
 export type Progress =
   | { kind: "reasoning"; text: string }
-  | { kind: "writing"; blocks: number };
+  | { kind: "writing"; blocks: number }
+  /* The answer itself, arriving. Only ever emitted where the text being
+     written IS the reply — a question, a clarification — and never on an edit,
+     whose output is search/replace blocks that would be gibberish in a chat
+     bubble. See `streamAnswer` on ask(). */
+  | { kind: "answer"; delta: string };
 
 export type OnProgress = (progress: Progress) => void;
 
@@ -90,6 +95,20 @@ export type OnProgress = (progress: Progress) => void;
    the panel is a line of text a person is reading; anything faster than this is
    a blur, and every one of them is also a line over the wire. */
 const PROGRESS_EVERY_MS = 600;
+
+/* How often answer text is passed on, which is a different question from the
+   line above and wants a different answer.
+ *
+ * That one paces a sentence somebody reads: faster than 600ms and the line
+ * blurs. This one paces a reply appearing, and there the eye wants continuity
+ * rather than legibility — anything much over 80ms stops reading as writing and
+ * starts reading as chunks landing.
+ *
+ * Not zero, though. Deltas arrive many times a second, and one line over the
+ * wire per token would be a great deal of framing for a few characters. Fifty
+ * milliseconds is twenty updates a second, which is past what anyone can
+ * distinguish from continuous. */
+const ANSWER_EVERY_MS = 50;
 
 /* The last thing Claude finished saying, short enough for one line.
  *
@@ -125,6 +144,13 @@ async function ask(
      "change the other one as well" names nothing — see builder/brief.ts. */
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
+  /* Whether the text this call produces is the reply itself.
+   *
+   * True for a question or a clarification, where what the model writes is what
+   * the person reads. False for an edit, where it is a stream of
+   * <<<<<<< SEARCH blocks — forwarding those to a chat bubble would fill it
+   * with the diff instead of the answer. The default is the safe one. */
+  streamAnswer = false,
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -172,6 +198,10 @@ async function ask(
       let written = "";
       let lastSent = 0;
       let lastLine = "";
+      /* Answer text held back since it was last passed on. Coalesced rather
+         than dropped: every character arrives, just fewer times. */
+      let pending = "";
+      let lastAnswerAt = 0;
 
       for await (const event of stream) {
         if (event.type !== "content_block_delta") continue;
@@ -180,8 +210,20 @@ async function ask(
           reasoning += event.delta.thinking;
         } else if (event.delta.type === "text_delta") {
           written += event.delta.text;
+          if (streamAnswer) pending += event.delta.text;
         } else {
           continue;
+        }
+
+        /* The reply, on its own clock. Ahead of the throttle below because it
+           is a different thing being paced — see ANSWER_EVERY_MS. */
+        if (streamAnswer && pending) {
+          const since = Date.now() - lastAnswerAt;
+          if (since >= ANSWER_EVERY_MS) {
+            onProgress({ kind: "answer", delta: pending });
+            pending = "";
+            lastAnswerAt = Date.now();
+          }
         }
 
         const now = Date.now();
@@ -202,6 +244,12 @@ async function ask(
           onProgress({ kind: "reasoning", text: line });
         }
       }
+
+      /* Whatever the last window was still holding. Without this the closing
+         few characters of every reply are dropped — a coalescing loop that
+         never flushes truncates by design, and the caller's final message would
+         disagree with what the reader watched arrive. */
+      if (pending) onProgress({ kind: "answer", delta: pending });
     }
 
     return await stream.finalMessage();
@@ -332,6 +380,8 @@ export async function askClarifying(
     attachments,
     prior,
     onProgress,
+    /* The one sentence it writes is the one the person reads. */
+    true,
   );
 
   if (message.stop_reason === "refusal") {
@@ -365,6 +415,9 @@ export async function answerQuestion(
     attachments,
     prior,
     onProgress,
+    /* An answer of up to 1,500 tokens, which is long enough that watching it
+       arrive is materially different from waiting for it. */
+    true,
   );
 
   if (message.stop_reason === "refusal") {
