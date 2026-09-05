@@ -281,6 +281,31 @@ day per order, tracked in `crypto_payments.alerted_at`. Detection never depends
 on delivery: an alert that cannot be sent must not stop a sweep from finding the
 next problem.
 
+### Two clocks, and what notices when one stops
+
+`/api/cron/reconcile` is called by **pg_cron every 15 minutes** and **n8n every
+30**. Not to double the work — most sweeps find nothing — but because the app
+refuses Bitcoin when no sweep has run in two hours, so a single scheduler
+stopping is an outage. Two independent clocks give eight chances to refresh the
+heartbeat before that window closes, and the endpoint is idempotent, so both
+firing at once still produces one payout.
+
+pg_cron reads its bearer token from Vault rather than from the schedule, because
+`cron.job` is a readable table. `public.sweep_crypto_payments()` is the only
+thing that decrypts it.
+
+Redundancy hides the failure it protects against: when one clock dies the other
+covers, and nothing looks wrong. So the surviving clock reports it — the sweep
+reads the gap since the previous run before overwriting the heartbeat, and a gap
+past 45 minutes means a scheduler has stopped. It also alerts when its own
+writes fail, which used to be reported only into a response the caller
+discarded. Both are throttled to once a day, tracked as `alert:` rows in
+`service_heartbeats`.
+
+**None of it reaches you until `RESEND_API_KEY` and `ALERT_EMAIL` are set.**
+Until then it goes to the log, which is the same "nothing tells you" problem in
+a different place.
+
 ## Environment variables
 
 ### Wallets — one per coin you accept

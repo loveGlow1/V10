@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 /* Telling a person something needs a person.
  *
  * There is exactly one thing in this system that cannot be automated away: a
@@ -56,4 +58,51 @@ export async function sendOperatorAlert(subject: string, body: string): Promise<
     console.error("operator alert: could not be sent:", error);
     return false;
   }
+}
+
+/* How long the same problem waits before it is reported again. It is the same
+   problem on every sweep until somebody deals with it, and an alert arriving
+   forty-eight times a day is an alert nobody reads. */
+const REALERT_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Sends an alert at most once a day for a given kind of problem.
+ *
+ * The last-sent time is kept in service_heartbeats under an `alert:` name,
+ * which is not a hack so much as the same question: that table exists to answer
+ * "when did this last happen", and this is a thing that happens.
+ *
+ * Records the attempt whether or not delivery succeeded. A failed send is
+ * already in the log and in the sweep's own response; retrying it every fifteen
+ * minutes would bury the next real one.
+ */
+export async function alertOncePerDay(
+  service: SupabaseClient,
+  key: string,
+  subject: string,
+  body: string,
+): Promise<boolean> {
+  const name = `alert:${key}`;
+  const now = Date.now();
+
+  const { data } = await service
+    .from("service_heartbeats")
+    .select("ran_at")
+    .eq("service", name)
+    .maybeSingle();
+
+  const lastSent = (data as { ran_at: string } | null)?.ran_at;
+
+  if (lastSent && now - new Date(lastSent).getTime() < REALERT_AFTER_MS) return false;
+
+  await sendOperatorAlert(subject, body);
+
+  await service
+    .from("service_heartbeats")
+    .upsert(
+      { service: name, ran_at: new Date(now).toISOString(), detail: { subject } },
+      { onConflict: "service" },
+    );
+
+  return true;
 }

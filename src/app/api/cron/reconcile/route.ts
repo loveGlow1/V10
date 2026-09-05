@@ -8,7 +8,11 @@ import {
   reconcileOrder,
   type ReconcilableOrder,
 } from "@/lib/reconcile-order";
-import { isOperatorAlertConfigured, sendOperatorAlert } from "@/lib/operator-alert";
+import {
+  alertOncePerDay,
+  isOperatorAlertConfigured,
+  sendOperatorAlert,
+} from "@/lib/operator-alert";
 import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -214,7 +218,58 @@ export async function GET(request: Request) {
   /* Said out loud, so that a sweep which stops running stops being silent. See
      heartbeat.ts — this is the record /api/health reads to answer "is
      settlement still happening" without anybody opening the database. */
-  await recordHeartbeat(service, RECONCILE_SERVICE, summary);
+  const { gapMs, clockMissing } = await recordHeartbeat(service, RECONCILE_SERVICE, summary);
 
-  return NextResponse.json(summary);
+  /* ── Two things that were reported and never told to anybody ──────────────
+
+     Both of these were already visible before this: failures came back in this
+     response, and a dead clock showed as a widening gap in a timestamp. Both
+     were visible in the way everything that broke today was visible — to
+     somebody who went and looked. Nothing looks. */
+
+  if (failures.length > 0) {
+    /* The sweep decided something and could not carry it out. This is the exact
+       shape of the morning's bug — updates that reported success and changed
+       nothing — and until now the report went into a response that whichever
+       clock called it simply discarded. */
+    await alertOncePerDay(
+      service,
+      "sweep-failures",
+      `Reconciliation sweep could not write ${failures.length} change${failures.length === 1 ? "" : "s"}`,
+      `The sweep decided on changes it could not make. Orders may be paid and uncredited.\n\n`
+        + failures.map((f) => `• ${f.id}\n  ${f.action}: ${f.why}`).join("\n\n")
+        + `\n\nCheck /api/health for reconcileStale, and the app logs for the underlying error.\n`,
+    );
+  }
+
+  if (clockMissing) {
+    /* A stopped scheduler cannot report itself, so the surviving one does it.
+       This only fires while at least one clock still runs — which is precisely
+       the case that produces no other symptom, because the survivor quietly
+       covers for the dead one and nothing looks wrong from outside. */
+    const minutes = gapMs === null ? "?" : Math.round(gapMs / 60_000);
+
+    await alertOncePerDay(
+      service,
+      "clock-gap",
+      "A payment sweep scheduler has stopped",
+      `The last sweep was ${minutes} minutes ago. Two schedulers call this — pg_cron `
+        + `every 15 minutes and n8n every 30 — so a gap this large means one has stopped `
+        + `firing.\n\nNothing is broken yet: the surviving clock is covering, which is why `
+        + `there is no other symptom. But there is no redundancy left, and if it stops too, `
+        + `Bitcoin checkout closes after two hours.\n\n`
+        + `pg_cron:  select status, start_time from cron.job_run_details\n`
+        + `          where jobname = 'reconcile-crypto-payments' order by start_time desc limit 5;\n`
+        + `n8n:      the Executions tab on "Payment Reconciliation Sweep"\n`,
+    );
+  }
+
+  return NextResponse.json({
+    ...summary,
+    /* Minutes since the previous sweep, and whether that gap says a scheduler
+       has stopped. Reported alongside the counters because a sweep that is
+       running alone is worth seeing even when it had nothing to do. */
+    minutesSinceLastSweep: gapMs === null ? null : Math.round(gapMs / 60_000),
+    clockMissing,
+  });
 }
