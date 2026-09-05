@@ -334,3 +334,20 @@ export function groupedModels() {
   }
   return groups;
 }
+
+/**
+ * Which maker will actually answer for a picked model id.
+ *
+ * "auto" is not a maker — it is the router — so it resolves to whatever AUTO
+ * really runs rather than to a target icon. That matters for the thinking
+ * indicator: somebody on auto is being answered by a real model, and showing
+ * them a routing symbol while it works would be truthful about the setting and
+ * useless about the fact.
+ *
+ * Unknown ids fall back to the auto model's maker, which is what the server
+ * does with them too.
+ */
+export function providerOf(id: string | null | undefined): Provider {
+  const model = modelById(id === "auto" || !id ? AUTO_MODEL : id);
+  return model?.provider ?? (modelById(AUTO_MODEL)?.provider ?? "claude");
+}

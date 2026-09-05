@@ -31,6 +31,7 @@ import {
   isModelAvailable,
   modelById,
   shortModelName,
+  providerOf,
 } from "../../models";
 import { useCredits } from "../../useCredits";
 import { avatarFor } from "../../projectColours";
@@ -748,7 +749,13 @@ export default function ChatPanel({
             picked = true;
             phases.show({
               id: "send",
-              label: "Sent your message",
+              /* Received, not sent. "Sent" is this app's own point of view —
+                 a request leaving for somewhere — and it invites the question
+                 of where, which nobody using this needs to think about. There
+                 is an orchestrator behind the wall and it is not the reader's
+                 business. What they want to know is that the message arrived
+                 and something is working on it. */
+              label: "Message received",
               state: "done",
               ms: Date.now() - runStarted,
             });
@@ -1133,7 +1140,12 @@ export default function ChatPanel({
               </p>
             </div>
             <div className="mt-2.5">
-              <BuildActivity running startedAt={runStartedAt} steps={phases.steps} />
+              <BuildActivity
+                running
+                startedAt={runStartedAt}
+                steps={phases.steps}
+                provider={providerOf(model)}
+              />
             </div>
           </div>
         )}
