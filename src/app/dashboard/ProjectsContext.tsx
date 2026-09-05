@@ -114,6 +114,17 @@ export type BuildOptions = {
    * it just sees them all at the end, the way everything did before.
    */
   onStep?: (step: BuildStep) => void;
+  /**
+   * The reply, a piece at a time, as the model writes it.
+   *
+   * Deltas — append them. Only sent where the text is the answer itself, which
+   * is a question or a clarification; an edit writes search/replace blocks and
+   * never streams here.
+   *
+   * The complete text still arrives in the final reply and remains the
+   * authority. A caller that ignores this loses nothing but the watching.
+   */
+  onText?: (delta: string) => void;
 };
 
 /* How the workspace waits for a page. Generation is not bounded by an HTTP
@@ -333,7 +344,13 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            let parsed: { type?: string; step?: BuildStep; status?: number; body?: unknown };
+            let parsed: {
+              type?: string;
+              step?: BuildStep;
+              delta?: string;
+              status?: number;
+              body?: unknown;
+            };
             try {
               parsed = JSON.parse(line);
             } catch {
@@ -345,6 +362,8 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
             if (parsed.type === "step" && parsed.step) {
               options.onStep?.(parsed.step);
+            } else if (parsed.type === "text" && typeof parsed.delta === "string") {
+              options.onText?.(parsed.delta);
             } else if (parsed.type === "result") {
               status = parsed.status ?? status;
               if (parsed.body) results.push(parsed.body as BuildPayload);
