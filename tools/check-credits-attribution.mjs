@@ -33,7 +33,13 @@ writeFileSync(
       moduleResolution: "bundler", skipLibCheck: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/photo-credits.ts")],
+    files: [
+      join(process.cwd(), "src/lib/builder/photo-credits.ts"),
+      /* searchContext lives here. Compiled alongside rather than moved out of
+         it: the function belongs with the fill it serves, and a helper relocated
+         to make a test simpler is a test shaping the code it checks. */
+      join(process.cwd(), "src/lib/builder/images.ts"),
+    ],
   }),
 );
 
@@ -62,6 +68,7 @@ try {
   rewrite(out);
 
   const { addPhotoCredits } = await import(join(out, "lib/builder/photo-credits.js"));
+  const { searchContext } = await import(join(out, "lib/builder/images.js"));
 
   const PAGE = "<html><body><h1>Hi</h1></body></html>";
   const ana = { author: "Ana Silva", source: "Unsplash", url: "https://unsplash.com/@ana" };
@@ -107,6 +114,30 @@ try {
     addPhotoCredits("<h1>Hi</h1>", [ana]).includes("Ana Silva"),
     "a fragment with no </body> is still credited",
   );
+
+  // ── The photographs belong to THIS page ─────────────────────────────────
+  /* Two shops selling cloth write the same "folded fabric" slot and want
+     entirely different pictures. Nothing inside one <img> tag can tell them
+     apart; the brief that produced the page can. This is what is carried
+     across, and it is only ever appended to a slot too generic to search for
+     on its own — so it has to be the distinguishing fact and nothing else.
+     A brief of pure instructions must yield NOTHING rather than a few
+     grammatical words, which would search worse than the slot alone. */
+  const CONTEXT = [
+    ["Build me an online shop for Adire wax print fabric in Lagos", "Adire wax print fabric"],
+    ["a landing page for my gym", "gym"],
+    ["news site for local politics", "local politics"],
+    ["a blog about Japanese woodworking", "Japanese woodworking"],
+    ["create a beautiful website for my coffee roastery in Portland", "coffee roastery Portland"],
+    /* Nothing but instructions and a category. Empty is the right answer. */
+    ["Build me an ecomerce page", ""],
+    ["make me a website", ""],
+  ];
+
+  for (const [brief, want] of CONTEXT) {
+    const got = searchContext(brief);
+    has(got === want, `"${brief.slice(0, 44)}"`, got === want ? "" : `expected "${want}", got "${got}"`);
+  }
 
   console.log(failed === 0 ? "\nphotographs are credited." : `\n${failed} failed.`);
   process.exit(failed === 0 ? 0 : 1);

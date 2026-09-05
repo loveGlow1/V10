@@ -89,6 +89,8 @@ PHOTOGRAPHS — do not draw them, declare them:
        data-ratio="4/5" data-weight="thumb" alt="Ochre Adire wax print, six yards">
 
 - data-shot is a photographer's brief: subject first, then lighting, setting and mood. "Woman in her forties at a workbench, soft window light, shallow depth of field" — not "image of a person".
+- THE SUBJECT IS THIS BUSINESS, NOT ITS CATEGORY. Only the first clause is searched for, so it is the one clause that has to be specific: "adire wax print fabric folded on oak" finds this shop's cloth, where "textiles" finds a warehouse. Name the actual goods, the actual room, the actual work, the actual people — with their trade, their place and their period where the brief gives you one. A page whose photographs would suit any competitor is a page with stock on it.
+- The pictures on one page must look like one commission. Same register, same light, same era, same treatment of people throughout — the difference between a publication and a mood board is that somebody chose.
 - data-ratio is the crop the layout needs: 16/9, 4/3, 1/1, 4/5, 3/4.
 - data-weight is hero, feature or thumb — how much of the page's picture budget it may take. One or two heroes at most.
 - alt is real alt text describing the photograph, not the file.

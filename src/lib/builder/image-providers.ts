@@ -46,15 +46,38 @@ async function get(url: string, headers: Record<string, string> = {}): Promise<R
   }
 }
 
+/* Words that describe any business and therefore none. A slot whose whole
+   subject is one of these has said the category rather than the thing, and the
+   search that follows returns whatever a warehouse looks like. */
+const GENERIC =
+  /^(a |an |the )?(photo(graph)?|image|picture|shot|product|products|item|items|goods|textiles?|food|meal|people|person|team|office|workspace|interior|background|hero|banner|abstract|business|service|technology|lifestyle)s?$/i;
+
 /* What to search for.
  *
  * The art direction is written for a person and reads like a photographer's
  * brief — "folded ochre wax print fabric, raking light, neutral seamless" — and
  * a stock search does badly with the second half of that. So the query is the
- * first clause, which is the subject, and the rest is dropped. */
-function query(slot: ImageSlot): string {
+ * first clause, which is the subject, and the rest is dropped.
+ *
+ * `context` is what makes the picture belong to THIS page rather than to the
+ * category it is in. Two shops selling cloth produce the same "folded fabric"
+ * slot and want entirely different photographs, and nothing in one <img> tag
+ * can tell them apart — the page around it can. So a few words describing what
+ * was actually built are carried in, and used in the one place they help:
+ * where the slot's own subject is too generic to search for on its own.
+ *
+ * Appended rather than substituted, and only then. A stock search degrades
+ * quickly as a query lengthens, so a slot that already names its subject
+ * precisely is left exactly as it is — the model was specific, and this would
+ * only dilute it. */
+function query(slot: ImageSlot, context?: string): string {
   const subject = (slot.shot || slot.alt).split(/[,.;]/)[0].trim();
-  return subject.length >= 3 ? subject : slot.alt || "photograph";
+  const usable = subject.length >= 3 ? subject : slot.alt || "";
+
+  if (!usable) return context?.trim() || "photograph";
+  if (!context || !GENERIC.test(usable)) return usable;
+
+  return `${usable} ${context}`.trim();
 }
 
 function orientation(ratio: string): "landscape" | "portrait" | "squarish" {
@@ -67,11 +90,11 @@ function orientation(ratio: string): "landscape" | "portrait" | "squarish" {
 
 const unsplash = (key: string): ImageProvider => ({
   name: "unsplash",
-  async shotFor(slot, width) {
+  async shotFor(slot, width, context) {
     const search = await get(
       `https://api.unsplash.com/search/photos?per_page=1&content_filter=high&orientation=${orientation(
         slot.ratio,
-      )}&query=${encodeURIComponent(query(slot))}`,
+      )}&query=${encodeURIComponent(query(slot, context))}`,
       { Authorization: `Client-ID ${key}`, "Accept-Version": "v1" },
     );
     if (!search) return null;
@@ -111,11 +134,11 @@ const unsplash = (key: string): ImageProvider => ({
 
 const pexels = (key: string): ImageProvider => ({
   name: "pexels",
-  async shotFor(slot, width) {
+  async shotFor(slot, width, context) {
     const search = await get(
       `https://api.pexels.com/v1/search?per_page=1&orientation=${orientation(
         slot.ratio,
-      )}&query=${encodeURIComponent(query(slot))}`,
+      )}&query=${encodeURIComponent(query(slot, context))}`,
       { Authorization: key },
     );
     if (!search) return null;

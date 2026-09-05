@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { creditCostOf } from "@/app/dashboard/credits";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
-import { fillImages } from "@/lib/builder/images";
+import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
@@ -100,7 +100,20 @@ export async function POST(request: Request) {
      keeps the neutral placeholder it shipped with and the page is stored
      exactly as it would have been — so photographs are a deployment decision
      rather than a dependency. */
-  const pictures = await fillImages(html, providerFromEnv());
+  /* What was actually asked for, carried into the picture search.
+   *
+   * Two shops selling cloth write the same "folded fabric" slot and want
+   * entirely different photographs — nothing inside one <img> tag can tell them
+   * apart, and the brief that produced the page can. It is used only where a
+   * slot's own subject came out too generic to search for; a slot that already
+   * names its goods precisely is left alone, because a stock search degrades as
+   * a query lengthens and diluting a good subject would make it worse.
+   *
+   * Trimmed hard for the same reason: a search engine wants a few words, not a
+   * paragraph of instructions. */
+  const pictures = await fillImages(html, providerFromEnv(), {
+    context: searchContext(str(body.prompt)),
+  });
   html = pictures.html;
 
   /* Who took them, in the page that publishes them.
