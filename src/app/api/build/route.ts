@@ -33,7 +33,9 @@ import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { classifyKind } from "@/lib/builder/classify-kind";
-import { classifyIntent, type Intent } from "@/lib/builder/intent";
+import { classifyIntent, type Intent,
+  remainderAfterRevert,
+} from "@/lib/builder/intent";
 import {
   bestKindGuess,
   BUILD_KINDS,
@@ -670,7 +672,17 @@ async function handle(
 
     steps.mark("restore", "Put the previous version back on top");
 
-    const storedRevert = await deliver("Put the previous version back.", { key: "revert" });
+    /* What else they asked for in the same breath, handed back rather than
+       dropped. The undo had to happen first — applying an edit to the version
+       being thrown away would be exactly wrong — but their second instruction
+       vanishing without a word is how somebody comes to believe the whole
+       message failed. */
+    const remainder = remainderAfterRevert(prompt);
+    const revertMessage = remainder
+      ? `Put the previous version back. You also asked to ${remainder} — send that again and I'll make the change on this version.`
+      : "Put the previous version back.";
+
+    const storedRevert = await deliver(revertMessage, { key: "revert" });
 
     const { data: reverted } = await supabase
       .from("projects")
@@ -691,7 +703,7 @@ async function handle(
         links: { preview: previewUrl, repo: "", admin: "" },
         configKeys: {},
         artifacts: {},
-        message: "Put the previous version back.",
+        message: revertMessage,
       },
       project: reverted ?? null,
     });
