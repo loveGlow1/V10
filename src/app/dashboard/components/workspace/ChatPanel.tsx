@@ -556,7 +556,25 @@ export default function ChatPanel({
        row, and the next thing that happens to it is minutes away. */
     phases.set({ id: "generate", label: "Generating the page", detail, state: "running" });
 
-    const finished = await watchBuild(project.id, since);
+    /* Said again on every poll, so a long wait reads as something happening
+       rather than as one frozen line. Both halves are real: the elapsed time is
+       measured, and the status is whatever the orchestrator last wrote to the
+       row. Nothing is invented — a checklist advancing on a timer would claim
+       work nobody can see happening, which is the fake this replaced. */
+    const finished = await watchBuild(project.id, since, (row, elapsedMs) => {
+      const seconds = Math.round(elapsedMs / 1000);
+      const clock = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+
+      phases.set({
+        id: "generate",
+        label: "Generating the page",
+        detail:
+          row?.status === "Building"
+            ? `the builder is working on it — ${clock} so far…`
+            : `waiting for the page — ${clock} so far…`,
+        state: "running",
+      });
+    });
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
@@ -621,16 +639,23 @@ export default function ChatPanel({
          not have. */
       phases.set({
         id: "generate",
-        label: "Still generating when the wait gave up",
+        label: "Still building",
         state: "running",
       });
       say(
         {
           from: "system",
-          /* Not "it failed": nothing here knows that. The build may still
-             land, and the workspace will show it when it does — so it is not
-             marked as a problem either. */
-          text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
+          /* Not "it failed", because nothing here knows that — and not "I've
+             stopped waiting on it" either, which was the old wording and the
+             worst sentence in the product: it told somebody who had waited
+             twenty-five minutes that the thing they were waiting for was now
+             their own problem to go and check.
+           *
+             What is actually true is that the build is still going and the
+             preview arrives on its own. Since the panel now refetches on the
+             build stamp rather than on the URL, that is a promise this can
+             keep. */
+          text: "This one's taking a while — still building. You don't need to wait here or reload; the preview appears the moment it lands.",
         },
         undefined,
         /* True of this wait, not of this build. Keeping it would leave a

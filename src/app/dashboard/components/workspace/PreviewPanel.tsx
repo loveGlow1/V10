@@ -126,6 +126,10 @@ export default function PreviewPanel({
      nothing. The link below still uses the stored address, because opening it
      in a tab is a real navigation and should land on the real site. */
   const previewPath = project?.id ? `/preview/${project.id}` : null;
+
+  /* When the page behind that path last changed. Watched rather than the path
+     itself, which is the same string for every build this project ever has. */
+  const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
   const [pageFailed, setPageFailed] = useState(false);
 
@@ -155,8 +159,16 @@ export default function PreviewPanel({
       cancelled = true;
     };
     /* `reloads` is a dependency on purpose: the refresh button rebuilds the
-       page rather than only remounting a frame around the same copy. */
-  }, [previewUrl, previewPath, reloads]);
+       page rather than only remounting a frame around the same copy.
+
+       `lastBuiltAt` is here for the reason that matters more. A rebuild of the
+       same project produces the SAME preview_url and the same path — the id
+       never changes — so neither of those moves when a new page lands, and this
+       frame went on showing the previous version until somebody reloaded the
+       browser. The build stamp is the only thing in the row that says "this is
+       a different page now", which makes it the only honest dependency for
+       "fetch it again". */
+  }, [previewUrl, previewPath, reloads, lastBuiltAt]);
 
   useEffect(() => {
     if (!publishRequest) return;
