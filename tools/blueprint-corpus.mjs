@@ -48,7 +48,10 @@ export const CORPUS = [
   ["a wordpress site for my law firm's articles", "blog"],
   ["I need a magazine site about electronic music", "blog"],
   ["a publication with articles and categories", "blog"],
-  ["news site for local politics", "blog"],
+  /* Relabelled when `news` became a kind. It was blog because blog was the
+     only publishing kind there was, and a brief that says "news site" in as
+     many words is the clearest case the new kind has. */
+  ["news site for local politics", "news"],
   ["set up a wordpress blog with categories and tags", "blog"],
   ["an editorial site for long form essays", "blog"],
   ["a content site where I post recipes as articles", "blog"],
@@ -125,7 +128,33 @@ export const WILD = [
   ["internal crm, accounts, roles, postgres behind it", "webapp"],
 ];
 
-export const SETS = { corpus: CORPUS, mixed: MIXED, ladder: LADDER, wild: WILD };
+/* News against blog, which is the only pair in this system that shares a
+ * vocabulary. Both publish articles; the corpus above cannot separate them
+ * because nothing in it tries.
+ *
+ * The pairs matter more than the individual briefs. "a blog about politics" and
+ * "a news site covering politics" differ by two words and by everything else:
+ * one is somebody writing, the other is somebody publishing. If the rules
+ * cannot hold that line they will quietly turn every blog into a newsroom, or
+ * never build a newsroom at all. */
+export const NEWSROOM = [
+  // ── news ──────────────────────────────────────────────────────────────────
+  ["build a news site for my town", "news"],
+  ["a news website covering local politics and business", "news"],
+  ["online newspaper with breaking news and categories", "news"],
+  ["digital publication, front page with top stories and latest", "news"],
+  ["newsroom site — politics, business, sports, entertainment", "news"],
+  ["a media outlet for tech news with trending stories", "news"],
+  ["news portal with headlines, live updates and a newsdesk", "news"],
+
+  // ── blog, and none of these may be read as news ───────────────────────────
+  ["a blog about politics", "blog"],
+  ["personal blog where I write essays about cities", "blog"],
+  ["company blog with tutorials and guides", "blog"],
+  ["a writing site for long-form pieces on architecture", "blog"],
+];
+
+export const SETS = { corpus: CORPUS, mixed: MIXED, ladder: LADDER, wild: WILD, newsroom: NEWSROOM };
 
 /* Which market a brief is set in — see src/lib/builder/market.ts.
  *

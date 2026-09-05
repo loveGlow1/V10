@@ -224,6 +224,10 @@ try {
     landing: ["cart", "checkout", "sign-in wall", "blog index", "admin dashboard"],
     ecommerce: ["sign-in wall", "admin dashboard", "inventory back office", "blog"],
     blog: ["pricing table", "pricing tiers", "cart", "checkout", "marketing hero"],
+    /* The one that matters for news is the first: a publication where every
+       story is the same size has not been edited, and that is the whole
+       distinction from a blog. The others are the usual bleed. */
+    news: ["equal cards", "marketing hero", "pricing", "cart", "dashboard"],
     webapp: ["marketing hero", "storefront", "fake dashboard"],
   };
 

@@ -120,6 +120,17 @@ const BY_KIND: Record<BuildKind, Omit<VisualDirection, "avoid">> = {
     environment: "wherever the story actually happens",
     mood: "considered, journalistic, unposed",
   },
+  /* A newsroom looks different from a blog, and it is not a matter of taste.
+     A blog's photograph is chosen; a publication's is the one that exists —
+     taken at the thing, under whatever light was there, because it happened
+     this morning. Polish would read as stock, and stock reads as untrue. */
+  news: {
+    register: "press photography — the frame a wire service filed",
+    palette: "true colour, uncorrected, whatever the scene was",
+    lighting: "available light, on location, often unflattering",
+    environment: "the event itself, as it was, with people in it",
+    mood: "immediate, factual, unstaged",
+  },
   webapp: {
     register: "functional and unadorned",
     palette: "the interface's own palette, nothing decorative",

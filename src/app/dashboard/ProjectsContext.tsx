@@ -127,12 +127,26 @@ export type BuildOptions = {
   onText?: (delta: string) => void;
 };
 
-/* How the workspace waits for a page. Generation is not bounded by an HTTP
-   request any more, so these are patience, not timeouts: three seconds between
-   polls is often enough to feel immediate, and eight minutes is longer than any
-   page has taken. */
+/* How the workspace waits for a page.
+ *
+ * Generation is not bounded by an HTTP request, so these are patience rather
+ * than timeouts — nothing is cancelled when they run out, and the page lands
+ * whether anybody is still looking.
+ *
+ * Three seconds while it is plausibly about to finish, then slower. A build
+ * that has been going twelve minutes is not going to land in the next three
+ * seconds, and polling it at the same rate is a row of identical queries for
+ * the benefit of nobody.
+ *
+ * Twenty-five minutes of patience rather than eight. Eight was chosen as
+ * "longer than any page has taken", which stopped being true — and the message
+ * it produced was the worst thing the chat said all day: "I've stopped waiting
+ * on it", to somebody who has been waiting eight minutes and now has to reload
+ * the page themselves to find out. */
 const BUILD_POLL_MS = 3_000;
-const BUILD_WATCH_MS = 8 * 60 * 1000;
+const BUILD_SLOW_POLL_MS = 8_000;
+const BUILD_SLOW_AFTER_MS = 2 * 60 * 1000;
+const BUILD_WATCH_MS = 25 * 60 * 1000;
 
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
@@ -155,7 +169,11 @@ type ProjectsValue = {
   /** Sends one message for a project and folds any result back into the list. */
   build: (id: string, prompt: string, options?: BuildOptions) => Promise<BuildReply>;
   /** Waits for a started build to land its page. See {@link watchBuild}. */
-  watchBuild: (id: string, since: number) => Promise<Project | null>;
+  watchBuild: (
+    id: string,
+    since: number,
+    onPoll?: (row: Project | null, elapsedMs: number) => void,
+  ) => Promise<Project | null>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -433,31 +451,56 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      `last_build_at` is the signal because it is written once, by the step that
      stores the page — the earlier "Building" update deliberately leaves it
      alone, or the very first poll would report a build that has not happened. */
-  const watchBuild = useCallback(async (id: string, since: number): Promise<Project | null> => {
-    if (!isSupabaseConfigured) return null;
-    const supabase = createSupabaseBrowserClient();
-    const deadline = Date.now() + BUILD_WATCH_MS;
+  const watchBuild = useCallback(
+    async (
+      id: string,
+      since: number,
+      /* Told on every poll, so the caller can say something true about a wait
+         instead of showing one frozen line for eight minutes. It gets the row
+         as it stands — the orchestrator writes `status` to it as the build
+         moves — and how long this has been going. Nothing is invented here: a
+         checklist ticking itself off on a timer would claim work nobody can see
+         happening, and the clock and the status are the two things that are
+         actually known. */
+      onPoll?: (row: Project | null, elapsedMs: number) => void,
+    ): Promise<Project | null> => {
+      if (!isSupabaseConfigured) return null;
+      const supabase = createSupabaseBrowserClient();
+      const startedAt = Date.now();
+      const deadline = startedAt + BUILD_WATCH_MS;
 
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, BUILD_POLL_MS));
+      while (Date.now() < deadline) {
+        const elapsed = Date.now() - startedAt;
+        const wait = elapsed < BUILD_SLOW_AFTER_MS ? BUILD_POLL_MS : BUILD_SLOW_POLL_MS;
+        await new Promise((resolve) => setTimeout(resolve, wait));
 
-      const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
-      const row = data as unknown as Project | null;
-      if (!row) continue;
+        const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
+        const row = data as unknown as Project | null;
 
-      const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
-      if (landed > since) {
-        setProjects((current) =>
-          current.map((project) => (project.id === id ? { ...project, ...row } : project)),
-        );
-        return row;
+        onPoll?.(row, Date.now() - startedAt);
+
+        if (!row) continue;
+
+        const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
+        if (landed > since) {
+          setProjects((current) =>
+            current.map((project) => (project.id === id ? { ...project, ...row } : project)),
+          );
+          return row;
+        }
+
+        /* Written to the row by the orchestrator when a build fails, which is
+           the only signal that arrives before the page would have. Returning
+           now turns a twenty-five minute wait into the answer it already has. */
+        if (row.status === "Failed") return row;
       }
-    }
 
-    /* Out of patience rather than out of hope: the build may still land, and
-       the row will show it on the next load. The caller says so. */
-    return null;
-  }, []);
+      /* Out of patience rather than out of hope: the build may still land, and
+         the row will show it on the next load. The caller says so. */
+      return null;
+    },
+    [],
+  );
 
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab

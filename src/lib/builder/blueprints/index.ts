@@ -3,6 +3,7 @@ import { localeFor } from "@/lib/builder/blueprints/locale";
 import { blog } from "@/lib/builder/blueprints/blog";
 import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
+import { news } from "@/lib/builder/blueprints/news";
 import { webapp } from "@/lib/builder/blueprints/webapp";
 import { manifestForPrompt } from "@/lib/builder/assets/asset-resolver";
 import type { AssetManifest } from "@/lib/builder/assets/asset-types";
@@ -41,6 +42,7 @@ export const BLUEPRINTS: Record<BuildKind, Blueprint> = {
   landing,
   ecommerce,
   blog,
+  news,
   webapp,
 };
 
