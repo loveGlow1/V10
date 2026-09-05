@@ -84,6 +84,12 @@ function list(items: readonly string[]): string {
    past the model's window is a build that fails on a large attachment. */
 const MAX_ATTACHMENT_TEXT = 6000;
 
+/* How much of the earlier description travels with a continuation. It is the
+   only account of what is being built when the message itself is "rebuild", so
+   400 characters — two sentences — was cutting people off inside the one thing
+   the model needed to read. */
+const MAX_CARRIED = 600;
+
 function projectContext(context: ProjectContext): string {
   const lines: string[] = [];
 
@@ -94,7 +100,9 @@ function projectContext(context: ProjectContext): string {
   }
   if (context.carriedFrom?.trim()) {
     lines.push(
-      `- This continues an earlier description in the same conversation: "${context.carriedFrom.trim().slice(0, 400)}". The brief above is what to build; this is what it refers back to.`,
+      `- This continues an earlier description in the same conversation: "${context.carriedFrom
+        .trim()
+        .slice(0, MAX_CARRIED)}". The brief above is what to build; this is what it refers back to.`,
     );
   }
   if (context.imageCount && context.imageCount > 0) {

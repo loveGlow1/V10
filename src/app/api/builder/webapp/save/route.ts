@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { creditCostOf } from "@/app/dashboard/credits";
 import { verifyBuildClaim } from "@/lib/build-signature";
@@ -8,7 +9,7 @@ import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { recordAndConfirm } from "@/lib/thread-server";
+import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
 
 /* Where a finished page is put away.
@@ -49,6 +50,56 @@ type SaveRequest = {
   model?: unknown;
 };
 
+/* ── A build that failed here says so, in the thread, in its own words ─────
+ *
+ * The save can refuse a real document — one that came back cut off at the
+ * model's ceiling, one too large to store, one that is not a document at all —
+ * and every one of those used to end the same way: an error returned to a
+ * workflow node that reads nothing but the status code, and whose only response
+ * is to write "Failed" on the project row. The person got "The build didn't
+ * finish", which is the panel's sentence for a failed row and says nothing
+ * about why; so did anybody trying to work out what went wrong afterwards.
+ *
+ * The reason exists here. This writes it down where the question was asked, and
+ * moves the row itself, so the outcome does not depend on the orchestrator's
+ * error branch running at all.
+ */
+async function reportFailure(
+  supabase: SupabaseClient,
+  claim: { requestId: string; projectId: string; userId: string },
+  message: string,
+  status: number,
+) {
+  await recordMessage(supabase, {
+    projectId: claim.projectId,
+    userId: claim.userId,
+    role: "system",
+    body: message,
+    tone: "error",
+    kind: "build_failed",
+    /* Keyed on the build, so a workflow that retries a save it believes failed
+       does not say the same thing twice. */
+    dedupeKey: `save-failed:${claim.requestId || claim.projectId}`,
+  });
+
+  /* The same pair of writes the orchestrator's Flag Build Failure makes, made
+     here because this is where the reason is known. last_build_at is what the
+     workspace's watcher reads to know this run is over.
+
+     Never over a page that landed. A build in flight is "Building"; "Built"
+     means a document is already stored and being served, and a late or repeated
+     save that fails validation must not take that page's project down with
+     it. */
+  await supabase
+    .from("projects")
+    .update({ status: "Failed", last_build_at: new Date().toISOString() })
+    .eq("id", claim.projectId)
+    .eq("user_id", claim.userId)
+    .neq("status", "Built");
+
+  return NextResponse.json({ message }, { status });
+}
+
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -74,12 +125,61 @@ export async function POST(request: Request) {
     );
   }
 
+  /* A request carrying no document at all is a caller that posted the wrong
+     thing, not a build that failed — and the difference decides whether
+     anybody is told their build died.
+
+     There is a live example. The orchestrator's `Generate With Claude` node
+     fans its success output out to TWO nodes: `Collect Generation`, which is
+     right, and this route directly, which is not — that edge posts the raw
+     Anthropic response, which has no `html` field at all, seconds before the
+     real document arrives through `Extract Page`. See the DEPLOYED DEFECT note
+     in n8n/build-orchestrator.workflow.ts. Refused here as a bad request,
+     without touching the project row and without a word in the thread, because
+     the build it would be reporting as failed is the one about to land.
+
+     This route can only decline to make it worse. The node's error output still
+     runs Flag Build Failure on that first call, and the fix for that is one
+     deleted connection in n8n. */
+  if (typeof body.html !== "string" || !body.html.trim()) {
+    return NextResponse.json({ message: "This request carries no page to save." }, { status: 400 });
+  }
+
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { message: "Builds cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
+      { status: 503 },
+    );
+  }
+
+  /* Both signed ids, as the belt to the signature's braces: this client
+     bypasses RLS, so the pair is what keeps a build off the wrong row.
+
+     Read before the document is validated rather than after, because a refusal
+     now has somewhere to be reported. */
+  const { data: project, error: lookupError } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("id", claim.projectId)
+    .eq("user_id", claim.userId)
+    .maybeSingle();
+
+  if (lookupError) {
+    // eslint-disable-next-line no-console
+    console.error("save: could not read the project:", lookupError);
+    return NextResponse.json({ message: "Could not read that project." }, { status: 500 });
+  }
+  if (!project) {
+    return NextResponse.json({ message: "No such project." }, { status: 404 });
+  }
+
   let html: string;
   try {
     html = readGeneratedDocument(body.html);
   } catch (error) {
     if (error instanceof PageHtmlError) {
-      return NextResponse.json({ message: error.message }, { status: error.status });
+      return await reportFailure(supabase, claim, error.message, error.status);
     }
     throw error;
   }
@@ -140,35 +240,9 @@ export async function POST(request: Request) {
     html = readGeneratedDocument(html);
   } catch (error) {
     if (error instanceof PageHtmlError) {
-      return NextResponse.json({ message: error.message }, { status: error.status });
+      return await reportFailure(supabase, claim, error.message, error.status);
     }
     throw error;
-  }
-
-  const supabase = createSupabaseServiceClient();
-  if (!supabase) {
-    return NextResponse.json(
-      { message: "Builds cannot be stored — SUPABASE_SERVICE_ROLE_KEY is not set." },
-      { status: 503 },
-    );
-  }
-
-  /* Both signed ids, as the belt to the signature's braces: this client
-     bypasses RLS, so the pair is what keeps a build off the wrong row. */
-  const { data: project, error: lookupError } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("id", claim.projectId)
-    .eq("user_id", claim.userId)
-    .maybeSingle();
-
-  if (lookupError) {
-    // eslint-disable-next-line no-console
-    console.error("save: could not read the project:", lookupError);
-    return NextResponse.json({ message: "Could not read that project." }, { status: 500 });
-  }
-  if (!project) {
-    return NextResponse.json({ message: "No such project." }, { status: 404 });
   }
 
   const filesTouched = filesTouchedFor(html);
@@ -186,7 +260,15 @@ export async function POST(request: Request) {
   if (insertError) {
     // eslint-disable-next-line no-console
     console.error("save: the page could not be stored:", insertError);
-    return NextResponse.json({ message: "The page could not be stored." }, { status: 500 });
+    /* The one failure here that is nobody's fault but ours, and the one most
+       worth saying plainly: the page was built and paid for in model time, and
+       it is gone. */
+    return await reportFailure(
+      supabase,
+      claim,
+      "The page was built but could not be stored, so nothing changed. Trying again is worth it — this one is at our end.",
+      500,
+    );
   }
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
