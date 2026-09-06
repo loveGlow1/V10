@@ -151,21 +151,17 @@ const BUILD_WATCH_MS = 25 * 60 * 1000;
 /* How long a failed row is given to turn out to be a finished one.
  *
  * "Failed" used to end the wait on the spot, which is right when it is true and
- * indefensible when it is not — and there is a live way for it to be untrue.
- * The orchestrator's `Generate With Claude` node fans its success output to two
- * places: `Collect Generation`, which is right, and `Save Page` directly, which
- * is not (the DEPLOYED DEFECT in n8n/build-orchestrator.workflow.ts). That
- * direct call carries the raw model response with no document in it, is refused,
- * takes the node's error output to `Flag Build Failure` — and writes Failed on
- * the row SECONDS BEFORE the real page arrives through Extract Page and is
- * stored. Somebody who waited six minutes for a page that was built and is on
- * screen a moment later was told their build did not finish.
+ * indefensible when it is not — and the orchestrator has a way of writing it
+ * when it is not. `Save Page` gives the save route two minutes to answer, and
+ * `Flag Build Failure` sits on that node's error output. A save that runs long
+ * — a large document, a dozen photographs being fetched into it — is abandoned
+ * by the node and marked Failed while the app is still storing the page, which
+ * it then finishes doing. The row goes Failed, then Built, seconds apart.
  *
- * So a failure has to survive a few polls to be believed. The page lands within
- * seconds when this is that race; twenty is several polls' worth of room and
- * costs a genuine failure a short pause at the end of a wait already measured in
- * minutes. It is the app declining to repeat a wrong answer, not a fix: the fix
- * is one deleted connection in n8n. */
+ * So a failure has to survive a few polls to be believed. Twenty seconds is
+ * several polls' worth of room, and it costs a genuine failure a short pause at
+ * the end of a wait already measured in minutes — against telling somebody
+ * their build died while their page is being written to the table. */
 const BUILD_FAILED_GRACE_MS = 20_000;
 
 /* Every read asks for the same columns. Written once so a column added to the

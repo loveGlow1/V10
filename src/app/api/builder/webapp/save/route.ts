@@ -129,18 +129,17 @@ export async function POST(request: Request) {
      thing, not a build that failed — and the difference decides whether
      anybody is told their build died.
 
-     There is a live example. The orchestrator's `Generate With Claude` node
-     fans its success output out to TWO nodes: `Collect Generation`, which is
-     right, and this route directly, which is not — that edge posts the raw
-     Anthropic response, which has no `html` field at all, seconds before the
-     real document arrives through `Extract Page`. See the DEPLOYED DEFECT note
-     in n8n/build-orchestrator.workflow.ts. Refused here as a bad request,
-     without touching the project row and without a word in the thread, because
-     the build it would be reporting as failed is the one about to land.
+     Written for a specific caller: a version of the orchestrator in which
+     `Generate With Claude` also called this route directly with the raw model
+     response, which has no `html` field anywhere in it. That edge is not in the
+     deployed workflow — this file said it was, on the strength of a mirror that
+     had gone stale, and checking the canvas is what settled it.
 
-     This route can only decline to make it worse. The node's error output still
-     runs Flag Build Failure on that first call, and the fix for that is one
-     deleted connection in n8n. */
+     The guard stays, because it is right on its own: a save with no document in
+     it is a malformed request whoever sent it, and answering that by writing
+     "your build failed" in somebody's conversation would be inventing an
+     outcome out of a caller's mistake. Refused as a bad request, project row
+     untouched, nothing said in the thread. */
   if (typeof body.html !== "string" || !body.html.trim()) {
     return NextResponse.json({ message: "This request carries no page to save." }, { status: 400 });
   }
