@@ -40,7 +40,10 @@ writeFileSync(
       moduleResolution: "bundler", skipLibCheck: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/attachments.ts")],
+    files: [
+      join(process.cwd(), "src/lib/builder/attachments.ts"),
+      join(process.cwd(), "src/lib/page-html.ts"),
+    ],
   }),
 );
 
@@ -69,6 +72,7 @@ const rewrite = (dir) => {
 rewrite(out);
 
 const { attachmentToken, placeAttachments, sniffImage } = await import(join(out, "lib/builder/attachments.js"));
+const { stashImages, restoreImages } = await import(join(out, "lib/page-html.js"));
 
 // ── The tokens are one-based and stable ───────────────────────────────────
 has(attachmentToken(0) === "attachment:1", "the first image is attachment:1", attachmentToken(0));
@@ -162,6 +166,60 @@ for (const [name, bytes, expected] of SIGNATURES) {
   const got = sniffImage(bytes);
   has(got === expected, `${name} reads as ${expected ?? "not an image"}`, `got ${got}`);
 }
+
+/* ── A page with photographs in it can still be edited ────────────────────
+ *
+ * The second failure, and the one that made a page permanently uneditable: a
+ * stored page carries its pictures as base64, and on a real one that was
+ * 416,149 of its 463,340 characters. Base64 is close to a token a character, so
+ * three photographs were about 370,000 tokens — against a 200,000 ceiling — and
+ * every edit was refused before it started. Not slow: impossible.
+ *
+ * The numbers below are that page's, so the arithmetic is checked against the
+ * thing that failed rather than against a convenient invention.
+ */
+/* Distinguishable on purpose: two runs of the same character would make the
+   shorter picture a substring of the longer one, and "is it still there?" would
+   answer yes for the wrong reason. */
+const photograph = (n, fill) => `data:image/jpeg;base64,${fill.repeat(n)}`;
+const page = `<main><img src="${photograph(200_000, "Q")}" alt="hero"><h1>Storecraft</h1><img src="${photograph(150_000, "Z")}" alt="team"></main>`;
+
+const { lean, images } = stashImages(page);
+has(images.length === 2, "every embedded picture is lifted out", `${images.length}`);
+has(!lean.includes("base64"), "the page shown to the model carries no base64", lean.slice(0, 60));
+has(
+  lean.length < page.length / 100,
+  `the page shrinks from ${page.length} characters to ${lean.length}`,
+);
+has(lean.includes('alt="hero"') && lean.includes("<h1>Storecraft</h1>"), "the markup itself is untouched");
+
+/* And it comes back whole: byte for byte, or somebody's photographs have been
+   destroyed by a step that was only supposed to hide them. */
+has(restoreImages(lean, images) === page, "the page comes back byte for byte");
+
+/* An edit that deletes the section takes its picture with it, which is the
+   right answer — asking for a photograph to go should make it go. */
+const deleted = lean.replace(/<img src="stashed-image-1"[^>]*>/, "");
+const afterDelete = restoreImages(deleted, images);
+has(!afterDelete.includes(images[1]), "a picture the edit removed stays removed");
+has(afterDelete.includes(images[0]), "the pictures it kept are still there");
+
+/* The same photograph used twice is stored once and pointed at twice. */
+const twicePage = `<img src="${photograph(100, "Q")}"><img src="${photograph(100, "Q")}">`;
+const twiceStash = stashImages(twicePage);
+has(twiceStash.images.length === 1, "one picture used twice is stashed once", `${twiceStash.images.length}`);
+has(restoreImages(twiceStash.lean, twiceStash.images) === twicePage, "and both copies come back");
+
+/* A token the model invented, pointing at nothing, must not be left to render
+   as a broken image. */
+has(
+  !restoreImages(`<img src="stashed-image-9">`, images).includes("stashed-image"),
+  "an invented token is emptied rather than left in the page",
+);
+
+/* A page with no pictures at all is returned exactly as it came. */
+const plain = "<main><h1>Nothing embedded</h1></main>";
+has(stashImages(plain).lean === plain, "a page with no pictures is unchanged");
 
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
