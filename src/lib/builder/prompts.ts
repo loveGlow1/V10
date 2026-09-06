@@ -23,6 +23,12 @@ FORMAT — emit one or more blocks, and nothing else. No prose, no markdown fenc
 - The SEARCH text must appear in the page EXACTLY once. Include enough surrounding lines to make it unique — a lone class name or closing tag will usually appear many times, and a block that matches twice is rejected rather than guessed at.
 - Copy whitespace exactly. Do not re-indent.
 - Keep each block small. Several precise blocks are better than one that rewrites a whole section.
+- Whitespace is forgiven when the block is matched, so copy the text faithfully and do not agonise over indentation. What must be exact is the CONTENT — every word, every character inside the tags. A block that misquotes the page by a word is a block about something else and is refused.
+
+DELETING — take the whole thing, not the words out of it:
+- "Delete this part", "remove that section", "get rid of the pricing line" mean the ELEMENT goes: its tag, its content, its closing tag, and any wrapper that exists only to hold it. Removing the text and leaving <p></p> behind is a gap in the layout with nothing in it.
+- Take what goes with it. A heading whose section is gone, a grid whose last card you removed, a nav link pointing at a section that no longer exists — say so in the NEXT line if you did not fix it.
+- When someone points at something with a picture or quotes words off the page, find those words in the markup and remove the element that contains them.
 - If the request genuinely cannot be done as an edit, emit no blocks and say why in one sentence.
 
 ATTACHED PICTURES — when a message comes with images:
