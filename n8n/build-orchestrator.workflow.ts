@@ -14,12 +14,23 @@
    yourself reading this file and the workflow disagreeing again, the workflow
    is right.
 
-   Two things in the deployment are wrong rather than merely surprising, and
-   they are reproduced here faithfully because a mirror that quietly corrects
-   its subject is not a mirror. Both are marked DEPLOYED DEFECT below:
+   Re-read against the live workflow on 2026-09-06, and this is where it had
+   drifted: the extra `Generate With Claude` → `Save Page` connection that the
+   two files above this line spent a paragraph each on IS NOT THERE. Claude's
+   success output goes to `Collect Generation` and nowhere else, exactly like
+   OpenAI's and Gemini's. It was removed in the canvas at some point and the
+   mirror was never told, so this file went on describing a defect that had been
+   fixed — and the app grew two defences against it. Read the second paragraph
+   of this file again: when the two disagree, the workflow is right, and that
+   rule is worth nothing unless somebody actually looks.
 
-     1. `Generate With Claude` has TWO success connections — one to `Save Page`
-        and one to `Collect Generation`. Only the second is right.
+   What IS wrong in the deployment, marked DEPLOYED DEFECT below:
+
+     1. `Sync Project Row` writes `last_build_at` from `completedAt`, which
+        `Assemble Build Result` stamps when the CHAT is answered — before a
+        token of the page exists. The workspace reads that field as "a page
+        landed", so every build grows a newer stamp about three seconds after
+        send. See the note on that node.
      2. Several `notes` on live nodes still describe the deleted classifier.
 
    The shape, in one line: the app decides everything, this workflow answers the
@@ -320,6 +331,19 @@ const assembleBuildResult = node({
    WORKFLOW CHARGES CREDITS. Billing happens in the app, in
    /api/builder/webapp/save, priced from the document that arrives there. A
    build that never reaches save is never billed.
+
+   DEPLOYED DEFECT — reproduced, not corrected.
+   `last_build_at` is written from `completedAt`, and `completedAt` is stamped
+   in Assemble Build Result, which runs when the CHAT is answered. Generation
+   has not started at that point, so this writes "a page landed at" three
+   seconds after somebody pressed send, every time. The workspace polls that
+   field to know when its preview is ready: it saw the new stamp, found no page
+   under it, said "this one's taking a while" and stopped watching — so the page
+   arrived minutes later with nothing left to notice it, and it took a reload to
+   appear. The app now requires the row to have stopped saying "Building" as
+   well, which makes it immune; the field itself is still wrong. Remove
+   last_build_at from this node's field list and let the two steps that know a
+   run ended write it: the save route on success, Flag Build Failure on failure.
 
    onError continues: the chat is answered from Assemble Build Result, not from
    this node, so a Supabase failure must not swallow the reply. */
@@ -728,17 +752,12 @@ export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai — Buil
   /* Everything past the response runs with nobody waiting on it. */
   .to(ifPageIsToBeBuilt)
   .add(ifPageIsToBeBuilt.output(0).to(routeByProvider))
-  /* DEPLOYED DEFECT — reproduced, not corrected.
-     Claude's success output fans out to TWO nodes: Collect Generation (right)
-     and Save Page (wrong). The direct edge hands Save Page the raw Anthropic
-     response, which has no `html` field, so that call posts html: undefined,
-     is refused by the save route, and takes its error output to Flag Build
-     Failure — marking the project Failed even when the real path through
-     Extract Page succeeded moments later. OpenAI and Gemini do not have this
-     second edge. Delete the Generate With Claude → Save Page connection in
-     n8n; nothing else needs to change. */
+  /* One success edge, like the other two providers. An earlier version of this
+     file described a second one straight to Save Page, which would have handed
+     it the raw Anthropic response with no `html` field in it; the canvas does
+     not have that edge and, on the evidence of the executions, has not had it
+     for some time. */
   .add(routeByProvider.output(0).to(generateWithClaude))
-  .add(generateWithClaude.output(0).to(savePage))
   .add(generateWithClaude.output(0).to(collectGeneration.input(0)))
   .add(generateWithClaude.output(1).to(flagBuildFailure))
   .add(routeByProvider.output(1).to(generateWithOpenAi))
