@@ -538,6 +538,26 @@ export default function ChatPanel({
     };
   }
 
+  /* Why a build failed, in the words of whatever failed it.
+   *
+   * /api/builder/webapp/save writes a build_failed message as it refuses a
+   * document — unfinished, too large, unstorable — and that message is the only
+   * account of the reason anywhere: the project row holds a status and nothing
+   * more. Read back rather than polled for, once, at the moment the wait ends.
+   *
+   * Bounded to this run, with a minute of slack: the timestamp comes from the
+   * database's clock and the start from this machine's, and a failure from last
+   * week's build is not an explanation of this one.
+   */
+  async function storedFailure(projectId: string, runStarted: number): Promise<string | null> {
+    const thread = await loadThread(projectId);
+    for (let index = thread.length - 1; index >= 0; index -= 1) {
+      const message = thread[index];
+      if (message.kind === "build_failed" && message.at >= runStarted - 60_000) return message.text;
+    }
+    return null;
+  }
+
   /* The wait for a page that is being generated somewhere else.
    *
    * Shared by the two ways of arriving at one: sending a message, and opening a
@@ -627,12 +647,28 @@ export default function ChatPanel({
       phases.set({ id: "generate", label: "The build did not finish", state: "done" });
       /* The build came back and said so. Generation happens after the reply,
          so a failure there cannot travel in the response — it is written to
-         the row instead, which is the same row this was waiting on. */
-      say({
-        from: "system",
-        text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
-        tone: "error",
-      });
+         the row instead, which is the same row this was waiting on.
+
+         The row carries a status and nothing else, so the sentence below is a
+         guess at why, worded to cover the likeliest reason. Where the save step
+         knew the actual reason it wrote it into the thread as it failed — that
+         one is read back and said instead, because "the page came out longer
+         than one build allows" is something a person can act on and "it didn't
+         finish" is not. */
+      const reason = await storedFailure(project.id, runStarted);
+      say(
+        {
+          from: "system",
+          text:
+            reason ??
+            "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
+          tone: "error",
+        },
+        undefined,
+        /* Already in the table when it came from there; saying it again would
+           put it in the thread twice. */
+        reason ? "server" : "panel",
+      );
     } else {
       /* Left running rather than ticked: the wait gave up, the build did
          not. Marking it done would say this panel knows an outcome it does
