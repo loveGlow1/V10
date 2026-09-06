@@ -23,7 +23,9 @@ import {
   EditError,
   answerQuestion,
   askClarifying,
+  editModelFor,
   editPage,
+  maxEditPromptChars,
   type OnProgress,
 } from "@/lib/builder/edit";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
@@ -143,19 +145,6 @@ function editUsage(applied: number): { filesTouched: number } {
  * ceiling that used to do this job did it by refusing, which is the crudest
  * form of pricing and the one that also refuses the legitimate case. */
 const MAX_PROMPT = 600_000;
-
-/* The same brief, when it will be sent to the EDIT model along with the page.
- *
- * Edits run on Haiku, whose context is 200K rather than a million, and an edit
- * request carries the entire current page as well as the instruction. A page is
- * routinely tens of thousands of tokens, so the brief cannot have the room a
- * build's brief has — and hitting the real ceiling means a 400 from the API
- * rather than a sentence anybody can act on.
- *
- * Eighty thousand characters is about twenty thousand tokens, which leaves the
- * page the rest of the window with margin. Far past any instruction somebody
- * types at a page that already exists, and short of the wall. */
-const MAX_EDIT_PROMPT = 80_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
    balance is that — but a brake on a loop or a stolen session draining an
@@ -463,6 +452,17 @@ async function handle(
     .maybeSingle();
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
+
+  /* Which model handles this message, decided once and used everywhere: the
+     call, the step list, the prompt ceiling and the charge. Deciding it in each
+     of those places separately is how a step line comes to name a model that
+     did not do the work, or a charge comes to be at the wrong rate.
+   *
+   * Both inputs matter, which is why it cannot be decided from the message
+   * alone — a one-line change to a very large page still sends the whole page.
+   * With no page there is nothing to edit and nothing to ask about, so the
+   * value is unused; EDIT_MODEL is the harmless default. */
+  const editModel = currentHtml ? editModelFor(prompt, currentHtml) : EDIT_MODEL;
 
   steps.mark(
     "page",
@@ -794,8 +794,9 @@ async function handle(
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
-      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("clarify", "Working out what to ask you", `${editModel} is reading the page…`);
       const question = await askClarifying(
+        editModel,
         prompt,
         currentHtml,
         await attachmentBlocks(attachments),
@@ -805,7 +806,7 @@ async function handle(
       steps.mark(
         "clarify",
         "Wrote one question back",
-        `${EDIT_MODEL}, ${question.outputTokens} output tokens`,
+        `${editModel}, ${question.outputTokens} output tokens`,
       );
 
       /* Stored before it is billed. A question that never reached anyone is
@@ -819,7 +820,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: EDIT_MODEL, prompt }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel, prompt }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -859,8 +860,9 @@ async function handle(
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
+      steps.begin("answer", "Looking through the page for your answer", `${editModel} is reading it now…`);
       const answer = await answerQuestion(
+        editModel,
         prompt,
         currentHtml,
         await attachmentBlocks(attachments),
@@ -870,7 +872,7 @@ async function handle(
       steps.mark(
         "answer",
         "Answered from the page",
-        `${EDIT_MODEL}, ${answer.outputTokens} output tokens`,
+        `${editModel}, ${answer.outputTokens} output tokens`,
       );
 
       const delivered = await deliver(answer.text, { key: "answer" });
@@ -883,7 +885,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL, prompt }),
+          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel, prompt }),
           description: `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
@@ -957,8 +959,15 @@ async function handle(
        message is known to be an edit: a build's brief may be seven times this
        long, and refusing it on the edit model's window would be refusing it for
        a reason that does not apply. Said as a sentence with the next step in
-       it, rather than as a limit. */
-    if (prompt.length > MAX_EDIT_PROMPT) {
+       it, rather than as a limit.
+
+       And the window is the one the CHOSEN model has — see maxEditPromptChars.
+       This used to be a single number sized for Haiku's 200K, which was right
+       while Haiku took every edit and wrong the moment a long brief started
+       going to Sonnet instead: it would have refused, on a window's behalf, a
+       brief that was long enough to be routed away from that window in the
+       first place. */
+    if (prompt.length > maxEditPromptChars(editModel)) {
       const said =
         `That's a lot to change in one message — it goes to the page along with everything already on it, ` +
         `and together they're past what I can read at once. Ask for it a section at a time and each part will land.`;
@@ -974,8 +983,9 @@ async function handle(
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      steps.begin("edit", "Making the change", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
+        editModel,
         prompt,
         currentHtml,
         await attachmentBlocks(attachments),
@@ -989,7 +999,7 @@ async function handle(
           : edited.failures.length > 0
             ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
             : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
-        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}${
+        `${editModel}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}${
           edited.ranOutOfTime ? ", stopped at the time limit" : ""
         }`,
       );
@@ -1061,7 +1071,7 @@ async function handle(
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL, prompt }),
+      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: editModel, prompt }),
       description: `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,

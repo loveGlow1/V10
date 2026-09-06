@@ -36,12 +36,71 @@ import {
  * on that reasoning, which is an odd setting to pair with the most expensive
  * model in the range.
  *
- * NOTE: this is still a constant, so the composer's model picker does not reach
- * it — pick Opus for a build and the edits afterwards are Sonnet. Threading the
- * choice through is a real change (this module's signatures, three call sites
- * in api/build/route.ts, and the step labels that name the model) and is worth
- * doing; it is not done here. */
+ * NOTE: the composer's model picker still does not reach this — pick Opus for a
+ * build and the edits afterwards are chosen here, not there. What IS chosen
+ * here is which of two: see editModelFor. */
 export const EDIT_MODEL = "claude-haiku-4-5";
+
+/* The model a change goes to when it is not a small one.
+ *
+ * Haiku is the right answer for what most edits are — "make the header darker",
+ * "change the footer year" — and the wrong answer twice over for anything
+ * larger. Its context is 200K against Sonnet's million, and an edit carries the
+ * whole page as well as the instruction, so a long brief against a real page
+ * runs out of room before it runs out of work. And a change described in
+ * several paragraphs is a change that needs holding in mind while it is made,
+ * which is the thing the cheaper model is cheaper at not doing. */
+export const COMPLEX_EDIT_MODEL = "claude-sonnet-5";
+
+/* Where "small" stops.
+ *
+ * Three hundred words, matching the free brief allowance in credits.ts — not
+ * for tidiness but because they measure the same thing from two directions.
+ * Under it is somebody naming a change; over it is somebody specifying one, and
+ * a specification is exactly what Haiku should not be holding in a 200K window
+ * alongside the page it applies to. */
+const SIMPLE_EDIT_WORDS = 300;
+
+/* And where a PAGE stops being small, whatever the instruction says.
+ *
+ * A one-line change to a very large page still sends the whole page. At roughly
+ * four characters per token, 400,000 characters is about 100,000 tokens — half
+ * of Haiku's window before the instruction, the reasoning or the reply are
+ * counted. Past this the size of the page decides, not the size of the ask. */
+const SIMPLE_EDIT_PAGE_CHARS = 400_000;
+
+/**
+ * Which model makes this change.
+ *
+ * Haiku only for the genuinely simple: a short instruction against a page that
+ * fits it comfortably. Everything else goes to Sonnet, and the bias is
+ * deliberate — routing a large edit to the cheaper model does not save the
+ * money, it spends it on an edit that half-lands and a person asking again.
+ */
+export function editModelFor(prompt: string, html: string): string {
+  const words = prompt.trim().split(/\s+/).filter(Boolean).length;
+  if (words > SIMPLE_EDIT_WORDS) return COMPLEX_EDIT_MODEL;
+  if (html.length > SIMPLE_EDIT_PAGE_CHARS) return COMPLEX_EDIT_MODEL;
+  return EDIT_MODEL;
+}
+
+/* How long an instruction may be, for the model it is going to.
+ *
+ * An edit sends the whole page as well as the brief, so the brief cannot have
+ * the room a build's brief has — and hitting the real ceiling is a 400 from the
+ * API rather than a sentence anybody can act on.
+ *
+ * Haiku's 200K window makes 80,000 characters (about 20,000 tokens) the sane
+ * stop, leaving the page the rest with margin. Sonnet's is a million, so the
+ * only ceiling that still means anything there is the one the route already
+ * applies to every brief — see MAX_PROMPT in api/build/route.ts. Note that a
+ * brief long enough for the Haiku number to bind is thousands of words, so it
+ * has already been routed to Sonnet by the time it gets here; the small ceiling
+ * exists for correctness, not because it is reached.
+ */
+export function maxEditPromptChars(model: string): number {
+  return model === EDIT_MODEL ? 80_000 : 600_000;
+}
 
 export class EditError extends Error {
   constructor(
@@ -148,6 +207,10 @@ export function lastSentence(text: string): string | null {
 }
 
 async function ask(
+  /* Which model answers. Chosen per call rather than fixed here — see
+     editModelFor: a short instruction against a small page goes to Haiku, and
+     anything larger goes to Sonnet, whose window can hold it. */
+  model: string,
   system: string,
   prompt: string,
   maxTokens: number,
@@ -178,7 +241,7 @@ async function ask(
        final message is still what the caller gets, so nothing downstream
        changes shape. */
     const stream = client().messages.stream({
-      model: modelById(EDIT_MODEL).apiId ?? EDIT_MODEL,
+      model: modelById(model).apiId ?? model,
       max_tokens: maxTokens,
       /* Sent only to a model that takes them. Haiku 4.5 predates both fields
          and answers `output_config.effort` with a 400 rather than ignoring it,
@@ -191,10 +254,19 @@ async function ask(
          reasoning readable at all — the default omits it, and the raw chain of
          thought is never returned by any model.
 
+         Low stays low on the complex path too, which looks like the wrong
+         instinct and is not. Sonnet is chosen there for its window — a long
+         brief and a large page have to fit somewhere — rather than for more
+         deliberation, and the binding constraint on this call is the wall
+         clock: EDIT_DEADLINE_MS below, against a serverless ceiling that a
+         full-page restyle genuinely reaches. Raising effort would spend that
+         budget on thinking instead of on blocks, and the observed failure is
+         already an edit that ran out of time having written six of them.
+
          With reasoning off there is simply no thinking to narrate, and the
          progress handler below renders an empty string for it, which is the
          correct thing to show for a model that does not think out loud. */
-      ...(modelById(EDIT_MODEL).reasoning === "none"
+      ...(modelById(model).reasoning === "none"
         ? {}
         : {
             thinking: { type: "adaptive" as const, display: "summarized" as const },
@@ -294,7 +366,7 @@ async function ask(
             id: "partial",
             type: "message",
             role: "assistant",
-            model: EDIT_MODEL,
+            model,
             content: [{ type: "text", text: written, citations: null }],
             stop_reason: "max_tokens",
             stop_sequence: null,
@@ -354,6 +426,10 @@ export type EditOutcome = {
  * could be applied — and in that case the page is left exactly as it was.
  */
 export async function editPage(
+  /* Chosen by the caller with editModelFor, and passed rather than recomputed:
+     the route names this model in the step list and bills on its rate, so there
+     must be exactly one answer to which model made the change. */
+  model: string,
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
@@ -361,6 +437,7 @@ export async function editPage(
   onProgress?: OnProgress,
 ): Promise<EditOutcome> {
   const { message: first, ranOutOfTime } = await ask(
+    model,
     EDIT_SYSTEM,
     editPrompt(userMessage, html),
     8_000,
@@ -406,6 +483,7 @@ export async function editPage(
     onProgress?.({ kind: "reasoning", text: "That didn't place cleanly. Looking at the page again…" });
 
     const { message: second } = await ask(
+      model,
       EDIT_SYSTEM,
       retryPrompt(userMessage, html, reason),
       8_000,
@@ -447,6 +525,7 @@ export async function editPage(
 
 /** Asks one question back, for a message with nothing in it to act on. */
 export async function askClarifying(
+  model: string,
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
@@ -456,6 +535,7 @@ export async function askClarifying(
   /* 300 tokens and low effort: this is one sentence, and it is on the path of
      someone who has already waited once for the classifier. */
   const { message } = await ask(
+    model,
     CLARIFY_SYSTEM,
     clarifyPrompt(userMessage, html),
     300,
@@ -484,6 +564,7 @@ export type Answer = {
 
 /** Answers a question about a page. Changes nothing about the page. */
 export async function answerQuestion(
+  model: string,
   userMessage: string,
   html: string,
   attachments: Anthropic.ContentBlockParam[] = [],
@@ -491,6 +572,7 @@ export async function answerQuestion(
   onProgress?: OnProgress,
 ): Promise<Answer> {
   const { message } = await ask(
+    model,
     QUESTION_SYSTEM,
     questionPrompt(userMessage, html),
     1_500,
