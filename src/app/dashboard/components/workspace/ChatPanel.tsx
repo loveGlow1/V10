@@ -36,6 +36,9 @@ import {
 import { useCredits } from "../../useCredits";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
+/* The same naming Home uses when a sentence becomes an app, so an app started
+   from in here is named the way an app started out there is. */
+import { nameFromPrompt } from "../../projectName";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
@@ -754,6 +757,55 @@ export default function ChatPanel({
     }
   }
 
+  /* Somewhere else to build, rather than over the top of this.
+   *
+   * "New project" used to mean this project, with its page replaced and the
+   * conversation carrying on underneath — a new app in an old chat, next to the
+   * messages about the app it had just written over. There was a confirmation
+   * in front of it because it destroyed something, which is the tell: the only
+   * reason to ask was that the answer could not be undone.
+   *
+   * A new project is a new conversation. It gets its own row, its own thread and
+   * its own address, the current page is left exactly where it is, and there is
+   * nothing to confirm because nothing is lost. The prompt rides in the URL the
+   * way it does from Home, so the new workspace opens and sends it — see
+   * initialPrompt.
+   */
+  const startingProject = useRef(false);
+
+  async function startNewProject(text: string) {
+    if (!text.trim() || startingProject.current) return;
+    startingProject.current = true;
+
+    /* Attachments belong to the project they were uploaded against — the server
+       matches both ids before it reads a byte — so they cannot follow the
+       message into a different one. Said plainly rather than dropped: a
+       screenshot that quietly did not arrive is a build that ignored it for no
+       reason anybody can see. */
+    if (attached.length > 0) {
+      say({
+        from: "system",
+        text: `Starting a new app. ${attached.length === 1 ? "The file you attached stays" : "The files you attached stay"} with this one — attach ${attached.length === 1 ? "it" : "them"} again over there.`,
+      }, undefined, "session");
+    }
+
+    const created = await create(nameFromPrompt(text));
+    if (!created) {
+      startingProject.current = false;
+      say({
+        from: "system",
+        text: "I couldn't open a new app just now. Nothing here has changed — try again in a moment.",
+        tone: "error",
+      });
+      return;
+    }
+
+    /* Deliberately still held: the push takes this panel off screen, and
+       releasing the guard in the gap before it lands is the window a second
+       press slips through. */
+    router.push(`/dashboard/project/${created.id}?prompt=${encodeURIComponent(text)}`);
+  }
+
   async function send(
     prompt?: string,
     options: {
@@ -773,6 +825,26 @@ export default function ChatPanel({
        a resend behind a confirmation cannot slip past them into a spinner. The
        server refuses it too — this only saves the round trip. */
     if (paused) return;
+
+    /* Asked for outright, by the chip. It never reaches the server as a message
+       about THIS project, because it is not one — see startNewProject. */
+    if ((options.intentOverride ?? mode) === "new_project" && !options.silent) {
+      /* A file on its own can start a change here, and cannot start an app
+         elsewhere: the attachment belongs to this project and does not follow
+         the message out of it. So this is the one send that still needs words,
+         and it says so instead of quietly doing nothing. */
+      if (!text) {
+        say({
+          from: "system",
+          text: "Say what the new app should be. A file on its own can't start one — it stays with this app.",
+        }, undefined, "session");
+        return;
+      }
+      if (prompt === undefined) setDraft("");
+      await startNewProject(text);
+      return;
+    }
+
     sentHere.current = true;
 
     /* One controller for the whole run — the request and the wait that follows
@@ -1559,9 +1631,14 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* The one question worth interrupting for. Nothing has happened yet,
-            and neither button is the quiet default: replacing a page someone
-            paid for is not something to fall into by pressing return. */}
+        {/* Which app this message is about — not what to destroy.
+         *
+            This used to offer "Replace this page", in the danger colour,
+            because that is what it did. Now the first answer opens a new app
+            and leaves this one alone, so nothing here is irreversible and
+            neither button needs a warning on it. The question survives because
+            it is still a real fork: the same sentence can mean "change this" or
+            "build me a different thing", and only the person knows which. */}
         {pendingConfirm && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
             <button
@@ -1570,11 +1647,11 @@ export default function ChatPanel({
                 const { text } = pendingConfirm;
                 setPendingConfirm(null);
                 setMode("auto");
-                void send(text, { confirmNewProject: true, intentOverride: "new_project", silent: true });
+                void startNewProject(text);
               }}
-              className="rounded-md border border-danger/40 px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+              className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
             >
-              Replace this page
+              Build it as a new app
             </button>
             <button
               type="button"
