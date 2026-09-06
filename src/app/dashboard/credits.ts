@@ -395,11 +395,6 @@ export type UsageSignal = {
   outputTokens?: number;
   /** Files the turn created, edited or deleted. */
   filesTouched?: number;
-  /* The brief the person wrote, when there is one to price. Its first three
-     hundred words are free; see promptCredits. Absent means nothing to add,
-     which is the right answer for a turn nobody typed — a resumed build, a
-     redeploy. */
-  prompt?: string;
   /**
    * Which model did the work, as a picker id.
    *
@@ -437,47 +432,9 @@ export type UsageSignal = {
    work — it is what separates a one-patch edit from a twelve-section build, and
    at 0.25 the two ended up close enough that a whole generated page priced
    like a typo fix. */
-/* How much of a brief is free, and what the rest costs.
- *
- * The ceiling used to be four thousand characters — about six hundred words —
- * which is a paragraph, and briefs are not paragraphs. Somebody describing a
- * real product writes pages: the sections, the copy, the brand, the rules. That
- * ceiling turned a specification into a summary before the model ever saw it.
- *
- * Raising it needs pricing, because of the clamp below. A build's cost is
- * clamped to the action's band BEFORE the model multiplier, so today a hundred
- * thousand words and twenty words are charged identically — every long brief is
- * free input paid for by the house. That is fine at four thousand characters
- * and untenable at six hundred thousand.
- *
- * Three hundred words free covers every ordinary request; nobody writing "make
- * me a landing page for my gym, dark, with a booking form" pays a penny more
- * than they do now. Above it, a credit per five thousand words — legible
- * arithmetic somebody can predict, and roughly the margin the rest of this
- * table carries: five thousand words is about seven thousand input tokens,
- * which is fractions of a cent at Sonnet's rate and correspondingly more on
- * Fable, which is what the model multiplier is for. */
-export const FREE_PROMPT_WORDS = 300;
-const PROMPT_WORDS_PER_CREDIT = 5_000;
-
 /** Words in a brief, counted the way a person would count them. */
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-/**
- * What a brief costs beyond its free allowance, before the model multiplier.
- *
- * Zero for anything under the allowance, which is almost everything. Added
- * AFTER the clamp rather than inside it, and that is the whole point: the band
- * describes the model's TURN — how much it wrote, how many files it reached —
- * and a long brief is not the model's turn, it is what the person supplied. A
- * charge folded inside the clamp would be swallowed by a ceiling that was never
- * about input.
- */
-export function promptCredits(prompt: string): number {
-  const over = countWords(prompt) - FREE_PROMPT_WORDS;
-  return over <= 0 ? 0 : roundCredits(over / PROMPT_WORDS_PER_CREDIT);
 }
 
 const CHAT_TOKENS_PER_CREDIT = 900;
@@ -487,6 +444,70 @@ const GENERATE_CREDITS_PER_FILE = 0.6;
 /** Credits carry two decimals, the same precision the balance is displayed in. */
 export function roundCredits(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/* ── What a long brief costs ───────────────────────────────────────────────
+ *
+ * Two kinds of text reach the builder with a message: the words somebody typed
+ * or pasted into the composer, and the conversation carried behind it — the
+ * description a "rebuild" continues, or the recent turns an edit is an edit to.
+ * MAX_CONTEXT_WORDS in builder/brief.ts caps each of those at 1,000 words. The
+ * first 300 are part of the price of the turn; past that they are charged for.
+ *
+ * WORDS, not characters, and the unit is the point. Somebody pasting a brief
+ * knows roughly how many words it is, has a word count in whatever they wrote
+ * it in, and cannot be expected to convert. A price nobody can predict before
+ * they pay it reads as a price that was made up afterwards.
+ *
+ * Be honest about what this is. 700 extra words is about 900 input tokens — a
+ * fifth of a US cent, against a build that costs about a dollar of model time.
+ * This does not recover a cost, because there is no cost here worth recovering.
+ * It is a price on a feature: a builder that takes a long brief and remembers a
+ * long way back is worth something, and this is what it is worth. Anyone
+ * changing these numbers should know they are setting a price rather than
+ * tracking an expense.
+ *
+ * Per message rather than per request, matching the ceiling it sits under: the
+ * message somebody sent and each earlier one carried with it get their own 300
+ * free. An edit sends up to MAX_TURNS of the latter.
+ */
+export const FREE_CONTEXT_WORDS = 300;
+export const CONTEXT_CREDITS_PER_100_WORDS = 0.1;
+
+/* And a ceiling on the whole surcharge, which the rate above needs and does not
+   contain on its own.
+ *
+ * 0.1 per 100 words reads as small — seven tenths of a credit for a full
+ * thousand-word brief. But it is charged per message, and an edit carries up to
+ * six earlier ones as well as its own, so the arithmetic nobody does in their
+ * head runs to several credits: more than the edit it rides on, for a long
+ * brief and a long memory.
+ *
+ * That is not a surcharge, it is a second price. One credit is the most the
+ * text on any single turn can add, and under it the per-100 rate applies
+ * exactly as written. check:credits holds this to less than half a build. */
+export const MAX_CONTEXT_SURCHARGE = 1;
+
+/**
+ * The surcharge for a turn, given the word count of each piece of text it
+ * carried — the message itself, and any earlier ones sent with it.
+ *
+ * Takes counts rather than the text so that nothing about what somebody wrote
+ * reaches the pricing: this file decides money, and it should not be able to
+ * read a brief to do it.
+ */
+export function contextSurcharge(wordCounts: readonly number[]): number {
+  const chargeable = wordCounts.reduce(
+    (total, words) => total + Math.max(0, Math.trunc(words) - FREE_CONTEXT_WORDS),
+    0,
+  );
+  /* Rounded to the two decimals a balance is kept in, which also means a
+     message a few characters over its allowance rounds to nothing rather than
+     to a charge somebody would have to squint at. */
+  return Math.min(
+    MAX_CONTEXT_SURCHARGE,
+    roundCredits((chargeable / 100) * CONTEXT_CREDITS_PER_100_WORDS),
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -534,8 +555,9 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     /* A short answer sits at the floor; a long one reaches the band's ceiling.
        Troubleshooting a build should not feel metered — though asking Fable
        about it costs what asking Fable costs. */
-    const base = clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max);
-    return roundCredits((base + promptCredits(signal.prompt ?? "")) * rate);
+    return roundCredits(
+      clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max) * rate,
+    );
   }
 
   /* Generation starts at the floor — any edit is worth something — and grows
@@ -545,12 +567,13 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     outputTokens / GENERATE_TOKENS_PER_CREDIT +
     filesTouched * GENERATE_CREDITS_PER_FILE;
 
-  /* The brief's own cost rides outside the clamp. Inside it, a hundred thousand
-     words would price exactly as twenty do — the ceiling is a statement about
-     the model's turn, and the turn is not what got longer. */
-  return roundCredits(
-    (clamp(roundCredits(cost), spec.min, spec.max) + promptCredits(signal.prompt ?? "")) * rate,
-  );
+  /* What the brief itself costs is NOT added here, and deliberately: it would
+     have to ride outside this clamp — a band describing the model's turn cannot
+     also price what the person supplied — and it is charged outside this
+     function entirely, by contextSurcharge, which prices the carried
+     conversation on the same terms and in one place. Two allowances counting
+     the same words is a bill nobody can reconcile. */
+  return roundCredits(clamp(roundCredits(cost), spec.min, spec.max) * rate);
 }
 
 /* ── The balance ───────────────────────────────────────────────────────────

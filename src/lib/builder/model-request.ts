@@ -102,11 +102,28 @@ export function generationRequest(
 
        Adaptive rather than a fixed budget, where it applies: a one-section edit
        and an eleven-section storefront are the same call with very different
-       amounts of thinking worth doing. */
+       amounts of thinking worth doing.
+
+       Effort is "medium" here, and that is about page SIZE rather than about
+       thinking being unwelcome.
+     *
+       Reasoning is billed and counted as output, so it comes out of the same
+       max_tokens the document does — the two share one budget. On 2026-09-06 a
+       landing page generated 32,000 tokens in five minutes and arrived without
+       its closing tag: the ceiling was spent, and a large share of it went on
+       deliberation rather than on the page. The person asking had described
+       six sections and got an unfinished document and no explanation beyond
+       "too long".
+     *
+       At "high" the model is thorough before it writes. At "medium" it is
+       still deliberate and the page gets a materially larger share of the
+       budget — which is what somebody who has just been told their build does
+       not fit actually wants. It is one word, and "high" is the thing to try
+       first if generated pages start looking less considered. */
     const reasoning =
       model.reasoning === "none"
         ? {}
-        : { thinking: { type: "adaptive" }, output_config: { effort: "high" } };
+        : { thinking: { type: "adaptive" }, output_config: { effort: "medium" } };
 
     return {
       provider: "claude",

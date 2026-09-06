@@ -22,7 +22,42 @@ import type Anthropic from "@anthropic-ai/sdk";
  * is nothing to carry, the message is passed through exactly as typed, which is
  * what every message did before this file existed. */
 
-export type Turn = { from: string; text: string };
+export type Turn = {
+  from: string;
+  text: string;
+  /* What the panel drew this row as, and — see conversational() — what decides
+     whether a model is allowed to see it at all. Optional because two callers
+     read this thread for other purposes and do not select them. */
+  tone?: string | null;
+  kind?: string | null;
+};
+
+/* Whether a row is something SAID, or something the app reported.
+ *
+ * This is the difference between a conversation and a log, and getting it wrong
+ * cost somebody an evening. Every reply the builder writes lands in the same
+ * table — the answers a model wrote, and also "Your build is underway", "I
+ * couldn't use that file", and "I couldn't place that change in the page, so
+ * I've left it exactly as it was."
+ *
+ * Those last ones are the app reporting a fault. Replayed into a model call as
+ * assistant turns they stop being a report and become an EXAMPLE: the model is
+ * shown its own supposed refusals, twice, immediately before being asked the
+ * same question a third time — and it does the consistent thing. So one failed
+ * edit made the next more likely to fail, which made the next more likely
+ * still, and no amount of rephrasing got out of it. The person sending the
+ * messages had no way to see any of that; from the outside the builder had
+ * simply stopped being able to edit their page.
+ *
+ * A person's own messages are always kept: "it", "that" and "too" refer to
+ * them, which is the entire reason this history is sent. What is dropped is the
+ * builder's side when it was not an answer — anything the panel drew as an
+ * error, and anything that was a status notice rather than a chat reply. */
+export function conversational(turn: Turn): boolean {
+  if (turn.from === "you") return true;
+  if (turn.tone === "error") return false;
+  return !turn.kind || turn.kind === "chat";
+}
 
 /* Messages that ask for the last thing again, or say yes to it, and describe
    nothing themselves. Anchored at both ends: "go" is a continuation, "go with a
@@ -34,9 +69,64 @@ const CONTINUATION =
    never decides. It is only used to pick which earlier message to carry. */
 const SUBSTANTIVE = 24;
 
+/**
+ * How much of one earlier message travels into a model call.
+ *
+ * One number for both ways a message can reach the builder, because from the
+ * outside they are the same promise. A brand new page carries the description
+ * it continues from (see the carriedFrom line in blueprints/index.ts, which
+ * imports this); an edit carries the conversation it is an edit to, through
+ * priorTurns below. Those were 400 and 700, set months apart, and nothing said
+ * why they differed — so "how much does it remember?" had two answers depending
+ * on a distinction nobody typing into the box can see.
+ *
+ * Counted in WORDS, and that is not a cosmetic choice. It was 1,000 characters,
+ * which is about 170 words — so somebody who pasted a a thousand-word brief and
+ * then typed "rebuild" had six sevenths of their own description dropped before
+ * the model saw it. A person writing into a box thinks in words; a limit
+ * expressed in anything else is a limit they cannot predict.
+ *
+ * Enough to hold a pasted brief in full; not so much that six of them crowd out
+ * the page they are about. An edit sends up to MAX_TURNS of these.
+ */
+export const MAX_CONTEXT_WORDS = 1000;
+
+/** How many words a piece of text is, counting a word as a run of non-space. */
+export function countWords(text: string): number {
+  return (text.trim().match(/\S+/g) ?? []).length;
+}
+
+/**
+ * The first `max` words of `text`, cut on a word boundary.
+ *
+ * Slices the original string rather than rejoining the words, so paragraphs,
+ * line breaks and the shape somebody gave their brief survive the trim. A brief
+ * flattened to one long line reads to the model as a different brief.
+ */
+export function trimToWords(text: string, max: number): string {
+  if (max <= 0) return "";
+
+  const words = /\S+/g;
+  let count = 0;
+  let end = -1;
+
+  for (let match = words.exec(text); match; match = words.exec(text)) {
+    count += 1;
+    if (count === max) end = match.index + match[0].length;
+    if (count > max) return text.slice(0, end);
+  }
+
+  return text;
+}
+/* How many turns of context to send. Three exchanges is what "it", "that" and
+   "too" ever refer to in practice. */
+const MAX_TURNS = 6;
+
 /* A cap on what travels to the orchestrator, so a long thread cannot push an
-   unbounded payload through a webhook. */
-const MAX_BRIEF = 4000;
+   unbounded payload through a webhook. Two full descriptions' worth in words:
+   a composed brief is a carried description plus the message that continues
+   it, and both halves are allowed to be as long as a person may paste. */
+const MAX_BRIEF_WORDS = 2 * MAX_CONTEXT_WORDS;
 
 /** Whether a message describes nothing and only asks for the last thing again. */
 export function isContinuation(message: string): boolean {
@@ -75,16 +165,35 @@ export function carryBrief(message: string, history: Turn[]): Brief {
   /* The description first, because that is the brief; the word they typed after
      it, because "rebuild" and "try again" are not the same instruction and the
      difference belongs to them, not to us. */
-  const composed = `${carried}\n\n(Follow-up instruction: ${text})`;
-  return { text: composed.slice(0, MAX_BRIEF), carried };
+  const composed = `${carried}${FOLLOW_UP}${text})`;
+  return { text: trimToWords(composed, MAX_BRIEF_WORDS), carried };
 }
 
-/* How much of one earlier message is worth carrying into a model call. Enough
-   to hold an instruction; not so much that six of them crowd out the page. */
-const MAX_TURN = 700;
-/* How many turns of context to send. Three exchanges is what "it", "that" and
-   "too" ever refer to in practice. */
-const MAX_TURNS = 6;
+/* The seam between the two halves of a composed brief. A constant rather than a
+   literal because carriedContextLength below reads it back out, and a joiner
+   that only one of the two knows about is a parser that breaks silently. */
+const FOLLOW_UP = "\n\n(Follow-up instruction: ";
+
+/**
+ * How much carried context a composed brief is carrying, priced.
+ *
+ * A full build is charged where its page lands — in /api/builder/webapp/save,
+ * minutes later and one HTTP hop away — and the only thing that survives that
+ * journey is the brief itself. This reads the carried half back out of it, so
+ * the context can be priced there without another field having to travel
+ * through the orchestrator and back.
+ *
+ * Capped at MAX_CONTEXT because that is what the model was actually shown: the
+ * carried description reaches the prompt through the projectContext line, which
+ * trims it to exactly that. Charging on the untrimmed length would bill for
+ * words nothing read.
+ *
+ * Zero for a brief nobody continued, which is almost all of them.
+ */
+export function carriedContextWords(composed: string): number {
+  const seam = composed.indexOf(FOLLOW_UP);
+  return seam < 0 ? 0 : Math.min(countWords(composed.slice(0, seam)), MAX_CONTEXT_WORDS);
+}
 
 /**
  * The conversation so far, in the shape the Messages API takes.
@@ -100,8 +209,12 @@ const MAX_TURNS = 6;
 export function priorTurns(history: Turn[]): Anthropic.MessageParam[] {
   const turns: Anthropic.MessageParam[] = [];
 
-  for (const turn of history.slice(-MAX_TURNS)) {
-    const text = turn.text.trim().slice(0, MAX_TURN);
+  /* Filtered BEFORE the last six are taken, so a run of failures cannot push
+     the messages that actually matter out of the window. Six errors in a row is
+     exactly the state this is for, and taking the last six first would leave
+     nothing behind after the filter. */
+  for (const turn of history.filter(conversational).slice(-MAX_TURNS)) {
+    const text = trimToWords(turn.text.trim(), MAX_CONTEXT_WORDS);
     if (!text) continue;
 
     const role: "user" | "assistant" = turn.from === "you" ? "user" : "assistant";

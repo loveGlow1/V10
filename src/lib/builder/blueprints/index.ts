@@ -5,6 +5,10 @@ import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
 import { news } from "@/lib/builder/blueprints/news";
 import { webapp } from "@/lib/builder/blueprints/webapp";
+/* The same ceiling an edit's conversation is trimmed to, in the same unit. One
+   number, because a new page and an edit make the same promise about what is
+   remembered — and words, because that is what the person pasting has. */
+import { MAX_CONTEXT_WORDS, trimToWords } from "@/lib/builder/brief";
 import { manifestForPrompt } from "@/lib/builder/assets/asset-resolver";
 import type { AssetManifest } from "@/lib/builder/assets/asset-types";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
@@ -94,7 +98,10 @@ function projectContext(context: ProjectContext): string {
   }
   if (context.carriedFrom?.trim()) {
     lines.push(
-      `- This continues an earlier description in the same conversation: "${context.carriedFrom.trim().slice(0, 400)}". The brief above is what to build; this is what it refers back to.`,
+      `- This continues an earlier description in the same conversation: "${trimToWords(
+        context.carriedFrom.trim(),
+        MAX_CONTEXT_WORDS,
+      )}". The brief above is what to build; this is what it refers back to.`,
     );
   }
   if (context.imageCount && context.imageCount > 0) {

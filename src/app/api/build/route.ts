@@ -7,7 +7,9 @@ import {
   buildDoorFor,
   canAfford,
   cannotAffordBuildMessage,
+  contextSurcharge,
   creditCostOf,
+  roundCredits,
   downgradedModelMessage,
   formatCredits,
   modelAllowedOnPlan,
@@ -15,8 +17,15 @@ import {
   planRequiredFor,
   resolveBuildModel,
 } from "@/app/dashboard/credits";
-import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { carryBrief, priorTurns } from "@/lib/builder/brief";
+import {
+  attachmentBlocks,
+  attachmentText,
+  imagePlacements,
+  loadAttachments,
+  placeAttachments,
+  signedImageUrls,
+} from "@/lib/builder/attachments";
+import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
   EDIT_MODEL,
@@ -58,6 +67,8 @@ import {
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
+import { restoreImages, stashImages } from "@/lib/page-html";
+import { validatePage } from "@/lib/builder/validate";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -130,20 +141,24 @@ function editUsage(applied: number): { filesTouched: number } {
 
 /* How long a brief may be.
  *
- * Four thousand characters — roughly six hundred words — was a paragraph, and
- * real briefs are not paragraphs. Somebody specifying a product writes pages:
- * the sections, the copy, the brand, the rules that matter. That ceiling turned
- * a specification into a summary before any model saw it, and the person doing
- * the summarising was the customer.
+ * This was 4,000 characters, then 1,000 words. Both were a paragraph or two,
+ * and real briefs are not paragraphs. Somebody specifying a product writes
+ * pages: the sections, the copy, the brand, the rules that matter. A ceiling
+ * there turns a specification into a summary before any model sees it, and the
+ * person doing the summarising is the customer.
  *
  * Six hundred thousand characters is about a hundred and fifty thousand tokens.
  * Every model the picker offers for a BUILD carries a million-token context, so
- * a brief that size arrives whole with room for the page it produces.
+ * a brief that size arrives whole with room for the page it produces. It is
+ * still a backstop against a large payload being pushed through to the
+ * orchestrator on the other side of the webhook; it is no longer a limit
+ * anybody writing in good faith will meet.
  *
- * It is priced rather than merely permitted: the first three hundred words are
- * free and the rest costs a credit per five thousand — see promptCredits. The
- * ceiling that used to do this job did it by refusing, which is the crudest
- * form of pricing and the one that also refuses the legitimate case. */
+ * And it is priced rather than merely permitted: every message gets three
+ * hundred free words and the rest carries a surcharge — see contextSurcharge,
+ * which prices this brief and the conversation carried with it on the same
+ * terms. The ceiling that used to do this job did it by refusing, which is the
+ * crudest form of pricing and the one that also refuses the legitimate case. */
 const MAX_PROMPT = 600_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
@@ -364,18 +379,38 @@ async function handle(
     return NextResponse.json({ error: "That message didn't arrive in a form I could read. Try sending it again." }, { status: 400 });
   }
 
-  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const typed = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
+  /* A file on its own is a message.
+   *
+   * Dragging a photograph in and pressing send, with nothing typed, is how
+   * people hand something over — and it used to be answered with "tell me what
+   * you'd like and I'll get started", which is a strange thing to say to
+   * somebody who has just given you their logo. The words they left out are the
+   * same every time, so they are supplied rather than demanded. */
+  const attached = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id) => typeof id === "string").length
+    : 0;
+  const prompt = typed || (attached > 0 ? "Use the attached file in this page." : "");
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
     return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
+  /* Counted whatever happens, because the number is wanted twice: once in the
+     sentence below if the brief is past the ceiling, and once by
+     contextSurcharge, which prices everything over three hundred words. */
+  const promptWords = countWords(prompt);
   if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
       {
+        /* Said in both units. The ceiling is counted in characters because that
+           is what the payload is, but words are what the person has — so the
+           sentence leads with the number they can go and look at. */
         error:
-          `That brief is ${prompt.length.toLocaleString()} characters, which is past what I can take in one message. ` +
-          `Keep it under ${MAX_PROMPT.toLocaleString()} and send it again — or build it in parts and add the rest as changes.`,
+          `That brief is ${promptWords.toLocaleString("en-US")} words (${prompt.length.toLocaleString("en-US")} characters), ` +
+          `which is past what I can take in one message. Keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters ` +
+          `and send it again — or build it in parts and add the rest as changes.`,
       },
       { status: 400 },
     );
@@ -453,16 +488,35 @@ async function handle(
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
 
-  /* Which model handles this message, decided once and used everywhere: the
-     call, the step list, the prompt ceiling and the charge. Deciding it in each
-     of those places separately is how a step line comes to name a model that
-     did not do the work, or a charge comes to be at the wrong rate.
+  /* The same page with its photographs lifted out, which is the only version a
+     model can be shown.
    *
-   * Both inputs matter, which is why it cannot be decided from the message
-   * alone — a one-line change to a very large page still sends the whole page.
-   * With no page there is nothing to edit and nothing to ask about, so the
-   * value is unused; EDIT_MODEL is the harmless default. */
-  const editModel = currentHtml ? editModelFor(prompt, currentHtml) : EDIT_MODEL;
+     A stored page carries its pictures inside it as base64, and on a real one
+     that was 416,000 of its 463,000 characters — roughly 370,000 tokens against
+     the 200,000 a model will take. Every edit posted the whole document and was
+     refused before it began, so a page became permanently uneditable the moment
+     it got its images. The pictures go back in after the change applies. See
+     stashImages in lib/page-html.ts. */
+  const stashed = currentHtml ? stashImages(currentHtml) : null;
+  const leanHtml = stashed?.lean ?? null;
+
+  /* Which model handles this message, decided once and used everywhere: the
+     step lines, the prompt ceiling and the charge. Deciding it in each of those
+     places separately is how a step line comes to name a model that did not do
+     the work, or a charge comes to be at the wrong rate. editPage may still
+     escalate past this — a picture in the message, or an attempt that placed
+     nothing — and reports which model finished, which is what the charge
+     actually follows.
+   *
+     Measured on leanHtml rather than currentHtml, and the difference is not
+     small: the page above is 463,000 characters stored and 47,000 once its
+     photographs are lifted out. Routing on the stored size would send every
+     page with images to the strong model on the strength of base64 the model is
+     never going to see.
+   *
+     With no page there is nothing to edit and nothing to ask about, so the
+     value is unused; EDIT_MODEL is the harmless default. */
+  const editModel = leanHtml ? editModelFor(prompt, leanHtml) : EDIT_MODEL;
 
   steps.mark(
     "page",
@@ -490,22 +544,45 @@ async function handle(
      history. */
   const { data: recent } = await supabase
     .from("project_messages")
-    .select("role, body")
+    .select("role, body, tone, kind")
+    /* tone and kind travel with the text now, and they are not decoration: they
+       are how a model call tells what the builder SAID from what the app
+       REPORTED. See conversational() in builder/brief.ts, and the loop it was
+       written for. */
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const history = ((recent ?? []) as { role: string; body: string }[])
+  const history = ((recent ?? []) as { role: string; body: string; tone: string | null; kind: string | null }[])
     .reverse()
-    .map((row) => ({ from: row.role, text: row.body }));
+    .map((row) => ({ from: row.role, text: row.body, tone: row.tone, kind: row.kind }));
 
-  /* The classifier keeps the slice it was tuned and tested against. Widening
-     what it sees is a change to how every message is read, and this is not the
-     change that should make it. */
-  const classifierHistory = history.slice(-6);
+  /* The classifier keeps the slice it was tuned and tested against — six turns
+     — but not the status lines and the faults. Those were never conversation,
+     and a window half full of "I couldn't place that change" is six turns of
+     which three say nothing about what this message means. */
+  const classifierHistory = history.filter(conversational).slice(-6);
 
   /* The same conversation in the shape a model call takes. */
   const prior = priorTurns(history);
+
+  /* What the words on this turn cost, on top of the work they ask for: the
+   * message somebody sent, and the conversation carried with it.
+   *
+   * The message itself is in the count because that is what somebody pastes —
+   * a thousand-word brief is the case this was asked for. The rest is measured
+   * off `prior` rather than off `history`, because this must be the price of
+   * what was actually SENT: priorTurns trims each message to MAX_CONTEXT_WORDS
+   * and joins consecutive ones from the same side. Charging off the untrimmed
+   * thread would bill somebody for a paragraph the builder never read.
+   *
+   * Zero on a short message and a short thread, which is most of them: the
+   * first 300 words of each are part of the price of the turn. See
+   * contextSurcharge. */
+  const contextCost = contextSurcharge([
+    promptWords,
+    ...prior.map((turn) => countWords(String(turn.content))),
+  ]);
 
   /* Whatever was attached to this message, resolved to rows the server can
      read. Restricted to this project and this owner: the ids came from the
@@ -515,10 +592,20 @@ async function handle(
     : [];
   if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached", "opening the files from Storage…");
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+
+  /* Read once, here, and reused by whichever path this message takes. It used
+     to be read again inside each of the three model calls below, which meant
+     the same files were downloaded and encoded up to three times — and, worse,
+     that nothing above could see what had happened to them. */
+  const files = await attachmentBlocks(attachments);
+
   if (attachments.length > 0) {
+    const usable = attachments.length - files.skipped.length;
     steps.mark(
       "attachments",
-      `Read ${attachments.length} ${attachments.length === 1 ? "attachment" : "attachments"}`,
+      usable === attachments.length
+        ? `Read ${usable} ${usable === 1 ? "attachment" : "attachments"}`
+        : `Read ${usable} of ${attachments.length} attachments`,
       attachments.map((row) => row.name).join(", "),
     );
   }
@@ -529,6 +616,23 @@ async function handle(
      the same message once. */
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
+
+  /* A file the model cannot read is said out loud, before anything is built on
+     the assumption it arrived.
+   *
+     This is what "HTTP 400" was. One photograph the API could not decode — a
+     HEIC off a phone, wearing a .jpeg name — and the whole request was refused,
+     so an edit that had nothing to do with the picture died with a number in
+     it. The file is left out now, and the reason is a sentence about that file
+     rather than a status code about the request. */
+  if (files.skipped.length > 0) {
+    await deliver(
+      files.skipped
+        .map((file) => `I couldn't use ${file.name} — ${file.reason}.`)
+        .join(" "),
+      { tone: "error", key: `skipped:${requestId}` },
+    );
+  }
 
   /* ── The message goes into the thread before anything is done with it ────
      The browser used to be the only thing that wrote a thread: it rendered a
@@ -624,6 +728,12 @@ async function handle(
     hasPage: Boolean(currentHtml),
     history: classifierHistory,
     override,
+    /* Read before the words are. Somebody who attaches a file has said
+       something the sentence often leaves out — "use this" and an empty box
+       with a photograph in it are the same request — and routing that to a
+       question about which section they meant is the product failing to notice
+       what it was handed. See heuristicIntent. */
+    hasAttachment: attachments.length > 0,
   });
 
   /* Nothing to edit, revert or answer about. Whatever it looked like, the only
@@ -796,12 +906,12 @@ async function handle(
     try {
       steps.begin("clarify", "Working out what to ask you", `${editModel} is reading the page…`);
       const question = await askClarifying(
-        editModel,
         prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("clarify", "Working out what to ask you"),
+        editModel,
       );
       steps.mark(
         "clarify",
@@ -820,7 +930,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel, prompt }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -862,12 +972,12 @@ async function handle(
     try {
       steps.begin("answer", "Looking through the page for your answer", `${editModel} is reading it now…`);
       const answer = await answerQuestion(
-        editModel,
         prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("answer", "Looking through the page for your answer"),
+        editModel,
       );
       steps.mark(
         "answer",
@@ -882,11 +992,21 @@ async function handle(
          at zero and reaches one credit only at a full page of answer, which is
          what keeps troubleshooting from feeling metered. */
       if (service && delivered) {
+        /* Plus the conversation it was answered against, on the same terms as
+           an edit: a question read with six messages behind it is a question
+           that cost more to answer than one read on its own. Not charged on the
+           clarify path above — that one is the builder asking for help, and
+           billing somebody extra for the classifier's caution is charging them
+           for our own uncertainty. */
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel });
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel, prompt }),
-          description: `Question: ${project.name}`,
+          cost: roundCredits(askCost + contextCost),
+          description:
+            contextCost > 0
+              ? `Question: ${project.name} — ${formatCredits(askCost)} + ${formatCredits(contextCost)} context`
+              : `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
           dedupeKey: `question:${requestId}`,
@@ -983,15 +1103,46 @@ async function handle(
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
+      /* editPage decides for itself and can escalate past this — a picture in
+         the message, or an attempt that placed nothing — so this opening line
+         is the likely model rather than the settled one. steps.mark below
+         reports what actually did the work. */
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
-        editModel,
         prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("edit", "Making the change"),
       );
+
+      /* The photographs that were lifted out so the page could be read, put
+         back into the page that is about to be stored. First, because
+         everything below measures or saves the real document — and a page
+         stored with `stashed-image-0` where a picture belongs is a page whose
+         images have been deleted by a tool that was only supposed to hide them
+         from a model. */
+      if (stashed && stashed.images.length > 0) {
+        edited = { ...edited, html: restoreImages(edited.html, stashed.images) };
+      }
+
+      /* The tokens the model wrote, swapped for the pictures they stand for.
+         Done here rather than in editPage because it belongs to the page being
+         stored, not to the model call: the blocks came back, they applied, and
+         what is about to be written to the table is a document that should
+         carry its images inside it. See imagePlacements. */
+      const placements = await imagePlacements(attachments);
+      if (placements.length > 0) {
+        const placed = placeAttachments(edited.html, placements);
+        if (placed !== edited.html) {
+          steps.mark(
+            "attachments",
+            `Placed ${placements.length} ${placements.length === 1 ? "image" : "images"} in the page`,
+            placements.map((file) => file.name).join(", "),
+          );
+        }
+        edited = { ...edited, html: placed };
+      }
       steps.mark(
         "edit",
         edited.ranOutOfTime
@@ -999,9 +1150,14 @@ async function handle(
           : edited.failures.length > 0
             ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
             : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
-        `${editModel}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}${
-          edited.ranOutOfTime ? ", stopped at the time limit" : ""
-        }`,
+        /* The model that actually did it, not the one that usually does — an
+           edit escalates, and a line that names EDIT_MODEL whatever happened is
+           a label rather than a report. And the route, because "by line number"
+           means quoting the page had already failed twice, which is the first
+           thing worth knowing if the change landed somewhere odd. */
+        `${edited.model}, ${edited.outputTokens} output tokens${
+          edited.route === "lines" ? ", placed by line number" : edited.retried ? ", retried once" : ""
+        }${edited.ranOutOfTime ? ", stopped at the time limit" : ""}`,
       );
     } catch (error) {
       if (error instanceof EditError) {
@@ -1016,13 +1172,63 @@ async function handle(
       throw error;
     }
 
+    /* ── The gate the working version sits behind ──────────────────────────
+     *
+     * Everything above decides WHAT changes. This decides whether the result is
+     * allowed to become the page — and it is the last point at which the answer
+     * can still be no.
+     *
+     * A patch can apply perfectly and still wreck the layout: a deletion that
+     * takes an opening <div> and leaves its </div> closes a section early and
+     * folds the rest of the page into it. Every stage before this reports
+     * success, because every stage before this was successful. The page was
+     * stored anyway, and the person found out by looking at their own site.
+     *
+     * Checked on the finished document — pictures restored, tokens resolved —
+     * because that is what would be written. See validatePage, and note what it
+     * deliberately does not check: this refuses what an edit BROKE, never what
+     * it merely left imperfect. */
+    steps.begin("check", "Checking the change", "making sure the page still holds together…");
+    const verdict = validatePage(currentHtml, edited.html);
+
+    if (!verdict.ok) {
+      /* Discarded, not stored. The previous version is still the working
+         version and was never touched — the edit only ever existed in memory,
+         which is what makes this safe to refuse this late.
+       *
+         Logged with the request id beside it, because a page that fails this is
+         a bug in the patching upstream and the failure is the only trace of
+         it. */
+      // eslint-disable-next-line no-console
+      console.error(
+        `edit ${requestId}: refused after applying — ${verdict.problem}`,
+        `(route ${edited.route}, model ${edited.model}, ${edited.applied} applied)`,
+      );
+      steps.mark("check", "Kept the previous version", verdict.problem);
+
+      const message = `That change didn't come out right — ${verdict.problem}. I've kept the page exactly as it was. Naming the section you mean usually gets a cleaner result.`;
+      const stored = await deliver(message, { tone: "error", key: "edit-invalid" });
+      return NextResponse.json(
+        { error: message, intent: "edit", code: "edit_invalid", stored },
+        { status: 422 },
+      );
+    }
+
+    steps.mark("check", "The page still holds together");
+
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
+      /* Both of these were being written as null on every edit, which is why
+         working out what had happened to a page meant reading the chat log and
+         guessing. The row now says which request made it and what did the
+         work, so a version that came out wrong can be traced to the attempt
+         that produced it. */
+      request_id: requestId,
       prompt,
       html: edited.html,
-      model: null,
+      model: `${edited.model}${edited.route === "lines" ? " (by line)" : ""}`,
       files_touched: edited.applied,
     });
     steps.mark("version", "Saved a new version of the page");
@@ -1068,11 +1274,23 @@ async function handle(
        at 0.50 forever while the edits kept arriving. charge_credits takes what
        is there and reports what it could not, so an account that overdraws
        lands at zero and the gate above turns the next one away. */
+    /* The edit, plus what the conversation behind it cost to carry. Named in
+       the description rather than folded in silently: a line in a ledger that
+       says only "Edit" and charges more than the last identical edit is the
+       kind of thing somebody notices and cannot explain. */
+    /* Priced on the model that did the work, not the one that usually does. An
+       edit escalates when it carries a picture or when the first attempt placed
+       nothing — see EDIT_MODEL_STRONG — and billing the cheap rate for the dear
+       model is the mistake this file has made before. */
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: edited.model });
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: editModel, prompt }),
-      description: `Edit: ${project.name}`,
+      cost: roundCredits(editCost + contextCost),
+      description:
+        contextCost > 0
+          ? `Edit: ${project.name} — ${formatCredits(editCost)} + ${formatCredits(contextCost)} context`
+          : `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
       dedupeKey: `edit:${requestId}`,

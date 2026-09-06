@@ -155,57 +155,60 @@ try {
     "iterating must not be taxed like provisioning",
   );
 
-  // ── What a long brief costs ─────────────────────────────────────────────
-  /* The ceiling used to do this job by refusing at four thousand characters.
-     A brief may be six hundred thousand now, which only works if length is
-     priced — because the clamp caps a build's cost BEFORE the model
-     multiplier, so without this a hundred thousand words and twenty words are
-     charged identically and the difference is paid by the house. */
-  const words = (n) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+  /* ── What a long brief costs ─────────────────────────────────────────────
+     A price, not a cost — 700 words is about a fifth of a cent of input
+     against a build that costs about a dollar. So there is nothing here for a
+     tool to have an opinion about except the shape of it, and the shape is
+     what somebody notices on their balance: the allowance has to be free, the
+     surcharge has to stay small beside the work it rides on, and it has to be
+     readable in the two decimals a balance is kept in. */
+  const free = credits.FREE_CONTEXT_WORDS;
+  const surcharge = credits.contextSurcharge;
 
-  has(credits.promptCredits("") === 0, "an empty brief costs nothing");
-  has(credits.promptCredits(words(50)) === 0, "a short brief costs nothing");
+  has(surcharge([free]) === 0, `${free} words are free on every message`, "the allowance charges");
+  has(surcharge([0, 12, free]) === 0, "short messages are free however many there are");
+
+  /* The full ceiling on every message of a six-turn thread — the worst case a
+     person can actually reach. */
+  const MAX_CONTEXT_WORDS = 1000;
+  const worst = surcharge(Array(7).fill(MAX_CONTEXT_WORDS));
+  const build = credits.CREDIT_ACTIONS.generate.max;
   has(
-    credits.promptCredits(words(credits.FREE_PROMPT_WORDS)) === 0,
-    "the whole free allowance is free",
-    "every ordinary request lives here and must not have got more expensive",
+    worst < build / 2,
+    `the worst case adds ${worst} to a build of up to ${build}`,
+    `context can add ${worst}, which is no longer a surcharge but a second price`,
   );
 
-  const long = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 5000));
-  has(long > 0, "a brief past the allowance costs something", `got ${long}`);
-  has(long <= 2, "and it is measured in single credits, not tens", `got ${long}`);
-
-  /* Only the excess is charged, and doubling it doubles the charge — a rule
-     somebody can predict without reading the source. */
-  const over1 = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 10_000));
-  const over2 = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 20_000));
   has(
-    Math.abs(over2 - over1 * 2) < 0.02,
-    "twice the excess costs twice as much",
-    `${over1} then ${over2}`,
+    worst === credits.MAX_CONTEXT_SURCHARGE,
+    `the worst case is the ceiling itself (${credits.MAX_CONTEXT_SURCHARGE})`,
+    "the cap is not what stops the worst case, so the rate alone decides it",
   );
 
-  /* The whole reason this sits outside the clamp: inside it the ceiling would
-     swallow the brief entirely, and a long one would be free. */
-  const shortBrief = credits.creditCostOf("generate", {
-    outputTokens: 40_000, filesTouched: 12, modelId: "claude-sonnet-5", prompt: words(20),
-  });
-  const longBrief = credits.creditCostOf("generate", {
-    outputTokens: 40_000, filesTouched: 12, modelId: "claude-sonnet-5",
-    prompt: words(credits.FREE_PROMPT_WORDS + 20_000),
-  });
+  /* Proportional, and in that direction: this is the property that makes the
+     line on a ledger explicable — twice the context past the allowance, twice
+     the charge. Below the cap, which is where all but the longest threads sit. */
+  const one = surcharge([free + 100]);
+  const two = surcharge([free + 200]);
   has(
-    longBrief > shortBrief,
-    "a long brief costs more than a short one at the same ceiling",
-    `${shortBrief} then ${longBrief} — the clamp is swallowing it`,
+    one > 0 && Math.abs(two - one * 2) < 0.005,
+    `it scales with what was written (${one} for 100 words over, ${two} for 200)`,
+    "the surcharge is not proportional, so a ledger line cannot be explained",
   );
 
-  /* And it scales with the model, because input is what costs more on Fable. */
-  const onFable = credits.creditCostOf("generate", {
-    outputTokens: 40_000, filesTouched: 12, modelId: "claude-fable-5",
-    prompt: words(credits.FREE_PROMPT_WORDS + 20_000),
-  });
-  has(onFable > longBrief, "the same brief costs more on a dearer model", `${longBrief} then ${onFable}`);
+  /* Per message, matching the ceiling it sits under. Two messages of 400 must
+     cost what two messages of 400 cost — not what one message of 800 does. */
+  has(
+    surcharge([free + 100, free + 100]) === credits.roundCredits(one * 2),
+    "each message gets its own allowance",
+    "the allowance is being applied once per request rather than once per message",
+  );
+
+  has(
+    surcharge([free + 3]) === 0,
+    "a message a few words over rounds to nothing",
+    "somebody is being charged an amount too small to appear on their balance",
+  );
 
 if (failed) {
   console.log(`\n${failed} check${failed === 1 ? "" : "s"} failed.`);

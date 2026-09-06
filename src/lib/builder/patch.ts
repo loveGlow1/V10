@@ -31,13 +31,114 @@ export function hasPatches(modelOutput: string): boolean {
   return BLOCK.test(modelOutput);
 }
 
+/* ── Finding the text a block is about ─────────────────────────────────────
+ *
+ * A patch used to require the SEARCH text to appear byte for byte. That rule
+ * exists for a good reason — a patch applied to the wrong place is worse than
+ * one refused, because the refusal is visible and the misapplication is not —
+ * and it was costing people edits they had asked for perfectly clearly.
+ *
+ * The failure that made the case: somebody quoted the exact sentence off their
+ * own page, "$4,000–$12,000 before a single visitor arrives", asked for that
+ * part to go, and was told it could not be placed. The words were in the
+ * document. What did not match was the whitespace around them — a model
+ * re-indents a block it is copying, or joins two lines, and every one of those
+ * is a rejection under a byte-for-byte rule.
+ *
+ * So the search gets more forgiving in stages, and the SAFETY comes from
+ * somewhere else: every stage still has to find exactly ONE place. Ambiguity is
+ * refused at every level, so nothing here can ever pick between two candidates.
+ * What changes is only how much irrelevant difference is forgiven on the way to
+ * a single answer.
+ *
+ *   1. exactly, as written
+ *   2. with any run of whitespace matching any other — the indentation case
+ *   3. with whitespace ignored entirely — the model that joined two lines
+ *
+ * A match at any stage is one location, or it is a failure.
+ */
+
+type Found = { start: number; end: number } | null;
+
+/** Where `needle` sits in `haystack`, if it sits in exactly one place. */
+function findExactlyOnce(haystack: string, needle: string): Found | "many" {
+  const first = haystack.indexOf(needle);
+  if (first === -1) return null;
+  if (haystack.indexOf(needle, first + 1) !== -1) return "many";
+  return { start: first, end: first + needle.length };
+}
+
+/** The same, allowing any whitespace to stand for any other. */
+function findByShape(haystack: string, needle: string): Found | "many" {
+  const trimmed = needle.trim();
+  if (!trimmed) return null;
+
+  const pattern = trimmed
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+
+  let found: Found = null;
+  const matcher = new RegExp(pattern, "g");
+
+  for (let match = matcher.exec(haystack); match; match = matcher.exec(haystack)) {
+    if (found) return "many";
+    found = { start: match.index, end: match.index + match[0].length };
+  }
+
+  return found;
+}
+
+/** The same again, ignoring whitespace altogether.
+ *
+ * The index map is what makes this safe to act on: the collapsed copy is only
+ * used to locate, and the offsets handed back are into the real document. */
+function findByContent(haystack: string, needle: string): Found | "many" {
+  const wanted = needle.replace(/\s+/g, "");
+  if (!wanted) return null;
+
+  let collapsed = "";
+  const offsets: number[] = [];
+
+  for (let index = 0; index < haystack.length; index += 1) {
+    if (/\s/.test(haystack[index])) continue;
+    collapsed += haystack[index];
+    offsets.push(index);
+  }
+
+  const first = collapsed.indexOf(wanted);
+  if (first === -1) return null;
+  if (collapsed.indexOf(wanted, first + 1) !== -1) return "many";
+
+  /* The end offset is one past the last non-space character it covers, so the
+     replacement lands exactly over the matched text and no further. */
+  return { start: offsets[first], end: offsets[first + wanted.length - 1] + 1 };
+}
+
+/**
+ * Where this SEARCH block is in the document, however it can be found — and
+ * only ever if there is one answer.
+ *
+ * Tried in order of how much they forgive. The first stage that finds a single
+ * place wins; a stage that finds several stops the search rather than falling
+ * through to a looser one, because a block that is ambiguous when read strictly
+ * does not become unambiguous by reading it more loosely.
+ */
+export function locate(haystack: string, needle: string): Found | "many" {
+  const exact = findExactlyOnce(haystack, needle);
+  if (exact) return exact;
+
+  const shaped = findByShape(haystack, needle);
+  if (shaped) return shaped;
+
+  return findByContent(haystack, needle);
+}
+
 /**
  * Applies search/replace blocks to a document, in the order given.
  *
- * A SEARCH that does not match exactly is a hard failure, and so is one that
- * matches more than once. Never fuzzy, never "closest match": a patch applied
- * to the wrong place is worse than a patch refused, because the refusal is
- * visible and the misapplication is not.
+ * A SEARCH that matches nowhere is a hard failure, and so is one that matches
+ * more than once. Never "closest match" and never a guess between candidates —
+ * but whitespace is not a difference worth refusing an edit over. See locate.
  */
 export function applyPatches(html: string, modelOutput: string): PatchResult {
   let current = html;
@@ -62,13 +163,13 @@ export function applyPatches(html: string, modelOutput: string): PatchResult {
        whichever occurrence happened to survive. That is guessing, and it looks
        exactly like success. Judged against the original it is refused every
        time, whatever order the blocks arrive in. */
-    const firstInOriginal = html.indexOf(search);
-    if (firstInOriginal === -1) {
-      failures.push({ reason: "the SEARCH text is not in the page", search });
+    const inOriginal = locate(html, search);
+    if (inOriginal === "many") {
+      failures.push({ reason: "the SEARCH text appears more than once", search });
       continue;
     }
-    if (html.indexOf(search, firstInOriginal + 1) !== -1) {
-      failures.push({ reason: "the SEARCH text appears more than once", search });
+    if (!inOriginal) {
+      failures.push({ reason: "the SEARCH text is not in the page", search });
       continue;
     }
 
@@ -76,13 +177,17 @@ export function applyPatches(html: string, modelOutput: string): PatchResult {
        same reply has already rewritten this text. Refused rather than resolved
        — two blocks fighting over one region is the model contradicting itself,
        and the page should not be the place that gets settled. */
-    const at = current.indexOf(search);
-    if (at === -1) {
+    const here = locate(current, search);
+    if (here === "many" || !here) {
       failures.push({ reason: "an earlier block in this reply already changed that text", search });
       continue;
     }
 
-    current = current.slice(0, at) + replace + current.slice(at + search.length);
+    /* Sliced by the offsets the match reported rather than by the length of the
+       SEARCH text: where the match was found by shape or by content, the region
+       it covers in the page is not the same length as the block that named
+       it. */
+    current = current.slice(0, here.start) + replace + current.slice(here.end);
     applied += 1;
   }
 
@@ -124,4 +229,106 @@ export function noteAfterPatches(modelOutput: string): string | null {
 
   const note = line.trim().replace(/^NEXT:\s*/i, "").trim();
   return note && note.length <= NOTE_LIMIT ? note : null;
+}
+
+/* ── When copying the page is the thing going wrong ────────────────────────
+ *
+ * Everything above asks the model to quote the page back. That is a good
+ * default — it is self-verifying, and a block that misquotes is a block about
+ * something else — but it has one failure mode that no amount of forgiveness
+ * fixes: a model that PARAPHRASES what it is looking at. It writes
+ * class="text-black/70 leading-relaxed" where the page says
+ * class="text-[15px] text-black/70 leading-relaxed", the content genuinely
+ * differs, and the block is refused. Correctly refused, and the person still
+ * did not get their edit.
+ *
+ * So the fallback stops asking for a copy. The page is shown with line numbers
+ * and the model names a RANGE — "replace lines 412 to 418 with this" — which it
+ * cannot get wrong by mistyping, because there is nothing to transcribe. What
+ * it writes is only the new text.
+ *
+ * The safety is different in kind, and it is worth being explicit that it is
+ * weaker: a search block proves it found the right place by quoting it, and a
+ * line range simply asserts one. That is exactly why this runs second. It is
+ * what happens after two attempts at the careful thing have failed, where the
+ * alternative on the table is not a safer edit but no edit at all.
+ *
+ * What is still checked: every range must be inside the document, and no two
+ * ranges may overlap. Both are refusals, not corrections.
+ */
+
+/** The page as the model is shown it for a line edit: `  12| <div>`. */
+export function numberLines(html: string): string {
+  const lines = html.split("\n");
+  const width = String(lines.length).length;
+  return lines.map((line, index) => `${String(index + 1).padStart(width, " ")}| ${line}`).join("\n");
+}
+
+/* `LINES 12-18`, or `LINES 12` for one. The body may be empty, which is how a
+   deletion is written and the most common thing this is asked for. */
+const LINE_BLOCK = /<{7} LINES[ \t]+(\d+)(?:[ \t]*-[ \t]*(\d+))?[ \t]*\r?\n([\s\S]*?)>{7} END/g;
+
+type Range = { from: number; to: number; replacement: string };
+
+/**
+ * Applies line-range edits to a document.
+ *
+ * Ranges are one-based and inclusive, counted on the document as it was shown —
+ * so they are all resolved against the ORIGINAL line numbering and applied from
+ * the bottom up. Applying them top-down would shift every line number under the
+ * first edit, and the second range would then name whatever had moved into it:
+ * a plausible-looking edit in the wrong place, which is the one outcome worse
+ * than a refusal.
+ */
+export function applyLineEdits(html: string, modelOutput: string): PatchResult {
+  const lines = html.split("\n");
+  const ranges: Range[] = [];
+  const failures: PatchFailure[] = [];
+
+  LINE_BLOCK.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = LINE_BLOCK.exec(modelOutput)) !== null) {
+    const from = Number(match[1]);
+    const to = match[2] ? Number(match[2]) : from;
+    const named = `lines ${from}${match[2] ? `-${to}` : ""}`;
+
+    if (from < 1 || to < from || to > lines.length) {
+      failures.push({
+        reason: `${named} is not a range this page has — it runs to line ${lines.length}`,
+        search: named,
+      });
+      continue;
+    }
+
+    /* Two ranges over the same lines is the model contradicting itself, and the
+       page is not the place to settle that. Refused rather than merged. */
+    const clash = ranges.find((range) => from <= range.to && to >= range.from);
+    if (clash) {
+      failures.push({
+        reason: `${named} overlaps lines ${clash.from}-${clash.to}, which another block already changes`,
+        search: named,
+      });
+      continue;
+    }
+
+    /* The body runs to the END marker, so it carries the newline that put that
+       marker on its own line. One is dropped; the rest is the person's text. */
+    const replacement = match[3].replace(/\r?\n$/, "");
+    ranges.push({ from, to, replacement });
+  }
+
+  /* Bottom-up, so each splice leaves the line numbers above it untouched. */
+  const ordered = [...ranges].sort((a, b) => b.from - a.from);
+  const next = [...lines];
+
+  for (const range of ordered) {
+    /* An empty replacement deletes the lines rather than leaving a blank one
+       where they were — "delete this section" is the request this exists for,
+       and a run of empty lines in the markup is not what was asked for. */
+    const body = range.replacement === "" ? [] : range.replacement.split("\n");
+    next.splice(range.from - 1, range.to - range.from + 1, ...body);
+  }
+
+  return { html: next.join("\n"), applied: ranges.length, failures };
 }

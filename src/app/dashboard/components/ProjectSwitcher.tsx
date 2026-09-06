@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
 
@@ -17,6 +18,7 @@ export default function ProjectSwitcher({
   onOpenSettings?: (section: "project" | "members") => void;
 }) {
   const { projects, loading, error, selectedId, selected, select, create } = useProjects();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
@@ -63,6 +65,18 @@ export default function ProjectSwitcher({
     setDraft("");
     setCreating(false);
     setOpen(false);
+
+    /* And it opens, which is the whole point of having made it.
+     *
+     * This used to create the row and leave you exactly where you were — which,
+     * standing inside another project, meant "new project" put you in the old
+     * project's conversation, in front of the old project's page. The next thing
+     * typed went to the app somebody had just decided to stop working on.
+     *
+     * A new project is a new thread: an empty conversation and nothing built
+     * yet, the same as opening a new chat anywhere else. That is a different
+     * address, so this goes to it. */
+    router.push(`/dashboard/project/${created.id}`);
   }
 
   const label = loading ? "Loading…" : selected?.name ?? "No project yet";
@@ -111,6 +125,11 @@ export default function ProjectSwitcher({
                     onClick={() => {
                       select(project.id);
                       setOpen(false);
+                      /* Picking one opens it, for the same reason creating one
+                         does: this list reads as a list of conversations, and a
+                         name that highlights without taking you anywhere is a
+                         switcher that does not switch. */
+                      router.push(`/dashboard/project/${project.id}`);
                     }}
                     className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.06]"
                   >

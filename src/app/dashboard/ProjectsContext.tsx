@@ -125,6 +125,16 @@ export type BuildOptions = {
    * authority. A caller that ignores this loses nothing but the watching.
    */
   onText?: (delta: string) => void;
+  /**
+   * Stops this session waiting, when somebody presses stop in the composer.
+   *
+   * It aborts the request and the poll that follows it — and that is the whole
+   * of what it can honestly do. The work is already elsewhere: an edit is
+   * running inside the route, a build is running in the orchestrator, and
+   * neither hears a browser hang up. So this ends the WAIT, never the work, and
+   * the panel says so in those words rather than "cancelled".
+   */
+  signal?: AbortSignal;
 };
 
 /* How the workspace waits for a page.
@@ -147,6 +157,22 @@ const BUILD_POLL_MS = 3_000;
 const BUILD_SLOW_POLL_MS = 8_000;
 const BUILD_SLOW_AFTER_MS = 2 * 60 * 1000;
 const BUILD_WATCH_MS = 25 * 60 * 1000;
+
+/* How long a failed row is given to turn out to be a finished one.
+ *
+ * "Failed" used to end the wait on the spot, which is right when it is true and
+ * indefensible when it is not — and the orchestrator has a way of writing it
+ * when it is not. `Save Page` gives the save route two minutes to answer, and
+ * `Flag Build Failure` sits on that node's error output. A save that runs long
+ * — a large document, a dozen photographs being fetched into it — is abandoned
+ * by the node and marked Failed while the app is still storing the page, which
+ * it then finishes doing. The row goes Failed, then Built, seconds apart.
+ *
+ * So a failure has to survive a few polls to be believed. Twenty seconds is
+ * several polls' worth of room, and it costs a genuine failure a short pause at
+ * the end of a wait already measured in minutes — against telling somebody
+ * their build died while their page is being written to the table. */
+const BUILD_FAILED_GRACE_MS = 20_000;
 
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
@@ -173,6 +199,8 @@ type ProjectsValue = {
     id: string,
     since: number,
     onPoll?: (row: Project | null, elapsedMs: number) => void,
+    /* Stops the waiting, not the build. See `signal` on BuildOptions. */
+    signal?: AbortSignal,
   ) => Promise<Project | null>;
 };
 
@@ -324,6 +352,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
       const response = await fetch("/api/build", {
         method: "POST",
+        signal: options.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: id,
@@ -448,9 +477,30 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      than the one that started, then fold it into the list, which is what turns
      the spinner in the chat into a preview.
 
-     `last_build_at` is the signal because it is written once, by the step that
-     stores the page — the earlier "Building" update deliberately leaves it
-     alone, or the very first poll would report a build that has not happened. */
+     `last_build_at` is HALF the signal, and believing it was the whole of it is
+     how this came to end three seconds into every build.
+
+     The sentence that used to be here said the stamp is written once, by the
+     step that stores the page, because the app's own "Building" update
+     deliberately leaves it alone — and then named the exact consequence of
+     being wrong about that: "the very first poll would report a build that has
+     not happened". The app does leave it alone. The orchestrator does not. Its
+     `Sync Project Row` node writes `last_build_at` from `completedAt`, and
+     `completedAt` is stamped in `Assemble Build Result`, which runs when the
+     CHAT is answered — before a single token of the page has been generated.
+     See n8n/build-orchestrator.workflow.ts.
+
+     So on every build the row grew a stamp newer than `since` about three
+     seconds after send, this returned it, and the panel — finding no preview on
+     a row that was still Building — said "this one's taking a while" and
+     stopped watching. The page then landed minutes later with nothing left
+     waiting to notice, so it took a reload to appear. The build was honoured;
+     the watching of it was not.
+
+     The status is the other half, and it is the half that cannot be stamped
+     early: "Building" is what both writers say WHILE it runs, and only the save
+     step moves it off. A new stamp on a row that still says Building is the
+     orchestrator saying hello, not a page. */
   const watchBuild = useCallback(
     async (
       id: string,
@@ -463,16 +513,27 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
          happening, and the clock and the status are the two things that are
          actually known. */
       onPoll?: (row: Project | null, elapsedMs: number) => void,
+      signal?: AbortSignal,
     ): Promise<Project | null> => {
       if (!isSupabaseConfigured) return null;
       const supabase = createSupabaseBrowserClient();
       const startedAt = Date.now();
       const deadline = startedAt + BUILD_WATCH_MS;
+      /* When this run first looked failed. Null again if it stops looking that
+         way, which a row can: Building → Failed → Built is exactly the sequence
+         the grace period exists for. */
+      let firstFailedAt: number | null = null;
 
       while (Date.now() < deadline) {
+        /* Somebody pressed stop. Returning null is the same answer as running
+           out of patience, which is the truthful one: the build carries on and
+           the caller says so. */
+        if (signal?.aborted) return null;
+
         const elapsed = Date.now() - startedAt;
         const wait = elapsed < BUILD_SLOW_AFTER_MS ? BUILD_POLL_MS : BUILD_SLOW_POLL_MS;
         await new Promise((resolve) => setTimeout(resolve, wait));
+        if (signal?.aborted) return null;
 
         const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
         const row = data as unknown as Project | null;
@@ -482,17 +543,34 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         if (!row) continue;
 
         const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
-        if (landed > since) {
+        /* Failed is written by whatever failed it — the orchestrator's error
+           branch, or the save step, which also writes the reason into the
+           thread. */
+        const failed = row.status === "Failed";
+        /* And this is the run still running. Both writers say Building while
+           the page is being generated, so a fresh stamp under it is the
+           orchestrator's early `completedAt` rather than a finished page. */
+        const running = row.status === "Building";
+
+        if (landed > since && !running && !failed) {
           setProjects((current) =>
             current.map((project) => (project.id === id ? { ...project, ...row } : project)),
           );
           return row;
         }
 
-        /* Written to the row by the orchestrator when a build fails, which is
-           the only signal that arrives before the page would have. Returning
-           now turns a twenty-five minute wait into the answer it already has. */
-        if (row.status === "Failed") return row;
+        /* A failure, held for a moment before it is believed. See
+           BUILD_FAILED_GRACE_MS: a page refused by one call and stored by the
+           next arrives seconds after the row says Failed, and reporting the
+           first of those two is how a finished build came to be announced as a
+           dead one. Kept as the moment it was FIRST seen, so the wait is bounded
+           by the failure rather than by however many polls confirm it. */
+        if (failed) {
+          firstFailedAt ??= Date.now();
+          if (Date.now() - firstFailedAt >= BUILD_FAILED_GRACE_MS) return row;
+          continue;
+        }
+        firstFailedAt = null;
       }
 
       /* Out of patience rather than out of hope: the build may still land, and

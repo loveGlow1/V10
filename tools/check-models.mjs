@@ -92,10 +92,30 @@ try {
     );
     /* 30,704 output tokens is what one real landing page took (n8n execution
        307). A ceiling under that truncates the document mid-page, which is how
-       six builds died on 2026-08-30 against 16k. Only the deliberately-small
+       six builds died on 2026-08-30 against 16k.
+
+       The floor is not simply "what the largest blueprint needs", which is the
+       mistake that raised this to 64k for four hours: a budget is also a
+       duration, and doubling it stopped every ordinary build from finishing
+       inside the orchestrator's generation timeout. It is the smallest number
+       that lets a real page close its own document. Only the deliberately-small
        models are allowed to sit lower. */
-    if (model.maxOutput && model.maxOutput < 32000 && !/nano|lite/i.test(model.id)) {
-      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the ~31k a full page needs`);
+    if (model.maxOutput && model.maxOutput < 64000 && !/nano|lite/i.test(model.id)) {
+      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the 64k a large page needs`);
+    }
+
+    /* The other half of that number, checked in the same breath because they
+       failed separately when they were set separately: at ~100 output tokens a
+       second, this ceiling has to fit inside the orchestrator's generation
+       timeout with room to spare, or a page that CAN finish gets cut off by the
+       node instead of by the ceiling. 900_000ms is what the canvas allows —
+       see n8n/build-orchestrator.workflow.ts. */
+    const seconds = (model.maxOutput ?? 0) / 100;
+    if (seconds > 900 * 0.8) {
+      fail(
+        `${model.name} can finish inside the generation timeout`,
+        `${model.maxOutput} tokens is about ${Math.round(seconds)}s of generation against a 900s node timeout — raise the timeout in the same change`,
+      );
     }
   }
 
@@ -329,7 +349,7 @@ try {
   is(claude.shape, "anthropic", "Claude uses the anthropic shape");
   is(claude.url, wire.ENDPOINTS.claude, "Claude posts to the messages endpoint");
   is(claude.body.system, SYSTEM, "the system prompt is a top-level field");
-  is(claude.body.max_tokens, 32000, "the ceiling is max_tokens");
+  is(claude.body.max_tokens, models.resolveModel("claude-opus-5").maxOutput, "the ceiling is max_tokens");
   is(claude.body.messages[0].content[0].type, "image", "an attached image leads the message");
   is(claude.body.content, undefined, "no stray OpenAI vocabulary");
   is(claude.headers["anthropic-version"], "2023-06-01", "the version header is set");
@@ -341,7 +361,7 @@ try {
   is(gpt.body.messages[0].content, SYSTEM, "and it carries the whole blueprint");
   is(gpt.body.system, undefined, "the anthropic field is NOT also sent");
   is(gpt.body.max_tokens, undefined, "max_tokens is not used — GPT-5 rejects it");
-  is(gpt.body.max_completion_tokens, 32000, "max_completion_tokens is");
+  is(gpt.body.max_completion_tokens, models.modelById("gpt-5").maxOutput, "max_completion_tokens is");
   is(gpt.body.messages[1].content[0].type, "image_url", "images use image_url");
 
   // ── Google's shape ──────────────────────────────────────────────────────
@@ -352,7 +372,7 @@ try {
   is(gemini.body.system, undefined, "not in an anthropic field");
   is(gemini.body.messages, undefined, "and not in an openai one");
   is(gemini.body.contents[0].parts[1].text, USER, "the brief is a part");
-  is(gemini.body.generationConfig.maxOutputTokens, 32000, "the ceiling is maxOutputTokens");
+  is(gemini.body.generationConfig.maxOutputTokens, models.modelById("gemini-3-pro").maxOutput, "the ceiling is maxOutputTokens");
 
   /* The wire id is what Google puts in the URL, so a model id with a slash or a
      space in it would silently address a different endpoint. */

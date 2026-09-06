@@ -33,9 +33,29 @@ export type Model = {
   /** What the provider's API calls this. Differs from `id` more often than
    *  not — the picker's ids are ours and outlive a vendor's renaming. */
   apiId?: string;
-  /** The most output tokens worth asking for. A full page runs to about
-   *  30k, so anything under that truncates mid-document — which is exactly
-   *  how six builds died on 2026-08-30 against a 16k ceiling. */
+  /** The most output tokens worth asking for.
+   *
+   *  64k, arrived at twice on 2026-09-06 and worth reading before it is moved
+   *  again, because both failures are real and they pull in opposite
+   *  directions.
+   *
+   *  At 32k, pages that need more than 32k arrive cut off. A news publication
+   *  is twelve stories, four beat sections and a six-hundred-word article (see
+   *  blueprints/news.ts); a "premium futuristic landing page" turned out to be
+   *  the same shape. Both were refused by readGeneratedDocument for having no
+   *  closing tag, after five minutes of generation each.
+   *
+   *  At 64k against a TEN-minute node timeout, builds died at 600.4 seconds
+   *  mid-page — because a budget is also a duration. Twice the budget is
+   *  roughly twice the wall clock, and it ran past what the orchestrator would
+   *  wait.
+   *
+   *  So the pair has to move together, and now it has: the generation nodes
+   *  allow fifteen minutes (n8n/build-orchestrator.workflow.ts). The measured
+   *  rate is about 100 tokens a second — 32k took 5m18s — so 64k lands near
+   *  eleven minutes with four to spare. That margin is the whole reason this
+   *  number is allowed to be 64k, and it is why raising it again means raising
+   *  the timeout in the same change, not afterwards. */
   maxOutput?: number;
   /* ── Whether this deployment can actually call it ──────────────────────
    *
@@ -160,7 +180,7 @@ export const MODELS: Model[] = [
     badge: "Top pick",
     note: "2x costlier",
     apiId: "claude-fable-5-1",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "claude-opus-5",
@@ -172,7 +192,7 @@ export const MODELS: Model[] = [
     blurb: "Peak intelligence for ambitious apps",
     provider: "claude",
     apiId: "claude-opus-5",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "claude-sonnet-5",
@@ -183,7 +203,7 @@ export const MODELS: Model[] = [
     blurb: "Intelligent and cost effective",
     provider: "claude",
     apiId: "claude-sonnet-5",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "claude-haiku-4-5",
@@ -196,7 +216,7 @@ export const MODELS: Model[] = [
     blurb: "Fastest, for small edits",
     provider: "claude",
     apiId: "claude-haiku-4-5-20251001",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
 
   // ChatGPT
@@ -209,7 +229,7 @@ export const MODELS: Model[] = [
     blurb: "OpenAI's flagship for complex work",
     provider: "openai",
     apiId: "gpt-5",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "gpt-5-mini",
@@ -220,7 +240,7 @@ export const MODELS: Model[] = [
     blurb: "Cheaper, for everyday changes",
     provider: "openai",
     apiId: "gpt-5-mini",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "gpt-5-nano",
@@ -231,7 +251,9 @@ export const MODELS: Model[] = [
     blurb: "Cheapest, for small mechanical edits",
     provider: "openai",
     apiId: "gpt-5-nano",
-    maxOutput: 16000,
+    /* The one model deliberately below the floor: it is here for small
+       mechanical edits, not for writing a page. */
+    maxOutput: 32000,
   },
 
   // Gemini
@@ -244,7 +266,7 @@ export const MODELS: Model[] = [
     blurb: "Google's flagship, strong over long context",
     provider: "google",
     apiId: "gemini-3-pro",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
   {
     id: "gemini-2-5-flash",
@@ -255,7 +277,7 @@ export const MODELS: Model[] = [
     blurb: "Fast and inexpensive",
     provider: "google",
     apiId: "gemini-2.5-flash",
-    maxOutput: 32000,
+    maxOutput: 64000,
   },
 ];
 

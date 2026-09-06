@@ -36,6 +36,9 @@ import {
 import { useCredits } from "../../useCredits";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
+/* The same naming Home uses when a sentence becomes an app, so an app started
+   from in here is named the way an app started out there is. */
+import { nameFromPrompt } from "../../projectName";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
@@ -215,6 +218,11 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* The run in flight, so the send button can end it.
+   *
+   * A ref rather than state: it is written and read inside the same handler,
+   * and a stop that arrives a tick after the press is a stop that misses. */
+  const running = useRef<AbortController | null>(null);
   /* Whether the builder is taking work, and what to say if not.
      
      Asked rather than assumed, and asked of the server rather than baked in at
@@ -538,6 +546,26 @@ export default function ChatPanel({
     };
   }
 
+  /* Why a build failed, in the words of whatever failed it.
+   *
+   * /api/builder/webapp/save writes a build_failed message as it refuses a
+   * document — unfinished, too large, unstorable — and that message is the only
+   * account of the reason anywhere: the project row holds a status and nothing
+   * more. Read back rather than polled for, once, at the moment the wait ends.
+   *
+   * Bounded to this run, with a minute of slack: the timestamp comes from the
+   * database's clock and the start from this machine's, and a failure from last
+   * week's build is not an explanation of this one.
+   */
+  async function storedFailure(projectId: string, runStarted: number): Promise<string | null> {
+    const thread = await loadThread(projectId);
+    for (let index = thread.length - 1; index >= 0; index -= 1) {
+      const message = thread[index];
+      if (message.kind === "build_failed" && message.at >= runStarted - 60_000) return message.text;
+    }
+    return null;
+  }
+
   /* The wait for a page that is being generated somewhere else.
    *
    * Shared by the two ways of arriving at one: sending a message, and opening a
@@ -549,7 +577,7 @@ export default function ChatPanel({
    * `since` is the build to wait past: the row stamps last_build_at when the
    * page lands, so anything at or before this belongs to a previous build.
    */
-  async function awaitPage(runStarted: number, since: number, detail: string) {
+  async function awaitPage(runStarted: number, since: number, detail: string, signal?: AbortSignal) {
     if (!project) return;
 
     /* Set rather than queued. The pace exists to spread a burst; this is one
@@ -574,7 +602,27 @@ export default function ChatPanel({
             : `waiting for the page — ${clock} so far…`,
         state: "running",
       });
-    });
+    }, signal);
+
+    /* Stopped by hand. The build is still running — nothing here reaches the
+       orchestrator — so this says exactly that and says nothing about how it
+       will turn out. The preview arrives on its own; the panel refetches on the
+       build stamp. */
+    if (signal?.aborted) {
+      phases.set({ id: "generate", label: "Still building", state: "running" });
+      say(
+        {
+          from: "system",
+          text: "Stopped waiting. The build carries on without this screen — the preview appears here when it lands.",
+        },
+        undefined,
+        /* True of this wait, not of this build: keeping it would leave a
+           conversation saying somebody gave up, next to the page it delivered. */
+        "session",
+      );
+      return;
+    }
+
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
@@ -627,12 +675,28 @@ export default function ChatPanel({
       phases.set({ id: "generate", label: "The build did not finish", state: "done" });
       /* The build came back and said so. Generation happens after the reply,
          so a failure there cannot travel in the response — it is written to
-         the row instead, which is the same row this was waiting on. */
-      say({
-        from: "system",
-        text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
-        tone: "error",
-      });
+         the row instead, which is the same row this was waiting on.
+
+         The row carries a status and nothing else, so the sentence below is a
+         guess at why, worded to cover the likeliest reason. Where the save step
+         knew the actual reason it wrote it into the thread as it failed — that
+         one is read back and said instead, because "the page came out longer
+         than one build allows" is something a person can act on and "it didn't
+         finish" is not. */
+      const reason = await storedFailure(project.id, runStarted);
+      say(
+        {
+          from: "system",
+          text:
+            reason ??
+            "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
+          tone: "error",
+        },
+        undefined,
+        /* Already in the table when it came from there; saying it again would
+           put it in the thread twice. */
+        reason ? "server" : "panel",
+      );
     } else {
       /* Left running rather than ticked: the wait gave up, the build did
          not. Marking it done would say this panel knows an outcome it does
@@ -693,6 +757,55 @@ export default function ChatPanel({
     }
   }
 
+  /* Somewhere else to build, rather than over the top of this.
+   *
+   * "New project" used to mean this project, with its page replaced and the
+   * conversation carrying on underneath — a new app in an old chat, next to the
+   * messages about the app it had just written over. There was a confirmation
+   * in front of it because it destroyed something, which is the tell: the only
+   * reason to ask was that the answer could not be undone.
+   *
+   * A new project is a new conversation. It gets its own row, its own thread and
+   * its own address, the current page is left exactly where it is, and there is
+   * nothing to confirm because nothing is lost. The prompt rides in the URL the
+   * way it does from Home, so the new workspace opens and sends it — see
+   * initialPrompt.
+   */
+  const startingProject = useRef(false);
+
+  async function startNewProject(text: string) {
+    if (!text.trim() || startingProject.current) return;
+    startingProject.current = true;
+
+    /* Attachments belong to the project they were uploaded against — the server
+       matches both ids before it reads a byte — so they cannot follow the
+       message into a different one. Said plainly rather than dropped: a
+       screenshot that quietly did not arrive is a build that ignored it for no
+       reason anybody can see. */
+    if (attached.length > 0) {
+      say({
+        from: "system",
+        text: `Starting a new app. ${attached.length === 1 ? "The file you attached stays" : "The files you attached stay"} with this one — attach ${attached.length === 1 ? "it" : "them"} again over there.`,
+      }, undefined, "session");
+    }
+
+    const created = await create(nameFromPrompt(text));
+    if (!created) {
+      startingProject.current = false;
+      say({
+        from: "system",
+        text: "I couldn't open a new app just now. Nothing here has changed — try again in a moment.",
+        tone: "error",
+      });
+      return;
+    }
+
+    /* Deliberately still held: the push takes this panel off screen, and
+       releasing the guard in the gap before it lands is the window a second
+       press slips through. */
+    router.push(`/dashboard/project/${created.id}?prompt=${encodeURIComponent(text)}`);
+  }
+
   async function send(
     prompt?: string,
     options: {
@@ -703,13 +816,41 @@ export default function ChatPanel({
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
-    if (!text || !project || building) return;
+    /* A file with nothing typed is a message: dragging in a logo and pressing
+       send is how people hand something over, and the words they leave out are
+       supplied by the route. Everything else still needs words. */
+    if ((!text && attached.length === 0) || !project || building) return;
     /* Belt as well as braces. The send button is already disabled and the
        banner is already up; this is here so a keyboard shortcut, a stale tab or
        a resend behind a confirmation cannot slip past them into a spinner. The
        server refuses it too — this only saves the round trip. */
     if (paused) return;
+
+    /* Asked for outright, by the chip. It never reaches the server as a message
+       about THIS project, because it is not one — see startNewProject. */
+    if ((options.intentOverride ?? mode) === "new_project" && !options.silent) {
+      /* A file on its own can start a change here, and cannot start an app
+         elsewhere: the attachment belongs to this project and does not follow
+         the message out of it. So this is the one send that still needs words,
+         and it says so instead of quietly doing nothing. */
+      if (!text) {
+        say({
+          from: "system",
+          text: "Say what the new app should be. A file on its own can't start one — it stays with this app.",
+        }, undefined, "session");
+        return;
+      }
+      if (prompt === undefined) setDraft("");
+      await startNewProject(text);
+      return;
+    }
+
     sentHere.current = true;
+
+    /* One controller for the whole run — the request and the wait that follows
+       it are the same press of the button as far as anybody is concerned. */
+    const run = new AbortController();
+    running.current = run;
 
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
@@ -786,6 +927,7 @@ export default function ChatPanel({
         /* Appended, never replaced: the server sends what was written since
            the last line, so the cost over the wire is the length of the answer
            rather than the square of it. */
+        signal: run.signal,
         onText: (delta) => setStreamed((current) => current + delta),
         onStep: (step) => {
           if (!picked) {
@@ -939,13 +1081,41 @@ export default function ChatPanel({
          message said the preview link updates as it finishes, and this is what
          makes that true without a reload. */
       if (outcome.status === "Building") {
-        await awaitPage(runStarted, startedAt, "This runs in the orchestrator and takes as long as it takes…");
+        await awaitPage(
+          runStarted,
+          startedAt,
+          "This runs in the orchestrator and takes as long as it takes…",
+          run.signal,
+        );
       }
     } catch (error) {
-      say({ from: "system", text: (error as Error).message, tone: "error" });
-      /* The text comes from wherever it was thrown, so the wording lives with
-         the throw — see src/lib/builder/edit.ts and the route. */
+      /* Stopped by hand, which is not a failure and must not be dressed as one.
+         An aborted fetch throws like anything else, and the browser's word for
+         it — "Load failed", "The user aborted a request" — is the last thing
+         somebody who just pressed stop needs to read.
+       *
+         Said as what it is, and honestly: the request left, and whatever it
+         started is running where this screen cannot reach it. An edit finishes
+         inside the route; a build finishes in the orchestrator. Neither hears a
+         browser hang up. */
+      if (run.signal.aborted) {
+        say(
+          {
+            from: "system",
+            text: "Stopped. Anything already sent carries on — if it lands, it appears here.",
+          },
+          undefined,
+          "session",
+        );
+      } else {
+        say({ from: "system", text: (error as Error).message, tone: "error" });
+        /* The text comes from wherever it was thrown, so the wording lives with
+           the throw — see src/lib/builder/edit.ts and the route. */
+      }
     } finally {
+      /* Only if this run is still the one in flight: a stop that starts a new
+         message must not have its spinner cleared by the old run finishing. */
+      if (running.current === run) running.current = null;
       setBuilding(false);
       setRunStartedAt(null);
       /* Cleared in the same batch that ends the run, so the preview and the
@@ -1461,9 +1631,14 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* The one question worth interrupting for. Nothing has happened yet,
-            and neither button is the quiet default: replacing a page someone
-            paid for is not something to fall into by pressing return. */}
+        {/* Which app this message is about — not what to destroy.
+         *
+            This used to offer "Replace this page", in the danger colour,
+            because that is what it did. Now the first answer opens a new app
+            and leaves this one alone, so nothing here is irreversible and
+            neither button needs a warning on it. The question survives because
+            it is still a real fork: the same sentence can mean "change this" or
+            "build me a different thing", and only the person knows which. */}
         {pendingConfirm && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
             <button
@@ -1472,11 +1647,11 @@ export default function ChatPanel({
                 const { text } = pendingConfirm;
                 setPendingConfirm(null);
                 setMode("auto");
-                void send(text, { confirmNewProject: true, intentOverride: "new_project", silent: true });
+                void startNewProject(text);
               }}
-              className="rounded-md border border-danger/40 px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+              className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
             >
-              Replace this page
+              Build it as a new app
             </button>
             <button
               type="button"
@@ -1559,7 +1734,7 @@ export default function ChatPanel({
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  aria-label="Add photos or files"
+                  aria-label="Attach a screenshot"
                   className={control}
                 >
                   <Paperclip className="h-4 w-4 -rotate-45" />
@@ -1620,19 +1795,41 @@ export default function ChatPanel({
                 </button>
 
                 {/* Send sits in the bar's own material rather than shouting over
-                    it, and only lifts once there is something to send. */}
+                    it, and only lifts once there is something to send.
+                 *
+                    While a message is in flight it is the same button, turned
+                    into stop. The alternative — greying it out for the two to
+                    ten minutes a build takes — is the only control on the screen
+                    going dead at the one moment somebody most wants to change
+                    their mind, and it is what made people close the tab.
+                 *
+                    It stops the WAITING, not the work: see the abort handling in
+                    send(). Anything already sent finishes where it is running,
+                    and the panel says so rather than claiming a cancellation it
+                    cannot perform. */}
                 <button
-                  onClick={() => void send()}
-                  disabled={!draft.trim() || building || paused !== null}
-                  aria-label="Send"
+                  onClick={() => (building ? running.current?.abort() : void send())}
+                  disabled={building ? false : (!draft.trim() && attached.length === 0) || paused !== null}
+                  aria-label={building ? "Stop waiting" : "Send"}
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
-                    draft.trim() && !building && !paused
+                    building
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                      : "border-transparent bg-layer/[0.07] text-ink/30"
+                      : (draft.trim() || attached.length > 0) && !paused
+                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                        : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
                 >
-                  <SendArrow className="h-4 w-4 md:hidden" />
-                  <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                  {building ? (
+                    /* A filled square, which is what every chat has trained
+                       people to read as "stop" — drawn rather than imported so
+                       it sits on the same optical centre as the arrows. */
+                    <span className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+                  ) : (
+                    <>
+                      <SendArrow className="h-4 w-4 md:hidden" />
+                      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                    </>
+                  )}
                 </button>
               </div>
 

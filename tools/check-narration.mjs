@@ -104,7 +104,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { lastSentence, editModelFor, maxEditPromptChars, EDIT_MODEL, COMPLEX_EDIT_MODEL } =
+const { lastSentence, editModelFor, maxEditPromptChars, EDIT_MODEL, EDIT_MODEL_STRONG } =
   createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
 
 const CASES = [
@@ -175,12 +175,12 @@ const page = (n) => "x".repeat(n);
 const ROUTING = [
   [word(3), page(2_000), EDIT_MODEL, "a short ask at a small page stays on Haiku"],
   [word(300), page(2_000), EDIT_MODEL, "300 words is still simple"],
-  [word(301), page(2_000), COMPLEX_EDIT_MODEL, "301 words is not"],
+  [word(301), page(2_000), EDIT_MODEL_STRONG, "301 words is not"],
   [word(3), page(400_000), EDIT_MODEL, "a big page, just inside"],
-  [word(3), page(400_001), COMPLEX_EDIT_MODEL, "past that the page decides, not the ask"],
+  [word(3), page(400_001), EDIT_MODEL_STRONG, "past that the page decides, not the ask"],
   ["", page(2_000), EDIT_MODEL, "an empty ask counts as no words, not as many"],
   ["  make\n\n the header   darker  ", page(2_000), EDIT_MODEL, "whitespace is not words"],
-  [word(3), page(900_000), COMPLEX_EDIT_MODEL, "a page past Haiku's window entirely"],
+  [word(3), page(900_000), EDIT_MODEL_STRONG, "a page past Haiku's window entirely"],
 ];
 
 for (const [prompt, html, want, why] of ROUTING) {
@@ -197,10 +197,10 @@ for (const [prompt, html, want, why] of ROUTING) {
 
 const CEILINGS = [
   [maxEditPromptChars(EDIT_MODEL) === 80_000, "Haiku's brief ceiling is sized for a 200K window"],
-  [maxEditPromptChars(COMPLEX_EDIT_MODEL) > maxEditPromptChars(EDIT_MODEL), "Sonnet's is larger"],
+  [maxEditPromptChars(EDIT_MODEL_STRONG) > maxEditPromptChars(EDIT_MODEL), "Sonnet's is larger"],
   [
     editModelFor(word(Math.ceil(maxEditPromptChars(EDIT_MODEL) / 7) + 1), page(2_000)) ===
-      COMPLEX_EDIT_MODEL,
+      EDIT_MODEL_STRONG,
     "a brief long enough to hit Haiku's ceiling has already been routed to Sonnet",
   ],
 ];
