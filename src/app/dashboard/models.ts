@@ -35,18 +35,26 @@ export type Model = {
   apiId?: string;
   /** The most output tokens worth asking for.
    *
-   *  A landing page runs to about 30k, which is what this was set to hold —
-   *  and holding exactly the smallest thing the product builds is why the
-   *  biggest one could not be built at all. A news publication is twelve
-   *  stories, four beat sections and a six-hundred-word article (see
-   *  blueprints/news.ts); it does not fit in 32k, so it arrived cut off at
-   *  the ceiling, was refused by readGeneratedDocument for having no closing
-   *  tag, and reached the person as "the build didn't finish".
+   *  32k, and it was 64k for four hours on 2026-09-06. The argument for
+   *  raising it was sound and the result was worse: a news publication is
+   *  twelve stories, four beat sections and a six-hundred-word article (see
+   *  blueprints/news.ts), it does not fit in 32k, and it was arriving cut off
+   *  at the ceiling. So the ceiling went up — and every build stopped
+   *  finishing at all. Two in a row died at 600.4 seconds, mid-page, because
+   *  a budget is also a duration: on a thinking model, twice the budget is
+   *  roughly twice the wall-clock, and it ran past what the orchestrator's
+   *  generation node would wait (n8n/build-orchestrator.workflow.ts, now
+   *  fifteen minutes rather than ten).
    *
-   *  On the thinking models the squeeze is worse than the number suggests:
-   *  reasoning is spent from this same budget, so the document never had the
-   *  whole of it. 64k is inside what every model here supports and leaves the
-   *  largest blueprint room to close its own document. */
+   *  A ceiling that lets the largest page finish is worth nothing if it stops
+   *  the ordinary ones from finishing, and ordinary is almost all of them.
+   *  Back to the number every completed build in this product was made under.
+   *  The big brief truncates again, and now says so in the person's own
+   *  conversation — see readGeneratedDocument and /api/builder/webapp/save,
+   *  which is the difference between a limit and a mystery.
+   *
+   *  Raising this again means moving the generation timeout with it, and
+   *  measuring one real build of each kind before believing it. */
   maxOutput?: number;
   /* ── Whether this deployment can actually call it ──────────────────────
    *
@@ -171,7 +179,7 @@ export const MODELS: Model[] = [
     badge: "Top pick",
     note: "2x costlier",
     apiId: "claude-fable-5-1",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "claude-opus-5",
@@ -183,7 +191,7 @@ export const MODELS: Model[] = [
     blurb: "Peak intelligence for ambitious apps",
     provider: "claude",
     apiId: "claude-opus-5",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "claude-sonnet-5",
@@ -194,7 +202,7 @@ export const MODELS: Model[] = [
     blurb: "Intelligent and cost effective",
     provider: "claude",
     apiId: "claude-sonnet-5",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "claude-haiku-4-5",
@@ -207,7 +215,7 @@ export const MODELS: Model[] = [
     blurb: "Fastest, for small edits",
     provider: "claude",
     apiId: "claude-haiku-4-5-20251001",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
 
   // ChatGPT
@@ -220,7 +228,7 @@ export const MODELS: Model[] = [
     blurb: "OpenAI's flagship for complex work",
     provider: "openai",
     apiId: "gpt-5",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "gpt-5-mini",
@@ -231,7 +239,7 @@ export const MODELS: Model[] = [
     blurb: "Cheaper, for everyday changes",
     provider: "openai",
     apiId: "gpt-5-mini",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "gpt-5-nano",
@@ -255,7 +263,7 @@ export const MODELS: Model[] = [
     blurb: "Google's flagship, strong over long context",
     provider: "google",
     apiId: "gemini-3-pro",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
   {
     id: "gemini-2-5-flash",
@@ -266,7 +274,7 @@ export const MODELS: Model[] = [
     blurb: "Fast and inexpensive",
     provider: "google",
     apiId: "gemini-2.5-flash",
-    maxOutput: 64000,
+    maxOutput: 32000,
   },
 ];
 

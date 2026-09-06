@@ -91,14 +91,17 @@ try {
       "apiId and maxOutput are what turn a label into a callable model",
     );
     /* 30,704 output tokens is what one real landing page took (n8n execution
-       307), and a landing page is the SMALLEST thing here. A news publication
-       — twelve stories, four beats, a six-hundred-word article — ran past 32k
-       and arrived without its closing tag, which readGeneratedDocument refuses
-       and the chat reports as "the build didn't finish". The floor is what the
-       largest blueprint needs, not the smallest. Only the deliberately-small
+       307). A ceiling under that truncates the document mid-page, which is how
+       six builds died on 2026-08-30 against 16k.
+
+       The floor is not simply "what the largest blueprint needs", which is the
+       mistake that raised this to 64k for four hours: a budget is also a
+       duration, and doubling it stopped every ordinary build from finishing
+       inside the orchestrator's generation timeout. It is the smallest number
+       that lets a real page close its own document. Only the deliberately-small
        models are allowed to sit lower. */
-    if (model.maxOutput && model.maxOutput < 64000 && !/nano|lite/i.test(model.id)) {
-      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the 64k the largest build needs`);
+    if (model.maxOutput && model.maxOutput < 32000 && !/nano|lite/i.test(model.id)) {
+      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the ~31k a full page needs`);
     }
   }
 
