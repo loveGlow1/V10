@@ -66,6 +66,7 @@ import { generationRequest, providerConfigured, userMessage } from "@/lib/builde
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
+import { validatePage } from "@/lib/builder/validate";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -1110,13 +1111,63 @@ async function handle(
       throw error;
     }
 
+    /* ── The gate the working version sits behind ──────────────────────────
+     *
+     * Everything above decides WHAT changes. This decides whether the result is
+     * allowed to become the page — and it is the last point at which the answer
+     * can still be no.
+     *
+     * A patch can apply perfectly and still wreck the layout: a deletion that
+     * takes an opening <div> and leaves its </div> closes a section early and
+     * folds the rest of the page into it. Every stage before this reports
+     * success, because every stage before this was successful. The page was
+     * stored anyway, and the person found out by looking at their own site.
+     *
+     * Checked on the finished document — pictures restored, tokens resolved —
+     * because that is what would be written. See validatePage, and note what it
+     * deliberately does not check: this refuses what an edit BROKE, never what
+     * it merely left imperfect. */
+    steps.begin("check", "Checking the change", "making sure the page still holds together…");
+    const verdict = validatePage(currentHtml, edited.html);
+
+    if (!verdict.ok) {
+      /* Discarded, not stored. The previous version is still the working
+         version and was never touched — the edit only ever existed in memory,
+         which is what makes this safe to refuse this late.
+       *
+         Logged with the request id beside it, because a page that fails this is
+         a bug in the patching upstream and the failure is the only trace of
+         it. */
+      // eslint-disable-next-line no-console
+      console.error(
+        `edit ${requestId}: refused after applying — ${verdict.problem}`,
+        `(route ${edited.route}, model ${edited.model}, ${edited.applied} applied)`,
+      );
+      steps.mark("check", "Kept the previous version", verdict.problem);
+
+      const message = `That change didn't come out right — ${verdict.problem}. I've kept the page exactly as it was. Naming the section you mean usually gets a cleaner result.`;
+      const stored = await deliver(message, { tone: "error", key: "edit-invalid" });
+      return NextResponse.json(
+        { error: message, intent: "edit", code: "edit_invalid", stored },
+        { status: 422 },
+      );
+    }
+
+    steps.mark("check", "The page still holds together");
+
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
+      /* Both of these were being written as null on every edit, which is why
+         working out what had happened to a page meant reading the chat log and
+         guessing. The row now says which request made it and what did the
+         work, so a version that came out wrong can be traced to the attempt
+         that produced it. */
+      request_id: requestId,
       prompt,
       html: edited.html,
-      model: null,
+      model: `${edited.model}${edited.route === "lines" ? " (by line)" : ""}`,
       files_touched: edited.applied,
     });
     steps.mark("version", "Saved a new version of the page");
