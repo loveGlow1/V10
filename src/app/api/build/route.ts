@@ -126,9 +126,36 @@ function editUsage(applied: number): { filesTouched: number } {
   return { filesTouched: Math.max(1, applied) };
 }
 
-/* Long enough for a real description, short enough that the prompt cannot be
-   used to push a large payload through to the orchestrator. */
-const MAX_PROMPT = 4000;
+/* How long a brief may be.
+ *
+ * Four thousand characters — roughly six hundred words — was a paragraph, and
+ * real briefs are not paragraphs. Somebody specifying a product writes pages:
+ * the sections, the copy, the brand, the rules that matter. That ceiling turned
+ * a specification into a summary before any model saw it, and the person doing
+ * the summarising was the customer.
+ *
+ * Six hundred thousand characters is about a hundred and fifty thousand tokens.
+ * Every model the picker offers for a BUILD carries a million-token context, so
+ * a brief that size arrives whole with room for the page it produces.
+ *
+ * It is priced rather than merely permitted: the first three hundred words are
+ * free and the rest costs a credit per five thousand — see promptCredits. The
+ * ceiling that used to do this job did it by refusing, which is the crudest
+ * form of pricing and the one that also refuses the legitimate case. */
+const MAX_PROMPT = 600_000;
+
+/* The same brief, when it will be sent to the EDIT model along with the page.
+ *
+ * Edits run on Haiku, whose context is 200K rather than a million, and an edit
+ * request carries the entire current page as well as the instruction. A page is
+ * routinely tens of thousands of tokens, so the brief cannot have the room a
+ * build's brief has — and hitting the real ceiling means a 400 from the API
+ * rather than a sentence anybody can act on.
+ *
+ * Eighty thousand characters is about twenty thousand tokens, which leaves the
+ * page the rest of the window with margin. Far past any instruction somebody
+ * types at a page that already exists, and short of the wall. */
+const MAX_EDIT_PROMPT = 80_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
    balance is that — but a brake on a loop or a stolen session draining an
@@ -356,7 +383,11 @@ async function handle(
   }
   if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
-      { error: `That's longer than I can take in one message — keep it under ${MAX_PROMPT} characters and send it again.` },
+      {
+        error:
+          `That brief is ${prompt.length.toLocaleString()} characters, which is past what I can take in one message. ` +
+          `Keep it under ${MAX_PROMPT.toLocaleString()} and send it again — or build it in parts and add the rest as changes.`,
+      },
       { status: 400 },
     );
   }
@@ -788,7 +819,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: EDIT_MODEL }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: EDIT_MODEL, prompt }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -852,7 +883,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL }),
+          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL, prompt }),
           description: `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
@@ -919,6 +950,22 @@ async function handle(
       return NextResponse.json(
         { error: "I can make the edit but not save it — this workspace has no SUPABASE_SERVICE_ROLE_KEY set." },
         { status: 503 },
+      );
+    }
+
+    /* Checked here rather than at the top, because it only applies once the
+       message is known to be an edit: a build's brief may be seven times this
+       long, and refusing it on the edit model's window would be refusing it for
+       a reason that does not apply. Said as a sentence with the next step in
+       it, rather than as a limit. */
+    if (prompt.length > MAX_EDIT_PROMPT) {
+      const said =
+        `That's a lot to change in one message — it goes to the page along with everything already on it, ` +
+        `and together they're past what I can read at once. Ask for it a section at a time and each part will land.`;
+      const stored = await deliver(said, { tone: "error", key: "edit-too-long" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_prompt_too_long", stored },
+        { status: 400 },
       );
     }
 
@@ -1014,7 +1061,7 @@ async function handle(
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL }),
+      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL, prompt }),
       description: `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,

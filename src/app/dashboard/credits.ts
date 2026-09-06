@@ -395,6 +395,11 @@ export type UsageSignal = {
   outputTokens?: number;
   /** Files the turn created, edited or deleted. */
   filesTouched?: number;
+  /* The brief the person wrote, when there is one to price. Its first three
+     hundred words are free; see promptCredits. Absent means nothing to add,
+     which is the right answer for a turn nobody typed — a resumed build, a
+     redeploy. */
+  prompt?: string;
   /**
    * Which model did the work, as a picker id.
    *
@@ -432,6 +437,49 @@ export type UsageSignal = {
    work — it is what separates a one-patch edit from a twelve-section build, and
    at 0.25 the two ended up close enough that a whole generated page priced
    like a typo fix. */
+/* How much of a brief is free, and what the rest costs.
+ *
+ * The ceiling used to be four thousand characters — about six hundred words —
+ * which is a paragraph, and briefs are not paragraphs. Somebody describing a
+ * real product writes pages: the sections, the copy, the brand, the rules. That
+ * ceiling turned a specification into a summary before the model ever saw it.
+ *
+ * Raising it needs pricing, because of the clamp below. A build's cost is
+ * clamped to the action's band BEFORE the model multiplier, so today a hundred
+ * thousand words and twenty words are charged identically — every long brief is
+ * free input paid for by the house. That is fine at four thousand characters
+ * and untenable at six hundred thousand.
+ *
+ * Three hundred words free covers every ordinary request; nobody writing "make
+ * me a landing page for my gym, dark, with a booking form" pays a penny more
+ * than they do now. Above it, a credit per five thousand words — legible
+ * arithmetic somebody can predict, and roughly the margin the rest of this
+ * table carries: five thousand words is about seven thousand input tokens,
+ * which is fractions of a cent at Sonnet's rate and correspondingly more on
+ * Fable, which is what the model multiplier is for. */
+export const FREE_PROMPT_WORDS = 300;
+const PROMPT_WORDS_PER_CREDIT = 5_000;
+
+/** Words in a brief, counted the way a person would count them. */
+export function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * What a brief costs beyond its free allowance, before the model multiplier.
+ *
+ * Zero for anything under the allowance, which is almost everything. Added
+ * AFTER the clamp rather than inside it, and that is the whole point: the band
+ * describes the model's TURN — how much it wrote, how many files it reached —
+ * and a long brief is not the model's turn, it is what the person supplied. A
+ * charge folded inside the clamp would be swallowed by a ceiling that was never
+ * about input.
+ */
+export function promptCredits(prompt: string): number {
+  const over = countWords(prompt) - FREE_PROMPT_WORDS;
+  return over <= 0 ? 0 : roundCredits(over / PROMPT_WORDS_PER_CREDIT);
+}
+
 const CHAT_TOKENS_PER_CREDIT = 900;
 const GENERATE_TOKENS_PER_CREDIT = 1500;
 const GENERATE_CREDITS_PER_FILE = 0.6;
@@ -487,7 +535,7 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
        Troubleshooting a build should not feel metered — though asking Fable
        about it costs what asking Fable costs. */
     const base = clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max);
-    return roundCredits(base * rate);
+    return roundCredits((base + promptCredits(signal.prompt ?? "")) * rate);
   }
 
   /* Generation starts at the floor — any edit is worth something — and grows
@@ -497,7 +545,12 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     outputTokens / GENERATE_TOKENS_PER_CREDIT +
     filesTouched * GENERATE_CREDITS_PER_FILE;
 
-  return roundCredits(clamp(roundCredits(cost), spec.min, spec.max) * rate);
+  /* The brief's own cost rides outside the clamp. Inside it, a hundred thousand
+     words would price exactly as twenty do — the ceiling is a statement about
+     the model's turn, and the turn is not what got longer. */
+  return roundCredits(
+    (clamp(roundCredits(cost), spec.min, spec.max) + promptCredits(signal.prompt ?? "")) * rate,
+  );
 }
 
 /* ── The balance ───────────────────────────────────────────────────────────

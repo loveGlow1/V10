@@ -155,6 +155,58 @@ try {
     "iterating must not be taxed like provisioning",
   );
 
+  // ── What a long brief costs ─────────────────────────────────────────────
+  /* The ceiling used to do this job by refusing at four thousand characters.
+     A brief may be six hundred thousand now, which only works if length is
+     priced — because the clamp caps a build's cost BEFORE the model
+     multiplier, so without this a hundred thousand words and twenty words are
+     charged identically and the difference is paid by the house. */
+  const words = (n) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+
+  has(credits.promptCredits("") === 0, "an empty brief costs nothing");
+  has(credits.promptCredits(words(50)) === 0, "a short brief costs nothing");
+  has(
+    credits.promptCredits(words(credits.FREE_PROMPT_WORDS)) === 0,
+    "the whole free allowance is free",
+    "every ordinary request lives here and must not have got more expensive",
+  );
+
+  const long = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 5000));
+  has(long > 0, "a brief past the allowance costs something", `got ${long}`);
+  has(long <= 2, "and it is measured in single credits, not tens", `got ${long}`);
+
+  /* Only the excess is charged, and doubling it doubles the charge — a rule
+     somebody can predict without reading the source. */
+  const over1 = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 10_000));
+  const over2 = credits.promptCredits(words(credits.FREE_PROMPT_WORDS + 20_000));
+  has(
+    Math.abs(over2 - over1 * 2) < 0.02,
+    "twice the excess costs twice as much",
+    `${over1} then ${over2}`,
+  );
+
+  /* The whole reason this sits outside the clamp: inside it the ceiling would
+     swallow the brief entirely, and a long one would be free. */
+  const shortBrief = credits.creditCostOf("generate", {
+    outputTokens: 40_000, filesTouched: 12, modelId: "claude-sonnet-5", prompt: words(20),
+  });
+  const longBrief = credits.creditCostOf("generate", {
+    outputTokens: 40_000, filesTouched: 12, modelId: "claude-sonnet-5",
+    prompt: words(credits.FREE_PROMPT_WORDS + 20_000),
+  });
+  has(
+    longBrief > shortBrief,
+    "a long brief costs more than a short one at the same ceiling",
+    `${shortBrief} then ${longBrief} — the clamp is swallowing it`,
+  );
+
+  /* And it scales with the model, because input is what costs more on Fable. */
+  const onFable = credits.creditCostOf("generate", {
+    outputTokens: 40_000, filesTouched: 12, modelId: "claude-fable-5",
+    prompt: words(credits.FREE_PROMPT_WORDS + 20_000),
+  });
+  has(onFable > longBrief, "the same brief costs more on a dearer model", `${longBrief} then ${onFable}`);
+
 if (failed) {
   console.log(`\n${failed} check${failed === 1 ? "" : "s"} failed.`);
   process.exit(1);

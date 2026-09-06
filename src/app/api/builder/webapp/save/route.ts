@@ -285,7 +285,13 @@ export async function POST(request: Request) {
     action: "generate",
     /* The model n8n reports, which is the one the app sent in a signed
        request and the workflow forwarded — not a browser's word for it. */
-    cost: creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined }),
+    cost: creditCostOf("generate", {
+      filesTouched,
+      modelId: str(body.model) || undefined,
+      /* The brief, priced past its free allowance. It travelled to the
+         orchestrator and back, so this is the same text the person wrote. */
+      prompt: str(body.prompt),
+    }),
     description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
     projectId: project.id,
     filesTouched,
