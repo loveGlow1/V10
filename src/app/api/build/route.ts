@@ -17,7 +17,14 @@ import {
   planRequiredFor,
   resolveBuildModel,
 } from "@/app/dashboard/credits";
-import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
+import {
+  attachmentBlocks,
+  attachmentText,
+  imagePlacements,
+  loadAttachments,
+  placeAttachments,
+  signedImageUrls,
+} from "@/lib/builder/attachments";
 import { carryBrief, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -362,7 +369,19 @@ async function handle(
     return NextResponse.json({ error: "That message didn't arrive in a form I could read. Try sending it again." }, { status: 400 });
   }
 
-  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const typed = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
+  /* A file on its own is a message.
+   *
+   * Dragging a photograph in and pressing send, with nothing typed, is how
+   * people hand something over — and it used to be answered with "tell me what
+   * you'd like and I'll get started", which is a strange thing to say to
+   * somebody who has just given you their logo. The words they left out are the
+   * same every time, so they are supplied rather than demanded. */
+  const attached = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id) => typeof id === "string").length
+    : 0;
+  const prompt = typed || (attached > 0 ? "Use the attached file in this page." : "");
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
@@ -633,6 +652,12 @@ async function handle(
     hasPage: Boolean(currentHtml),
     history: classifierHistory,
     override,
+    /* Read before the words are. Somebody who attaches a file has said
+       something the sentence often leaves out — "use this" and an empty box
+       with a photograph in it are the same request — and routing that to a
+       question about which section they meant is the product failing to notice
+       what it was handed. See heuristicIntent. */
+    hasAttachment: attachments.length > 0,
   });
 
   /* Nothing to edit, revert or answer about. Whatever it looked like, the only
@@ -985,6 +1010,24 @@ async function handle(
         prior,
         narrate("edit", "Making the change"),
       );
+
+      /* The tokens the model wrote, swapped for the pictures they stand for.
+         Done here rather than in editPage because it belongs to the page being
+         stored, not to the model call: the blocks came back, they applied, and
+         what is about to be written to the table is a document that should
+         carry its images inside it. See imagePlacements. */
+      const placements = await imagePlacements(attachments);
+      if (placements.length > 0) {
+        const placed = placeAttachments(edited.html, placements);
+        if (placed !== edited.html) {
+          steps.mark(
+            "attachments",
+            `Placed ${placements.length} ${placements.length === 1 ? "image" : "images"} in the page`,
+            placements.map((file) => file.name).join(", "),
+          );
+        }
+        edited = { ...edited, html: placed };
+      }
       steps.mark(
         "edit",
         edited.failures.length > 0
