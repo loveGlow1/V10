@@ -43,7 +43,7 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
-const { applyPatches } = await import(join(out, "lib/builder/patch.js"));
+const { applyLineEdits, applyPatches, numberLines } = await import(join(out, "lib/builder/patch.js"));
 
 let failed = 0;
 const ok = (t, d) => console.log(`ok    ${t}${d !== undefined ? ` — ${d}` : ""}`);
@@ -166,6 +166,136 @@ has(
   untouched.html.replace("<h2>Ship it.</h2>", "<h2>Build. Edit. Launch.</h2>") === PAGE,
   "everything the block did not name is byte-identical",
 );
+
+// ── Editing by line number ────────────────────────────────────────────────
+/* The fallback, and why it exists: search-and-replace asks the model to quote
+   the page, and the one failure it cannot recover from is a model that
+   PARAPHRASES what it is copying. Every check above forgives whitespace and
+   none of them can forgive a wrong word — correctly, because a block that
+   misquotes is a block about something else.
+ *
+   So after two failed attempts the job changes. The page goes over numbered and
+   the model names a range, which it cannot get wrong by mistyping because there
+   is nothing to transcribe. What it gives up is the proof: a search block shows
+   it found the right place, a range only claims one. These checks are about
+   what is left holding it — bounds and overlap — and about the arithmetic that
+   goes wrong silently. */
+
+const lineBlock = (range, body) => `<<<<<<< LINES ${range}\n${body}${body ? "\n" : ""}>>>>>>> END`;
+
+const numbered = numberLines(PAGE);
+has(numbered.startsWith(" 1| <main>"), "the page is shown with its line numbers", numbered.split("\n")[0]);
+has(
+  numbered.split("\n")[3] === " 4|   </section>",
+  "and the numbering is one-based, so line 4 is the fourth line",
+  numbered.split("\n")[3],
+);
+/* The width is set by the longest number, so the markup stays aligned on a page
+   with a thousand lines as well as on one with eleven. */
+has(
+  numberLines("a\n".repeat(120)).split("\n")[0] === "  1| a",
+  "the margin is padded to the widest line number",
+  numberLines("a\n".repeat(120)).split("\n")[0],
+);
+
+/* THE ONE. Lines 6-8 are the quote the model kept failing to copy. */
+const cut = applyLineEdits(PAGE, lineBlock("6-8", ""));
+has(
+  cut.applied === 1 && !cut.html.includes("$4,000"),
+  "an empty block deletes the lines it names",
+  JSON.stringify(cut.failures),
+);
+/* Deleted, not blanked: three empty lines where a paragraph was is not what
+   "delete this part" asked for. */
+has(
+  cut.html.split("\n").length === PAGE.split("\n").length - 3,
+  "and the lines are removed rather than left empty",
+  `${cut.html.split("\n").length} vs ${PAGE.split("\n").length}`,
+);
+has(cut.html.includes('<section class="pricing">') && cut.html.includes("</section>"), "the wrapper around them survives");
+
+const one = applyLineEdits(PAGE, lineBlock("3", `    <h2>Ship it.</h2>`));
+has(one.applied === 1 && one.html.includes("<h2>Ship it.</h2>"), "a single line number without a range works", JSON.stringify(one.failures));
+has(!one.html.includes("Build. Edit. Launch."), "and it replaced that line rather than adding to it");
+
+/* Everything the range did not name is byte-identical — the same property the
+   search blocks are held to, and the reason either is safe to run at all. */
+has(
+  one.html.replace("    <h2>Ship it.</h2>", "    <h2>Build. Edit. Launch.</h2>") === PAGE,
+  "nothing outside the range is touched",
+);
+
+/* A replacement can be more lines than it replaces, or fewer. */
+const grown = applyLineEdits(PAGE, lineBlock("3", `    <h2>Ship it.</h2>\n    <p>Fast.</p>`));
+has(
+  grown.html.split("\n").length === PAGE.split("\n").length + 1 && grown.html.includes("<p>Fast.</p>"),
+  "a range can be replaced by more lines than it held",
+);
+
+/* THE ARITHMETIC THAT GOES WRONG SILENTLY. Two ranges, and the first applied
+   would shift every line number below it — so the second must be resolved
+   against the page as the model was SHOWN it, not as it has become. Applied
+   top-down, this test passes with the wrong lines edited and nothing reported. */
+const two = applyLineEdits(
+  PAGE,
+  `${lineBlock("3", `    <h2>Ship it.</h2>`)}\n${lineBlock("9", `  </section>`)}`,
+);
+has(two.applied === 2, "two ranges both apply", JSON.stringify(two.failures));
+has(
+  two.html.includes("<h2>Ship it.</h2>") && two.html.includes("Your code leaves with you, in full"),
+  "and each lands on the line it named, not on what moved into it",
+  two.html,
+);
+
+/* Same, with the earlier range being a DELETION — the case where the shift is
+   largest and an off-by-three would be invisible. */
+const cutThenEdit = applyLineEdits(
+  PAGE,
+  `${lineBlock("6-8", "")}\n${lineBlock("11", `  <footer><p>Yours.</p></footer>`)}`,
+);
+has(
+  cutThenEdit.applied === 2 &&
+    !cutThenEdit.html.includes("$4,000") &&
+    cutThenEdit.html.includes("<footer><p>Yours.</p></footer>") &&
+    !cutThenEdit.html.includes("Your code leaves with you, in full"),
+  "a deletion above a later range does not shift what that range means",
+  cutThenEdit.html,
+);
+
+// ── What the line editor must refuse ──────────────────────────────────────
+/* A range past the end of the document. The model counted wrong, and splicing
+   at a line that does not exist would silently append instead. */
+const past = applyLineEdits(PAGE, lineBlock("40-44", `<p>x</p>`));
+has(
+  past.applied === 0 && past.html === PAGE && past.failures[0]?.reason.includes("runs to line"),
+  "a range past the end of the page is refused, and says how long the page is",
+  JSON.stringify(past.failures),
+);
+
+const backwards = applyLineEdits(PAGE, lineBlock("8-6", `<p>x</p>`));
+has(backwards.applied === 0 && backwards.html === PAGE, "a backwards range is refused");
+
+const zero = applyLineEdits(PAGE, lineBlock("0-2", `<p>x</p>`));
+has(zero.applied === 0 && zero.html === PAGE, "line 0 is refused — the numbering starts at 1");
+
+/* Two ranges over the same lines is the model contradicting itself. The first
+   stands and the second is refused, rather than the two being merged into
+   whatever the ordering happens to produce. */
+const overlap = applyLineEdits(
+  PAGE,
+  `${lineBlock("6-8", `      <p>One</p>`)}\n${lineBlock("7-9", `      <p>Two</p>`)}`,
+);
+has(
+  overlap.applied === 1 && overlap.html.includes("<p>One</p>") && !overlap.html.includes("<p>Two</p>"),
+  "two ranges over one region: the first lands, the second is refused",
+  JSON.stringify(overlap.failures),
+);
+
+/* A reply with no blocks in it changes nothing, rather than emptying the page.
+   This is the one that matters most: applyLineEdits returns html unconditionally,
+   so a parse that finds nothing must return the document it was given. */
+const prose = applyLineEdits(PAGE, "I'll remove that section for you.");
+has(prose.applied === 0 && prose.html === PAGE, "a reply with no blocks leaves the page exactly as it was");
 
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

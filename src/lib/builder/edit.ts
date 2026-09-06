@@ -2,13 +2,22 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { modelById } from "@/app/dashboard/models";
 
-import { applyPatches, describeFailures, noteAfterPatches, type PatchFailure } from "./patch";
+import {
+  applyLineEdits,
+  applyPatches,
+  describeFailures,
+  noteAfterPatches,
+  numberLines,
+  type PatchFailure,
+} from "./patch";
 import {
   CLARIFY_SYSTEM,
   EDIT_SYSTEM,
+  LINES_SYSTEM,
   QUESTION_SYSTEM,
   clarifyPrompt,
   editPrompt,
+  linesPrompt,
   questionPrompt,
   retryPrompt,
 } from "./prompts";
@@ -61,6 +70,21 @@ export const EDIT_MODEL = "claude-haiku-4-5";
  * and less than an edit that does not happen. */
 export const EDIT_MODEL_STRONG = "claude-sonnet-5";
 
+/* Room for the reply to an edit.
+ *
+ * It was 8,000, which is generous for the blocks themselves — a change is a few
+ * hundred tokens of markup — and is not what this number has to cover. On a
+ * model that thinks before it writes, the thinking comes out of the same
+ * allowance, so a careful read of a forty-thousand-character page can spend
+ * most of it before the first block is written. What comes back then is a
+ * truncated block with no closing marker, which parses as no blocks at all.
+ *
+ * Raised until that cannot be what happened, and still small enough to finish
+ * inside the sixty seconds this route is allowed: a reply of this size is a few
+ * hundred tokens of patch and whatever thinking preceded it, not thirty
+ * thousand tokens of document. See ranOutOfRoom, which now checks. */
+const PATCH_TOKENS = 24_000;
+
 /**
  * The headings this page actually has, for the sentence that asks somebody to
  * name a section.
@@ -104,6 +128,22 @@ function textOf(message: Anthropic.Message): string {
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("");
+}
+
+/* An answer that ran out of room, told apart from an answer that was finished.
+ *
+ * max_tokens caps the whole reply, and on a model that thinks before it writes
+ * the thinking is inside that cap. A call that hits the ceiling comes back
+ * looking ordinary — no error, a Message object, `content` populated — and its
+ * last block simply stops. A half-written search block has no closing marker,
+ * so the parser finds no blocks at all, and the person is told their change
+ * could not be placed in the page: a sentence about their words, describing a
+ * fault in our budget.
+ *
+ * So it is asked, and it is said out loud. It is also the one failure here that
+ * retrying identically cannot fix. */
+function ranOutOfRoom(message: Anthropic.Message): boolean {
+  return message.stop_reason === "max_tokens";
 }
 
 function client(): Anthropic {
@@ -366,6 +406,11 @@ export type EditOutcome = {
      follow the model that did the work rather than the one that usually does
      it. */
   model: string;
+  /* How the change was made in the end: by quoting the page, or by naming line
+     numbers after quoting it had failed twice. Reported rather than hidden —
+     the second route is the weaker one, and which route an edit took is the
+     first thing worth knowing when one lands wrong. */
+  route: "patch" | "lines";
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -394,7 +439,7 @@ export async function editPage(
   const first = await ask(
     EDIT_SYSTEM,
     editPrompt(userMessage, html),
-    8_000,
+    PATCH_TOKENS,
     attachments,
     prior,
     onProgress,
@@ -406,6 +451,15 @@ export async function editPage(
     throw new EditError("I wasn't able to make that change. If you can say which part of the page you mean, I'll try again.", 422);
   }
 
+  /* A reply that stopped mid-block, said out loud in the retry rather than
+     described as "you returned no blocks" — which is what the model was told
+     before, and is an accusation about its answer rather than a fact about the
+     room it was given. */
+  if (ranOutOfRoom(first)) {
+    // eslint-disable-next-line no-console
+    console.error("edit: the first attempt hit max_tokens before finishing a block");
+  }
+
   let output = textOf(first);
   let result = applyPatches(html, output);
   let outputTokens = first.usage?.output_tokens ?? 0;
@@ -415,9 +469,11 @@ export async function editPage(
      alone: re-running it would apply the blocks that already worked a second
      time, against a page they have already changed. */
   if (result.applied === 0) {
-    const reason = result.failures.length
-      ? describeFailures(result.failures)
-      : "You returned no search/replace blocks.";
+    const reason = ranOutOfRoom(first)
+      ? "Your previous attempt ran out of room before it finished a block. Keep the blocks small — several precise ones rather than one that rewrites a section."
+      : result.failures.length
+        ? describeFailures(result.failures)
+        : "You returned no search/replace blocks.";
 
     /* The second attempt reports too, and says so: a retry that narrated
        itself as a first attempt would hide the one thing worth knowing about
@@ -434,7 +490,7 @@ export async function editPage(
     const second = await ask(
       EDIT_SYSTEM,
       retryPrompt(userMessage, html, reason),
-      8_000,
+      PATCH_TOKENS,
       attachments,
       prior,
       onProgress,
@@ -447,20 +503,78 @@ export async function editPage(
     retried = true;
 
     if (result.applied === 0) {
-      /* Nothing was written, and saying so is the whole point: an edit that
-         silently did nothing is indistinguishable from one that worked until
-         someone looks closely.
+      /* ── Stop asking it to quote the page ──────────────────────────────
        *
-         And the advice names THIS page. "Naming the section you mean — the
-         hero, the nav, the footer" was a guess at what any page contains,
-         offered to somebody who had just pointed at a specific part of theirs;
-         two of the three might not exist in it. The headings are right there in
-         the markup, so they are read out instead, and the next message can name
-         one of them. */
+       * Twice now the model has been asked to copy text out of the document
+       * and has written something that is not in it. Asking a third time is
+       * the same question again, and the honest reading of two failures is
+       * that copying is what it is getting wrong — not the change itself,
+       * which in the conversation that produced this fix was "delete this
+       * card" with the card's own words quoted in the message.
+       *
+       * So the last attempt changes the job rather than the model. The page
+       * goes over with line numbers down the margin and the model names a
+       * range. There is nothing to transcribe, so the failure that got us
+       * here cannot happen; see LINES_SYSTEM for what it gives up in
+       * exchange, and why that trade is the right one at this point and not
+       * before it. */
+      const whyPatchesFailed = result.failures.length
+        ? describeFailures(result.failures)
+        : "Both attempts returned no usable search/replace blocks.";
+
+      onProgress?.({
+        kind: "reasoning",
+        text: "Quoting the page isn't landing. Reading it by line number instead…",
+      });
+
+      const numbered = numberLines(html);
+      const third = await ask(
+        LINES_SYSTEM,
+        linesPrompt(userMessage, numbered, whyPatchesFailed),
+        PATCH_TOKENS,
+        attachments,
+        prior,
+        onProgress,
+        false,
+        EDIT_MODEL_STRONG,
+      );
+
+      const byLine = applyLineEdits(html, textOf(third));
+      outputTokens += third.usage?.output_tokens ?? 0;
+
+      if (byLine.applied > 0) {
+        return {
+          html: byLine.html,
+          applied: byLine.applied,
+          failures: byLine.failures,
+          note: noteAfterPatches(textOf(third)),
+          outputTokens,
+          retried: true,
+          model: EDIT_MODEL_STRONG,
+          route: "lines",
+        };
+      }
+
+      /* Three attempts, two different ways of describing a change, and
+         nothing landed. Now it is worth saying so.
+       *
+         And the sentence says which of the two things went wrong, because
+         they need different answers from the person reading it. Running out
+         of room is our fault and rephrasing will not help; not finding the
+         part is theirs to point at, and the headings are read out of their
+         own markup so they can name one. */
+      if (ranOutOfRoom(third)) {
+        throw new EditError(
+          "That change came back longer than one edit can carry, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+          422,
+          byLine.failures,
+        );
+      }
+
       throw new EditError(
         `I couldn't place that change in the page, so I've left it exactly as it was.${sectionsHint(html)}`,
         422,
-        result.failures,
+        [...result.failures, ...byLine.failures],
       );
     }
   }
@@ -477,6 +591,7 @@ export async function editPage(
     /* The retry always runs on the stronger model, so a retried edit was
        finished by it whatever the first attempt used. */
     model: retried ? EDIT_MODEL_STRONG : model,
+    route: "patch",
   };
 }
 

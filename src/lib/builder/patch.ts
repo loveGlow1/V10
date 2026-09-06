@@ -230,3 +230,105 @@ export function noteAfterPatches(modelOutput: string): string | null {
   const note = line.trim().replace(/^NEXT:\s*/i, "").trim();
   return note && note.length <= NOTE_LIMIT ? note : null;
 }
+
+/* ── When copying the page is the thing going wrong ────────────────────────
+ *
+ * Everything above asks the model to quote the page back. That is a good
+ * default — it is self-verifying, and a block that misquotes is a block about
+ * something else — but it has one failure mode that no amount of forgiveness
+ * fixes: a model that PARAPHRASES what it is looking at. It writes
+ * class="text-black/70 leading-relaxed" where the page says
+ * class="text-[15px] text-black/70 leading-relaxed", the content genuinely
+ * differs, and the block is refused. Correctly refused, and the person still
+ * did not get their edit.
+ *
+ * So the fallback stops asking for a copy. The page is shown with line numbers
+ * and the model names a RANGE — "replace lines 412 to 418 with this" — which it
+ * cannot get wrong by mistyping, because there is nothing to transcribe. What
+ * it writes is only the new text.
+ *
+ * The safety is different in kind, and it is worth being explicit that it is
+ * weaker: a search block proves it found the right place by quoting it, and a
+ * line range simply asserts one. That is exactly why this runs second. It is
+ * what happens after two attempts at the careful thing have failed, where the
+ * alternative on the table is not a safer edit but no edit at all.
+ *
+ * What is still checked: every range must be inside the document, and no two
+ * ranges may overlap. Both are refusals, not corrections.
+ */
+
+/** The page as the model is shown it for a line edit: `  12| <div>`. */
+export function numberLines(html: string): string {
+  const lines = html.split("\n");
+  const width = String(lines.length).length;
+  return lines.map((line, index) => `${String(index + 1).padStart(width, " ")}| ${line}`).join("\n");
+}
+
+/* `LINES 12-18`, or `LINES 12` for one. The body may be empty, which is how a
+   deletion is written and the most common thing this is asked for. */
+const LINE_BLOCK = /<{7} LINES[ \t]+(\d+)(?:[ \t]*-[ \t]*(\d+))?[ \t]*\r?\n([\s\S]*?)>{7} END/g;
+
+type Range = { from: number; to: number; replacement: string };
+
+/**
+ * Applies line-range edits to a document.
+ *
+ * Ranges are one-based and inclusive, counted on the document as it was shown —
+ * so they are all resolved against the ORIGINAL line numbering and applied from
+ * the bottom up. Applying them top-down would shift every line number under the
+ * first edit, and the second range would then name whatever had moved into it:
+ * a plausible-looking edit in the wrong place, which is the one outcome worse
+ * than a refusal.
+ */
+export function applyLineEdits(html: string, modelOutput: string): PatchResult {
+  const lines = html.split("\n");
+  const ranges: Range[] = [];
+  const failures: PatchFailure[] = [];
+
+  LINE_BLOCK.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = LINE_BLOCK.exec(modelOutput)) !== null) {
+    const from = Number(match[1]);
+    const to = match[2] ? Number(match[2]) : from;
+    const named = `lines ${from}${match[2] ? `-${to}` : ""}`;
+
+    if (from < 1 || to < from || to > lines.length) {
+      failures.push({
+        reason: `${named} is not a range this page has — it runs to line ${lines.length}`,
+        search: named,
+      });
+      continue;
+    }
+
+    /* Two ranges over the same lines is the model contradicting itself, and the
+       page is not the place to settle that. Refused rather than merged. */
+    const clash = ranges.find((range) => from <= range.to && to >= range.from);
+    if (clash) {
+      failures.push({
+        reason: `${named} overlaps lines ${clash.from}-${clash.to}, which another block already changes`,
+        search: named,
+      });
+      continue;
+    }
+
+    /* The body runs to the END marker, so it carries the newline that put that
+       marker on its own line. One is dropped; the rest is the person's text. */
+    const replacement = match[3].replace(/\r?\n$/, "");
+    ranges.push({ from, to, replacement });
+  }
+
+  /* Bottom-up, so each splice leaves the line numbers above it untouched. */
+  const ordered = [...ranges].sort((a, b) => b.from - a.from);
+  const next = [...lines];
+
+  for (const range of ordered) {
+    /* An empty replacement deletes the lines rather than leaving a blank one
+       where they were — "delete this section" is the request this exists for,
+       and a run of empty lines in the markup is not what was asked for. */
+    const body = range.replacement === "" ? [] : range.replacement.split("\n");
+    next.splice(range.from - 1, range.to - range.from + 1, ...body);
+  }
+
+  return { html: next.join("\n"), applied: ranges.length, failures };
+}

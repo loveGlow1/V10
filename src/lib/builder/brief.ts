@@ -22,7 +22,42 @@ import type Anthropic from "@anthropic-ai/sdk";
  * is nothing to carry, the message is passed through exactly as typed, which is
  * what every message did before this file existed. */
 
-export type Turn = { from: string; text: string };
+export type Turn = {
+  from: string;
+  text: string;
+  /* What the panel drew this row as, and — see conversational() — what decides
+     whether a model is allowed to see it at all. Optional because two callers
+     read this thread for other purposes and do not select them. */
+  tone?: string | null;
+  kind?: string | null;
+};
+
+/* Whether a row is something SAID, or something the app reported.
+ *
+ * This is the difference between a conversation and a log, and getting it wrong
+ * cost somebody an evening. Every reply the builder writes lands in the same
+ * table — the answers a model wrote, and also "Your build is underway", "I
+ * couldn't use that file", and "I couldn't place that change in the page, so
+ * I've left it exactly as it was."
+ *
+ * Those last ones are the app reporting a fault. Replayed into a model call as
+ * assistant turns they stop being a report and become an EXAMPLE: the model is
+ * shown its own supposed refusals, twice, immediately before being asked the
+ * same question a third time — and it does the consistent thing. So one failed
+ * edit made the next more likely to fail, which made the next more likely
+ * still, and no amount of rephrasing got out of it. The person sending the
+ * messages had no way to see any of that; from the outside the builder had
+ * simply stopped being able to edit their page.
+ *
+ * A person's own messages are always kept: "it", "that" and "too" refer to
+ * them, which is the entire reason this history is sent. What is dropped is the
+ * builder's side when it was not an answer — anything the panel drew as an
+ * error, and anything that was a status notice rather than a chat reply. */
+export function conversational(turn: Turn): boolean {
+  if (turn.from === "you") return true;
+  if (turn.tone === "error") return false;
+  return !turn.kind || turn.kind === "chat";
+}
 
 /* Messages that ask for the last thing again, or say yes to it, and describe
    nothing themselves. Anchored at both ends: "go" is a continuation, "go with a
@@ -174,7 +209,11 @@ export function carriedContextWords(composed: string): number {
 export function priorTurns(history: Turn[]): Anthropic.MessageParam[] {
   const turns: Anthropic.MessageParam[] = [];
 
-  for (const turn of history.slice(-MAX_TURNS)) {
+  /* Filtered BEFORE the last six are taken, so a run of failures cannot push
+     the messages that actually matter out of the window. Six errors in a row is
+     exactly the state this is for, and taking the last six first would leave
+     nothing behind after the filter. */
+  for (const turn of history.filter(conversational).slice(-MAX_TURNS)) {
     const text = trimToWords(turn.text.trim(), MAX_CONTEXT_WORDS);
     if (!text) continue;
 

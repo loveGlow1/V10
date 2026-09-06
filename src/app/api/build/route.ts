@@ -25,7 +25,7 @@ import {
   placeAttachments,
   signedImageUrls,
 } from "@/lib/builder/attachments";
-import { carryBrief, countWords, priorTurns } from "@/lib/builder/brief";
+import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
   EDIT_MODEL,
@@ -513,19 +513,24 @@ async function handle(
      history. */
   const { data: recent } = await supabase
     .from("project_messages")
-    .select("role, body")
+    .select("role, body, tone, kind")
+    /* tone and kind travel with the text now, and they are not decoration: they
+       are how a model call tells what the builder SAID from what the app
+       REPORTED. See conversational() in builder/brief.ts, and the loop it was
+       written for. */
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const history = ((recent ?? []) as { role: string; body: string }[])
+  const history = ((recent ?? []) as { role: string; body: string; tone: string | null; kind: string | null }[])
     .reverse()
-    .map((row) => ({ from: row.role, text: row.body }));
+    .map((row) => ({ from: row.role, text: row.body, tone: row.tone, kind: row.kind }));
 
-  /* The classifier keeps the slice it was tuned and tested against. Widening
-     what it sees is a change to how every message is read, and this is not the
-     change that should make it. */
-  const classifierHistory = history.slice(-6);
+  /* The classifier keeps the slice it was tuned and tested against — six turns
+     — but not the status lines and the faults. Those were never conversation,
+     and a window half full of "I couldn't place that change" is six turns of
+     which three say nothing about what this message means. */
+  const classifierHistory = history.filter(conversational).slice(-6);
 
   /* The same conversation in the shape a model call takes. */
   const prior = priorTurns(history);
@@ -1083,7 +1088,14 @@ async function handle(
         edited.failures.length > 0
           ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
           : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
-        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}`,
+        /* The model that actually did it, not the one that usually does — an
+           edit escalates, and a line that names EDIT_MODEL whatever happened is
+           a label rather than a report. And the route, because "by line number"
+           means quoting the page had already failed twice, which is the first
+           thing worth knowing if the change landed somewhere odd. */
+        `${edited.model}, ${edited.outputTokens} output tokens${
+          edited.route === "lines" ? ", placed by line number" : edited.retried ? ", retried once" : ""
+        }`,
       );
     } catch (error) {
       if (error instanceof EditError) {
