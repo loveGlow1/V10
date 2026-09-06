@@ -390,6 +390,41 @@ try {
       );
   }
 
+  /* ── The same memory, whichever way a message came in ─────────────────────
+   *
+   * How much of the conversation travels with a message used to depend on which
+   * path it took: 700 characters of each earlier turn for an edit, 400 of the
+   * carried description for a brand new page. Two numbers, set months apart,
+   * for one promise — and the person typing cannot see which path their
+   * sentence took, so from where they sit the builder simply remembered
+   * different amounts on different days.
+   *
+   * Both are measured here, on the same over-long message, and must agree.
+   * Written as a measurement rather than as "the constant is 600", because a
+   * constant nothing reads would pass that and change nothing.
+   */
+  const { priorTurns, MAX_CONTEXT } = await import(join(out, "lib/builder/brief.js"));
+  const LONG = "x".repeat(2000);
+
+  const edit = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }]);
+  const editCarried = String(edit[0]?.content ?? "").length;
+
+  const newPage = composeBuildPrompt("landing", "rebuild it", { carriedFrom: LONG });
+  const carriedLine = newPage
+    .split("\n")
+    .find((row) => row.includes("This continues an earlier description"));
+  const buildCarried = carriedLine ? (carriedLine.match(/"(x+)"/)?.[1].length ?? 0) : 0;
+
+  if (editCarried !== MAX_CONTEXT) {
+    fail(`an edit carries ${editCarried} characters of context, not ${MAX_CONTEXT}`);
+  } else if (buildCarried !== MAX_CONTEXT) {
+    fail(`a new page carries ${buildCarried} characters of context, not ${MAX_CONTEXT}`);
+  } else {
+    console.log(
+      `ok   context    ${MAX_CONTEXT} characters carried on both ways in — an edit and a brand new page remember alike`,
+    );
+  }
+
   if (failed > 0) {
     console.log("\nA wrong answer means the rules changed meaning, not just coverage.");
     process.exit(1);

@@ -79,9 +79,21 @@ export function carryBrief(message: string, history: Turn[]): Brief {
   return { text: composed.slice(0, MAX_BRIEF), carried };
 }
 
-/* How much of one earlier message is worth carrying into a model call. Enough
-   to hold an instruction; not so much that six of them crowd out the page. */
-const MAX_TURN = 700;
+/**
+ * How much of one earlier message travels into a model call.
+ *
+ * One number for both ways a message can reach the builder, because from the
+ * outside they are the same promise. A brand new page carries the description
+ * it continues from (see the carriedFrom line in blueprints/index.ts, which
+ * imports this); an edit carries the conversation it is an edit to, through
+ * priorTurns below. Those were 400 and 700, set months apart, and nothing said
+ * why they differed — so "how much does it remember?" had two answers depending
+ * on a distinction nobody typing into the box can see.
+ *
+ * Enough to hold an instruction; not so much that six of them crowd out the
+ * page they are about.
+ */
+export const MAX_CONTEXT = 600;
 /* How many turns of context to send. Three exchanges is what "it", "that" and
    "too" ever refer to in practice. */
 const MAX_TURNS = 6;
@@ -101,7 +113,7 @@ export function priorTurns(history: Turn[]): Anthropic.MessageParam[] {
   const turns: Anthropic.MessageParam[] = [];
 
   for (const turn of history.slice(-MAX_TURNS)) {
-    const text = turn.text.trim().slice(0, MAX_TURN);
+    const text = turn.text.trim().slice(0, MAX_CONTEXT);
     if (!text) continue;
 
     const role: "user" | "assistant" = turn.from === "you" ? "user" : "assistant";
