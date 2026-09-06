@@ -7,7 +7,9 @@ import {
   buildDoorFor,
   canAfford,
   cannotAffordBuildMessage,
+  contextSurcharge,
   creditCostOf,
+  roundCredits,
   downgradedModelMessage,
   formatCredits,
   modelAllowedOnPlan,
@@ -16,7 +18,7 @@ import {
   resolveBuildModel,
 } from "@/app/dashboard/credits";
 import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { carryBrief, priorTurns } from "@/lib/builder/brief";
+import { carryBrief, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
   EDIT_MODEL,
@@ -127,8 +129,20 @@ function editUsage(applied: number): { filesTouched: number } {
 }
 
 /* Long enough for a real description, short enough that the prompt cannot be
-   used to push a large payload through to the orchestrator. */
-const MAX_PROMPT = 4000;
+   used to push a large payload through to the orchestrator.
+ *
+ * Counted in words, because that is the unit the person has. This was 4,000
+ * CHARACTERS, and a thousand-word brief is five to six thousand of those — so
+ * somebody who pasted the description they had spent an afternoon writing was
+ * told to make it shorter, in a unit they would have to go and count. A limit
+ * has to be one you can predict before you hit it.
+ *
+ * The character ceiling stays underneath as a backstop, not as the limit
+ * anybody meets: a thousand words is nothing like twenty thousand characters
+ * unless something pathological is happening, and the orchestrator is on the
+ * other side of a webhook. */
+const MAX_PROMPT_WORDS = 1000;
+const MAX_PROMPT_CHARS = 20_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
    balance is that — but a brake on a loop or a stolen session draining an
@@ -354,9 +368,17 @@ async function handle(
   if (!prompt) {
     return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
-  if (prompt.length > MAX_PROMPT) {
+  /* Said in words, and said with their number in it: "shorten this" is advice,
+     "you are 240 words over" is something somebody can act on in one pass. */
+  const promptWords = countWords(prompt);
+  if (promptWords > MAX_PROMPT_WORDS || prompt.length > MAX_PROMPT_CHARS) {
     return NextResponse.json(
-      { error: `That's longer than I can take in one message — keep it under ${MAX_PROMPT} characters and send it again.` },
+      {
+        error:
+          promptWords > MAX_PROMPT_WORDS
+            ? `That's ${promptWords.toLocaleString("en-US")} words and I can take ${MAX_PROMPT_WORDS.toLocaleString("en-US")} in one message — trim about ${(promptWords - MAX_PROMPT_WORDS).toLocaleString("en-US")} and send it again.`
+            : "That message is too large to send in one piece. Trim it and try again.",
+      },
       { status: 400 },
     );
   }
@@ -475,6 +497,24 @@ async function handle(
 
   /* The same conversation in the shape a model call takes. */
   const prior = priorTurns(history);
+
+  /* What the words on this turn cost, on top of the work they ask for: the
+   * message somebody sent, and the conversation carried with it.
+   *
+   * The message itself is in the count because that is what somebody pastes —
+   * a thousand-word brief is the case this was asked for. The rest is measured
+   * off `prior` rather than off `history`, because this must be the price of
+   * what was actually SENT: priorTurns trims each message to MAX_CONTEXT_WORDS
+   * and joins consecutive ones from the same side. Charging off the untrimmed
+   * thread would bill somebody for a paragraph the builder never read.
+   *
+   * Zero on a short message and a short thread, which is most of them: the
+   * first 300 words of each are part of the price of the turn. See
+   * contextSurcharge. */
+  const contextCost = contextSurcharge([
+    promptWords,
+    ...prior.map((turn) => countWords(String(turn.content))),
+  ]);
 
   /* Whatever was attached to this message, resolved to rows the server can
      read. Restricted to this project and this owner: the ids came from the
@@ -849,11 +889,21 @@ async function handle(
          at zero and reaches one credit only at a full page of answer, which is
          what keeps troubleshooting from feeling metered. */
       if (service && delivered) {
+        /* Plus the conversation it was answered against, on the same terms as
+           an edit: a question read with six messages behind it is a question
+           that cost more to answer than one read on its own. Not charged on the
+           clarify path above — that one is the builder asking for help, and
+           billing somebody extra for the classifier's caution is charging them
+           for our own uncertainty. */
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL });
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL }),
-          description: `Question: ${project.name}`,
+          cost: roundCredits(askCost + contextCost),
+          description:
+            contextCost > 0
+              ? `Question: ${project.name} — ${formatCredits(askCost)} + ${formatCredits(contextCost)} context`
+              : `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
           dedupeKey: `question:${requestId}`,
@@ -1001,11 +1051,19 @@ async function handle(
        at 0.50 forever while the edits kept arriving. charge_credits takes what
        is there and reports what it could not, so an account that overdraws
        lands at zero and the gate above turns the next one away. */
+    /* The edit, plus what the conversation behind it cost to carry. Named in
+       the description rather than folded in silently: a line in a ledger that
+       says only "Edit" and charges more than the last identical edit is the
+       kind of thing somebody notices and cannot explain. */
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL });
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL }),
-      description: `Edit: ${project.name}`,
+      cost: roundCredits(editCost + contextCost),
+      description:
+        contextCost > 0
+          ? `Edit: ${project.name} — ${formatCredits(editCost)} + ${formatCredits(contextCost)} context`
+          : `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
       dedupeKey: `edit:${requestId}`,

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { creditCostOf } from "@/app/dashboard/credits";
+import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
+import { carriedContextWords, countWords } from "@/lib/builder/brief";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
      now has somewhere to be reported. */
   const { data: project, error: lookupError } = await supabase
     .from("projects")
-    .select("id")
+    .select("id, deleted_at")
     .eq("id", claim.projectId)
     .eq("user_id", claim.userId)
     .maybeSingle();
@@ -350,24 +351,65 @@ export async function POST(request: Request) {
     return NextResponse.json({ previewUrl, filesTouched });
   }
 
-  /* Priced from the page, and only now that there is a page. filesTouchedFor
-     reads the document rather than trusting a field in the request, so a
-     workflow anyone with n8n access can edit cannot talk the price down.
+  /* Not for a page nobody can see.
+   *
+   * A project can be deleted while its build is still running — a minute in,
+   * somebody decides they worded it wrong, bins it and starts again. The page
+   * lands afterwards and this route stores it against a row the app no longer
+   * shows anywhere, so what the person experienced was eight credits leaving
+   * their balance for a build they never saw. That happened, on 2026-09-06, to
+   * the person who owns this code.
+   *
+   * The page is still stored, deliberately: `deleted_at` is a soft delete, and
+   * a project brought back should have the page its build produced. What does
+   * not happen is the charge. Charging is for work somebody received, and the
+   * whole of what they received here is a row in a table they cannot open.
+   *
+   * Priced from the page, and only now that there is a page. filesTouchedFor
+   * reads the document rather than trusting a field in the request, so a
+   * workflow anyone with n8n access can edit cannot talk the price down. */
+  if (project.deleted_at) {
+    // eslint-disable-next-line no-console
+    console.info(`save: ${project.id} was deleted while its build ran; storing the page, not charging for it.`);
+    return NextResponse.json({ previewUrl, filesTouched, charged: false });
+  }
 
-     charge_credits rather than spend_credits: the build has happened and the
+  /* charge_credits rather than spend_credits: the build has happened and the
      model has been paid for, so a refusal here would not undo it — it would
      just leave the work unrecorded and the balance where it was, which is the
      bug this replaces. It takes what the account holds and reports the rest,
      so an overdraft lands at zero and the next build is turned away at the
      door. The result is not returned to n8n: what an account owes is between
      the app and its owner. */
+  /* The page, and the conversation that was carried into it.
+   *
+   * A build charged here is charged minutes and one HTTP hop from where its
+   * context was assembled, so the length is read back out of the brief itself
+   * — see carriedContextLength. Nothing extra travels through the orchestrator
+   * to make this work, which is the point: a price that depends on a field
+   * somebody has to remember to add to a canvas is a price that will one day
+   * silently be zero. */
+  const pageCost = creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined });
+
+  /* The brief that built this page, as its two halves: the description carried
+     from earlier in the conversation, and the message somebody actually sent.
+     Each gets its own 300 free words, the same as every other turn — the seam
+     between them is what carriedContextWords reads. A brief nobody continued
+     has one half and a carried count of zero. */
+  const brief = str(body.prompt);
+  const carriedWords = carriedContextWords(brief);
+  const contextCost = contextSurcharge([carriedWords, countWords(brief) - carriedWords]);
+
   await chargeCredits(supabase, {
     userId: claim.userId,
     action: "generate",
     /* The model n8n reports, which is the one the app sent in a signed
        request and the workflow forwarded — not a browser's word for it. */
-    cost: creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined }),
-    description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
+    cost: roundCredits(pageCost + contextCost),
+    description:
+      contextCost > 0
+        ? `Build: ${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
+        : `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
     projectId: project.id,
     filesTouched,
     /* The most expensive charge in the system, and the one most exposed to

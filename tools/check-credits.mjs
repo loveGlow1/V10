@@ -155,6 +155,61 @@ try {
     "iterating must not be taxed like provisioning",
   );
 
+  /* ── What a long brief costs ─────────────────────────────────────────────
+     A price, not a cost — 700 words is about a fifth of a cent of input
+     against a build that costs about a dollar. So there is nothing here for a
+     tool to have an opinion about except the shape of it, and the shape is
+     what somebody notices on their balance: the allowance has to be free, the
+     surcharge has to stay small beside the work it rides on, and it has to be
+     readable in the two decimals a balance is kept in. */
+  const free = credits.FREE_CONTEXT_WORDS;
+  const surcharge = credits.contextSurcharge;
+
+  has(surcharge([free]) === 0, `${free} words are free on every message`, "the allowance charges");
+  has(surcharge([0, 12, free]) === 0, "short messages are free however many there are");
+
+  /* The full ceiling on every message of a six-turn thread — the worst case a
+     person can actually reach. */
+  const MAX_CONTEXT_WORDS = 1000;
+  const worst = surcharge(Array(7).fill(MAX_CONTEXT_WORDS));
+  const build = credits.CREDIT_ACTIONS.generate.max;
+  has(
+    worst < build / 2,
+    `the worst case adds ${worst} to a build of up to ${build}`,
+    `context can add ${worst}, which is no longer a surcharge but a second price`,
+  );
+
+  has(
+    worst === credits.MAX_CONTEXT_SURCHARGE,
+    `the worst case is the ceiling itself (${credits.MAX_CONTEXT_SURCHARGE})`,
+    "the cap is not what stops the worst case, so the rate alone decides it",
+  );
+
+  /* Proportional, and in that direction: this is the property that makes the
+     line on a ledger explicable — twice the context past the allowance, twice
+     the charge. Below the cap, which is where all but the longest threads sit. */
+  const one = surcharge([free + 100]);
+  const two = surcharge([free + 200]);
+  has(
+    one > 0 && Math.abs(two - one * 2) < 0.005,
+    `it scales with what was written (${one} for 100 words over, ${two} for 200)`,
+    "the surcharge is not proportional, so a ledger line cannot be explained",
+  );
+
+  /* Per message, matching the ceiling it sits under. Two messages of 400 must
+     cost what two messages of 400 cost — not what one message of 800 does. */
+  has(
+    surcharge([free + 100, free + 100]) === credits.roundCredits(one * 2),
+    "each message gets its own allowance",
+    "the allowance is being applied once per request rather than once per message",
+  );
+
+  has(
+    surcharge([free + 3]) === 0,
+    "a message a few words over rounds to nothing",
+    "somebody is being charged an amount too small to appear on their balance",
+  );
+
 if (failed) {
   console.log(`\n${failed} check${failed === 1 ? "" : "s"} failed.`);
   process.exit(1);
