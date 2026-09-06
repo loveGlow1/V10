@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
-import { carriedContextLength } from "@/lib/builder/brief";
+import { carriedContextWords, countWords } from "@/lib/builder/brief";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
@@ -390,7 +390,15 @@ export async function POST(request: Request) {
    * somebody has to remember to add to a canvas is a price that will one day
    * silently be zero. */
   const pageCost = creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined });
-  const contextCost = contextSurcharge([carriedContextLength(str(body.prompt))]);
+
+  /* The brief that built this page, as its two halves: the description carried
+     from earlier in the conversation, and the message somebody actually sent.
+     Each gets its own 300 free words, the same as every other turn — the seam
+     between them is what carriedContextWords reads. A brief nobody continued
+     has one half and a carried count of zero. */
+  const brief = str(body.prompt);
+  const carriedWords = carriedContextWords(brief);
+  const contextCost = contextSurcharge([carriedWords, countWords(brief) - carriedWords]);
 
   await chargeCredits(supabase, {
     userId: claim.userId,

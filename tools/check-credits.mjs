@@ -155,23 +155,23 @@ try {
     "iterating must not be taxed like provisioning",
   );
 
-  /* ── What a long memory costs ────────────────────────────────────────────
-     A price, not a cost — 700 characters is about a twentieth of a cent of
-     input against a build that costs about a dollar. So there is nothing here
-     for a tool to have an opinion about except the shape of it, and the shape
-     is what somebody notices on their balance: the allowance has to be free,
-     the surcharge has to stay small beside the work it rides on, and it has to
-     be readable in the two decimals a balance is kept in. */
-  const free = credits.FREE_CONTEXT_CHARS;
+  /* ── What a long brief costs ─────────────────────────────────────────────
+     A price, not a cost — 700 words is about a fifth of a cent of input
+     against a build that costs about a dollar. So there is nothing here for a
+     tool to have an opinion about except the shape of it, and the shape is
+     what somebody notices on their balance: the allowance has to be free, the
+     surcharge has to stay small beside the work it rides on, and it has to be
+     readable in the two decimals a balance is kept in. */
+  const free = credits.FREE_CONTEXT_WORDS;
   const surcharge = credits.contextSurcharge;
 
-  has(surcharge([free]) === 0, `${free} characters of context are free`, "the allowance charges");
+  has(surcharge([free]) === 0, `${free} words are free on every message`, "the allowance charges");
   has(surcharge([0, 12, free]) === 0, "short messages are free however many there are");
 
   /* The full ceiling on every message of a six-turn thread — the worst case a
      person can actually reach. */
-  const MAX_CONTEXT = 1000;
-  const worst = surcharge(Array(6).fill(MAX_CONTEXT));
+  const MAX_CONTEXT_WORDS = 1000;
+  const worst = surcharge(Array(7).fill(MAX_CONTEXT_WORDS));
   const build = credits.CREDIT_ACTIONS.generate.max;
   has(
     worst < build / 2,
@@ -192,7 +192,7 @@ try {
   const two = surcharge([free + 200]);
   has(
     one > 0 && Math.abs(two - one * 2) < 0.005,
-    `it scales with what was carried (${one} for 100 over, ${two} for 200)`,
+    `it scales with what was written (${one} for 100 words over, ${two} for 200)`,
     "the surcharge is not proportional, so a ledger line cannot be explained",
   );
 
@@ -206,7 +206,7 @@ try {
 
   has(
     surcharge([free + 3]) === 0,
-    "a message a few characters over rounds to nothing",
+    "a message a few words over rounds to nothing",
     "somebody is being charged an amount too small to appear on their balance",
   );
 

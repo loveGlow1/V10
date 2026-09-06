@@ -400,28 +400,37 @@ try {
    * different amounts on different days.
    *
    * Both are measured here, on the same over-long message, and must agree.
-   * Written as a measurement rather than as "the constant is 600", because a
+   * Written as a measurement rather than as "the constant is 1000", because a
    * constant nothing reads would pass that and change nothing.
+   *
+   * In words, which is the unit somebody pasting a brief actually has — and the
+   * reason the trim is measured rather than assumed: cutting a thousand words
+   * on a word boundary is real work, and an off-by-one there is a sentence
+   * ending mid-.
    */
-  const { priorTurns, MAX_CONTEXT } = await import(join(out, "lib/builder/brief.js"));
-  const LONG = "x".repeat(2000);
+  const { priorTurns, MAX_CONTEXT_WORDS, countWords } = await import(
+    join(out, "lib/builder/brief.js")
+  );
+  /* A word that cannot be confused with the quotes around it, repeated well
+     past the ceiling. */
+  const LONG = Array(2000).fill("word").join(" ");
 
   const edit = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }]);
-  const editCarried = String(edit[0]?.content ?? "").length;
+  const editCarried = countWords(String(edit[0]?.content ?? ""));
 
   const newPage = composeBuildPrompt("landing", "rebuild it", { carriedFrom: LONG });
   const carriedLine = newPage
     .split("\n")
     .find((row) => row.includes("This continues an earlier description"));
-  const buildCarried = carriedLine ? (carriedLine.match(/"(x+)"/)?.[1].length ?? 0) : 0;
+  const buildCarried = carriedLine ? countWords(carriedLine.match(/"((?:word ?)+)"/)?.[1] ?? "") : 0;
 
-  if (editCarried !== MAX_CONTEXT) {
-    fail(`an edit carries ${editCarried} characters of context, not ${MAX_CONTEXT}`);
-  } else if (buildCarried !== MAX_CONTEXT) {
-    fail(`a new page carries ${buildCarried} characters of context, not ${MAX_CONTEXT}`);
+  if (editCarried !== MAX_CONTEXT_WORDS) {
+    fail(`an edit carries ${editCarried} words of context, not ${MAX_CONTEXT_WORDS}`);
+  } else if (buildCarried !== MAX_CONTEXT_WORDS) {
+    fail(`a new page carries ${buildCarried} words of context, not ${MAX_CONTEXT_WORDS}`);
   } else {
     console.log(
-      `ok   context    ${MAX_CONTEXT} characters carried on both ways in — an edit and a brand new page remember alike`,
+      `ok   context    ${MAX_CONTEXT_WORDS} words carried on both ways in — an edit and a brand new page remember alike`,
     );
   }
 

@@ -37,7 +37,8 @@ execFileSync(
    "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler", "--skipLibCheck"],
   { stdio: ["ignore", "ignore", "inherit"] },
 );
-const { carryBrief, priorTurns, isContinuation } = await import(join(out, "lib/builder/brief.js"));
+const { carryBrief, priorTurns, isContinuation, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
+  await import(join(out, "lib/builder/brief.js"));
 const { wantsDownload } = await import(join(out, "lib/builder/download.js"));
 const { resumableFrom, RESUME_WINDOW_MS } = await import(
   join(out, "app/dashboard/components/workspace/resume.js")
@@ -321,9 +322,71 @@ for (const [message, expected] of DOWNLOADS) {
   );
 }
 
+/* ── Counting and cutting in words ────────────────────────────────────────
+ *
+ * The limit somebody meets is a word count now, so the two functions behind it
+ * have to be right at the boundary rather than approximately right. A trim that
+ * is one word out is a brief ending mid-sentence, and a count that is one out is
+ * a charge somebody cannot reproduce.
+ */
+const WORDS = [
+  ["a plain sentence", "one two three", 3],
+  ["leading and trailing space", "  one two  ", 2],
+  ["newlines and tabs count as space", "one\ntwo\tthree\n\nfour", 4],
+  ["runs of spaces are one break", "one     two", 2],
+  ["nothing is nothing", "   ", 0],
+  ["punctuation rides with its word", "hello, world! again", 3],
+  /* The rule is wc -w: a run of non-space is a word, so a dash standing on its
+     own between spaces counts as one. Word processors would say three here.
+     Written down because it is the sort of difference somebody notices when
+     their 1,000-word document is called 1,006 — and being one or two out either
+     way is invisible against an allowance of 300. */
+  ["a lone dash is its own word", "hello, world — again", 4],
+];
+
+for (const [name, text, expected] of WORDS) {
+  const got = countWords(text);
+  const ok = got === expected;
+  if (!ok) wrong++;
+  console.log(`${ok ? "ok  " : "WRONG"} words: ${name} -> ${got}`);
+}
+
+const TRIMS = [
+  ["exactly at the limit keeps everything", "one two three", 3, "one two three"],
+  ["one over is cut on the boundary", "one two three four", 3, "one two three"],
+  ["under the limit is untouched", "one two", 5, "one two"],
+  ["zero words is nothing", "one two", 0, ""],
+  /* The shape of what somebody wrote survives: a brief flattened into one line
+     reads to the model as a different brief. */
+  ["paragraphs survive the cut", "one two\n\nthree four five", 4, "one two\n\nthree four"],
+];
+
+for (const [name, text, max, expected] of TRIMS) {
+  const got = trimToWords(text, max);
+  const ok = got === expected;
+  if (!ok) wrong++;
+  console.log(`${ok ? "ok  " : "WRONG"} trim: ${name} -> ${JSON.stringify(got)}`);
+}
+
+/* And the round trip the billing depends on: a composed brief has to give its
+   carried half back, or a build is charged for words it did not carry. */
+const CARRIED = "a description worth continuing that is long enough to be substantive";
+const composed = carryBrief("rebuild", [you(CARRIED)]);
+const readBack = carriedContextWords(composed.text);
+const roundTrip = readBack === countWords(CARRIED);
+if (!roundTrip) wrong++;
+console.log(
+  `${roundTrip ? "ok  " : "WRONG"} a composed brief gives its carried half back: ${readBack} words`,
+);
+
+const plain = carriedContextWords("just a brief nobody continued");
+const plainOk = plain === 0;
+if (!plainOk) wrong++;
+console.log(`${plainOk ? "ok  " : "WRONG"} a brief nobody continued carries nothing: ${plain}`);
+
 console.log(
   `\n${
-    CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + 4
+    CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + WORDS.length + TRIMS.length + 6
   } checks · ${wrong} wrong`,
 );
 process.exit(wrong === 0 ? 0 : 1);
