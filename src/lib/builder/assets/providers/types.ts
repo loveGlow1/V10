@@ -1,4 +1,5 @@
 import type { AssetRequest, VisualDirection } from "@/lib/builder/assets/asset-types";
+import type { BuildKind } from "@/lib/builder/kinds";
 
 /* What a source of pictures is, and what it owes the builder.
  *
@@ -64,6 +65,15 @@ export type SupplyContext = {
   direction: VisualDirection;
   /** Assets this project already holds, for the sources that can use them. */
   existing?: unknown;
+  /* What is being built. A stock search cannot tell a storefront from a
+     newsroom from the slot alone, and the same subject wants a different
+     photograph in each. */
+  kind?: BuildKind;
+  /* Photograph ids already used in this build, so no source hands back one
+     that is already on the page. Eight product slots share a subject, and
+     without this they shared a photograph — see pickBest in stock-query.ts.
+     A live set, added to by the resolver as slots are filled. */
+  taken?: Set<string>;
 };
 
 export type AssetProvider = {
