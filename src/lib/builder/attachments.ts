@@ -93,6 +93,10 @@ export async function attachmentBlocks(
   if (!supabase || rows.length === 0) return [];
 
   const blocks: Anthropic.ContentBlockParam[] = [];
+  /* Counted separately from the loop index: the tokens number the IMAGES, and
+     imagePlacements numbers them the same way. A PDF between two photographs
+     must not shift what attachment:2 means. */
+  let images = 0;
 
   for (const row of rows) {
     const { data, error } = await supabase.storage.from(ATTACHMENTS_BUCKET).download(row.path);
@@ -103,8 +107,15 @@ export async function attachmentBlocks(
 
     if (isImage(row.mime)) {
       /* Named first, so the model can tell "logo.svg" from "screenshot.png"
-         when the request mentions one of them by name. */
-      blocks.push({ type: "text", text: `Attached image — ${row.name}:` });
+         when the request mentions one of them by name — and given its token, so
+         that a request to PUT this picture in the page has an address to write.
+         The token is resolved to the real bytes after the edit applies; see
+         imagePlacements. */
+      blocks.push({
+        type: "text",
+        text: `Attached image — ${row.name}. To place this picture in the page, use src="${attachmentToken(images)}".`,
+      });
+      images += 1;
       blocks.push({
         type: "image",
         source: { type: "base64", media_type: row.mime, data: buffer.toString("base64") },
@@ -128,6 +139,90 @@ export async function attachmentBlocks(
   }
 
   return blocks;
+}
+
+/* ── Putting an attached picture INTO the page ─────────────────────────────
+ *
+ * Showing the model an image and asking it to place one are different things,
+ * and the second was missing. Somebody attached a photograph, wrote "use this
+ * image", and got back a page with an invented file path in the src and a reply
+ * explaining that they would need to host the file themselves — because the
+ * model could see the picture perfectly well and had no address to write down.
+ *
+ * So it is given one. Each attached image gets a short token, the model is told
+ * to use that token as the src, and the token is swapped for the real bytes
+ * after the edit has applied.
+ *
+ * The swap happens afterwards for one reason that matters: a data URI for a
+ * photograph is hundreds of thousands of characters, and a model asked to write
+ * one would spend its entire output budget transcribing base64 and never reach
+ * the end of the page. The token is nine characters. It writes the token.
+ */
+
+/** What the model writes as the src, one per attached image, in order. */
+export function attachmentToken(index: number): string {
+  return `attachment:${index + 1}`;
+}
+
+/* A ceiling on what may be embedded in one edit. The page is a file people
+   download, and every embedded photograph is carried inside it — see
+   MAX_HTML_BYTES in lib/page-html.ts, which is the backstop under this. */
+const MAX_EMBED_BYTES = 2_600_000;
+
+export type Placement = { token: string; dataUri: string; name: string };
+
+/**
+ * The attached images as `token → data URI`, in the order the tokens are given.
+ *
+ * Numbered off the same list the blocks are built from, so what the model was
+ * shown as `attachment:2` is what `attachment:2` resolves to. Anything too
+ * large to embed is left out of BOTH, rather than being described to the model
+ * and then quietly unavailable.
+ */
+export async function imagePlacements(rows: AttachmentRow[]): Promise<Placement[]> {
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) return [];
+
+  const placements: Placement[] = [];
+  let spent = 0;
+
+  for (const [index, row] of rows.filter((entry) => isImage(entry.mime)).entries()) {
+    const { data, error } = await supabase.storage.from(ATTACHMENTS_BUCKET).download(row.path);
+    if (error || !data) continue;
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    const encoded = buffer.toString("base64");
+    if (spent + encoded.length > MAX_EMBED_BYTES) continue;
+    spent += encoded.length;
+
+    placements.push({
+      token: attachmentToken(index),
+      dataUri: `data:${row.mime};base64,${encoded}`,
+      name: row.name,
+    });
+  }
+
+  return placements;
+}
+
+/**
+ * The page with every attachment token replaced by the picture it stands for.
+ *
+ * Run after an edit applies. A token the model did not use costs nothing, and a
+ * token it used for an image that could not be embedded is removed rather than
+ * left in the markup — a src of "attachment:2" renders as a broken image, which
+ * is worse than a slot with no src at all.
+ */
+export function placeAttachments(html: string, placements: Placement[]): string {
+  let placed = html;
+
+  for (const placement of placements) {
+    placed = placed.split(placement.token).join(placement.dataUri);
+  }
+
+  /* Anything still bearing a token refers to a picture that did not make it.
+     Emptied, so the layout keeps its slot and nothing renders as broken. */
+  return placed.replace(/attachment:\d+/g, "");
 }
 
 /**

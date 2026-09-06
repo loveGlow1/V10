@@ -10,6 +10,7 @@
     "check:assets": "node tools/check-assets.mjs",
     "check:auth-domain": "node tools/check-auth-domain.mjs",
     "check:attribution": "node tools/check-credits-attribution.mjs",
+    "check:attachments": "node tools/check-attachments.mjs",
     "check:availability": "node tools/check-availability.mjs",
     "check:blueprint": "node tools/check-blueprint.mjs",
     "check:brief": "node tools/check-brief.mjs",

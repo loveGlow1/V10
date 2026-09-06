@@ -17,7 +17,14 @@ import {
   planRequiredFor,
   resolveBuildModel,
 } from "@/app/dashboard/credits";
-import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
+import {
+  attachmentBlocks,
+  attachmentText,
+  imagePlacements,
+  loadAttachments,
+  placeAttachments,
+  signedImageUrls,
+} from "@/lib/builder/attachments";
 import { carryBrief, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -985,6 +992,24 @@ async function handle(
         prior,
         narrate("edit", "Making the change"),
       );
+
+      /* The tokens the model wrote, swapped for the pictures they stand for.
+         Done here rather than in editPage because it belongs to the page being
+         stored, not to the model call: the blocks came back, they applied, and
+         what is about to be written to the table is a document that should
+         carry its images inside it. See imagePlacements. */
+      const placements = await imagePlacements(attachments);
+      if (placements.length > 0) {
+        const placed = placeAttachments(edited.html, placements);
+        if (placed !== edited.html) {
+          steps.mark(
+            "attachments",
+            `Placed ${placements.length} ${placements.length === 1 ? "image" : "images"} in the page`,
+            placements.map((file) => file.name).join(", "),
+          );
+        }
+        edited = { ...edited, html: placed };
+      }
       steps.mark(
         "edit",
         edited.failures.length > 0
