@@ -32,3 +32,6 @@ yarn-error.log*
 *.njsproj
 *.sln
 *.sw?
+
+# the workflow as it was, written by tools/fix-orchestrator.mjs before it changes anything
+/n8n/backup-*.json
