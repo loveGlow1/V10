@@ -310,9 +310,41 @@ export function remainderAfterRevert(message: string): string | null {
 }
 
 /** The cheap deterministic pass. Null when genuinely ambiguous. */
-export function heuristicIntent(message: string, hasPage: boolean): IntentResult | null {
+export function heuristicIntent(
+  message: string,
+  hasPage: boolean,
+  /* Whether a file came with the message. It is a routing signal in its own
+     right and used to be invisible here — see the block below. */
+  hasAttachment = false,
+): IntentResult | null {
   const m = message.trim();
-  if (!m) return null;
+
+  /* A file arrived. That is an instruction on its own.
+   *
+   * Attaching something is deliberate in a way typing is not: nobody picks a
+   * photograph off their phone by accident. So a message that comes with one is
+   * a message about doing something with it, and against a page that already
+   * exists there is one thing that means — put it in, or change the page to
+   * match it. Both are edits.
+   *
+   * This is decided before the words are weighed, because the words are the
+   * part that goes missing. "use this", "this one", "here" and an empty box
+   * with a picture in it are all ordinary ways to send a file, and every one of
+   * them scores nothing: the message went to the model to be puzzled over, came
+   * back "clarify", and somebody who had just handed over exactly what they
+   * wanted was asked which section they meant.
+   *
+   * A question keeps its own path — "does this look right?" with a screenshot
+   * attached is still a question — and with nothing built yet a file is part of
+   * the opening brief, which the rule below already answers. */
+  if (hasAttachment && hasPage && m.length > 0) {
+    const asking = ENDS_QUESTION.test(m) || WH_LEADS.test(m) || ASK_LEADS.test(m);
+    if (!asking) return { intent: "edit", confidence: 0.85, source: "heuristic" };
+  }
+
+  /* An empty message with a file attached is the shortest way to say "use
+     this", and it is the one shape where there is nothing at all to read. */
+  if (!m) return hasAttachment && hasPage ? { intent: "edit", confidence: 0.8, source: "heuristic" } : null;
 
   /* Nothing built yet, so there is nothing to edit and nothing to lose:
      anything actionable is the first build. Asked before the weighing, because
@@ -372,12 +404,14 @@ export async function classifyIntent(opts: {
   hasPage: boolean;
   history: { from: string; text: string }[];
   override?: Intent | null;
+  /** Whether a file was attached to this message. See heuristicIntent. */
+  hasAttachment?: boolean;
 }): Promise<IntentResult> {
   if (opts.override) {
     return { intent: opts.override, confidence: 1, source: "override" };
   }
 
-  const quick = heuristicIntent(opts.message, opts.hasPage);
+  const quick = heuristicIntent(opts.message, opts.hasPage, opts.hasAttachment);
   if (quick) return quick;
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -398,6 +432,12 @@ export async function classifyIntent(opts: {
           role: "user",
           content: `Recent conversation:\n${
             opts.history.map((h) => `${h.from}: ${h.text}`).join("\n") || "(none)"
+          }${
+            /* Said to the model as well as decided before it. The rules above
+               catch the plain shapes; this is for the ones that reach here, and
+               it is the difference between "does this work?" with a screenshot
+               attached and the same words with nothing behind them. */
+            opts.hasAttachment ? "\n\n(A file is attached to this message.)" : ""
           }\n\nMessage: ${opts.message}`,
         },
       ],

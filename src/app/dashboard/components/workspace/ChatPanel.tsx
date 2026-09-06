@@ -764,7 +764,10 @@ export default function ChatPanel({
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
-    if (!text || !project || building) return;
+    /* A file with nothing typed is a message: dragging in a logo and pressing
+       send is how people hand something over, and the words they leave out are
+       supplied by the route. Everything else still needs words. */
+    if ((!text && attached.length === 0) || !project || building) return;
     /* Belt as well as braces. The send button is already disabled and the
        banner is already up; this is here so a keyboard shortcut, a stale tab or
        a resend behind a confirmation cannot slip past them into a spinner. The
@@ -1729,12 +1732,12 @@ export default function ChatPanel({
                     cannot perform. */}
                 <button
                   onClick={() => (building ? running.current?.abort() : void send())}
-                  disabled={building ? false : !draft.trim() || paused !== null}
+                  disabled={building ? false : (!draft.trim() && attached.length === 0) || paused !== null}
                   aria-label={building ? "Stop waiting" : "Send"}
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
                     building
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                      : draft.trim() && !paused
+                      : (draft.trim() || attached.length > 0) && !paused
                         ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
                         : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
