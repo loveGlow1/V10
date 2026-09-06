@@ -468,9 +468,30 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      than the one that started, then fold it into the list, which is what turns
      the spinner in the chat into a preview.
 
-     `last_build_at` is the signal because it is written once, by the step that
-     stores the page — the earlier "Building" update deliberately leaves it
-     alone, or the very first poll would report a build that has not happened. */
+     `last_build_at` is HALF the signal, and believing it was the whole of it is
+     how this came to end three seconds into every build.
+
+     The sentence that used to be here said the stamp is written once, by the
+     step that stores the page, because the app's own "Building" update
+     deliberately leaves it alone — and then named the exact consequence of
+     being wrong about that: "the very first poll would report a build that has
+     not happened". The app does leave it alone. The orchestrator does not. Its
+     `Sync Project Row` node writes `last_build_at` from `completedAt`, and
+     `completedAt` is stamped in `Assemble Build Result`, which runs when the
+     CHAT is answered — before a single token of the page has been generated.
+     See n8n/build-orchestrator.workflow.ts.
+
+     So on every build the row grew a stamp newer than `since` about three
+     seconds after send, this returned it, and the panel — finding no preview on
+     a row that was still Building — said "this one's taking a while" and
+     stopped watching. The page then landed minutes later with nothing left
+     waiting to notice, so it took a reload to appear. The build was honoured;
+     the watching of it was not.
+
+     The status is the other half, and it is the half that cannot be stamped
+     early: "Building" is what both writers say WHILE it runs, and only the save
+     step moves it off. A new stamp on a row that still says Building is the
+     orchestrator saying hello, not a page. */
   const watchBuild = useCallback(
     async (
       id: string,
@@ -506,14 +527,16 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         if (!row) continue;
 
         const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
-        /* Both halves of "this build is over": the stamp says a run finished,
-           and Failed is written by whatever failed it — the orchestrator's error
+        /* Failed is written by whatever failed it — the orchestrator's error
            branch, or the save step, which also writes the reason into the
-           thread. A stamp with no failure against it is the page landing, and
-           that is the one answer worth returning the instant it appears. */
+           thread. */
         const failed = row.status === "Failed";
+        /* And this is the run still running. Both writers say Building while
+           the page is being generated, so a fresh stamp under it is the
+           orchestrator's early `completedAt` rather than a finished page. */
+        const running = row.status === "Building";
 
-        if (landed > since && !failed) {
+        if (landed > since && !running && !failed) {
           setProjects((current) =>
             current.map((project) => (project.id === id ? { ...project, ...row } : project)),
           );
