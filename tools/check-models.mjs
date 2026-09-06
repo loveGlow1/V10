@@ -100,8 +100,22 @@ try {
        inside the orchestrator's generation timeout. It is the smallest number
        that lets a real page close its own document. Only the deliberately-small
        models are allowed to sit lower. */
-    if (model.maxOutput && model.maxOutput < 32000 && !/nano|lite/i.test(model.id)) {
-      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the ~31k a full page needs`);
+    if (model.maxOutput && model.maxOutput < 64000 && !/nano|lite/i.test(model.id)) {
+      fail(`${model.name} can finish a page`, `maxOutput ${model.maxOutput} is under the 64k a large page needs`);
+    }
+
+    /* The other half of that number, checked in the same breath because they
+       failed separately when they were set separately: at ~100 output tokens a
+       second, this ceiling has to fit inside the orchestrator's generation
+       timeout with room to spare, or a page that CAN finish gets cut off by the
+       node instead of by the ceiling. 900_000ms is what the canvas allows —
+       see n8n/build-orchestrator.workflow.ts. */
+    const seconds = (model.maxOutput ?? 0) / 100;
+    if (seconds > 900 * 0.8) {
+      fail(
+        `${model.name} can finish inside the generation timeout`,
+        `${model.maxOutput} tokens is about ${Math.round(seconds)}s of generation against a 900s node timeout — raise the timeout in the same change`,
+      );
     }
   }
 
