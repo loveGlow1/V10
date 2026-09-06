@@ -24,14 +24,14 @@
    of this file again: when the two disagree, the workflow is right, and that
    rule is worth nothing unless somebody actually looks.
 
-   What IS wrong in the deployment, marked DEPLOYED DEFECT below:
+   Changed in the canvas on 2026-09-06 and recorded here in the same hour, which
+   is the habit this file needed: `Sync Project Row` no longer writes
+   `last_build_at` (see the note on that node), and the generation nodes now
+   allow fifteen minutes rather than ten.
 
-     1. `Sync Project Row` writes `last_build_at` from `completedAt`, which
-        `Assemble Build Result` stamps when the CHAT is answered — before a
-        token of the page exists. The workspace reads that field as "a page
-        landed", so every build grows a newer stamp about three seconds after
-        send. See the note on that node.
-     2. Several `notes` on live nodes still describe the deleted classifier.
+   Still wrong in the deployment, and reproduced rather than corrected: several
+   `notes` on live nodes describe the deleted classifier, and the note on
+   `Generate With Claude` still says "ten-minute timeout".
 
    The shape, in one line: the app decides everything, this workflow answers the
    chat immediately, and then generates the page after the answer has already
@@ -327,23 +327,22 @@ const assembleBuildResult = node({
   },
 });
 
-/* Writes status, intent and last_build_at — and nothing else. NOTHING IN THIS
-   WORKFLOW CHARGES CREDITS. Billing happens in the app, in
-   /api/builder/webapp/save, priced from the document that arrives there. A
-   build that never reaches save is never billed.
+/* Writes status and intent — and nothing else. NOTHING IN THIS WORKFLOW
+   CHARGES CREDITS. Billing happens in the app, in /api/builder/webapp/save,
+   priced from the document that arrives there. A build that never reaches save
+   is never billed.
 
-   DEPLOYED DEFECT — reproduced, not corrected.
-   `last_build_at` is written from `completedAt`, and `completedAt` is stamped
-   in Assemble Build Result, which runs when the CHAT is answered. Generation
-   has not started at that point, so this writes "a page landed at" three
-   seconds after somebody pressed send, every time. The workspace polls that
-   field to know when its preview is ready: it saw the new stamp, found no page
-   under it, said "this one's taking a while" and stopped watching — so the page
-   arrived minutes later with nothing left to notice it, and it took a reload to
-   appear. The app now requires the row to have stopped saying "Building" as
-   well, which makes it immune; the field itself is still wrong. Remove
-   last_build_at from this node's field list and let the two steps that know a
-   run ended write it: the save route on success, Flag Build Failure on failure.
+   NOT last_build_at, and that is the point of this paragraph.
+   It used to write it from `completedAt`, which Assemble Build Result stamps
+   when the CHAT is answered — before generation starts. So every build claimed
+   a page had landed three seconds after somebody pressed send. The workspace
+   polls that field to know its preview is ready: it saw the stamp, found no
+   page under it, said "this one's taking a while" and stopped watching, so the
+   page arrived minutes later with nothing left to notice it and it took a
+   reload to appear. Removed from this node on 2026-09-06. The field now belongs
+   to the two steps that know a run ended — the save route on success, Flag
+   Build Failure on failure — and the app separately requires the row to have
+   stopped saying "Building", so neither half depends on the other being right.
 
    onError continues: the chat is answered from Assemble Build Result, not from
    this node, so a Supabase failure must not swallow the reply. */
@@ -372,7 +371,6 @@ const syncProjectRow = node({
         fieldValues: [
           { fieldId: 'status', fieldValue: expr('{{ $json.status }}') },
           { fieldId: 'intent', fieldValue: expr('{{ $json.intent }}') },
-          { fieldId: 'last_build_at', fieldValue: expr('{{ $json.completedAt }}') },
         ],
       },
     },
@@ -505,8 +503,14 @@ const routeByProvider = node({
    A raw HTTP node rather than an LLM chain node, in all three cases: a generated
    page is full of { and }, and a chain reads those as template variables.
 
-   Ten-minute timeout because nothing is waiting — the chat was answered before
-   any of this started. */
+   Fifteen-minute timeout because nothing is waiting — the chat was answered
+   before any of this started — and because ten was not enough. On 2026-09-06
+   the app's output ceiling went from 32k tokens to 64k so that a large page
+   could finish being written, and two builds in a row then died at 600.4
+   seconds: the node giving up on the model mid-page, its error output flagging
+   the project Failed, and the person told the build did not finish. A ceiling
+   that lets a page finish is worth nothing if the node hangs up before it
+   does. */
 
 const generateWithClaude = node({
   type: 'n8n-nodes-base.httpRequest',
@@ -526,7 +530,7 @@ const generateWithClaude = node({
       sendBody: true,
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
-      options: { timeout: 600000 },
+      options: { timeout: 900000 },
     },
     credentials: { anthropicApi: newCredential('Anthropic account') },
   },
@@ -553,7 +557,7 @@ const generateWithOpenAi = node({
       sendBody: true,
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
-      options: { timeout: 600000 },
+      options: { timeout: 900000 },
     },
     credentials: { openAiApi: newCredential('n8n free OpenAI API credits') },
   },
@@ -585,7 +589,7 @@ const generateWithGemini = node({
       sendBody: true,
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
-      options: { timeout: 600000 },
+      options: { timeout: 900000 },
     },
   },
 });
@@ -668,7 +672,7 @@ const savePage = node({
         'prompt: $("Normalize Build Request").item.json.prompt, ' +
         'model: $json.model, html: $json.html }) }}',
       ),
-      options: { timeout: 60000 },
+      options: { timeout: 120000 },
     },
   },
 });
