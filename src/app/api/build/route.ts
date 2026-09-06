@@ -543,10 +543,20 @@ async function handle(
     : [];
   if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached", "opening the files from Storage…");
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+
+  /* Read once, here, and reused by whichever path this message takes. It used
+     to be read again inside each of the three model calls below, which meant
+     the same files were downloaded and encoded up to three times — and, worse,
+     that nothing above could see what had happened to them. */
+  const files = await attachmentBlocks(attachments);
+
   if (attachments.length > 0) {
+    const usable = attachments.length - files.skipped.length;
     steps.mark(
       "attachments",
-      `Read ${attachments.length} ${attachments.length === 1 ? "attachment" : "attachments"}`,
+      usable === attachments.length
+        ? `Read ${usable} ${usable === 1 ? "attachment" : "attachments"}`
+        : `Read ${usable} of ${attachments.length} attachments`,
       attachments.map((row) => row.name).join(", "),
     );
   }
@@ -557,6 +567,23 @@ async function handle(
      the same message once. */
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
+
+  /* A file the model cannot read is said out loud, before anything is built on
+     the assumption it arrived.
+   *
+     This is what "HTTP 400" was. One photograph the API could not decode — a
+     HEIC off a phone, wearing a .jpeg name — and the whole request was refused,
+     so an edit that had nothing to do with the picture died with a number in
+     it. The file is left out now, and the reason is a sentence about that file
+     rather than a status code about the request. */
+  if (files.skipped.length > 0) {
+    await deliver(
+      files.skipped
+        .map((file) => `I couldn't use ${file.name} — ${file.reason}.`)
+        .join(" "),
+      { tone: "error", key: `skipped:${requestId}` },
+    );
+  }
 
   /* ── The message goes into the thread before anything is done with it ────
      The browser used to be the only thing that wrote a thread: it rendered a
@@ -832,7 +859,7 @@ async function handle(
       const question = await askClarifying(
         prompt,
         currentHtml,
-        await attachmentBlocks(attachments),
+        files.blocks,
         prior,
         narrate("clarify", "Working out what to ask you"),
       );
@@ -897,7 +924,7 @@ async function handle(
       const answer = await answerQuestion(
         prompt,
         currentHtml,
-        await attachmentBlocks(attachments),
+        files.blocks,
         prior,
         narrate("answer", "Looking through the page for your answer"),
       );
@@ -1006,7 +1033,7 @@ async function handle(
       edited = await editPage(
         prompt,
         currentHtml,
-        await attachmentBlocks(attachments),
+        files.blocks,
         prior,
         narrate("edit", "Making the change"),
       );
