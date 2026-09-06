@@ -61,6 +61,16 @@ export async function resolveAssets(opts: {
 
   const deadline = Date.now() + (opts.deadlineMs ?? 20_000);
 
+  /* Every photograph this build has already taken, shared across every slot and
+     every source.
+   *
+     Without it a storefront was one photograph repeated. Eight product slots
+     carry the same subject, so they make the same query and get the same
+     ranking, and the top result wins all eight — silently, because nothing
+     about that is an error. A source adds an id here as it claims one, and the
+     next slot ranks the same results with that one excluded. */
+  const taken = new Set<string>();
+
   for (const request of plan.requests) {
     alt[request.slot] = request.alt;
 
@@ -89,6 +99,10 @@ export async function resolveAssets(opts: {
         supply = await provider.supply(request, {
           projectId,
           direction: plan.direction,
+          /* What is being built, not just which slot — the same subject wants a
+             different photograph in a storefront than in a newsroom. */
+          kind: plan.kind,
+          taken,
         });
       } catch {
         /* A source that throws is a source that is skipped. Its own health call
