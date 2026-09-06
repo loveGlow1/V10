@@ -110,6 +110,22 @@ const PROGRESS_EVERY_MS = 600;
  * distinguish from continuous. */
 const ANSWER_EVERY_MS = 50;
 
+/* When to stop writing and keep what is written.
+ *
+ * /api/build runs on a serverless function with a hard ceiling — maxDuration in
+ * that route — and a full-page restyle asked for as an edit genuinely reaches
+ * it: eight thousand tokens of search/replace blocks is close to a minute of
+ * streaming. When the platform kills the function there is no answer, no error
+ * anybody can act on, and every block already written is thrown away. A real
+ * edit failed that way at 1m 1s having completed six of them.
+ *
+ * So this stops first, deliberately, with enough room left to apply what it
+ * has. A partial edit is a real outcome — applyPatches works block by block and
+ * the finished ones are correct — and six changes applied with a sentence
+ * saying the rest ran out of time beats a minute of work discarded and "try it
+ * again", which invites the identical failure. */
+const EDIT_DEADLINE_MS = 45_000;
+
 /* The last thing Claude finished saying, short enough for one line.
  *
  * Taken from the end rather than the start: the reasoning is a running
@@ -151,7 +167,11 @@ async function ask(
    * <<<<<<< SEARCH blocks — forwarding those to a chat bubble would fill it
    * with the diff instead of the answer. The default is the safe one. */
   streamAnswer = false,
-): Promise<Anthropic.Message> {
+  /* Wall-clock budget for this call. Reached, the stream is abandoned and
+     whatever was written is returned — see EDIT_DEADLINE_MS. Absent, it runs
+     to completion, which is right for the short calls. */
+  deadlineMs?: number,
+): Promise<{ message: Anthropic.Message; ranOutOfTime: boolean }> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
        events are the only source of what is happening while it happens. The
@@ -193,6 +213,9 @@ async function ask(
       ],
     });
 
+    const startedAt = Date.now();
+    let ranOutOfTime = false;
+
     if (onProgress) {
       let reasoning = "";
       let written = "";
@@ -204,6 +227,14 @@ async function ask(
       let lastAnswerAt = 0;
 
       for await (const event of stream) {
+        /* Checked on every event rather than on a timer, so the stream is left
+           at a block boundary the parser can read rather than mid-token. */
+        if (deadlineMs !== undefined && Date.now() - startedAt > deadlineMs) {
+          ranOutOfTime = true;
+          stream.abort();
+          break;
+        }
+
         if (event.type !== "content_block_delta") continue;
 
         if (event.delta.type === "thinking_delta") {
@@ -250,9 +281,38 @@ async function ask(
          never flushes truncates by design, and the caller's final message would
          disagree with what the reader watched arrive. */
       if (pending) onProgress({ kind: "answer", delta: pending });
+
+      if (ranOutOfTime) {
+        /* finalMessage() waits for a stream that has been abandoned. What was
+           written is already in hand, and shaped as a Message so that nothing
+           downstream has to know this happened — textOf reads it, applyPatches
+           takes the complete blocks out of it, and the incomplete last one
+           simply fails to match, which is what applyPatches already does with
+           a block that does not place. */
+        return {
+          message: {
+            id: "partial",
+            type: "message",
+            role: "assistant",
+            model: EDIT_MODEL,
+            content: [{ type: "text", text: written, citations: null }],
+            stop_reason: "max_tokens",
+            stop_sequence: null,
+            usage: {
+              input_tokens: 0,
+              output_tokens: Math.ceil(written.length / 4),
+              cache_creation_input_tokens: null,
+              cache_read_input_tokens: null,
+              server_tool_use: null,
+              service_tier: null,
+            },
+          } as unknown as Anthropic.Message,
+          ranOutOfTime: true,
+        };
+      }
     }
 
-    return await stream.finalMessage();
+    return { message: await stream.finalMessage(), ranOutOfTime: false };
   } catch (error) {
     if (error instanceof EditError) throw error;
     if (error instanceof Anthropic.AuthenticationError) {
@@ -277,6 +337,11 @@ export type EditOutcome = {
   outputTokens: number;
   /** Whether the first attempt had to be retried. Real, and worth showing. */
   retried: boolean;
+  /* Whether writing was cut short by the time budget. True means the blocks in
+     `applied` are correct and complete but the change as a whole is not — the
+     person needs to know there is more to ask for, and needs to be told rather
+     than left to spot it. */
+  ranOutOfTime: boolean;
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -295,13 +360,15 @@ export async function editPage(
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
 ): Promise<EditOutcome> {
-  const first = await ask(
+  const { message: first, ranOutOfTime } = await ask(
     EDIT_SYSTEM,
     editPrompt(userMessage, html),
     8_000,
     attachments,
     prior,
     onProgress,
+    false,
+    EDIT_DEADLINE_MS,
   );
 
   if (first.stop_reason === "refusal") {
@@ -310,13 +377,25 @@ export async function editPage(
 
   let output = textOf(first);
   let result = applyPatches(html, output);
+
+  if (ranOutOfTime && applyPatches(html, output).applied === 0) {
+    /* Cut off before a single block completed. Nothing to apply and nothing to
+       report but the truth: this change is too large to make in one edit. */
+    throw new EditError(
+      "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+      422,
+    );
+  }
   let outputTokens = first.usage?.output_tokens ?? 0;
   let retried = false;
 
   /* One retry, and only when nothing at all landed. A partial success is left
      alone: re-running it would apply the blocks that already worked a second
      time, against a page they have already changed. */
-  if (result.applied === 0) {
+  /* No retry when the clock ran out rather than the model failing. A second
+     eight-thousand-token attempt has even less time than the first, and would
+     spend the remainder of the budget arriving at the same place. */
+  if (result.applied === 0 && !ranOutOfTime) {
     const reason = result.failures.length
       ? describeFailures(result.failures)
       : "You returned no search/replace blocks.";
@@ -326,13 +405,15 @@ export async function editPage(
        it. */
     onProgress?.({ kind: "reasoning", text: "That didn't place cleanly. Looking at the page again…" });
 
-    const second = await ask(
+    const { message: second } = await ask(
       EDIT_SYSTEM,
       retryPrompt(userMessage, html, reason),
       8_000,
       attachments,
       prior,
       onProgress,
+      false,
+      EDIT_DEADLINE_MS,
     );
     output = textOf(second);
     result = applyPatches(html, output);
@@ -360,6 +441,7 @@ export async function editPage(
     note: noteAfterPatches(output),
     outputTokens,
     retried,
+    ranOutOfTime,
   };
 }
 
@@ -373,7 +455,7 @@ export async function askClarifying(
 ): Promise<Answer> {
   /* 300 tokens and low effort: this is one sentence, and it is on the path of
      someone who has already waited once for the classifier. */
-  const message = await ask(
+  const { message } = await ask(
     CLARIFY_SYSTEM,
     clarifyPrompt(userMessage, html),
     300,
@@ -408,7 +490,7 @@ export async function answerQuestion(
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
 ): Promise<Answer> {
-  const message = await ask(
+  const { message } = await ask(
     QUESTION_SYSTEM,
     questionPrompt(userMessage, html),
     1_500,

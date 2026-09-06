@@ -937,10 +937,14 @@ async function handle(
       );
       steps.mark(
         "edit",
-        edited.failures.length > 0
-          ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
-          : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
-        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}`,
+        edited.ranOutOfTime
+          ? `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}, then ran out of time`
+          : edited.failures.length > 0
+            ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
+            : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
+        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}${
+          edited.ranOutOfTime ? ", stopped at the time limit" : ""
+        }`,
       );
     } catch (error) {
       if (error instanceof EditError) {
@@ -982,9 +986,15 @@ async function handle(
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      edited.failures.length > 0
-        ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-        : "Done.",
+      edited.ranOutOfTime
+        ? /* The change was too big to finish in the time a request has. What
+             landed is real and correct, and saying which part is missing is the
+             difference between a person asking for the rest and a person
+             repeating the whole thing and hitting the same wall. */
+          `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} before running out of time — that's as much as fits in one edit. Ask for the rest and I'll carry on from here.`
+        : edited.failures.length > 0
+          ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+          : "Done.",
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
