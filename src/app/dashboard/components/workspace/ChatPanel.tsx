@@ -1734,7 +1734,7 @@ export default function ChatPanel({
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  aria-label="Add photos or files"
+                  aria-label="Attach a screenshot"
                   className={control}
                 >
                   <Paperclip className="h-4 w-4 -rotate-45" />

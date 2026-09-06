@@ -13,10 +13,11 @@
  * things about that can be wrong without anything throwing, and both are here:
  *
  *   the NUMBERING — what the model was told is attachment:2 has to be what
- *   attachment:2 resolves to. The tokens count images; the attachment list can
- *   hold a PDF between two photographs, and if one side counts rows and the
- *   other counts images, the page gets the wrong picture. Nothing errors. The
- *   person sees their logo where their product shot should be.
+ *   attachment:2 resolves to. The tokens count the images actually sent, and a
+ *   row can be left out of that between two photographs; if one side counts
+ *   rows and the other counts what it sent, the page gets the wrong picture.
+ *   Nothing errors. The person sees their logo where their product shot should
+ *   be.
  *
  *   the LEFTOVERS — a token that survives into the stored page is a src of
  *   "attachment:2", which renders as a broken image.
@@ -79,19 +80,25 @@ has(attachmentToken(0) === "attachment:1", "the first image is attachment:1", at
 has(attachmentToken(1) === "attachment:2", "the second is attachment:2", attachmentToken(1));
 
 /* The numbering rule the two sides share, asserted as arithmetic rather than
-   read out of either: tokens count IMAGES in order, so a document sitting
-   between two of them changes nothing. attachmentBlocks increments its own
-   counter only on an image, and imagePlacements filters to images before it
-   enumerates — this is the property both of those are implementing. */
+   read out of either: tokens count the images that are actually SENT, in order,
+   so a row that is skipped changes nothing about the ones after it.
+   attachmentBlocks increments its counter only when it pushes a picture, and
+   imagePlacements increments on exactly the same condition — this is the
+   property both of those are implementing. Get it wrong on one side and
+   somebody's logo lands where their product shot should be, with nothing
+   anywhere reporting an error.
+
+   Nothing but a picture can be attached any more, so the row in the middle here
+   is what a skip now looks like: an old document, or a file whose bytes are not
+   the picture its name claims. */
 const mixed = ["image/png", "application/pdf", "image/jpeg"];
-const tokensForImages = mixed
-  .map((mime, index) => ({ mime, index }))
-  .filter((entry) => entry.mime.startsWith("image/"))
-  .map((entry, imageIndex) => attachmentToken(imageIndex));
+const tokensForSent = mixed
+  .filter((mime) => mime.startsWith("image/"))
+  .map((_, sentIndex) => attachmentToken(sentIndex));
 has(
-  tokensForImages.join(",") === "attachment:1,attachment:2",
-  "a document between two images does not shift the numbering",
-  tokensForImages.join(","),
+  tokensForSent.join(",") === "attachment:1,attachment:2",
+  "a skipped row between two images does not shift the numbering",
+  tokensForSent.join(","),
 );
 
 // ── Placement ─────────────────────────────────────────────────────────────
