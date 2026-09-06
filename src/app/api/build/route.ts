@@ -32,7 +32,9 @@ import {
   EditError,
   answerQuestion,
   askClarifying,
+  editModelFor,
   editPage,
+  maxEditPromptChars,
   type OnProgress,
 } from "@/lib/builder/edit";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
@@ -137,21 +139,27 @@ function editUsage(applied: number): { filesTouched: number } {
   return { filesTouched: Math.max(1, applied) };
 }
 
-/* Long enough for a real description, short enough that the prompt cannot be
-   used to push a large payload through to the orchestrator.
+/* How long a brief may be.
  *
- * Counted in words, because that is the unit the person has. This was 4,000
- * CHARACTERS, and a thousand-word brief is five to six thousand of those — so
- * somebody who pasted the description they had spent an afternoon writing was
- * told to make it shorter, in a unit they would have to go and count. A limit
- * has to be one you can predict before you hit it.
+ * This was 4,000 characters, then 1,000 words. Both were a paragraph or two,
+ * and real briefs are not paragraphs. Somebody specifying a product writes
+ * pages: the sections, the copy, the brand, the rules that matter. A ceiling
+ * there turns a specification into a summary before any model sees it, and the
+ * person doing the summarising is the customer.
  *
- * The character ceiling stays underneath as a backstop, not as the limit
- * anybody meets: a thousand words is nothing like twenty thousand characters
- * unless something pathological is happening, and the orchestrator is on the
- * other side of a webhook. */
-const MAX_PROMPT_WORDS = 1000;
-const MAX_PROMPT_CHARS = 20_000;
+ * Six hundred thousand characters is about a hundred and fifty thousand tokens.
+ * Every model the picker offers for a BUILD carries a million-token context, so
+ * a brief that size arrives whole with room for the page it produces. It is
+ * still a backstop against a large payload being pushed through to the
+ * orchestrator on the other side of the webhook; it is no longer a limit
+ * anybody writing in good faith will meet.
+ *
+ * And it is priced rather than merely permitted: every message gets three
+ * hundred free words and the rest carries a surcharge — see contextSurcharge,
+ * which prices this brief and the conversation carried with it on the same
+ * terms. The ceiling that used to do this job did it by refusing, which is the
+ * crudest form of pricing and the one that also refuses the legitimate case. */
+const MAX_PROMPT = 600_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
    balance is that — but a brake on a loop or a stolen session draining an
@@ -389,16 +397,20 @@ async function handle(
   if (!prompt) {
     return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
-  /* Said in words, and said with their number in it: "shorten this" is advice,
-     "you are 240 words over" is something somebody can act on in one pass. */
+  /* Counted whatever happens, because the number is wanted twice: once in the
+     sentence below if the brief is past the ceiling, and once by
+     contextSurcharge, which prices everything over three hundred words. */
   const promptWords = countWords(prompt);
-  if (promptWords > MAX_PROMPT_WORDS || prompt.length > MAX_PROMPT_CHARS) {
+  if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
       {
+        /* Said in both units. The ceiling is counted in characters because that
+           is what the payload is, but words are what the person has — so the
+           sentence leads with the number they can go and look at. */
         error:
-          promptWords > MAX_PROMPT_WORDS
-            ? `That's ${promptWords.toLocaleString("en-US")} words and I can take ${MAX_PROMPT_WORDS.toLocaleString("en-US")} in one message — trim about ${(promptWords - MAX_PROMPT_WORDS).toLocaleString("en-US")} and send it again.`
-            : "That message is too large to send in one piece. Trim it and try again.",
+          `That brief is ${promptWords.toLocaleString("en-US")} words (${prompt.length.toLocaleString("en-US")} characters), ` +
+          `which is past what I can take in one message. Keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters ` +
+          `and send it again — or build it in parts and add the rest as changes.`,
       },
       { status: 400 },
     );
@@ -487,6 +499,24 @@ async function handle(
      stashImages in lib/page-html.ts. */
   const stashed = currentHtml ? stashImages(currentHtml) : null;
   const leanHtml = stashed?.lean ?? null;
+
+  /* Which model handles this message, decided once and used everywhere: the
+     step lines, the prompt ceiling and the charge. Deciding it in each of those
+     places separately is how a step line comes to name a model that did not do
+     the work, or a charge comes to be at the wrong rate. editPage may still
+     escalate past this — a picture in the message, or an attempt that placed
+     nothing — and reports which model finished, which is what the charge
+     actually follows.
+   *
+     Measured on leanHtml rather than currentHtml, and the difference is not
+     small: the page above is 463,000 characters stored and 47,000 once its
+     photographs are lifted out. Routing on the stored size would send every
+     page with images to the strong model on the strength of base64 the model is
+     never going to see.
+   *
+     With no page there is nothing to edit and nothing to ask about, so the
+     value is unused; EDIT_MODEL is the harmless default. */
+  const editModel = leanHtml ? editModelFor(prompt, leanHtml) : EDIT_MODEL;
 
   steps.mark(
     "page",
@@ -874,18 +904,19 @@ async function handle(
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
-      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("clarify", "Working out what to ask you", `${editModel} is reading the page…`);
       const question = await askClarifying(
         prompt,
         leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("clarify", "Working out what to ask you"),
+        editModel,
       );
       steps.mark(
         "clarify",
         "Wrote one question back",
-        `${EDIT_MODEL}, ${question.outputTokens} output tokens`,
+        `${editModel}, ${question.outputTokens} output tokens`,
       );
 
       /* Stored before it is billed. A question that never reached anyone is
@@ -899,7 +930,7 @@ async function handle(
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: EDIT_MODEL }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -939,18 +970,19 @@ async function handle(
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
+      steps.begin("answer", "Looking through the page for your answer", `${editModel} is reading it now…`);
       const answer = await answerQuestion(
         prompt,
         leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("answer", "Looking through the page for your answer"),
+        editModel,
       );
       steps.mark(
         "answer",
         "Answered from the page",
-        `${EDIT_MODEL}, ${answer.outputTokens} output tokens`,
+        `${editModel}, ${answer.outputTokens} output tokens`,
       );
 
       const delivered = await deliver(answer.text, { key: "answer" });
@@ -966,7 +998,7 @@ async function handle(
            clarify path above — that one is the builder asking for help, and
            billing somebody extra for the classifier's caution is charging them
            for our own uncertainty. */
-        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL });
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel });
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
@@ -1043,12 +1075,39 @@ async function handle(
       );
     }
 
+    /* Checked here rather than at the top, because it only applies once the
+       message is known to be an edit: a build's brief may be seven times this
+       long, and refusing it on the edit model's window would be refusing it for
+       a reason that does not apply. Said as a sentence with the next step in
+       it, rather than as a limit.
+
+       And the window is the one the CHOSEN model has — see maxEditPromptChars.
+       This used to be a single number sized for Haiku's 200K, which was right
+       while Haiku took every edit and wrong the moment a long brief started
+       going to Sonnet instead: it would have refused, on a window's behalf, a
+       brief that was long enough to be routed away from that window in the
+       first place. */
+    if (prompt.length > maxEditPromptChars(editModel)) {
+      const said =
+        `That's a lot to change in one message — it goes to the page along with everything already on it, ` +
+        `and together they're past what I can read at once. Ask for it a section at a time and each part will land.`;
+      const stored = await deliver(said, { tone: "error", key: "edit-too-long" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_prompt_too_long", stored },
+        { status: 400 },
+      );
+    }
+
     let edited;
     try {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      steps.begin("edit", "Making the change", `${EDIT_MODEL} is reading the page…`);
+      /* editPage decides for itself and can escalate past this — a picture in
+         the message, or an attempt that placed nothing — so this opening line
+         is the likely model rather than the settled one. steps.mark below
+         reports what actually did the work. */
+      steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
         prompt,
         leanHtml ?? currentHtml,
@@ -1086,9 +1145,11 @@ async function handle(
       }
       steps.mark(
         "edit",
-        edited.failures.length > 0
-          ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
-          : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
+        edited.ranOutOfTime
+          ? `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}, then ran out of time`
+          : edited.failures.length > 0
+            ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
+            : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
         /* The model that actually did it, not the one that usually does — an
            edit escalates, and a line that names EDIT_MODEL whatever happened is
            a label rather than a report. And the route, because "by line number"
@@ -1096,7 +1157,7 @@ async function handle(
            thing worth knowing if the change landed somewhere odd. */
         `${edited.model}, ${edited.outputTokens} output tokens${
           edited.route === "lines" ? ", placed by line number" : edited.retried ? ", retried once" : ""
-        }`,
+        }${edited.ranOutOfTime ? ", stopped at the time limit" : ""}`,
       );
     } catch (error) {
       if (error instanceof EditError) {
@@ -1188,9 +1249,15 @@ async function handle(
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      edited.failures.length > 0
-        ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-        : "Done.",
+      edited.ranOutOfTime
+        ? /* The change was too big to finish in the time a request has. What
+             landed is real and correct, and saying which part is missing is the
+             difference between a person asking for the rest and a person
+             repeating the whole thing and hitting the same wall. */
+          `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} before running out of time — that's as much as fits in one edit. Ask for the rest and I'll carry on from here.`
+        : edited.failures.length > 0
+          ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+          : "Done.",
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */

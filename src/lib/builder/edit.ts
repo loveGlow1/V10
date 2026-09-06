@@ -45,11 +45,9 @@ import {
  * on that reasoning, which is an odd setting to pair with the most expensive
  * model in the range.
  *
- * NOTE: this is still a constant, so the composer's model picker does not reach
- * it — pick Opus for a build and the edits afterwards are Sonnet. Threading the
- * choice through is a real change (this module's signatures, three call sites
- * in api/build/route.ts, and the step labels that name the model) and is worth
- * doing; it is not done here. */
+ * NOTE: the composer's model picker still does not reach this — pick Opus for
+ * a build and the edits afterwards are chosen here, not there. What IS chosen
+ * here is which of the two below: see editModelFor. */
 export const EDIT_MODEL = "claude-haiku-4-5";
 
 /* The one to reach for when the edit is not a small edit.
@@ -69,6 +67,62 @@ export const EDIT_MODEL = "claude-haiku-4-5";
  * model the same question a second time. Sonnet costs more per token than Haiku
  * and less than an edit that does not happen. */
 export const EDIT_MODEL_STRONG = "claude-sonnet-5";
+
+/* Where "small edit" stops, measured on the instruction.
+ *
+ * Three hundred words, matching the free brief allowance in credits.ts — not
+ * for tidiness but because they measure the same thing from two directions.
+ * Under it is somebody naming a change; over it is somebody specifying one, and
+ * a specification is a thing that has to be held in mind while it is carried
+ * out, which is what the fast model is fast at not doing. */
+const SIMPLE_EDIT_WORDS = 300;
+
+/* And where the PAGE stops being small, whatever the instruction says.
+ *
+ * A one-line change to a very large page still sends the whole page. At roughly
+ * four characters per token, 400,000 characters is about 100,000 tokens — half
+ * of Haiku's 200K window before the instruction, the reasoning or the reply are
+ * counted. Past this the size of the page decides, not the size of the ask.
+ * This is the case that reads as simple and is not. */
+const SIMPLE_EDIT_PAGE_CHARS = 400_000;
+
+/**
+ * Which model makes this change, on the size of the job.
+ *
+ * A third reason to reach for the strong one, alongside the two editPage
+ * already had — a picture in the message, and a first attempt that placed
+ * nothing. Those two are about what the work IS; this one is about how much of
+ * it there is, and it is the only one of the three that can be known before any
+ * call is made.
+ *
+ * The bias is deliberate. Routing a large edit to the cheaper model does not
+ * save the money; it spends it on an edit that half-lands and a person asking
+ * again — and on this path that second ask is a retry that goes to the strong
+ * model anyway, having already paid for the first.
+ */
+export function editModelFor(prompt: string, html: string): string {
+  const words = prompt.trim().split(/\s+/).filter(Boolean).length;
+  if (words > SIMPLE_EDIT_WORDS) return EDIT_MODEL_STRONG;
+  if (html.length > SIMPLE_EDIT_PAGE_CHARS) return EDIT_MODEL_STRONG;
+  return EDIT_MODEL;
+}
+
+/* How long an instruction may be, for the model it is going to.
+ *
+ * An edit sends the whole page as well as the brief, so the brief cannot have
+ * the room a build's brief has — and hitting the real ceiling is a 400 from the
+ * API rather than a sentence anybody can act on.
+ *
+ * Haiku's 200K window makes 80,000 characters (about 20,000 tokens) the sane
+ * stop, leaving the page the rest with margin. Sonnet's is a million, so the
+ * only ceiling that still means anything there is the one the route already
+ * applies to every brief. Note that a brief long enough for the Haiku number to
+ * bind is thousands of words, so editModelFor has already sent it to Sonnet by
+ * the time this is asked; the small ceiling exists for correctness, not because
+ * it is reached. */
+export function maxEditPromptChars(model: string): number {
+  return model === EDIT_MODEL ? 80_000 : 600_000;
+}
 
 /* Room for the reply to an edit.
  *
@@ -144,6 +198,40 @@ function textOf(message: Anthropic.Message): string {
  * retrying identically cannot fix. */
 function ranOutOfRoom(message: Anthropic.Message): boolean {
   return message.stop_reason === "max_tokens";
+}
+
+/* When to stop writing and keep what is written.
+ *
+ * /api/build runs on a serverless function with a hard ceiling — maxDuration in
+ * that route — and a full-page restyle asked for as an edit genuinely reaches
+ * it: a real edit died at 1m 1s having completed six blocks, and every one of
+ * them was thrown away because the platform killed the function rather than the
+ * code returning. No answer, no error anybody can act on.
+ *
+ * So this stops first, deliberately, with enough room left to apply what it
+ * has. A partial edit is a real outcome — applyPatches works block by block and
+ * the finished ones are correct — and six changes applied with a sentence
+ * saying the rest ran out of time beats a minute of work discarded and "try it
+ * again", which invites the identical failure.
+ *
+ * It is a budget for the WHOLE edit rather than for one call, which is what
+ * makes it worth having now: editPage will make up to three attempts, and three
+ * attempts of PATCH_TOKENS each cannot fit in sixty seconds. A per-call limit
+ * would let the first two spend the lot and the third be killed by the
+ * platform, which is the failure this exists to prevent. */
+const EDIT_DEADLINE_MS = 45_000;
+
+/* Replies that were abandoned on the clock rather than finished.
+ *
+ * Held beside the message instead of inside it: the synthetic Message below has
+ * to be indistinguishable from a real one everywhere downstream — textOf reads
+ * it, applyPatches takes the complete blocks out of it — and a fake stop_reason
+ * would have made it indistinguishable from ranOutOfRoom too, which is a
+ * different failure needing a different sentence. */
+const cutShort = new WeakSet<Anthropic.Message>();
+
+function ranOutOfTime(message: Anthropic.Message): boolean {
+  return cutShort.has(message);
 }
 
 function client(): Anthropic {
@@ -239,6 +327,11 @@ async function ask(
   /* Which model does this one. Defaults to the fast one, because most edits are
      small ones — see EDIT_MODEL_STRONG for when they are not. */
   model: string = EDIT_MODEL,
+  /* When this call must stop, as a clock time rather than a duration: the
+     budget belongs to the edit, not to the attempt, so later attempts inherit
+     what the earlier ones left. Absent, it runs to completion, which is right
+     for the short calls. */
+  deadlineAt?: number,
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -281,6 +374,8 @@ async function ask(
       ],
     });
 
+    let stopped = false;
+
     if (onProgress) {
       let reasoning = "";
       let written = "";
@@ -292,6 +387,14 @@ async function ask(
       let lastAnswerAt = 0;
 
       for await (const event of stream) {
+        /* Checked on every event rather than on a timer, so the stream is left
+           at a block boundary the parser can read rather than mid-token. */
+        if (deadlineAt !== undefined && Date.now() > deadlineAt) {
+          stopped = true;
+          stream.abort();
+          break;
+        }
+
         if (event.type !== "content_block_delta") continue;
 
         if (event.delta.type === "thinking_delta") {
@@ -338,6 +441,33 @@ async function ask(
          never flushes truncates by design, and the caller's final message would
          disagree with what the reader watched arrive. */
       if (pending) onProgress({ kind: "answer", delta: pending });
+
+      if (stopped) {
+        /* finalMessage() waits for a stream that has been abandoned. What was
+           written is already in hand, and shaped as a Message so that nothing
+           downstream has to know this happened — the incomplete last block
+           simply fails to place, which is what applyPatches already does with
+           any block that does not match. */
+        const partial = {
+          id: "partial",
+          type: "message",
+          role: "assistant",
+          model,
+          content: [{ type: "text", text: written, citations: null }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: Math.ceil(written.length / 4),
+            cache_creation_input_tokens: null,
+            cache_read_input_tokens: null,
+            server_tool_use: null,
+            service_tier: null,
+          },
+        } as unknown as Anthropic.Message;
+        cutShort.add(partial);
+        return partial;
+      }
     }
 
     return await stream.finalMessage();
@@ -359,7 +489,7 @@ async function ask(
     if (error instanceof Anthropic.BadRequestError && attachments.length > 0) {
       // eslint-disable-next-line no-console
       console.error("edit: retrying without the attachments after:", error.message);
-      return await ask(system, prompt, maxTokens, [], prior, onProgress, streamAnswer, model);
+      return await ask(system, prompt, maxTokens, [], prior, onProgress, streamAnswer, model, deadlineAt);
     }
 
     if (error instanceof Anthropic.AuthenticationError) {
@@ -401,6 +531,11 @@ export type EditOutcome = {
   outputTokens: number;
   /** Whether the first attempt had to be retried. Real, and worth showing. */
   retried: boolean;
+  /* Whether writing was cut short by the time budget. True means the blocks in
+     `applied` are correct and complete but the change as a whole is not — the
+     person needs to be told there is more to ask for rather than left to spot
+     it. See EDIT_DEADLINE_MS. */
+  ranOutOfTime: boolean;
   /* Which model actually made the change. An edit can escalate — a picture in
      the message, or a first attempt that placed nothing — and the charge has to
      follow the model that did the work rather than the one that usually does
@@ -434,7 +569,14 @@ export async function editPage(
      exactly — and the fast model is chosen for the last of those three, not the
      middle one. See EDIT_MODEL_STRONG. */
   const looking = attachments.some((block) => block.type === "image");
-  const model = looking ? EDIT_MODEL_STRONG : EDIT_MODEL;
+  /* Or the job is simply large — a brief of several paragraphs, or a page too
+     big to leave the fast model room to work in. Either reason is enough on its
+     own; see editModelFor. */
+  const model = looking ? EDIT_MODEL_STRONG : editModelFor(userMessage, html);
+
+  /* One clock for the whole edit, started before the first call and inherited
+     by the retries. See EDIT_DEADLINE_MS. */
+  const deadlineAt = Date.now() + EDIT_DEADLINE_MS;
 
   const first = await ask(
     EDIT_SYSTEM,
@@ -445,6 +587,7 @@ export async function editPage(
     onProgress,
     false,
     model,
+    deadlineAt,
   );
 
   if (first.stop_reason === "refusal") {
@@ -464,6 +607,35 @@ export async function editPage(
   let result = applyPatches(html, output);
   let outputTokens = first.usage?.output_tokens ?? 0;
   let retried = false;
+
+  /* Out of time on the first attempt, which is its own answer and not a reason
+     to start a second. The retries below exist for a model that got the change
+     wrong; this model was getting it right and was interrupted, and there is by
+     definition no budget left to interrupt it again in.
+   *
+     So what landed is kept. If nothing landed there is nothing to keep, and the
+     honest sentence is that the change is too large to make in one go — which
+     is a different thing to tell somebody than "I couldn't place that". */
+  if (ranOutOfTime(first)) {
+    if (result.applied === 0) {
+      throw new EditError(
+        "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+        422,
+      );
+    }
+
+    return {
+      html: result.html,
+      applied: result.applied,
+      failures: result.failures,
+      note: noteAfterPatches(output),
+      outputTokens,
+      retried: false,
+      ranOutOfTime: true,
+      model,
+      route: "patch",
+    };
+  }
 
   /* One retry, and only when nothing at all landed. A partial success is left
      alone: re-running it would apply the blocks that already worked a second
@@ -496,11 +668,38 @@ export async function editPage(
       onProgress,
       false,
       EDIT_MODEL_STRONG,
+      deadlineAt,
     );
     output = textOf(second);
     result = applyPatches(html, output);
     outputTokens += second.usage?.output_tokens ?? 0;
     retried = true;
+
+    /* Same again for the retry, and the reason it has to be repeated rather
+       than folded into the check below: `applied === 0` is what starts the
+       third attempt, and starting it on an exhausted clock would abort it
+       immediately and report "I couldn't place that change" for an edit nobody
+       ever gave the time to try. */
+    if (ranOutOfTime(second)) {
+      if (result.applied === 0) {
+        throw new EditError(
+          "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+          422,
+        );
+      }
+
+      return {
+        html: result.html,
+        applied: result.applied,
+        failures: result.failures,
+        note: noteAfterPatches(output),
+        outputTokens,
+        retried: true,
+        ranOutOfTime: true,
+        model: EDIT_MODEL_STRONG,
+        route: "patch",
+      };
+    }
 
     if (result.applied === 0) {
       /* ── Stop asking it to quote the page ──────────────────────────────
@@ -537,6 +736,7 @@ export async function editPage(
         onProgress,
         false,
         EDIT_MODEL_STRONG,
+        deadlineAt,
       );
 
       const byLine = applyLineEdits(html, textOf(third));
@@ -550,6 +750,7 @@ export async function editPage(
           note: noteAfterPatches(textOf(third)),
           outputTokens,
           retried: true,
+          ranOutOfTime: ranOutOfTime(third),
           model: EDIT_MODEL_STRONG,
           route: "lines",
         };
@@ -588,6 +789,7 @@ export async function editPage(
     note: noteAfterPatches(output),
     outputTokens,
     retried,
+    ranOutOfTime: false,
     /* The retry always runs on the stronger model, so a retried edit was
        finished by it whatever the first attempt used. */
     model: retried ? EDIT_MODEL_STRONG : model,
@@ -602,6 +804,10 @@ export async function askClarifying(
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
+  /* One sentence about a page, so the fast model unless the page itself is too
+     big for it to read — see editModelFor, which the caller has already asked
+     and passes down rather than deciding again. */
+  model: string = EDIT_MODEL,
 ): Promise<Answer> {
   /* 300 tokens and low effort: this is one sentence, and it is on the path of
      someone who has already waited once for the classifier. */
@@ -614,6 +820,7 @@ export async function askClarifying(
     onProgress,
     /* The one sentence it writes is the one the person reads. */
     true,
+    model,
   );
 
   if (message.stop_reason === "refusal") {
@@ -639,6 +846,9 @@ export async function answerQuestion(
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
+  /* A question sends the whole page too, so the same choice applies: the page
+     decides, even though nothing is being written. See editModelFor. */
+  model: string = EDIT_MODEL,
 ): Promise<Answer> {
   const message = await ask(
     QUESTION_SYSTEM,
@@ -650,6 +860,7 @@ export async function answerQuestion(
     /* An answer of up to 1,500 tokens, which is long enough that watching it
        arrive is materially different from waiting for it. */
     true,
+    model,
   );
 
   if (message.stop_reason === "refusal") {

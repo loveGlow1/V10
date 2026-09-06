@@ -139,7 +139,14 @@ export async function POST(request: Request) {
      now, and this route's whole premise is that the browser is not trusted with
      the cost — taking a model id from it would hand back exactly the lever that
      premise removes. Chat is the only priced action that reaches here; publish
-     is flat and unscaled. */
+     is flat and unscaled.
+   *
+     Still EDIT_MODEL, and still the flat Haiku rate, now that an edit may run
+     on Sonnet instead: the two inputs that decide that — the brief and the page
+     — are exactly the two things this route does not have. It prices at the
+     cheaper of the two, which errs toward the user; the charge for work that
+     really did run on Sonnet is raised on the server that ran it, in
+     /api/build, where the model is known rather than assumed. */
   const cost = creditCostOf(body.action, {
     outputTokens,
     filesTouched,

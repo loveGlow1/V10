@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-/* Checks the line the tracker shows while Claude is thinking.
+/* Checks the decisions edit.ts makes without calling a model.
  *
  *   npm run check:narration
+ *
+ * Two of them, and they share a file because they share a compile — edit.ts
+ * imports the Anthropic SDK, so nothing in it can be read as source. The name
+ * is the older of the two subjects.
+ *
+ * FIRST: the line the tracker shows while Claude is thinking.
  *
  * The reasoning arrives as a stream of deltas, so at any instant the text in
  * hand ends mid-word about as often as it ends on a full stop. lastSentence is
@@ -98,7 +104,8 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { lastSentence } = createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
+const { lastSentence, editModelFor, maxEditPromptChars, EDIT_MODEL, EDIT_MODEL_STRONG } =
+  createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
 
 const CASES = [
   ["", null, "nothing yet"],
@@ -149,9 +156,69 @@ for (const [input, want, why] of CASES) {
   }
 }
 
+/* ── Which model makes the change ─────────────────────────────────────────
+ *
+ * The rule is "Haiku only for the genuinely simple", and simple has two
+ * conditions rather than one: a short instruction AND a page small enough that
+ * sending the whole of it still leaves Haiku room to work. Either one alone
+ * going unchecked is a real failure — a one-line change to a huge page is the
+ * case that reads as simple and is not.
+ *
+ * The last case is the one worth having. maxEditPromptChars still carries a
+ * small ceiling for Haiku, and it must be unreachable: a brief long enough to
+ * approach it is thousands of words, which routes to Sonnet long before. If
+ * that ever stops being true, the app refuses a brief on the window of a model
+ * that was never going to see it. */
+const word = (n) => Array.from({ length: n }, () => "change").join(" ");
+const page = (n) => "x".repeat(n);
+
+const ROUTING = [
+  [word(3), page(2_000), EDIT_MODEL, "a short ask at a small page stays on Haiku"],
+  [word(300), page(2_000), EDIT_MODEL, "300 words is still simple"],
+  [word(301), page(2_000), EDIT_MODEL_STRONG, "301 words is not"],
+  [word(3), page(400_000), EDIT_MODEL, "a big page, just inside"],
+  [word(3), page(400_001), EDIT_MODEL_STRONG, "past that the page decides, not the ask"],
+  ["", page(2_000), EDIT_MODEL, "an empty ask counts as no words, not as many"],
+  ["  make\n\n the header   darker  ", page(2_000), EDIT_MODEL, "whitespace is not words"],
+  [word(3), page(900_000), EDIT_MODEL_STRONG, "a page past Haiku's window entirely"],
+];
+
+for (const [prompt, html, want, why] of ROUTING) {
+  const got = editModelFor(prompt, html);
+  if (got === want) {
+    console.log(`  ok   ${why}`);
+  } else {
+    failed++;
+    console.log(`  FAIL ${why}`);
+    console.log(`         want: ${want}`);
+    console.log(`         got:  ${got}`);
+  }
+}
+
+const CEILINGS = [
+  [maxEditPromptChars(EDIT_MODEL) === 80_000, "Haiku's brief ceiling is sized for a 200K window"],
+  [maxEditPromptChars(EDIT_MODEL_STRONG) > maxEditPromptChars(EDIT_MODEL), "Sonnet's is larger"],
+  [
+    editModelFor(word(Math.ceil(maxEditPromptChars(EDIT_MODEL) / 7) + 1), page(2_000)) ===
+      EDIT_MODEL_STRONG,
+    "a brief long enough to hit Haiku's ceiling has already been routed to Sonnet",
+  ],
+];
+
+for (const [passed, why] of CEILINGS) {
+  if (passed) {
+    console.log(`  ok   ${why}`);
+  } else {
+    failed++;
+    console.log(`  FAIL ${why}`);
+  }
+}
+
+const total = CASES.length + ROUTING.length + CEILINGS.length;
+
 console.log("");
 if (failed > 0) {
-  console.log(`${failed} of ${CASES.length} failed.`);
+  console.log(`${failed} of ${total} failed.`);
   process.exit(1);
 }
-console.log(`All ${CASES.length} passed.`);
+console.log(`All ${total} passed.`);
