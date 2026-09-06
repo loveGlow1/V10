@@ -1148,7 +1148,11 @@ async function handle(
        the description rather than folded in silently: a line in a ledger that
        says only "Edit" and charges more than the last identical edit is the
        kind of thing somebody notices and cannot explain. */
-    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL });
+    /* Priced on the model that did the work, not the one that usually does. An
+       edit escalates when it carries a picture or when the first attempt placed
+       nothing — see EDIT_MODEL_STRONG — and billing the cheap rate for the dear
+       model is the mistake this file has made before. */
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: edited.model });
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
