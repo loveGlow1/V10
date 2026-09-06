@@ -75,8 +75,34 @@ export function carryBrief(message: string, history: Turn[]): Brief {
   /* The description first, because that is the brief; the word they typed after
      it, because "rebuild" and "try again" are not the same instruction and the
      difference belongs to them, not to us. */
-  const composed = `${carried}\n\n(Follow-up instruction: ${text})`;
+  const composed = `${carried}${FOLLOW_UP}${text})`;
   return { text: composed.slice(0, MAX_BRIEF), carried };
+}
+
+/* The seam between the two halves of a composed brief. A constant rather than a
+   literal because carriedContextLength below reads it back out, and a joiner
+   that only one of the two knows about is a parser that breaks silently. */
+const FOLLOW_UP = "\n\n(Follow-up instruction: ";
+
+/**
+ * How much carried context a composed brief is carrying, priced.
+ *
+ * A full build is charged where its page lands — in /api/builder/webapp/save,
+ * minutes later and one HTTP hop away — and the only thing that survives that
+ * journey is the brief itself. This reads the carried half back out of it, so
+ * the context can be priced there without another field having to travel
+ * through the orchestrator and back.
+ *
+ * Capped at MAX_CONTEXT because that is what the model was actually shown: the
+ * carried description reaches the prompt through the projectContext line, which
+ * trims it to exactly that. Charging on the untrimmed length would bill for
+ * words nothing read.
+ *
+ * Zero for a brief nobody continued, which is almost all of them.
+ */
+export function carriedContextLength(composed: string): number {
+  const seam = composed.indexOf(FOLLOW_UP);
+  return seam < 0 ? 0 : Math.min(seam, MAX_CONTEXT);
 }
 
 /**
@@ -91,9 +117,15 @@ export function carryBrief(message: string, history: Turn[]): Brief {
  * on a distinction nobody typing into the box can see.
  *
  * Enough to hold an instruction; not so much that six of them crowd out the
- * page they are about.
+ * page they are about. An edit sends up to MAX_TURNS of these, so the ceiling
+ * on what one message costs in context is this number times that one.
  */
-export const MAX_CONTEXT = 600;
+export const MAX_CONTEXT = 1000;
+
+/* Context up to here is part of the price of a build. Past it, see
+   contextSurcharge in app/dashboard/credits.ts: a long memory is a thing
+   somebody chose, and it is charged for rather than absorbed. */
+export const FREE_CONTEXT = 300;
 /* How many turns of context to send. Three exchanges is what "it", "that" and
    "too" ever refer to in practice. */
 const MAX_TURNS = 6;

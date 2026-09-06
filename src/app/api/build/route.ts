@@ -7,7 +7,9 @@ import {
   buildDoorFor,
   canAfford,
   cannotAffordBuildMessage,
+  contextSurcharge,
   creditCostOf,
+  roundCredits,
   downgradedModelMessage,
   formatCredits,
   modelAllowedOnPlan,
@@ -476,6 +478,18 @@ async function handle(
   /* The same conversation in the shape a model call takes. */
   const prior = priorTurns(history);
 
+  /* What that conversation costs on top of the turn it travels with.
+   *
+   * Measured off `prior` rather than off `history`, because this must be the
+   * price of what was actually SENT: priorTurns trims each message to
+   * MAX_CONTEXT and joins consecutive ones from the same side, so the lengths
+   * here are the lengths the model was given. Charging off the untrimmed thread
+   * would bill somebody for a paragraph the builder never read.
+   *
+   * Zero on a short thread, which is most of them: the first 300 characters of
+   * each message are part of the price of the turn. See contextSurcharge. */
+  const contextCost = contextSurcharge(prior.map((turn) => String(turn.content).length));
+
   /* Whatever was attached to this message, resolved to rows the server can
      read. Restricted to this project and this owner: the ids came from the
      caller, and the read behind them uses the service key. */
@@ -849,11 +863,21 @@ async function handle(
          at zero and reaches one credit only at a full page of answer, which is
          what keeps troubleshooting from feeling metered. */
       if (service && delivered) {
+        /* Plus the conversation it was answered against, on the same terms as
+           an edit: a question read with six messages behind it is a question
+           that cost more to answer than one read on its own. Not charged on the
+           clarify path above — that one is the builder asking for help, and
+           billing somebody extra for the classifier's caution is charging them
+           for our own uncertainty. */
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL });
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: EDIT_MODEL }),
-          description: `Question: ${project.name}`,
+          cost: roundCredits(askCost + contextCost),
+          description:
+            contextCost > 0
+              ? `Question: ${project.name} — ${formatCredits(askCost)} + ${formatCredits(contextCost)} context`
+              : `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
           dedupeKey: `question:${requestId}`,
@@ -1001,11 +1025,19 @@ async function handle(
        at 0.50 forever while the edits kept arriving. charge_credits takes what
        is there and reports what it could not, so an account that overdraws
        lands at zero and the gate above turns the next one away. */
+    /* The edit, plus what the conversation behind it cost to carry. Named in
+       the description rather than folded in silently: a line in a ledger that
+       says only "Edit" and charges more than the last identical edit is the
+       kind of thing somebody notices and cannot explain. */
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL });
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: EDIT_MODEL }),
-      description: `Edit: ${project.name}`,
+      cost: roundCredits(editCost + contextCost),
+      description:
+        contextCost > 0
+          ? `Edit: ${project.name} — ${formatCredits(editCost)} + ${formatCredits(contextCost)} context`
+          : `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
       dedupeKey: `edit:${requestId}`,

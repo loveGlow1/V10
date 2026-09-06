@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { creditCostOf } from "@/app/dashboard/credits";
+import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
+import { carriedContextLength } from "@/lib/builder/brief";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
@@ -380,13 +381,27 @@ export async function POST(request: Request) {
      so an overdraft lands at zero and the next build is turned away at the
      door. The result is not returned to n8n: what an account owes is between
      the app and its owner. */
+  /* The page, and the conversation that was carried into it.
+   *
+   * A build charged here is charged minutes and one HTTP hop from where its
+   * context was assembled, so the length is read back out of the brief itself
+   * — see carriedContextLength. Nothing extra travels through the orchestrator
+   * to make this work, which is the point: a price that depends on a field
+   * somebody has to remember to add to a canvas is a price that will one day
+   * silently be zero. */
+  const pageCost = creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined });
+  const contextCost = contextSurcharge([carriedContextLength(str(body.prompt))]);
+
   await chargeCredits(supabase, {
     userId: claim.userId,
     action: "generate",
     /* The model n8n reports, which is the one the app sent in a signed
        request and the workflow forwarded — not a browser's word for it. */
-    cost: creditCostOf("generate", { filesTouched, modelId: str(body.model) || undefined }),
-    description: `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
+    cost: roundCredits(pageCost + contextCost),
+    description:
+      contextCost > 0
+        ? `Build: ${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
+        : `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
     projectId: project.id,
     filesTouched,
     /* The most expensive charge in the system, and the one most exposed to

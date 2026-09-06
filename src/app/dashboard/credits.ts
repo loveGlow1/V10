@@ -441,6 +441,63 @@ export function roundCredits(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/* ── What a long memory costs ──────────────────────────────────────────────
+ *
+ * Every message reaches the builder with some of the conversation behind it:
+ * the description a "rebuild" continues, or the recent turns an edit is an edit
+ * to. MAX_CONTEXT in builder/brief.ts caps that at 1,000 characters per
+ * message. The first 300 are part of the price of the turn; past that, it is
+ * charged for.
+ *
+ * Be honest about what this is. 700 extra characters is about 175 input tokens
+ * — a twentieth of a US cent, against a build that costs about a dollar of
+ * model time. This does not recover a cost, because there is no cost here worth
+ * recovering. It is a price on a feature: a builder that remembers a long way
+ * back is worth something, and this is what it is worth. Anyone changing these
+ * two numbers should know they are setting a price, not tracking an expense.
+ *
+ * Per message rather than per request, matching the ceiling it sits under: each
+ * earlier message gets its own 300 free and is charged on what it carries past
+ * that. An edit sends up to MAX_TURNS of them.
+ */
+export const FREE_CONTEXT_CHARS = 300;
+export const CONTEXT_CREDITS_PER_100 = 0.1;
+
+/* And a ceiling on the whole surcharge, which the rate above needs and does not
+   contain on its own.
+ *
+ * 0.1 per 100 characters reads as small — seven tenths of a credit for a
+ * message carrying the full 1,000. But it is charged per message and an edit
+ * sends up to six of them, so the arithmetic nobody does in their head is
+ * 6 x 700 = 4.2 credits: more than double the edit it rides on, and half the
+ * price of a whole build, for remembering a conversation.
+ *
+ * That is not a surcharge, it is a second price. One credit is the most the
+ * context on any single turn can add, and under it the per-100 rate applies
+ * exactly as written. check:credits holds this to less than half a build. */
+export const MAX_CONTEXT_SURCHARGE = 1;
+
+/**
+ * The surcharge for a set of context messages, given the length of each.
+ *
+ * Takes lengths rather than the messages themselves so that nothing about what
+ * somebody wrote reaches the pricing: this file decides money, and it should
+ * not be able to read a brief to do it.
+ */
+export function contextSurcharge(lengths: readonly number[]): number {
+  const chargeable = lengths.reduce(
+    (total, length) => total + Math.max(0, Math.trunc(length) - FREE_CONTEXT_CHARS),
+    0,
+  );
+  /* Rounded to the two decimals a balance is kept in, which also means a
+     message a few characters over its allowance rounds to nothing rather than
+     to a charge somebody would have to squint at. */
+  return Math.min(
+    MAX_CONTEXT_SURCHARGE,
+    roundCredits((chargeable / 100) * CONTEXT_CREDITS_PER_100),
+  );
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
