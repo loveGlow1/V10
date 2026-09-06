@@ -125,6 +125,16 @@ export type BuildOptions = {
    * authority. A caller that ignores this loses nothing but the watching.
    */
   onText?: (delta: string) => void;
+  /**
+   * Stops this session waiting, when somebody presses stop in the composer.
+   *
+   * It aborts the request and the poll that follows it — and that is the whole
+   * of what it can honestly do. The work is already elsewhere: an edit is
+   * running inside the route, a build is running in the orchestrator, and
+   * neither hears a browser hang up. So this ends the WAIT, never the work, and
+   * the panel says so in those words rather than "cancelled".
+   */
+  signal?: AbortSignal;
 };
 
 /* How the workspace waits for a page.
@@ -189,6 +199,8 @@ type ProjectsValue = {
     id: string,
     since: number,
     onPoll?: (row: Project | null, elapsedMs: number) => void,
+    /* Stops the waiting, not the build. See `signal` on BuildOptions. */
+    signal?: AbortSignal,
   ) => Promise<Project | null>;
 };
 
@@ -340,6 +352,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
       const response = await fetch("/api/build", {
         method: "POST",
+        signal: options.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: id,
@@ -500,6 +513,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
          happening, and the clock and the status are the two things that are
          actually known. */
       onPoll?: (row: Project | null, elapsedMs: number) => void,
+      signal?: AbortSignal,
     ): Promise<Project | null> => {
       if (!isSupabaseConfigured) return null;
       const supabase = createSupabaseBrowserClient();
@@ -511,9 +525,15 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       let firstFailedAt: number | null = null;
 
       while (Date.now() < deadline) {
+        /* Somebody pressed stop. Returning null is the same answer as running
+           out of patience, which is the truthful one: the build carries on and
+           the caller says so. */
+        if (signal?.aborted) return null;
+
         const elapsed = Date.now() - startedAt;
         const wait = elapsed < BUILD_SLOW_AFTER_MS ? BUILD_POLL_MS : BUILD_SLOW_POLL_MS;
         await new Promise((resolve) => setTimeout(resolve, wait));
+        if (signal?.aborted) return null;
 
         const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
         const row = data as unknown as Project | null;
