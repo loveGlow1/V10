@@ -255,11 +255,47 @@ async function ask(
     return await stream.finalMessage();
   } catch (error) {
     if (error instanceof EditError) throw error;
+
+    /* A file the API would not take must not take the edit down with it.
+     *
+       Every check that can be made on the bytes is made before they are sent
+       (see sniffImage in builder/attachments.ts), and a 400 that still arrives
+       with attachments in the request means something about one of them was
+       refused for a reason this side could not see — an image the decoder
+       rejects, dimensions past a limit, a PDF that is not one.
+     *
+       The change somebody asked for usually has nothing to do with the picture,
+       so it is tried once more without the files rather than abandoned. What
+       comes back is a real edit; the caller says the attachment was left out,
+       so nobody is told a photograph was used when it was not. */
+    if (error instanceof Anthropic.BadRequestError && attachments.length > 0) {
+      // eslint-disable-next-line no-console
+      console.error("edit: retrying without the attachments after:", error.message);
+      return await ask(system, prompt, maxTokens, [], prior, onProgress, streamAnswer);
+    }
+
     if (error instanceof Anthropic.AuthenticationError) {
       throw new EditError("The ANTHROPIC_API_KEY this workspace is using was rejected — it will need replacing before I can edit.", 502);
     }
     if (error instanceof Anthropic.RateLimitError) {
       throw new EditError("I'm rate limited at the moment. Send that again in a few seconds and it should go through.", 429);
+    }
+    /* A 400 is not "could not reach". The request arrived, was read, and was
+       refused — and the API says why in a sentence. That sentence used to be
+       thrown away and replaced with a status code, so a photograph the model
+       could not decode reached somebody as "HTTP 400", which names nothing they
+       can do anything about and nothing anybody debugging it could use either.
+     *
+       Logged whole, and the API's own words are passed on. They are written for
+       a developer rather than for the person in the chat, which is why the
+       sentence around them says what it means for their page. */
+    if (error instanceof Anthropic.BadRequestError) {
+      // eslint-disable-next-line no-console
+      console.error("edit: the model refused the request:", error.message);
+      throw new EditError(
+        `The model refused that request, so nothing was changed. ${error.message}`,
+        400,
+      );
     }
     if (error instanceof Anthropic.APIError) {
       throw new EditError(`I couldn't reach the model (HTTP ${error.status}). Nothing was changed — try that again.`, 502);

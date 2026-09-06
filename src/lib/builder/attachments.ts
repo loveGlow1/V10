@@ -48,6 +48,57 @@ function isImage(mime: string): mime is "image/png" | "image/jpeg" | "image/gif"
   return mime === "image/png" || mime === "image/jpeg" || mime === "image/gif" || mime === "image/webp";
 }
 
+/* ── What the bytes actually are ───────────────────────────────────────────
+ *
+ * The mime type on the row is whatever the browser said at upload, and a
+ * browser says whatever the file's extension implies. A photograph off an
+ * iPhone is the ordinary way for those two to disagree: iOS stores HEIC, some
+ * paths hand it over still HEIC with a .jpeg name and image/jpeg on the
+ * request, and the file is then declared to be a JPEG all the way to the model
+ * — which reads the first bytes, finds no JPEG, and rejects the whole request
+ * with a 400. One unreadable photograph killed an edit that had nothing to do
+ * with it.
+ *
+ * So the bytes are asked rather than the label. Every image format the API
+ * takes announces itself in its first few bytes, and this reads them.
+ */
+type ImageMime = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+export function sniffImage(buffer: Buffer): ImageMime | "heic" | null {
+  const at = (index: number) => buffer[index];
+
+  /* JPEG: FF D8 FF. */
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "image/jpeg";
+
+  /* PNG: the eight-byte signature, whose first four are \x89PNG. */
+  if (at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) return "image/png";
+
+  /* GIF87a / GIF89a. */
+  if (buffer.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
+
+  /* WEBP rides inside a RIFF container: "RIFF" then four bytes of length then
+     "WEBP". Both ends are checked, because "RIFF" alone is also a WAV. */
+  if (
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+
+  /* HEIC and its relatives: an ISO base media file whose brand says so. Named
+     rather than lumped in with "unreadable", because it is the one somebody can
+     act on — it is what an iPhone gives you, and re-saving as JPEG fixes it. */
+  if (buffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    const brand = buffer.subarray(8, 12).toString("ascii");
+    if (brand.startsWith("hei") || brand.startsWith("mif") || brand.startsWith("msf")) return "heic";
+  }
+
+  return null;
+}
+
+/** A file that could not be sent, and the sentence to say about it. */
+export type SkippedAttachment = { name: string; reason: string };
+
 function isText(mime: string): boolean {
   return mime.startsWith("text/") || mime === "application/json";
 }
@@ -88,11 +139,12 @@ export async function loadAttachments(
  */
 export async function attachmentBlocks(
   rows: AttachmentRow[],
-): Promise<Anthropic.ContentBlockParam[]> {
+): Promise<{ blocks: Anthropic.ContentBlockParam[]; skipped: SkippedAttachment[] }> {
   const supabase = createSupabaseServiceClient();
-  if (!supabase || rows.length === 0) return [];
+  if (!supabase || rows.length === 0) return { blocks: [], skipped: [] };
 
   const blocks: Anthropic.ContentBlockParam[] = [];
+  const skipped: SkippedAttachment[] = [];
   /* Counted separately from the loop index: the tokens number the IMAGES, and
      imagePlacements numbers them the same way. A PDF between two photographs
      must not shift what attachment:2 means. */
@@ -103,9 +155,30 @@ export async function attachmentBlocks(
     if (error || !data) continue;
 
     const buffer = Buffer.from(await data.arrayBuffer());
-    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) continue;
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+      skipped.push({ name: row.name, reason: "it is larger than I can send to the model" });
+      continue;
+    }
 
     if (isImage(row.mime)) {
+      /* The bytes, not the label. A file the model cannot decode fails the
+         whole request rather than being ignored, so it is left out here — with
+         a reason somebody can act on. */
+      const actual = sniffImage(buffer);
+
+      if (actual === "heic") {
+        skipped.push({
+          name: row.name,
+          reason: "it is a HEIC photograph rather than the JPEG its name claims — re-save or re-export it as JPEG and it will go through",
+        });
+        continue;
+      }
+
+      if (!actual) {
+        skipped.push({ name: row.name, reason: "the file does not look like an image I can read" });
+        continue;
+      }
+
       /* Named first, so the model can tell "logo.svg" from "screenshot.png"
          when the request mentions one of them by name — and given its token, so
          that a request to PUT this picture in the page has an address to write.
@@ -118,7 +191,10 @@ export async function attachmentBlocks(
       images += 1;
       blocks.push({
         type: "image",
-        source: { type: "base64", media_type: row.mime, data: buffer.toString("base64") },
+        /* What it IS, which is not always what it was called. A PNG uploaded
+           with a .jpg name is perfectly readable — it just has to be declared
+           correctly. */
+        source: { type: "base64", media_type: actual, data: buffer.toString("base64") },
       });
       continue;
     }
@@ -138,7 +214,7 @@ export async function attachmentBlocks(
     }
   }
 
-  return blocks;
+  return { blocks, skipped };
 }
 
 /* ── Putting an attached picture INTO the page ─────────────────────────────

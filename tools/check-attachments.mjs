@@ -68,7 +68,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { attachmentToken, placeAttachments } = await import(join(out, "lib/builder/attachments.js"));
+const { attachmentToken, placeAttachments, sniffImage } = await import(join(out, "lib/builder/attachments.js"));
 
 // ── The tokens are one-based and stable ───────────────────────────────────
 has(attachmentToken(0) === "attachment:1", "the first image is attachment:1", attachmentToken(0));
@@ -129,6 +129,39 @@ has(
 const untouched = `<main><h1>Nothing attached here</h1></main>`;
 has(placeAttachments(untouched, [shot]) === untouched, "a page with no tokens is unchanged");
 has(placeAttachments(untouched, []) === untouched, "no attachments at all changes nothing");
+
+/* ── The bytes, not the label ──────────────────────────────────────────────
+ *
+ * This is the check for the HTTP 400. A photograph off an iPhone can arrive
+ * named .jpeg, declared image/jpeg, and actually be HEIC — and the API reads
+ * the bytes, finds no JPEG, and refuses the ENTIRE request. One picture killed
+ * an edit that had nothing to do with it, and the person was shown a status
+ * code.
+ *
+ * Real headers, written out byte for byte, because a signature test that is
+ * itself written from the same wrong assumption proves nothing.
+ */
+const header = (...bytes) => Buffer.from(bytes);
+const ascii = (text) => Buffer.from(text, "ascii");
+
+const SIGNATURES = [
+  ["a JPEG", Buffer.concat([header(0xff, 0xd8, 0xff, 0xe0), ascii("\u0000\u0010JFIF")]), "image/jpeg"],
+  ["a PNG", Buffer.concat([header(0x89), ascii("PNG"), header(0x0d, 0x0a, 0x1a, 0x0a)]), "image/png"],
+  ["a GIF", ascii("GIF89a-and-then-some"), "image/gif"],
+  ["a WEBP", Buffer.concat([ascii("RIFF"), header(0, 0, 0, 0), ascii("WEBPVP8 ")]), "image/webp"],
+  /* The one that was failing: an ISO container whose brand says HEIC. */
+  ["an iPhone HEIC", Buffer.concat([header(0, 0, 0, 0x18), ascii("ftypheic"), ascii("mif1")]), "heic"],
+  ["a HEIF sequence", Buffer.concat([header(0, 0, 0, 0x18), ascii("ftypmif1"), ascii("heic")]), "heic"],
+  /* RIFF alone is a WAV, not a picture. */
+  ["a WAV pretending to be RIFF", Buffer.concat([ascii("RIFF"), header(0, 0, 0, 0), ascii("WAVEfmt ")]), null],
+  ["a text file", ascii("just some words in a file"), null],
+  ["nothing at all", Buffer.alloc(0), null],
+];
+
+for (const [name, bytes, expected] of SIGNATURES) {
+  const got = sniffImage(bytes);
+  has(got === expected, `${name} reads as ${expected ?? "not an image"}`, `got ${got}`);
+}
 
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
