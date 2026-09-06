@@ -14,23 +14,27 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export const ATTACHMENTS_BUCKET = "attachments";
 
-/* What can usefully be shown to a model, and what each becomes. Anything not
-   listed is refused at upload rather than silently ignored later — a file that
-   was accepted and then not used is worse than one that was declined. */
+/* Pictures, and nothing else.
+ *
+ * An attachment here has one job: showing the builder something a sentence
+ * cannot carry — this part, this spacing, this is what it looks like on my
+ * phone — plus the occasional logo or product shot to place in the page.
+ * Documents were accepted too, and a PDF answers none of those questions: it
+ * arrives as pages of prose that crowd out the page being edited.
+ *
+ * In practice everything stored is now image/png, because the browser converts
+ * before it uploads (see asPng in lib/project-attachments.ts). The other three
+ * stay listed for rows attached before that, which are still perfectly
+ * readable. */
 export const ACCEPTED_MIME = [
   "image/png",
   "image/jpeg",
   "image/gif",
   "image/webp",
-  "application/pdf",
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "application/json",
 ] as const;
 
-/* Anthropic's own ceiling for an image is 5MB after base64; PDFs are allowed
-   more. Held below both, because the whole request has to fit as well. */
+/* Anthropic's own ceiling for an image is 5MB after base64. Held below it,
+   because the whole request has to fit as well. */
 export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
 /* A page of text is worth reading; a database dump is not, and would crowd out
@@ -146,8 +150,9 @@ export async function attachmentBlocks(
   const blocks: Anthropic.ContentBlockParam[] = [];
   const skipped: SkippedAttachment[] = [];
   /* Counted separately from the loop index: the tokens number the IMAGES, and
-     imagePlacements numbers them the same way. A PDF between two photographs
-     must not shift what attachment:2 means. */
+     imagePlacements numbers them the same way. A row that is skipped — an old
+     document, a file whose bytes are not the picture its name claims — must not
+     shift what attachment:2 means for the ones after it. */
   let images = 0;
 
   for (const row of rows) {
@@ -169,7 +174,7 @@ export async function attachmentBlocks(
       if (actual === "heic") {
         skipped.push({
           name: row.name,
-          reason: "it is a HEIC photograph rather than the JPEG its name claims — re-save or re-export it as JPEG and it will go through",
+          reason: "it is a HEIC photograph rather than the JPEG its name claims — attach it again and it will be converted on the way up",
         });
         continue;
       }
@@ -199,19 +204,13 @@ export async function attachmentBlocks(
       continue;
     }
 
-    if (row.mime === "application/pdf") {
-      blocks.push({ type: "text", text: `Attached document — ${row.name}:` });
-      blocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") },
-      });
-      continue;
-    }
-
-    if (isText(row.mime)) {
-      const text = buffer.toString("utf8").slice(0, MAX_TEXT_CHARS);
-      blocks.push({ type: "text", text: `Attached file — ${row.name}:\n\n${text}` });
-    }
+    /* Anything else is an old row — nothing new can be uploaded that is not a
+       picture. Named rather than dropped in silence, so a document attached
+       months ago does not simply appear to be ignored. */
+    skipped.push({
+      name: row.name,
+      reason: "only pictures can be attached — a screenshot of the part you mean is what a build can read",
+    });
   }
 
   return { blocks, skipped };
@@ -261,21 +260,38 @@ export async function imagePlacements(rows: AttachmentRow[]): Promise<Placement[
 
   const placements: Placement[] = [];
   let spent = 0;
+  /* Counted exactly as attachmentBlocks counts it, and for the same reason: the
+     token has to mean what the model was told it means. So this increments on
+     every row that WOULD have been shown — and a row left out for weight after
+     that simply has no placement, which placeAttachments empties rather than
+     leaving a broken src behind. Increment on a different set from the blocks
+     and somebody's logo appears where their product shot should be, with
+     nothing anywhere reporting an error. */
+  let images = 0;
 
-  for (const [index, row] of rows.filter((entry) => isImage(entry.mime)).entries()) {
+  for (const row of rows) {
+    if (!isImage(row.mime)) continue;
+
     const { data, error } = await supabase.storage.from(ATTACHMENTS_BUCKET).download(row.path);
     if (error || !data) continue;
 
     const buffer = Buffer.from(await data.arrayBuffer());
+    if (buffer.byteLength > MAX_ATTACHMENT_BYTES) continue;
+
+    /* The bytes again, for the same reason attachmentBlocks asks them: a data
+       URI that declares a type the bytes are not renders as a broken image, and
+       it renders that way inside the stored page, permanently. */
+    const actual = sniffImage(buffer);
+    if (!actual || actual === "heic") continue;
+
+    const token = attachmentToken(images);
+    images += 1;
+
     const encoded = buffer.toString("base64");
     if (spent + encoded.length > MAX_EMBED_BYTES) continue;
     spent += encoded.length;
 
-    placements.push({
-      token: attachmentToken(index),
-      dataUri: `data:${row.mime};base64,${encoded}`,
-      name: row.name,
-    });
+    placements.push({ token, dataUri: `data:${actual};base64,${encoded}`, name: row.name });
   }
 
   return placements;

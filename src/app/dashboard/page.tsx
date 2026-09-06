@@ -33,6 +33,7 @@ import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
+import { ACCEPT } from "@/lib/project-attachments";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock,
@@ -487,7 +488,7 @@ export default function DashboardPage() {
                     }}
                     className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
-                    <span className="font-medium">Take Photo or Video</span>
+                    <span className="font-medium">Take Photo</span>
                     <Camera className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
@@ -497,7 +498,7 @@ export default function DashboardPage() {
                     }}
                     className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
-                    <span className="font-medium">Choose Files</span>
+                    <span className="font-medium">Choose Images</span>
                     <FolderOpen className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
@@ -592,6 +593,10 @@ export default function DashboardPage() {
                     type="file"
                     ref={chooseFilesInputRef}
                     multiple
+                    /* Pictures only, here as everywhere: a build reads a
+                       screenshot, and a document picked here would be refused
+                       on upload anyway. */
+                    accept={ACCEPT}
                     className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
@@ -601,7 +606,7 @@ export default function DashboardPage() {
                   {/* Attachment Clip Button */}
                   <button
                     onClick={() => chooseFilesInputRef.current?.click()}
-                    aria-label="Add photos or files"
+                    aria-label="Attach a screenshot"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all active:scale-[0.98] md:hidden"
                   >
                     <Paperclip className="h-4 w-4 -rotate-45" />
@@ -613,7 +618,7 @@ export default function DashboardPage() {
                       setIsUploadPopoverOpen(!isUploadPopoverOpen);
                       setIsModelPopoverOpen(false);
                     }}
-                    aria-label="Add photos or files"
+                    aria-label="Attach a screenshot"
                     aria-expanded={isUploadPopoverOpen}
                     className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
