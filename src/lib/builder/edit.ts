@@ -43,6 +43,51 @@ import {
  * doing; it is not done here. */
 export const EDIT_MODEL = "claude-haiku-4-5";
 
+/* The one to reach for when the edit is not a small edit.
+ *
+ * EDIT_MODEL's own entry in the catalogue reads "Fastest, for small edits", and
+ * that is exactly what it is good at: somebody names a section, says what it
+ * should become, and the change is a search and a replace.
+ *
+ * "Delete the part shown in this photograph" is not that. It is three jobs —
+ * read a picture of a rendered page, work out which markup produced it, then
+ * copy that markup character for character — and the fast model failed the
+ * middle one twice on the same page, answering "I couldn't place that change"
+ * for a section the person was pointing directly at.
+ *
+ * So the work decides the model. A message carrying a picture starts here, and
+ * an edit that placed nothing tries again here rather than asking the same
+ * model the same question a second time. Sonnet costs more per token than Haiku
+ * and less than an edit that does not happen. */
+export const EDIT_MODEL_STRONG = "claude-sonnet-5";
+
+/**
+ * The headings this page actually has, for the sentence that asks somebody to
+ * name a section.
+ *
+ * Read out of the markup rather than assumed. The advice used to be "the hero,
+ * the nav, the footer" — a guess at what any page contains, given to somebody
+ * who had just pointed at a particular part of theirs, and possibly naming two
+ * things their page does not have.
+ *
+ * Six at most, and short ones only: this is a prompt for the next message, not
+ * a table of contents.
+ */
+export function sectionsHint(html: string): string {
+  const headings = [...html.matchAll(/<h[1-3][^>]*>([\s\S]{1,80}?)<\/h[1-3]>/gi)]
+    .map((match) => match[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim())
+    .filter((text) => text.length > 2 && text.length <= 40);
+
+  const named = [...new Set(headings)].slice(0, 6);
+  if (named.length === 0) {
+    return " Naming the section you mean, in words that appear on the page, usually sorts it.";
+  }
+
+  return ` Try naming the section — this page has ${named
+    .map((text) => `"${text}"`)
+    .join(", ")}.`;
+}
+
 export class EditError extends Error {
   constructor(
     message: string,
@@ -151,6 +196,9 @@ async function ask(
    * <<<<<<< SEARCH blocks — forwarding those to a chat bubble would fill it
    * with the diff instead of the answer. The default is the safe one. */
   streamAnswer = false,
+  /* Which model does this one. Defaults to the fast one, because most edits are
+     small ones — see EDIT_MODEL_STRONG for when they are not. */
+  model: string = EDIT_MODEL,
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -158,7 +206,7 @@ async function ask(
        final message is still what the caller gets, so nothing downstream
        changes shape. */
     const stream = client().messages.stream({
-      model: modelById(EDIT_MODEL).apiId ?? EDIT_MODEL,
+      model: modelById(model).apiId ?? model,
       max_tokens: maxTokens,
       /* Sent only to a model that takes them. Haiku 4.5 predates both fields
          and answers `output_config.effort` with a 400 rather than ignoring it,
@@ -174,7 +222,7 @@ async function ask(
          With reasoning off there is simply no thinking to narrate, and the
          progress handler below renders an empty string for it, which is the
          correct thing to show for a model that does not think out loud. */
-      ...(modelById(EDIT_MODEL).reasoning === "none"
+      ...(modelById(model).reasoning === "none"
         ? {}
         : {
             thinking: { type: "adaptive" as const, display: "summarized" as const },
@@ -271,7 +319,7 @@ async function ask(
     if (error instanceof Anthropic.BadRequestError && attachments.length > 0) {
       // eslint-disable-next-line no-console
       console.error("edit: retrying without the attachments after:", error.message);
-      return await ask(system, prompt, maxTokens, [], prior, onProgress, streamAnswer);
+      return await ask(system, prompt, maxTokens, [], prior, onProgress, streamAnswer, model);
     }
 
     if (error instanceof Anthropic.AuthenticationError) {
@@ -313,6 +361,11 @@ export type EditOutcome = {
   outputTokens: number;
   /** Whether the first attempt had to be retried. Real, and worth showing. */
   retried: boolean;
+  /* Which model actually made the change. An edit can escalate — a picture in
+     the message, or a first attempt that placed nothing — and the charge has to
+     follow the model that did the work rather than the one that usually does
+     it. */
+  model: string;
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -331,6 +384,13 @@ export async function editPage(
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
 ): Promise<EditOutcome> {
+  /* A picture in the message changes what this call is. The model has to read
+     the photograph, find the markup behind what it shows, and copy that markup
+     exactly — and the fast model is chosen for the last of those three, not the
+     middle one. See EDIT_MODEL_STRONG. */
+  const looking = attachments.some((block) => block.type === "image");
+  const model = looking ? EDIT_MODEL_STRONG : EDIT_MODEL;
+
   const first = await ask(
     EDIT_SYSTEM,
     editPrompt(userMessage, html),
@@ -338,6 +398,8 @@ export async function editPage(
     attachments,
     prior,
     onProgress,
+    false,
+    model,
   );
 
   if (first.stop_reason === "refusal") {
@@ -360,7 +422,14 @@ export async function editPage(
     /* The second attempt reports too, and says so: a retry that narrated
        itself as a first attempt would hide the one thing worth knowing about
        it. */
-    onProgress?.({ kind: "reasoning", text: "That didn't place cleanly. Looking at the page again…" });
+    /* The retry always goes to the better model. Asking the same model the same
+       question a second time is the definition of hoping, and it is what this
+       used to do: two attempts, one model, one answer, and a person told twice
+       that their change could not be placed. */
+    onProgress?.({
+      kind: "reasoning",
+      text: `That didn't place cleanly. Reading the page again with ${EDIT_MODEL_STRONG}…`,
+    });
 
     const second = await ask(
       EDIT_SYSTEM,
@@ -369,6 +438,8 @@ export async function editPage(
       attachments,
       prior,
       onProgress,
+      false,
+      EDIT_MODEL_STRONG,
     );
     output = textOf(second);
     result = applyPatches(html, output);
@@ -378,9 +449,16 @@ export async function editPage(
     if (result.applied === 0) {
       /* Nothing was written, and saying so is the whole point: an edit that
          silently did nothing is indistinguishable from one that worked until
-         someone looks closely. */
+         someone looks closely.
+       *
+         And the advice names THIS page. "Naming the section you mean — the
+         hero, the nav, the footer" was a guess at what any page contains,
+         offered to somebody who had just pointed at a specific part of theirs;
+         two of the three might not exist in it. The headings are right there in
+         the markup, so they are read out instead, and the next message can name
+         one of them. */
       throw new EditError(
-        "I couldn't place that change in the page, so I've left it exactly as it was. Naming the section you mean — the hero, the nav, the footer — usually sorts it.",
+        `I couldn't place that change in the page, so I've left it exactly as it was.${sectionsHint(html)}`,
         422,
         result.failures,
       );
@@ -396,6 +474,9 @@ export async function editPage(
     note: noteAfterPatches(output),
     outputTokens,
     retried,
+    /* The retry always runs on the stronger model, so a retried edit was
+       finished by it whatever the first attempt used. */
+    model: retried ? EDIT_MODEL_STRONG : model,
   };
 }
 
