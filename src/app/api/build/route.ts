@@ -65,6 +65,7 @@ import {
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
+import { restoreImages, stashImages } from "@/lib/page-html";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -474,6 +475,18 @@ async function handle(
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
 
+  /* The same page with its photographs lifted out, which is the only version a
+     model can be shown.
+   *
+     A stored page carries its pictures inside it as base64, and on a real one
+     that was 416,000 of its 463,000 characters — roughly 370,000 tokens against
+     the 200,000 a model will take. Every edit posted the whole document and was
+     refused before it began, so a page became permanently uneditable the moment
+     it got its images. The pictures go back in after the change applies. See
+     stashImages in lib/page-html.ts. */
+  const stashed = currentHtml ? stashImages(currentHtml) : null;
+  const leanHtml = stashed?.lean ?? null;
+
   steps.mark(
     "page",
     currentHtml ? "Read the current page" : "There is no page yet",
@@ -858,7 +871,7 @@ async function handle(
       steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
       const question = await askClarifying(
         prompt,
-        currentHtml,
+        leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("clarify", "Working out what to ask you"),
@@ -923,7 +936,7 @@ async function handle(
       steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
       const answer = await answerQuestion(
         prompt,
-        currentHtml,
+        leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("answer", "Looking through the page for your answer"),
@@ -1032,11 +1045,21 @@ async function handle(
       steps.begin("edit", "Making the change", `${EDIT_MODEL} is reading the page…`);
       edited = await editPage(
         prompt,
-        currentHtml,
+        leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("edit", "Making the change"),
       );
+
+      /* The photographs that were lifted out so the page could be read, put
+         back into the page that is about to be stored. First, because
+         everything below measures or saves the real document — and a page
+         stored with `stashed-image-0` where a picture belongs is a page whose
+         images have been deleted by a tool that was only supposed to hide them
+         from a model. */
+      if (stashed && stashed.images.length > 0) {
+        edited = { ...edited, html: restoreImages(edited.html, stashed.images) };
+      }
 
       /* The tokens the model wrote, swapped for the pictures they stand for.
          Done here rather than in editPage because it belongs to the page being

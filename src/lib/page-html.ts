@@ -83,6 +83,77 @@ export function readGeneratedDocument(value: unknown): string {
   return html;
 }
 
+/* ── Showing a model a page that has photographs in it ─────────────────────
+ *
+ * A stored page carries its pictures inside it as base64 data URIs — that is
+ * deliberate, it is what makes the file somebody downloads work anywhere. It
+ * also makes the page unreadable to a model.
+ *
+ * Measured on a real one: 463,340 characters, of which 47,191 were markup and
+ * 416,149 were three photographs. Base64 is close to one token per character,
+ * so those three pictures were about 370,000 tokens on their own, and every
+ * edit posted the whole document. The API answered what it had to answer —
+ * "prompt is too long: 377740 tokens > 200000 maximum" — and the page became
+ * permanently uneditable the moment it got its images. Not slow. Not
+ * expensive. Impossible.
+ *
+ * The model does not need the bytes. It needs to know an <img> is there, where
+ * it sits and what it is called, all of which live in the tag around the src.
+ * So the pictures are lifted out before the page is shown, and put back after
+ * the change applies — the same trick as an attachment token, for the same
+ * reason: nothing that costs a hundred thousand tokens to read and cannot be
+ * edited should ever reach a model.
+ */
+
+/* Deliberately not a valid URL. A src the model tries to be clever about is a
+   src it might rewrite; this one is obviously a placeholder for something. */
+const STASHED = (index: number) => `stashed-image-${index}`;
+
+const DATA_URI = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+/g;
+
+export type StashedImages = { lean: string; images: string[] };
+
+/**
+ * The page with its embedded pictures lifted out, and the pictures.
+ *
+ * The same picture appearing twice is stashed once and pointed at twice, which
+ * is both smaller and what somebody meant by using their logo in two places.
+ */
+export function stashImages(html: string): StashedImages {
+  const images: string[] = [];
+  const seen = new Map<string, string>();
+
+  const lean = html.replace(DATA_URI, (uri) => {
+    const already = seen.get(uri);
+    if (already) return already;
+
+    const token = STASHED(images.length);
+    images.push(uri);
+    seen.set(uri, token);
+    return token;
+  });
+
+  return { lean, images };
+}
+
+/**
+ * The page with its pictures put back.
+ *
+ * A token the edit removed takes its picture with it, which is correct: asking
+ * for a photograph to go should make it go. A token that was never handed out —
+ * a model inventing one — is emptied rather than left to render as a broken
+ * image, the same rule attachments follow.
+ */
+export function restoreImages(html: string, images: string[]): string {
+  let restored = html;
+
+  images.forEach((uri, index) => {
+    restored = restored.split(STASHED(index)).join(uri);
+  });
+
+  return restored.replace(/stashed-image-\d+/g, "");
+}
+
 /**
  * Roughly what this page would have been as a hand-written file tree, which is
  * what a build is priced from.
