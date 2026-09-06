@@ -215,6 +215,11 @@ export default function ChatPanel({
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* The run in flight, so the send button can end it.
+   *
+   * A ref rather than state: it is written and read inside the same handler,
+   * and a stop that arrives a tick after the press is a stop that misses. */
+  const running = useRef<AbortController | null>(null);
   /* Whether the builder is taking work, and what to say if not.
      
      Asked rather than assumed, and asked of the server rather than baked in at
@@ -569,7 +574,7 @@ export default function ChatPanel({
    * `since` is the build to wait past: the row stamps last_build_at when the
    * page lands, so anything at or before this belongs to a previous build.
    */
-  async function awaitPage(runStarted: number, since: number, detail: string) {
+  async function awaitPage(runStarted: number, since: number, detail: string, signal?: AbortSignal) {
     if (!project) return;
 
     /* Set rather than queued. The pace exists to spread a burst; this is one
@@ -594,7 +599,27 @@ export default function ChatPanel({
             : `waiting for the page — ${clock} so far…`,
         state: "running",
       });
-    });
+    }, signal);
+
+    /* Stopped by hand. The build is still running — nothing here reaches the
+       orchestrator — so this says exactly that and says nothing about how it
+       will turn out. The preview arrives on its own; the panel refetches on the
+       build stamp. */
+    if (signal?.aborted) {
+      phases.set({ id: "generate", label: "Still building", state: "running" });
+      say(
+        {
+          from: "system",
+          text: "Stopped waiting. The build carries on without this screen — the preview appears here when it lands.",
+        },
+        undefined,
+        /* True of this wait, not of this build: keeping it would leave a
+           conversation saying somebody gave up, next to the page it delivered. */
+        "session",
+      );
+      return;
+    }
+
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
@@ -747,6 +772,11 @@ export default function ChatPanel({
     if (paused) return;
     sentHere.current = true;
 
+    /* One controller for the whole run — the request and the wait that follows
+       it are the same press of the button as far as anybody is concerned. */
+    const run = new AbortController();
+    running.current = run;
+
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
        retry a sentence is the kind of thing that makes people give up. */
@@ -822,6 +852,7 @@ export default function ChatPanel({
         /* Appended, never replaced: the server sends what was written since
            the last line, so the cost over the wire is the length of the answer
            rather than the square of it. */
+        signal: run.signal,
         onText: (delta) => setStreamed((current) => current + delta),
         onStep: (step) => {
           if (!picked) {
@@ -975,13 +1006,41 @@ export default function ChatPanel({
          message said the preview link updates as it finishes, and this is what
          makes that true without a reload. */
       if (outcome.status === "Building") {
-        await awaitPage(runStarted, startedAt, "This runs in the orchestrator and takes as long as it takes…");
+        await awaitPage(
+          runStarted,
+          startedAt,
+          "This runs in the orchestrator and takes as long as it takes…",
+          run.signal,
+        );
       }
     } catch (error) {
-      say({ from: "system", text: (error as Error).message, tone: "error" });
-      /* The text comes from wherever it was thrown, so the wording lives with
-         the throw — see src/lib/builder/edit.ts and the route. */
+      /* Stopped by hand, which is not a failure and must not be dressed as one.
+         An aborted fetch throws like anything else, and the browser's word for
+         it — "Load failed", "The user aborted a request" — is the last thing
+         somebody who just pressed stop needs to read.
+       *
+         Said as what it is, and honestly: the request left, and whatever it
+         started is running where this screen cannot reach it. An edit finishes
+         inside the route; a build finishes in the orchestrator. Neither hears a
+         browser hang up. */
+      if (run.signal.aborted) {
+        say(
+          {
+            from: "system",
+            text: "Stopped. Anything already sent carries on — if it lands, it appears here.",
+          },
+          undefined,
+          "session",
+        );
+      } else {
+        say({ from: "system", text: (error as Error).message, tone: "error" });
+        /* The text comes from wherever it was thrown, so the wording lives with
+           the throw — see src/lib/builder/edit.ts and the route. */
+      }
     } finally {
+      /* Only if this run is still the one in flight: a stop that starts a new
+         message must not have its spinner cleared by the old run finishing. */
+      if (running.current === run) running.current = null;
       setBuilding(false);
       setRunStartedAt(null);
       /* Cleared in the same batch that ends the run, so the preview and the
@@ -1656,19 +1715,41 @@ export default function ChatPanel({
                 </button>
 
                 {/* Send sits in the bar's own material rather than shouting over
-                    it, and only lifts once there is something to send. */}
+                    it, and only lifts once there is something to send.
+                 *
+                    While a message is in flight it is the same button, turned
+                    into stop. The alternative — greying it out for the two to
+                    ten minutes a build takes — is the only control on the screen
+                    going dead at the one moment somebody most wants to change
+                    their mind, and it is what made people close the tab.
+                 *
+                    It stops the WAITING, not the work: see the abort handling in
+                    send(). Anything already sent finishes where it is running,
+                    and the panel says so rather than claiming a cancellation it
+                    cannot perform. */}
                 <button
-                  onClick={() => void send()}
-                  disabled={!draft.trim() || building || paused !== null}
-                  aria-label="Send"
+                  onClick={() => (building ? running.current?.abort() : void send())}
+                  disabled={building ? false : !draft.trim() || paused !== null}
+                  aria-label={building ? "Stop waiting" : "Send"}
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
-                    draft.trim() && !building && !paused
+                    building
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                      : "border-transparent bg-layer/[0.07] text-ink/30"
+                      : draft.trim() && !paused
+                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                        : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
                 >
-                  <SendArrow className="h-4 w-4 md:hidden" />
-                  <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                  {building ? (
+                    /* A filled square, which is what every chat has trained
+                       people to read as "stop" — drawn rather than imported so
+                       it sits on the same optical centre as the arrows. */
+                    <span className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+                  ) : (
+                    <>
+                      <SendArrow className="h-4 w-4 md:hidden" />
+                      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                    </>
+                  )}
                 </button>
               </div>
 
