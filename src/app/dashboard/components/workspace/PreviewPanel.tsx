@@ -269,6 +269,23 @@ export default function PreviewPanel({
      what came back, and only says an app is live when the server said so. See
      PublishPanel — the button used to be disabled with a note promising it
      would work once a build finished. */
+  /* ── Whether this app is live, and where ───────────────────────────────
+   *
+   * Both headers below showed the same "Publish" button whether a project had
+   * been live for a month or had never been deployed, and the address was two
+   * clicks away inside a popover. So the one thing somebody wants after
+   * publishing — to look at the thing they published — was the one thing the
+   * button did not offer.
+   *
+   * Read from the project row rather than from publish state held in the panel:
+   * the panel is unmounted until its popover opens, so a header that waited for
+   * it would show "Publish" on a live app until somebody clicked to find out.
+   *
+   * isPublished rather than the status, deliberately. Every build overwrites
+   * status, so a published app that has since been edited reads as unpublished
+   * while its site is still up — see lib/project-status.ts. */
+  const liveSlug = project && isPublished(project) ? project.slug : null;
+
   const publishBody = (
     <PublishPanel
       projectId={project?.id ?? null}
@@ -596,14 +613,34 @@ export default function PreviewPanel({
             <ManageMark className="h-4 w-4" />
           </button>
           <div className="relative" ref={publishRef}>
-            <button
-              onClick={() => setPublishOpen(true)}
-              aria-expanded={publishOpen}
-              className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Publish
-            </button>
+            {/* The phone keeps ONE control rather than the split above.
+                
+                A two-part button at this width gives each half about twenty
+                pixels, and the half somebody misses is the one that opens the
+                panel — leaving redeploying and domains unreachable on a phone.
+                So the pill reports the state and opens the panel, which leads
+                with the address as a full-width link. One tap to see it is
+                live, two to be on it, and nothing becomes unreachable. */}
+            {liveSlug ? (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                aria-label="This app is live — open publishing"
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full border border-line/[0.14] bg-layer/[0.10] px-3 text-[12px] font-semibold text-ink transition-all active:scale-[0.98]"
+              >
+                <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
+                Live
+              </button>
+            ) : (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                Publish
+              </button>
+            )}
             <Popover
               open={publishOpen}
               onClose={() => setPublishOpen(false)}
@@ -774,15 +811,62 @@ export default function PreviewPanel({
             </button>
           )}
 
-          <button
-            onClick={() => setPublishOpen((open) => !open)}
-            aria-expanded={publishOpen}
-            title="Publish this app"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
-          >
-            <Rocket className="h-4 w-4 shrink-0" />
-            <span className="hidden lg:inline">Publish</span>
-          </button>
+          {/* Live: a split control. The left half IS the published site — a
+              real anchor carrying its address, so the thing somebody just
+              published is one click away and can be middle-clicked, copied and
+              opened in a tab like any other link. The right half keeps the
+              panel, where redeploying and domains live.
+
+              Not two separate buttons in the row: they are one object about one
+              thing, and splitting them apart would put a bare address in a
+              toolbar of controls. One rounded shell, one hairline between. */}
+          {liveSlug ? (
+            <div className="flex h-9 shrink-0 items-stretch overflow-hidden rounded-xl bg-solid text-onSolid">
+              <a
+                href={publishedUrl(liveSlug)}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open ${publishedLabel(liveSlug)}`}
+                className="flex items-center gap-1.5 px-3 text-[13px] font-medium transition-opacity hover:opacity-80 active:scale-[0.98]"
+              >
+                {/* Green rather than the accent: this is a state, not an
+                    action, and it is the one thing in the row that reports
+                    rather than does. */}
+                <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
+                {/* Never hidden. Every other label in this row collapses at
+                    narrow widths because the icon carries it; here the word IS
+                    the information, and a bare dot beside a rocket reads as
+                    decoration rather than as "this is live". */}
+                <span>Live</span>
+                <span className="hidden max-w-[180px] truncate 2xl:inline opacity-70">
+                  {publishedLabel(liveSlug)}
+                </span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              </a>
+
+              <span aria-hidden className="my-1.5 w-px shrink-0 bg-onSolid/20" />
+
+              <button
+                onClick={() => setPublishOpen((open) => !open)}
+                aria-expanded={publishOpen}
+                aria-label="Publishing and domains"
+                title="Publish again, or connect a domain"
+                className="flex items-center px-2.5 transition-opacity hover:opacity-80 active:scale-[0.98]"
+              >
+                <Rocket className="h-4 w-4 shrink-0" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setPublishOpen((open) => !open)}
+              aria-expanded={publishOpen}
+              title="Publish this app"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
+            >
+              <Rocket className="h-4 w-4 shrink-0" />
+              <span className="hidden lg:inline">Publish</span>
+            </button>
+          )}
 
           {/* The way out of this half. The conversation takes the whole
               workspace and a button on the edge brings the pane back — see
