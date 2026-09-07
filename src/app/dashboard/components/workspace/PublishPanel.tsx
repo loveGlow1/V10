@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, Globe, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Globe, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+
+import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 /* Taking a project live, and pointing a domain at it.
  *
@@ -91,14 +93,28 @@ export default function PublishPanel({
   projectId,
   hasBuild,
   priceNote,
+  slug,
+  publishedAt,
 }: {
   projectId: string | null;
   /* Whether there is anything to publish. A project with no build has nothing
      to put on an address, and the button says so rather than failing. */
   hasBuild: boolean;
   priceNote: string;
+  /* The address already reserved, from the project row. Without this the panel
+     only knew about a publish that happened in THIS session — so reopening the
+     workspace showed a live project as though it had never been published. */
+  slug: string | null;
+  publishedAt: string | null;
 }) {
-  const [published, setPublished] = useState<Published>(null);
+  const [published, setPublished] = useState<Published>(
+    slug && publishedAt
+      ? { url: `https://${slug}${PUBLISH_SUBDOMAIN}`, version: 0, publishedAt, charged: 0 }
+      : null,
+  );
+  const [address, setAddress] = useState(slug ?? "");
+  const [renaming, setRenaming] = useState(false);
+  const [addressProblem, setAddressProblem] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   /* What went wrong, and at which step. The stage is worth keeping: "couldn't
      reserve the address" and "couldn't make it live" are different problems
@@ -188,6 +204,32 @@ export default function PublishPanel({
     }
   }
 
+  async function saveAddress() {
+    if (!projectId || renaming) return;
+    const wanted = address.trim().toLowerCase();
+    if (!wanted || wanted === slug) { setRenaming(false); return; }
+
+    setAddressProblem(null);
+    try {
+      const response = await fetch("/api/publish", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, slug: wanted }),
+      });
+      const body = await response.json();
+
+      if (!response.ok) {
+        setAddressProblem(body.error ?? "That address couldn't be saved.");
+        return;
+      }
+
+      setPublished((current) => (current ? { ...current, url: body.url } : current));
+      setRenaming(false);
+    } catch {
+      setAddressProblem("That didn't get through. Try again.");
+    }
+  }
+
   async function disconnect(id: string) {
     setDomains((current) => current.filter((row) => row.id !== id));
     try {
@@ -204,7 +246,39 @@ export default function PublishPanel({
       <p className="hidden text-[13px] font-medium text-ink md:block">Publish this app</p>
 
       {/* ── The address ──────────────────────────────────────────────────── */}
-      {live ? (
+      {live && renaming ? (
+        <div className="mt-1.5">
+          <div className="flex items-center gap-1.5">
+            <input
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveAddress();
+                if (event.key === "Escape") { setAddress(slug ?? ""); setRenaming(false); }
+              }}
+              autoFocus
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
+              className="min-w-0 flex-1 rounded-lg border border-line/[0.14] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-ink focus:border-line/[0.24] focus:outline-none"
+            />
+            <span className="shrink-0 text-[12px] text-muted">{PUBLISH_SUBDOMAIN}</span>
+            <button
+              onClick={saveAddress}
+              className="shrink-0 rounded-lg border border-line/[0.12] px-2.5 py-2 text-[12px] text-ink transition-colors hover:bg-layer/[0.06]"
+            >
+              Save
+            </button>
+          </div>
+          {/* Said before it happens, not after. Nothing redirects — the old
+              address is released and anyone may take it — so this is a decision
+              rather than a detail. */}
+          <p className="mt-1.5 text-[11px] leading-relaxed text-amber-400">
+            Changing this breaks the old address. Anything already linking to it stops working.
+          </p>
+          {addressProblem && <p className="mt-1 text-[11px] text-rose-300">{addressProblem}</p>}
+        </div>
+      ) : live ? (
         <div className="mt-1.5 flex items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-2.5 py-2">
           <a
             href={published.url}
@@ -214,6 +288,13 @@ export default function PublishPanel({
           >
             {published.url.replace(/^https:\/\//, "")}
           </a>
+          <button
+            onClick={() => { setAddress(slug ?? ""); setRenaming(true); }}
+            aria-label="Change the address"
+            className="shrink-0 rounded-md p-1.5 text-muted transition-colors hover:bg-layer/[0.08] hover:text-ink"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
           <Copyable value={published.url} label="the address" />
           <a
             href={published.url}
@@ -235,7 +316,7 @@ export default function PublishPanel({
 
       {live && (
         <p className="mt-1.5 text-[12px] text-muted">
-          Version {published.version} is live
+          {published.version > 0 ? `Version ${published.version} is live` : "Live"}
           {published.charged > 0 ? ` · ${published.charged} credit${published.charged === 1 ? "" : "s"}` : ""}. Edits
           stay in preview until you publish again.
         </p>
