@@ -27,7 +27,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-architecture");
@@ -54,11 +54,32 @@ writeFileSync(
       join(process.cwd(), "src/lib/builder/architecture.ts"),
       join(process.cwd(), "src/lib/builder/schema.ts"),
       join(process.cwd(), "src/lib/builder/stack.ts"),
+      join(process.cwd(), "src/lib/builder/project-summary.ts"),
     ],
   }),
 );
 
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
+
+/* tsc emits import specifiers exactly as they were written — "./architecture",
+   with no extension — and node's ESM loader will not resolve those. Most of
+   these modules import each other only for types, which are erased; the summary
+   imports LAYER_LABEL and KIND_LABEL for real, so the extension has to be put
+   back before anything is loaded. check-tree.mjs does the same, one file over. */
+for (const dir of [join(out, "lib/builder"), join(out, "lib")]) {
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".js")) continue;
+    const path = join(dir, entry);
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace(
+        /(from\s+["'])(\.\.?\/[^"']+?)(["'])/g,
+        (whole, before, specifier, after) =>
+          specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
+      ),
+    );
+  }
+}
 
 const { decideArchitecture, describeArchitecture } = await import(
   join(out, "lib/builder/architecture.js")
@@ -410,6 +431,102 @@ console.log("\nThe types");
   }
 
   if (failures === 0) pass(`${model.tables.length} tables typed`);
+}
+
+/* ── The preview ──────────────────────────────────────────────────────────
+ *
+ * A project of .tsx files has no HTML in it — the HTML is what `next build`
+ * produces, and nothing in this system runs `next build`. So the preview is a
+ * summary of what was made, and the two things it must never do are lie about
+ * the app and lie about the database.
+ */
+
+console.log("\nThe preview");
+
+{
+  const { projectSummary, routesOf } = await import(join(out, "lib/builder/project-summary.js"));
+
+  const manifest = {
+    type: "ecommerce",
+    frontend: true,
+    backend: true,
+    database: true,
+    authentication: true,
+    admin: true,
+    storage: true,
+    payments: false,
+  };
+  const model = dataModelFor(manifest, schemaNameFor("dddddddd-eeee-ffff-0000-111111111111"));
+  const tree = [
+    "package.json",
+    "app/layout.tsx",
+    "app/page.tsx",
+    "app/products/page.tsx",
+    "app/products/[slug]/page.tsx",
+    "app/(marketing)/about/page.tsx",
+    "app/admin/products/page.tsx",
+    "components/Nav.tsx",
+    "lib/supabase.ts",
+  ].map((path) => ({ path, content: "x\n".repeat(10) }));
+
+  const routes = routesOf(tree);
+  /* Route groups are organisational and never appear in a URL. A summary that
+     printed /(marketing)/about would be naming an address that 404s. */
+  if (routes.some((route) => route.includes("("))) {
+    fail("routes", `a route group leaked into a URL: ${routes.join(" ")}`);
+  }
+  if (!routes.includes("/about")) fail("routes", "a grouped route lost its path");
+  if (!routes.includes("/")) fail("routes", "the home page is not listed");
+
+  const ready = projectSummary({
+    projectName: "Ember & Wick",
+    manifest,
+    tree,
+    model,
+    databaseReady: true,
+  });
+  const pending = projectSummary({
+    projectName: "Ember & Wick",
+    manifest,
+    tree,
+    model,
+    databaseReady: false,
+  });
+
+  /* The document has to survive readGeneratedDocument, which is what stores it.
+     A summary that fails validation is a build that reports itself as broken. */
+  if (!/^<!doctype html/i.test(ready) || !/<\/html\s*>\s*$/.test(ready.trim())) {
+    fail("summary", "is not a complete HTML document, so the save route will refuse it");
+  }
+
+  /* The one distinction the summary exists to keep straight. */
+  if (!ready.includes("created") || ready.includes("not created yet")) {
+    fail("summary", "a created database is not reported as created");
+  }
+  if (!pending.includes("not created yet")) {
+    fail("summary", "a database that was never created is reported as though it were");
+  }
+
+  /* A project name is somebody's typing and goes into a document served to a
+     browser. */
+  const injected = projectSummary({
+    projectName: '<script>alert(1)</script>',
+    manifest,
+    tree,
+    model,
+    databaseReady: true,
+  });
+  if (injected.includes("<script>alert")) {
+    fail("summary", "a project name is interpolated without escaping");
+  }
+
+  if (!ready.includes("app/admin/products/page.tsx")) {
+    fail("summary", "the admin files are not listed");
+  }
+
+  if (failures === 0) {
+    pass(`${routes.length} routes, ${model.tables.length} tables, escaped, valid HTML`);
+  }
 }
 
 console.log("");
