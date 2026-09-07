@@ -15,10 +15,32 @@ import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
  * where a repair would change which address somebody gets. A slug that cleans
  * up to nothing is a slug this cannot make, not one to invent silently. */
 
+/* ── THE APP'S OWN ROUTES ───────────────────────────────────────────────────
+ *
+ * A published project is served at quickstark.tech/<slug>, which puts it in the
+ * SAME namespace as every page this app has. Next resolves a static route ahead
+ * of a dynamic one, so /dashboard will always be the dashboard — which means a
+ * project published as "dashboard" would silently show the app instead of the
+ * site, with nothing anywhere reporting a problem.
+ *
+ * So these are refused at publish time. Anything added to src/app/ at the top
+ * level MUST be added here in the same edit, and that is the standing cost of
+ * dropping the /s/ prefix: this list and the router have to agree forever.
+ * check-publish.mjs compares the two and fails when they drift. */
+const APP_ROUTES = [
+  "api", "auth", "dashboard", "preview", "pricing", "privacy", "terms", "site",
+  /* Files and generated documents Next serves from the root. */
+  "favicon", "robots", "sitemap", "manifest",
+  "opengraph-image", "twitter-image", "apple-icon", "icon",
+  /* Kept although nothing serves it now: projects published while addresses
+     were /s/<slug> may still be linked that way, and nothing may take it. */
+  "s",
+];
+
 /* Names that must never become a project's address, because the platform
    answers on them itself or will need to. A project called "API" taking
-   api.quickstark.tech would take it from us, and there would be no way to get
-   it back without breaking their site. */
+   /api would take it from us, and there would be no way to get it back
+   without breaking their site. */
 const RESERVED = new Set([
   "www", "app", "api", "admin", "dashboard", "preview", "staging", "test",
   "mail", "email", "smtp", "imap", "ftp", "cdn", "assets", "static", "img",
@@ -26,9 +48,13 @@ const RESERVED = new Set([
   "support", "status", "blog", "news", "about", "billing", "pay", "payments",
   "checkout", "account", "accounts", "auth", "login", "logout", "signup",
   "register", "settings", "console", "internal", "system", "root", "ns1",
-  "site", "sites",
+  "sites",
   "ns2", "dns", "vpn", "proxy", "webhook", "webhooks", "quickstark",
+  ...APP_ROUTES,
 ]);
+
+/** Exposed so a check can compare this against what src/app actually holds. */
+export const RESERVED_APP_ROUTES = APP_ROUTES;
 
 /* A DNS label: 63 characters, letters digits and hyphens, not starting or
    ending with one. Kept shorter than the limit — nobody types a 63-character
@@ -125,9 +151,13 @@ export function slugAttempt(base: string, attempt: number): string {
  *
  * This works the moment the code is deployed, on any plan, with no DNS. The
  * slug still has to be a legal label, so nothing here forecloses moving to
- * subdomains later: the same slugs would work unchanged. */
+ * subdomains later: the same slugs would work unchanged.
+ *
+ * There is no /s/ prefix, which buys a shorter address and costs a permanent
+ * obligation: published slugs and this app's own routes share one namespace.
+ * See APP_ROUTES above — that list and src/app/ have to agree forever. */
 export function publishedUrl(slug: string): string {
-  return `${SITE_URL}/s/${slug}`;
+  return `${SITE_URL}/${slug}`;
 }
 
 /** The same address without its scheme, for showing rather than linking. */

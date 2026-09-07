@@ -66,7 +66,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { addressFor, isApex, normaliseDomain, publishedLabel, publishedUrl, recordName, slugAttempt, slugFrom, slugIsUsable } =
+const { addressFor, isApex, normaliseDomain, publishedLabel, publishedUrl, recordName, RESERVED_APP_ROUTES, slugAttempt, slugFrom, slugIsUsable } =
   await import(join(out, "lib/publish/naming.js"));
 const { isAppPath, routeFor } = await import(join(out, "lib/publish/routing.js"));
 
@@ -213,9 +213,66 @@ for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuris
  *
  * The slug still has to be a legal DNS label, so nothing here forecloses
  * moving to subdomains later — that is what these two checks are guarding. */
-has(publishedUrl("shop") === "https://www.quickstark.tech/s/shop", "a published project is served from a path", publishedUrl("shop"));
+has(publishedUrl("shop") === "https://www.quickstark.tech/shop", "a published project is served from a path", publishedUrl("shop"));
 has(!publishedUrl("shop").includes("shop.quickstark"), "and never from a subdomain", publishedUrl("shop"));
-has(publishedLabel("shop") === "www.quickstark.tech/s/shop", "the label drops the scheme", publishedLabel("shop"));
+has(publishedLabel("shop") === "www.quickstark.tech/shop", "the label drops the scheme", publishedLabel("shop"));
+
+/* ── THE LIST AND THE ROUTER MUST AGREE ───────────────────────────────────
+ *
+ * A published project is served at /<slug>, in the same namespace as every
+ * page this app has. Next resolves a static route ahead of a dynamic one, so
+ * /dashboard is always the dashboard — and a project published as "dashboard"
+ * would silently serve the app instead of the site, with nothing reporting a
+ * problem. The owner would see their own product where their homepage should
+ * be and have no idea why.
+ *
+ * This is the standing cost of dropping the /s/ prefix, so it is checked
+ * rather than remembered: every top-level route in src/app is read off the
+ * disk and must be refused as a slug. Adding a page and forgetting the
+ * reserved list fails here.
+ */
+const appDir = join(process.cwd(), "src", "app");
+const entries = readdirSync(appDir, { withFileTypes: true })
+  .filter((entry) => !entry.name.startsWith("[") && !entry.name.startsWith("_"));
+
+/* A DIRECTORY in src/app is a route segment. A loose .tsx file is not — this
+   app colocates components there (Hero.tsx, QMark.tsx), and nothing is served
+   at /Hero. The only files that ARE routes are Next's own conventions, and
+   they are named explicitly rather than inferred, so a component added
+   tomorrow does not become a phantom route this check demands. */
+const NEXT_FILE_ROUTES = [
+  "favicon.ico", "icon.png", "icon.svg", "apple-icon.png",
+  "opengraph-image.png", "twitter-image.png",
+  "robots.ts", "sitemap.ts", "manifest.ts",
+];
+
+const topLevel = [
+  ...entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+  ...entries
+    .filter((entry) => !entry.isDirectory() && NEXT_FILE_ROUTES.includes(entry.name))
+    .map((entry) => entry.name.replace(/\.[^.]+$/, "")),
+];
+
+for (const route of topLevel) {
+  has(
+    slugFrom(route) === null,
+    `nothing can be published as "${route}" — the app answers there`,
+    `slugFrom gave ${JSON.stringify(slugFrom(route))}`,
+  );
+}
+
+/* And the generators, whose route is not their filename: robots.ts serves
+   /robots.txt, sitemap.ts serves /sitemap.xml, manifest.ts serves
+   /manifest.webmanifest. The stem is what a slug could collide with. */
+for (const generated of ["robots", "sitemap", "manifest"]) {
+  has(slugFrom(generated) === null, `nor as "${generated}"`, `slugFrom gave ${JSON.stringify(slugFrom(generated))}`);
+}
+
+/* The reserved list may hold more than src/app does — routes that do not exist
+   yet, and "s" from when addresses carried that prefix — but it must not hold
+   LESS. This is the direction that matters. */
+const missing = topLevel.filter((route) => !RESERVED_APP_ROUTES.includes(route));
+has(missing.length === 0, "every route on disk is in the reserved list", missing.join(", ") || "none missing");
 
 /* Every address this can issue must survive being put in a URL unchanged —
    if a slug ever needed escaping, the address shown and the address served
