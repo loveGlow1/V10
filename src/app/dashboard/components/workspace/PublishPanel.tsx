@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, ExternalLink, Globe, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
-import { PUBLISH_SUBDOMAIN } from "@/lib/site";
+import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
 
 /* Taking a project live, and pointing a domain at it.
  *
@@ -109,7 +109,7 @@ export default function PublishPanel({
 }) {
   const [published, setPublished] = useState<Published>(
     slug && publishedAt
-      ? { url: `https://${slug}${PUBLISH_SUBDOMAIN}`, version: 0, publishedAt, charged: 0 }
+      ? { url: publishedUrl(slug), version: 0, publishedAt, charged: 0 }
       : null,
   );
   const [address, setAddress] = useState(slug ?? "");
@@ -249,6 +249,7 @@ export default function PublishPanel({
       {live && renaming ? (
         <div className="mt-1.5">
           <div className="flex items-center gap-1.5">
+            <span className="shrink-0 text-[12px] text-muted">{publishedLabel("").replace(/\/$/, "/")}</span>
             <input
               value={address}
               onChange={(event) => setAddress(event.target.value)}
@@ -262,7 +263,6 @@ export default function PublishPanel({
               autoCorrect="off"
               className="min-w-0 flex-1 rounded-lg border border-line/[0.14] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-ink focus:border-line/[0.24] focus:outline-none"
             />
-            <span className="shrink-0 text-[12px] text-muted">{PUBLISH_SUBDOMAIN}</span>
             <button
               onClick={saveAddress}
               className="shrink-0 rounded-lg border border-line/[0.12] px-2.5 py-2 text-[12px] text-ink transition-colors hover:bg-layer/[0.06]"

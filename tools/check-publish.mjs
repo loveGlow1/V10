@@ -66,7 +66,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { addressFor, isApex, normaliseDomain, recordName, slugAttempt, slugFrom, slugIsUsable } =
+const { addressFor, isApex, normaliseDomain, publishedLabel, publishedUrl, recordName, slugAttempt, slugFrom, slugIsUsable } =
   await import(join(out, "lib/publish/naming.js"));
 const { isAppPath, routeFor } = await import(join(out, "lib/publish/routing.js"));
 
@@ -201,6 +201,32 @@ has(addressFor("12345", ID) === "12345-app", "a number gets a suffix that makes 
 for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuristic landing", "www"]) {
   const got = addressFor(name, ID);
   has(got !== null && slugIsUsable(got), `the address for ${JSON.stringify(name)} is itself usable`, got);
+}
+
+/* ── The address is a path, not a subdomain ───────────────────────────────
+ *
+ * shop.quickstark.tech is the nicer form and it needs a wildcard DNS record
+ * plus a wildcard domain on the Vercel project. The DNS half fails silently:
+ * a publish succeeded, took 50 credits and handed back a hostname that did not
+ * resolve, which is exactly what happened on the first real publish. A path
+ * works the moment the code deploys, on any plan.
+ *
+ * The slug still has to be a legal DNS label, so nothing here forecloses
+ * moving to subdomains later — that is what these two checks are guarding. */
+has(publishedUrl("shop") === "https://www.quickstark.tech/s/shop", "a published project is served from a path", publishedUrl("shop"));
+has(!publishedUrl("shop").includes("shop.quickstark"), "and never from a subdomain", publishedUrl("shop"));
+has(publishedLabel("shop") === "www.quickstark.tech/s/shop", "the label drops the scheme", publishedLabel("shop"));
+
+/* Every address this can issue must survive being put in a URL unchanged —
+   if a slug ever needed escaping, the address shown and the address served
+   would differ. */
+for (const name of ["QuickStark", "Premium, futuristic landing", "Café Ganache", "12345"]) {
+  const slug = addressFor(name, ID);
+  has(
+    slug !== null && encodeURIComponent(slug) === slug,
+    `the address for ${JSON.stringify(name)} needs no escaping`,
+    slug,
+  );
 }
 
 // ── Domains people type ───────────────────────────────────────────────────
