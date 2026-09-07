@@ -10,7 +10,6 @@ import {
   CreditCard,
   Download,
   ExternalLink,
-  LifeBuoy,
   Link2,
   RotateCw,
   Rocket,
@@ -29,7 +28,7 @@ import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@
 import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
-import { ManageMark, PreviewMark } from "./panelMarks";
+import { ManageMark, PreviewMark, SupportMark } from "./panelMarks";
 import Popover from "./Popover";
 
 type ManageSection = "settings" | "integrations" | "payments";
@@ -684,7 +683,7 @@ export default function PreviewPanel({
             title="Need help?"
             className={`hidden ${action} lg:flex`}
           >
-            <LifeBuoy className="h-4 w-4 shrink-0" />
+            <SupportMark className="h-4 w-4 shrink-0" />
             <span className="hidden 2xl:inline">Need help?</span>
           </button>
 
