@@ -352,6 +352,20 @@ const assembleBuildResult = node({
    Build Failure on failure — and the app separately requires the row to have
    stopped saying "Building", so neither half depends on the other being right.
 
+   NOT slug, published_version_id or published_at either, and that boundary is
+   load-bearing rather than an oversight. A build is a PREVIEW event: it changes
+   what the owner sees at /preview and must not touch what the public is being
+   served. Production is a snapshot taken by /api/publish, so a build cannot
+   move it — which is the whole of "changes in preview do not change
+   production", enforced by this node not knowing those columns exist.
+
+   Note that `status` is one this node DOES write, and that is why nothing
+   decides publication from it: a published project rebuilt here goes back to
+   "Building" and then "Built" while its site keeps serving. published_at is the
+   authority instead. See src/lib/project-status.ts, which explains it at
+   length, and do not be tempted to write "Published" from here to fix the
+   label — the label is not the fact.
+
    onError continues: the chat is answered from Assemble Build Result, not from
    this node, so a Supabase failure must not swallow the reply. */
 const syncProjectRow = node({

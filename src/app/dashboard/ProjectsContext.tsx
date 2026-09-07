@@ -4,7 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
-import { isPublishedStatus } from "@/lib/project-status";
+import { isPublishedProject } from "@/lib/project-status";
 import type { BuildKind } from "@/lib/builder/kinds";
 import type { BuildStep } from "@/lib/builder/steps";
 
@@ -254,7 +254,10 @@ function describe(error: { code?: string; message: string }) {
 export { PUBLISHED_STATUSES } from "@/lib/project-status";
 
 export function isPublished(project: Project) {
-  return isPublishedStatus(project.status);
+  /* Not the status — see isPublishedProject. Every build overwrites status,
+     so a published project that has since been edited reads as unpublished
+     while its site is still live. */
+  return isPublishedProject(project);
 }
 
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {
