@@ -39,15 +39,19 @@ writeFileSync(
       strict: true,
       paths: { "@/*": [join(process.cwd(), "src", "*")] },
     },
-    files: [join(process.cwd(), "src/lib/builder/design.ts")],
+    files: [
+      join(process.cwd(), "src/lib/builder/design.ts"),
+      join(process.cwd(), "src/lib/builder/qa/contrast.ts"),
+    ],
   }),
 );
 
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 
-for (const entry of readdirSync(join(out, "lib/builder"))) {
+for (const dir of [join(out, "lib/builder"), join(out, "lib/builder/qa")]) {
+ for (const entry of readdirSync(dir)) {
   if (!entry.endsWith(".js")) continue;
-  const path = join(out, "lib/builder", entry);
+  const path = join(dir, entry);
   writeFileSync(
     path,
     readFileSync(path, "utf8").replace(
@@ -56,6 +60,7 @@ for (const entry of readdirSync(join(out, "lib/builder"))) {
         specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
     ),
   );
+ }
 }
 
 const { SYSTEMS, decideDesign, designBrief, systemByName, tokensCss, typeScale, isDark } =
@@ -72,34 +77,11 @@ function pass(what) {
   console.log(`  ✓ ${what}`);
 }
 
-/* ── Contrast ─────────────────────────────────────────────────────────────
- *
- * The WCAG relative-luminance formula, which is not the same as the naive
- * average these things usually get checked with: each channel is linearised
- * before it is weighted, and the difference is large enough to pass a palette
- * that actually fails.
- */
-function channel(value) {
-  const v = value / 255;
-  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-}
-
-function luminance(hex) {
-  const clean = hex.replace("#", "");
-  const full = clean.length === 3 ? clean.replace(/(.)/g, "$1$1") : clean;
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrast(a, b) {
-  const la = luminance(a);
-  const lb = luminance(b);
-  const light = Math.max(la, lb);
-  const dark = Math.min(la, lb);
-  return Math.round(((light + 0.05) / (dark + 0.05)) * 100) / 100;
-}
+/* Contrast comes from the app's own implementation rather than a copy of it —
+   §7, and the reason there is only one: two implementations of the WCAG formula
+   disagree the moment somebody writes the naive version from memory, and then
+   nobody knows which one a palette was measured against. */
+const { contrast, luminance } = await import(join(out, "lib/builder/qa/contrast.js"));
 
 console.log("\nContrast");
 

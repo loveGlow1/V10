@@ -28,6 +28,7 @@
     "check:patch": "node tools/check-patch.mjs",
     "check:payments": "node tools/check-payments.mjs",
     "check:pick": "node tools/check-pick.mjs",
+    "check:qa": "node tools/check-qa.mjs",
     "check:publish": "node tools/check-publish.mjs",
     "check:reconcile": "node tools/check-reconcile.mjs",
     "check:stack": "node tools/check-stack.mjs",
@@ -37,6 +38,7 @@
     "check:tree": "node tools/check-tree.mjs",
     "check:validate": "node tools/check-validate.mjs",
     "audit:page": "node tools/audit-page.mjs",
+    "qa": "node tools/qa.mjs",
     "settle": "node tools/settle-payment.mjs"
   },
   "dependencies": {

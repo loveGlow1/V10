@@ -38,6 +38,7 @@
  */
 
 import type { BuildKind } from "./kinds";
+import { isDarkColor } from "./qa/contrast";
 
 export type Palette = {
   /** The page. */
@@ -487,13 +488,17 @@ h1, h2, h3, h4 {
 }
 
 /* Whether this system's ground is dark, so `color-scheme` and any form control
-   the browser draws for itself match the page rather than fighting it. */
+   the browser draws for itself match the page rather than fighting it.
+   
+   Delegated rather than computed here. This used to weight raw bytes, which is
+   not the WCAG formula and is not close: sRGB is gamma-encoded, so a channel
+   has to be linearised before it is weighted, and skipping that reads mid tones
+   as far brighter than they are. It disagreed with the contrast numbers the
+   design checker was reporting for the same palette, and there was no way to
+   tell which of the two had been consulted. One implementation now — see
+   qa/contrast.ts. */
 export function isDark(dna: DesignDNA): boolean {
-  const hex = dna.color.ground.replace("#", "");
-  const value = parseInt(hex.length === 3 ? hex.replace(/(.)/g, "$1$1") : hex, 16);
-  const luminance =
-    0.2126 * ((value >> 16) & 255) + 0.7152 * ((value >> 8) & 255) + 0.0722 * (value & 255);
-  return luminance < 128;
+  return isDarkColor(dna.color.ground);
 }
 
 /**

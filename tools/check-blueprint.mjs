@@ -84,9 +84,14 @@ try {
       const prefix = depth === 0 ? "./" : "../".repeat(depth);
       writeFileSync(
         path,
-        readFileSync(path, "utf8").replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) =>
-          `${quote}${prefix}${rest}.js${quote}`,
-        ),
+        readFileSync(path, "utf8")
+          .replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) => `${quote}${prefix}${rest}.js${quote}`)
+          /* Relative specifiers need the extension too. design.ts imports
+             ./qa/contrast for real — one contrast implementation, not two — and
+             node's ESM loader will not resolve it without the .js. */
+          .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (whole, before, specifier, after) =>
+            specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
+          ),
       );
     }
   };

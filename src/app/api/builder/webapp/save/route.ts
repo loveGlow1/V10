@@ -11,6 +11,7 @@ import { providerFromEnv } from "@/lib/builder/image-providers";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName } from "@/lib/builder/design";
+import { allIssues, describeQa, runQa } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -279,6 +280,7 @@ export async function POST(request: Request) {
      derived from the same three answers the scaffold was built from. Deriving
      them twice would be two chances to derive them differently, and the summary
      would then describe a project that was not the one stored. */
+  const sentArchitecture = Boolean(body.architecture && typeof body.architecture === "object");
   const summaryArchitecture = architectureFor(body);
   /* The schema the generated client is pointed at has to be the one the build
      actually created, so it is read back from where provisioning recorded it
@@ -438,6 +440,32 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  /* ── The quality gates ─────────────────────────────────────────────────
+   *
+   * Run on the finished document, after the photographs are in it, because
+   * that is the artefact somebody will actually look at — a page judged before
+   * its images are filled is a page judged in a state that never ships.
+   *
+   * Only the gates that need no browser run here, and that is a deployment
+   * fact rather than a preference: this is a serverless function, a headless
+   * Chromium is fifty megabytes and several seconds of cold start, and a
+   * project of .tsx cannot be laid out at all until it has been built. The
+   * rendered gates run where a browser exists — the CLI, CI — against the same
+   * types, and a run without them reports "incomplete" rather than a pass. See
+   * src/lib/builder/qa.
+   *
+   * IT DOES NOT BLOCK THE SAVE. The build is finished and paid for; refusing to
+   * store it over a missing alt attribute would throw away work somebody waited
+   * for and can fix in one edit. The result is recorded and reported, which is
+   * what makes it actionable — a gate that deletes the thing it was judging is
+   * a gate people disable. */
+  const qa = await runQa({
+    html,
+    tree,
+    manifest: sentArchitecture ? summaryArchitecture : null,
+    design: systemByName(body.designSystem),
+  });
+
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
 
   const { data: inserted, error: insertError } = await supabase.from("project_builds").insert({
@@ -491,6 +519,37 @@ export async function POST(request: Request) {
         500,
       );
     }
+  }
+
+  /* ── Saying what the gates found ───────────────────────────────────────
+   *
+   * Only when something is actually wrong. A message on every build saying
+   * "nothing to fix" is a message people stop reading, and the one time it
+   * says something else it is read as noise too.
+   *
+   * Written as what to do rather than as a score. "3 problems" is a grade;
+   * naming the missing alt attributes is something somebody can ask for in one
+   * sentence, and the edit path can act on. */
+  const qaErrors = qa.status === "failed" ? allIssues(qa).filter((issue) => issue.severity === "error") : [];
+
+  if (qaErrors.length > 0) {
+    await recordMessage(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      role: "system",
+      body: `The build finished, and a check of it found ${qaErrors.length} ${
+        qaErrors.length === 1 ? "thing" : "things"
+      } worth fixing:\n\n${qaErrors
+        .slice(0, 5)
+        .map((issue) => `• ${issue.message}`)
+        .join("\n")}${
+        qaErrors.length > 5 ? `\n\n…and ${qaErrors.length - 5} more.` : ""
+      }\n\nAsk me to fix ${qaErrors.length === 1 ? "it" : "them"} and I will.`,
+      tone: "normal",
+      kind: "build_qa",
+      /* Keyed on the build, so a retried save does not say it twice. */
+      dedupeKey: `qa:${claim.requestId || project.id}`,
+    });
   }
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
@@ -570,7 +629,7 @@ export async function POST(request: Request) {
   if (!announced) {
     // eslint-disable-next-line no-console
     console.error("save: the page was stored but could not be announced; not charging for it.");
-    return NextResponse.json({ previewUrl, filesTouched });
+    return NextResponse.json({ previewUrl, filesTouched, qa });
   }
 
   /* Not for a page nobody can see.
@@ -593,7 +652,7 @@ export async function POST(request: Request) {
   if (project.deleted_at) {
     // eslint-disable-next-line no-console
     console.info(`save: ${project.id} was deleted while its build ran; storing the page, not charging for it.`);
-    return NextResponse.json({ previewUrl, filesTouched, charged: false });
+    return NextResponse.json({ previewUrl, filesTouched, charged: false, qa });
   }
 
   /* charge_credits rather than spend_credits: the build has happened and the
@@ -650,5 +709,5 @@ export async function POST(request: Request) {
     dedupeKey: `build:${claim.requestId || project.id}`,
   });
 
-  return NextResponse.json({ previewUrl, filesTouched });
+  return NextResponse.json({ previewUrl, filesTouched, qa });
 }
