@@ -211,7 +211,15 @@ const webappSpec = node({
         assignments: [
           { id: 'intent', name: 'intent', type: 'string',
             value: expr('{{ $("Normalize Build Request").item.json.buildKind || "webapp" }}') },
-          { id: 'stack', name: 'stack', type: 'string', value: 'standalone-html' },
+          /* Read from the request rather than pinned. The app decides this —
+             see lib/builder/stack.ts, which asks whether the thing can exist
+             as one page and answers no the moment somebody signs in. It was a
+             constant here while there was only one answer; defaulting to that
+             same constant keeps every caller that does not send one working. */
+          { id: 'stack', name: 'stack', type: 'string',
+            value: expr('{{ $("Normalize Build Request").item.json.stack || "standalone-html" }}') },
+          { id: 'backend', name: 'backend', type: 'boolean',
+            value: expr('{{ $("Normalize Build Request").item.json.backend === true }}') },
         ],
       },
       includeOtherFields: true,
@@ -239,7 +247,7 @@ const collectWebappResult = node({
           { id: 'admin-url', name: 'adminUrl', type: 'string', value: '' },
           { id: 'config-keys', name: 'configKeys', type: 'object', value: expr('{{ {} }}') },
           { id: 'artifacts', name: 'artifacts', type: 'object',
-            value: expr('{{ { "stack": "Standalone HTML page", "filesTouched": 0 } }}') },
+            value: expr('{{ { "stack": $("Normalize Build Request").item.json.stack === "nextjs" ? "Next.js project" : "Standalone HTML page", "filesTouched": 0 } }}') },
           { id: 'branch-status', name: 'branchStatus', type: 'string', value: 'provisioned' },
         ],
       },
@@ -679,7 +687,9 @@ const savePage = node({
          * alongside it rather than instead of it: a tree of .tsx cannot be
          * shown to anybody without a build step, so a file-tree build sends its
          * files AND a rendered home page for the preview to serve. */
-        'files: $json.files, stack: $json.stack }) }}',
+        'files: $json.files, ' +
+        'stack: $("Normalize Build Request").item.json.stack, ' +
+        'backend: $("Normalize Build Request").item.json.backend }) }}',
       ),
       options: { timeout: 120000 },
     },

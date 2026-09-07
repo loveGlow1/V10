@@ -27,6 +27,7 @@
     "check:payments": "node tools/check-payments.mjs",
     "check:pick": "node tools/check-pick.mjs",
     "check:reconcile": "node tools/check-reconcile.mjs",
+    "check:stack": "node tools/check-stack.mjs",
     "check:standalone": "node tools/check-standalone.mjs",
     "check:stock-query": "node tools/check-stock-query.mjs",
     "check:theme": "node tools/check-theme.mjs",

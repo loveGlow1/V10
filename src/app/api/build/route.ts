@@ -44,6 +44,8 @@ import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
+import { treeBrief } from "@/lib/builder/scaffold";
+import { decideStack } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent,
   remainderAfterRevert,
@@ -1705,6 +1707,16 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
+    /* One page, or a project of files.
+     *
+     * Read from the brief rather than from what was paid or what kind it is:
+     * the question is whether the thing asked for can EXIST as one page, and
+     * the answer is no the moment somebody signs in. A page has no session and
+     * no second route, so a login on one opens, looks right, and cannot work.
+     * See stack.ts, which is biased toward the page — an absent signal is not
+     * evidence for the heavier thing. */
+    const needs = decideStack(brief.text, kind.kind);
+
     const systemPrompt = composeBuildPrompt(kind.kind, brief.text, {
       projectName: project.name,
       attachmentText: attachedText,
@@ -1713,7 +1725,19 @@ async function handle(
       market: market.market,
       /* What the code generator is told about imagery, and all it is told. */
       manifest: pictures.manifest,
+      /* And, when this is a project rather than a page, what a project has to
+         come back as: the files, the routes, and the plumbing NOT to write
+         because scaffold.ts writes it. Appended to the blueprint rather than
+         replacing it — what to build is the same question either way, and only
+         the shape of the answer changes. */
+      treeInstructions: needs.stack === "nextjs" ? treeBrief(kind.kind, needs.backend) : undefined,
     });
+
+    steps.mark(
+      "kind",
+      needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
+      needs.why[0],
+    );
 
     const request = generationRequest(
       model,
@@ -1737,6 +1761,14 @@ async function handle(
          with no diff and no review, and that is how one prompt came to serve
          four different kinds of product. */
       buildKind: kind.kind,
+      /* Which of the two things the orchestrator is building, and whether it
+         gets a database client. The workflow branches on this; the save route
+         reads it back to decide whether to write @/lib/supabase into the tree.
+         Sent explicitly rather than inferred from what comes back, so a
+         generation that ignored its instructions is a failed build rather than
+         a silently different product. */
+      stack: needs.stack,
+      backend: needs.backend,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.

@@ -34,6 +34,12 @@ export type BuildRequest = {
   userId: string;
   /** The row this build belongs to. Created before the build starts. */
   projectId: string;
+  /* Which of the two things to build: one self-contained page, or a Next.js
+     project of files. The workflow branches on it and the save route reads it
+     back. Absent means the page, which is what every build before this was. */
+  stack?: "standalone-html" | "nextjs";
+  /** Whether the project gets a database client written into it. */
+  backend?: boolean;
   /** Ties a reply to the message that asked for it. */
   requestId: string;
   /* Signed addresses for any images attached to the message. URLs rather than
