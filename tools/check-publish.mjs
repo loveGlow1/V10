@@ -244,6 +244,9 @@ const NEXT_FILE_ROUTES = [
   "favicon.ico", "icon.png", "icon.svg", "apple-icon.png",
   "opengraph-image.png", "twitter-image.png",
   "robots.ts", "sitemap.ts", "manifest.ts",
+  /* Generated at build time rather than checked in — these serve the same
+     paths as their .png equivalents, so a slug must not take those names. */
+  "icon.tsx", "apple-icon.tsx", "opengraph-image.tsx", "twitter-image.tsx",
 ];
 
 const topLevel = [
