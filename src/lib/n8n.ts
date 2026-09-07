@@ -40,6 +40,26 @@ export type BuildRequest = {
   stack?: "standalone-html" | "nextjs";
   /** Whether the project gets a database client written into it. */
   backend?: boolean;
+  /* Which layers this project is made of — see src/lib/builder/architecture.ts.
+   *
+   * Passed through the workflow untouched and read back by the save route,
+   * which scaffolds against it. The workflow does not branch on it and must not
+   * modify it: it is the record of what the prompt was written against and what
+   * the schema was created from, and a manifest that changed in transit is a
+   * project scaffolded for tables that were never made.
+   *
+   * Supersedes `stack` and `backend` above, which stay because every build in
+   * flight when this shipped is still sending them and nothing else. */
+  architecture?: {
+    type: BuildKind;
+    frontend: true;
+    backend: boolean;
+    database: boolean;
+    authentication: boolean;
+    admin: boolean;
+    storage: boolean;
+    payments: boolean;
+  };
   /** Ties a reply to the message that asked for it. */
   requestId: string;
   /* Signed addresses for any images attached to the message. URLs rather than

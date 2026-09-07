@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "check:architecture": "node tools/check-architecture.mjs",
     "check:assets": "node tools/check-assets.mjs",
     "check:auth-domain": "node tools/check-auth-domain.mjs",
     "check:attribution": "node tools/check-credits-attribution.mjs",
@@ -49,6 +50,7 @@
     "json5": "^2.2.3",
     "lucide-react": "^0.344.0",
     "next": "^15.4.1",
+    "pg": "^8.13.1",
     "postcss": "^8.4.39",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.7",
@@ -59,6 +61,7 @@
   },
   "devDependencies": {
     "@types/node": "20.17.6",
+    "@types/pg": "^8.11.10",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.170.0",

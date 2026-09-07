@@ -46,7 +46,11 @@ import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
+import { decideArchitecture, describeArchitecture } from "@/lib/builder/architecture";
+import { resolveBackend } from "@/lib/builder/backend/connection";
+import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { treeBrief } from "@/lib/builder/scaffold";
+import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent,
@@ -1684,6 +1688,68 @@ async function handle(
     needs.why[0],
   );
 
+  /* ── What this project is actually made of ──────────────────────────────
+   *
+   * The stack answered whether this can be one file. This answers what is in
+   * it: a database, accounts, a back office, storage, a way to take money. See
+   * src/lib/builder/architecture.ts, which is also where the reasons come from.
+   *
+   * It can raise the stack — a store with no database is a picture of a store —
+   * and where that raise is a guess rather than something the brief said, it
+   * comes back uncertain and is put to the person instead of being spent on.
+   * Same guard, same reason, as the stack question above it. */
+  const architecture = decideArchitecture(brief.text, kind.kind, needs);
+
+  if (architecture.promoted) {
+    needs.stack = "nextjs";
+    needs.backend = architecture.manifest.backend;
+    needs.auth = architecture.manifest.authentication;
+  }
+
+  steps.mark(
+    "architecture",
+    describeArchitecture(architecture.manifest),
+    architecture.why[0],
+  );
+
+  /* ── The database, made real before the code that queries it is written ──
+   *
+   * Order matters here for the same reason it does for the imagery: the model
+   * that writes the application is not asked to design its own schema. The
+   * tables are decided from the manifest, created in Postgres, and then handed
+   * to the prompt as a fact — so what comes back queries columns that exist,
+   * against policies that are already enforcing something.
+   *
+   * Where the data lives is the project's own decision. By default it is a
+   * schema of its own on this instance; a project whose owner has linked their
+   * Supabase gets theirs instead, and nothing else in the pipeline changes.
+   * See src/lib/builder/backend/connection.ts.
+   *
+   * Every part of it degrades, deliberately. No connection string, a database
+   * that refuses, a link that has gone stale: the build carries on, the files
+   * are still written, and the step says what is missing. A project whose
+   * schema is pending is worth previewing; a build that dies because a
+   * migration could not run is not. */
+  /* `service` is null when the deployment has no service-role key, which is
+     already a build that cannot write its own rows — so this asks for nothing
+     rather than adding a second way to fail on it. */
+  const backend =
+    service && architecture.manifest.database ? await resolveBackend(service, project.id) : null;
+  const dataModel = dataModelFor(
+    architecture.manifest,
+    backend?.schema ?? schemaNameFor(project.id),
+  );
+
+  if (service && backend && dataModel.tables.length > 0) {
+    steps.begin("database", "Creating the database", `${dataModel.tables.length} tables…`);
+    const provisioned = await provision(service, backend, dataModel, project.id);
+    steps.mark(
+      "database",
+      provisioned.applied ? "Database created" : "Database not created",
+      describeProvision(provisioned),
+    );
+  }
+
   /* ── And where it is set ────────────────────────────────────────────────
      The blueprint decides what is built; this decides the world it is built
      in — the currency on every price, the shape of an address, how people pay,
@@ -1807,12 +1873,18 @@ async function handle(
       market: market.market,
       /* What the code generator is told about imagery, and all it is told. */
       manifest: pictures.manifest,
+      /* Which layers exist, so the blueprint's admin half is switched on and
+         its frontend-only exclusions are switched off. */
+      architecture: architecture.manifest,
       /* And, when this is a project rather than a page, what a project has to
          come back as: the files, the routes, and the plumbing NOT to write
          because scaffold.ts writes it. Appended to the blueprint rather than
          replacing it — what to build is the same question either way, and only
          the shape of the answer changes. */
-      treeInstructions: needs.stack === "nextjs" ? treeBrief(kind.kind, needs.backend) : undefined,
+      treeInstructions:
+        needs.stack === "nextjs"
+          ? treeBrief(kind.kind, architecture.manifest, dataModel)
+          : undefined,
     });
 
     const request = generationRequest(
@@ -1845,6 +1917,12 @@ async function handle(
          a silently different product. */
       stack: needs.stack,
       backend: needs.backend,
+      /* And what it is made of, in full. The two booleans above are the old
+         shape of this question and cannot express an admin, a bucket or a
+         checkout; the workflow carries this one through untouched so the save
+         route scaffolds against the same answer the prompt was written
+         against. */
+      architecture: architecture.manifest,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.

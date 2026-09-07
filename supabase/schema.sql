@@ -1652,3 +1652,95 @@ grant update (
   deleted_at,
   updated_at
 ) on public.projects to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_backends — where a generated project's own data lives.
+--
+-- One row per project that has a database, written by the build. Two kinds:
+--
+--   'shared' — the tables are in a schema of this instance, named for the
+--              project (app_<id>). The default, and what a project gets by
+--              saying nothing.
+--   'own'    — the project points at a Supabase the owner has linked. Their
+--              instance, their auth users, their bill, their data.
+--
+-- See src/lib/builder/backend/connection.ts, which reads this, and provision.ts,
+-- which applies the migration and stamps applied_at.
+--
+-- url and anon_key are stored in the clear because they are public by design:
+-- both are compiled into the generated app's JavaScript and served to every
+-- visitor. Treating them as secrets would be theatre.
+--
+-- db_url is not. It is a Postgres superuser connection string — the database
+-- with row-level security irrelevant — and it exists for one purpose: applying
+-- this project's migration. So it is write-only at the column level, the same
+-- way mcp_connections.api_key is: its owner can set and replace it, and nobody
+-- can read it back, including them. Only the service role reads it, on the
+-- server, in provision.ts.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_backends (
+  project_id   uuid primary key references public.projects (id) on delete cascade,
+  user_id      uuid not null references auth.users (id) on delete cascade,
+  kind         text not null default 'shared' check (kind in ('shared', 'own')),
+  url          text,
+  anon_key     text,
+  db_url       text,
+  schema_name  text,
+  -- Null until the migration has actually run. This is the difference between
+  -- a project pointed at a database and a project whose tables are there, and
+  -- the two look identical from everywhere except here.
+  applied_at   timestamptz,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.project_backends enable row level security;
+
+drop policy if exists "Owners read their project backends" on public.project_backends;
+create policy "Owners read their project backends"
+  on public.project_backends for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners link a backend to their project" on public.project_backends;
+create policy "Owners link a backend to their project"
+  on public.project_backends for insert
+  with check (
+    auth.uid() = user_id
+    -- The project has to be theirs as well as the row. Without this a person
+    -- could point somebody else's project at their own database.
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id and p.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Owners update their project backends" on public.project_backends;
+create policy "Owners update their project backends"
+  on public.project_backends for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners unlink their project backends" on public.project_backends;
+create policy "Owners unlink their project backends"
+  on public.project_backends for delete
+  using (auth.uid() = user_id);
+
+-- db_url is absent from every select grant and present in the write grants.
+-- That asymmetry is the whole security property: settable, replaceable, never
+-- readable. The settings pane shows "Connected" rather than the string.
+revoke all on public.project_backends from anon, authenticated;
+grant select (project_id, user_id, kind, url, anon_key, schema_name, applied_at, created_at, updated_at)
+  on public.project_backends to authenticated;
+grant insert (project_id, user_id, kind, url, anon_key, db_url, schema_name)
+  on public.project_backends to authenticated;
+grant update (kind, url, anon_key, db_url, schema_name)
+  on public.project_backends to authenticated;
+grant delete on public.project_backends to authenticated;
+
+drop trigger if exists project_backends_set_updated_at on public.project_backends;
+create trigger project_backends_set_updated_at
+  before update on public.project_backends
+  for each row execute function public.set_updated_at();
+
+create index if not exists project_backends_user_id_idx
+  on public.project_backends (user_id);

@@ -87,9 +87,28 @@ export const blog: Blueprint = {
     "No pricing table and no SaaS pricing tiers.",
     "No cart, no basket, no checkout, no product grid meant for buying.",
     "No marketing hero. This is not a landing page for a blog; it is the blog.",
-    "No sign-in, no dashboard, no wp-admin. If the brief asks to see WordPress, show the theme.",
     "No article whose body is three sentences. One real piece of writing beats six stubs.",
   ],
+
+  frontendOnlyExclusions: [
+    "No sign-in, no dashboard, no wp-admin. This build is the published site — if the brief asks to see WordPress, show the theme.",
+  ],
+
+  /* The editor's half. A blog whose posts are typed into the markup is a blog
+     its author cannot write in, which is the one thing a blog is for. */
+  admin: {
+    identity:
+      "The place the person whose publication this is actually writes, edits and publishes — WordPress's wp-admin, for this site.",
+    requirements: [
+      "An admin shell at /admin — its own navigation, plainly a different place from the site, and unreachable by anyone whose profile role is not editor.",
+      "Dashboard — posts published against posts in draft, the most recent writing, and what has been scheduled, every figure read from the database rather than invented.",
+      "Posts — the list including drafts and scheduled, with create, edit, delete, publish and unpublish. The editor carries title, slug, excerpt, body, category, tags, cover image and a publish date, and saving a draft is not the same action as publishing it.",
+      "Pages — the standing pages, edited the same way and listed separately, because they are not part of the feed.",
+      "Categories and tags — create, rename and delete, with the site's navigation and archives following them.",
+      "Media — the uploaded files, with an upload control that really uploads, alt text that is editable, and deletion that removes the file as well as the row.",
+      "Everything here writes to the same tables the public site reads. A post published in the admin is on the blog when it is reloaded; a post unpublished disappears from it. That is the test, and it is the whole difference between this and a hard-coded site.",
+    ],
+  },
 
   qualityRules: [
     "Editorial hierarchy carries the front page: the lead story is unmistakably the lead, and the grid ranks what follows.",

@@ -27,7 +27,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-tree");
@@ -36,13 +36,55 @@ mkdirSync(out, { recursive: true });
 execFileSync(
   "npx",
   ["tsc", "src/lib/builder/tree.ts", "src/lib/builder/scaffold.ts",
+   "src/lib/builder/architecture.ts", "src/lib/builder/schema.ts",
    "--outDir", out, "--rootDir", "src", "--module", "esnext", "--target", "es2022",
    "--moduleResolution", "bundler", "--skipLibCheck"],
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
+/* tsc emits the import specifiers exactly as they were written — "./schema",
+   with no extension — and node's ESM loader will not resolve those. scaffold.ts
+   imports schema.ts for real (not as a type), so the extension has to be put
+   back before any of this is loaded. check-blueprint.mjs does the same thing for
+   the same reason, one directory over. */
+for (const entry of readdirSync(join(out, "lib/builder"))) {
+  if (!entry.endsWith(".js")) continue;
+  const path = join(out, "lib/builder", entry);
+  writeFileSync(
+    path,
+    readFileSync(path, "utf8").replace(
+      /(from\s+["'])(\.\.?\/[^"']+?)(["'])/g,
+      (whole, before, specifier, after) =>
+        specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
+    ),
+  );
+}
+
 const tree = await import(join(out, "lib/builder/tree.js"));
 const scaffold = await import(join(out, "lib/builder/scaffold.js"));
+const schema = await import(join(out, "lib/builder/schema.js"));
+
+/* platformFiles and treeBrief used to take a `withBackend` boolean and now take
+   the architecture manifest that replaced it — see src/lib/builder/architecture.ts.
+   These two turn the old boolean back into the manifest it became, so every
+   assertion below stays about the thing it was written to check rather than
+   being rewritten around a new signature. */
+function manifestFor(kind, withBackend) {
+  return {
+    type: kind,
+    frontend: true,
+    backend: withBackend,
+    database: withBackend,
+    authentication: false,
+    admin: false,
+    storage: false,
+    payments: false,
+  };
+}
+
+function modelFor(kind, withBackend) {
+  return schema.dataModelFor(manifestFor(kind, withBackend), "app_test");
+}
 
 let failed = 0;
 const ok = (t, d) => console.log(`ok    ${t}${d !== undefined ? ` — ${d}` : ""}`);
@@ -166,7 +208,7 @@ has(tree.previewDocument(exported) === "<html>built</html>", "an exported tree s
 
 // ── The scaffold ──────────────────────────────────────────────────────────
 
-const files = scaffold.platformFiles("Jephthah's Café", true);
+const files = scaffold.platformFiles("Jephthah's Café", manifestFor("webapp", true), modelFor("webapp", true));
 const find = (path) => files.find((f) => f.path === path);
 
 /* THE ONE THAT FAILS AT INSTALL. These are built as strings; a trailing comma
@@ -204,9 +246,9 @@ has(/NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(client), "the generated client uses the
 has(!/SERVICE_ROLE/.test(client), "and never the service key, which has no safe home in an exported app");
 has(/row-level security/i.test(client), "and says out loud that RLS is the only thing protecting the data");
 
-has(!scaffold.platformFiles("x", false).some((f) => f.path === "lib/supabase.ts"), "a project with no backend gets no client");
+has(!scaffold.platformFiles("x", manifestFor("landing", false), modelFor("landing", false)).some((f) => f.path === "lib/supabase.ts"), "a project with no backend gets no client");
 has(
-  !scaffold.platformFiles("x", false).find((f) => f.path === "package.json").content.includes("@supabase/supabase-js"),
+  !scaffold.platformFiles("x", manifestFor("landing", false), modelFor("landing", false)).find((f) => f.path === "package.json").content.includes("@supabase/supabase-js"),
   "nor the dependency",
 );
 
@@ -231,7 +273,7 @@ const generated = tree.readTree({
   "app/globals.css": ":root{--bg:#0b0f19}",
   "tailwind.config.ts": "// the model wrote its own, because the design needed one",
 });
-const complete = scaffold.completeTree(generated, "My Shop", true);
+const complete = scaffold.completeTree(generated, "My Shop", manifestFor("ecommerce", true), modelFor("ecommerce", true));
 const at = (path) => complete.find((f) => f.path === path);
 
 has(at("package.json") !== undefined, "the plumbing is filled in under what the model wrote");
@@ -249,7 +291,7 @@ has(
 
 has(scaffold.missingFrom(complete).length === 0, "a completed tree is buildable", scaffold.missingFrom(complete).join("; "));
 
-const noPage = scaffold.completeTree(tree.readTree({ "components/Nav.tsx": "x" }), "app", false);
+const noPage = scaffold.completeTree(tree.readTree({ "components/Nav.tsx": "x" }), "app", manifestFor("landing", false), modelFor("landing", false));
 const missing = scaffold.missingFrom(noPage);
 has(missing.length > 0, "a tree with no home page is reported as unbuildable");
 has(/app\/page\.tsx/.test(missing.join(" ")), "and it names the file", missing.join("; "));
@@ -257,18 +299,18 @@ has(/app\/page\.tsx/.test(missing.join(" ")), "and it names the file", missing.j
 // ── The brief ─────────────────────────────────────────────────────────────
 
 for (const kind of ["landing", "ecommerce", "blog", "webapp", "news"]) {
-  const brief = scaffold.treeBrief(kind, true);
+  const brief = scaffold.treeBrief(kind, manifestFor(kind, true), modelFor(kind, true));
   has(brief.includes("app/page.tsx"), `${kind}: the home page is asked for`);
   has(/DO NOT WRITE/.test(brief), `${kind}: and the plumbing is explicitly not asked for`);
   has(/no route handlers|No route handlers/.test(brief), `${kind}: the export limits are stated`);
 }
 
 has(
-  /generateStaticParams/.test(scaffold.treeBrief("blog", false)),
+  /generateStaticParams/.test(scaffold.treeBrief("blog", manifestFor("blog", false), modelFor("blog", false))),
   "a kind with dynamic routes is told what export needs from them",
 );
 has(
-  !/supabase/i.test(scaffold.treeBrief("landing", false)),
+  !/supabase/i.test(scaffold.treeBrief("landing", manifestFor("landing", false), modelFor("landing", false))),
   "and a project with no backend is not told to talk to one",
 );
 

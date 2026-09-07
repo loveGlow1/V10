@@ -11,6 +11,10 @@ import { webapp } from "@/lib/builder/blueprints/webapp";
 import { MAX_CONTEXT_WORDS, trimToWords } from "@/lib/builder/brief";
 import { manifestForPrompt } from "@/lib/builder/assets/asset-resolver";
 import type { AssetManifest } from "@/lib/builder/assets/asset-types";
+import {
+  type ArchitectureManifest,
+  architectureBrief,
+} from "@/lib/builder/architecture";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
 
@@ -82,6 +86,17 @@ export type ProjectContext = {
      something else to fill later, which is the weaker arrangement and exists
      only so a build without an asset pipeline still runs. */
   manifest?: AssetManifest;
+  /* Which layers this project is made of — see src/lib/builder/architecture.ts.
+     
+     Distinct from `manifest` above, which is the pictures, and unfortunately
+     both are called a manifest by the people who use them. This one decides
+     whether there is a database, an admin and a sign-in at all; that one
+     decides what the photographs are.
+     
+     Absent means the question was never asked, which is every build before this
+     existed and every build of the single-page stack. A prompt with no
+     architecture section behaves exactly as it did. */
+  architecture?: ArchitectureManifest;
 };
 
 function list(items: readonly string[]): string {
@@ -128,6 +143,37 @@ function projectContext(context: ProjectContext): string {
 
   if (lines.length === 0) return "";
   return `\nPROJECT CONTEXT:\n${lines.join("\n")}\n`;
+}
+
+/* What this build must not become.
+ *
+ * Two lists joined, and the second one is dropped when the project has an admin
+ * — because "no admin dashboard, no back office" is the correct instruction for
+ * a storefront and a direct contradiction of the admin requirements below it
+ * for a store with a merchant behind it. A model handed both picks one, and
+ * which one it picks is not something anybody controls. */
+function exclusions(blueprint: Blueprint, architecture?: ArchitectureManifest): string[] {
+  const conditional = architecture?.admin ? [] : (blueprint.frontendOnlyExclusions ?? []);
+  return [...blueprint.exclusions, ...conditional];
+}
+
+/* The back office, when this project has one.
+ *
+ * Placed after the public requirements and under a heading of its own rather
+ * than merged into them, because they are two products for two people: a model
+ * given one interleaved list builds a shop with an "Add product" button on the
+ * home page. */
+function admin(blueprint: Blueprint, architecture?: ArchitectureManifest): string {
+  if (!architecture?.admin || !blueprint.admin) return "";
+
+  return `\nAND THE ADMIN SIDE — a second, separate interface at /admin, for the person who runs this rather than the person who visits it.
+
+WHAT IT IS: ${blueprint.admin.identity}
+
+${list(blueprint.admin.requirements)}
+
+The admin is not a demonstration. Every figure on it is read from the database and every action on it writes to the database — the same tables the public side reads. If a change made in the admin is not visible on the public site after a reload, the admin is scenery and the build has failed.
+`;
 }
 
 function conditionals(blueprint: Blueprint): string {
@@ -181,7 +227,7 @@ WHAT THIS IS: ${blueprint.identity}
 
 BUILD THESE, IN THIS ORDER:
 ${list(blueprint.requirements)}
-${conditionals(blueprint)}${
+${admin(blueprint, context.architecture)}${conditionals(blueprint)}${
     blueprint.optionalFeatures.length > 0
       ? `\nWORTH HAVING, AND THE FIRST THINGS TO CUT IF THE DOCUMENT RUNS LONG:\n${list(
           blueprint.optionalFeatures,
@@ -192,7 +238,7 @@ THIS HAS TO WORK, NOT BE DEPICTED:
 ${list(blueprint.interactions)}
 
 NOT PART OF THIS BUILD — these belong to other kinds of product, and putting them here is a defect:
-${list(blueprint.exclusions)}
+${list(exclusions(blueprint, context.architecture))}
 ${depth(blueprint)}
 THE STANDARD FOR THIS KIND:
 ${list(blueprint.qualityRules)}
@@ -201,6 +247,7 @@ DONE MEANS:
 ${list(blueprint.completionRules)}
 
 ────────────────────────────────────────
+${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}

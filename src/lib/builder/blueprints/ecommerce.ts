@@ -12,9 +12,12 @@ import type { Blueprint } from "@/lib/builder/blueprints/base";
  * fakes, and a subtotal that does not equal the sum of its lines is the tell
  * that the whole thing is scenery.
  *
- * It is a shopper's storefront, not a merchant's back office. Someone who asks
- * for a store wants the thing their customers see; the admin side is a web app
- * and is built as one when it is what was actually asked for. */
+ * There are two halves, and which of them gets built is the manifest's decision
+ * rather than this file's. `requirements` is the shopper's storefront and is
+ * always built. `admin` is the merchant's back office — the catalogue, the
+ * orders, the stock — and is built when the project has a database behind it,
+ * which for a store is the default: a catalogue nobody can change was typed in
+ * once and is already out of date. See src/lib/builder/architecture.ts. */
 
 export const ecommerce: Blueprint = {
   kind: "ecommerce",
@@ -93,11 +96,33 @@ export const ecommerce: Blueprint = {
 
   exclusions: [
     "No sign-in wall in front of the shop. A guest can browse, add to cart and check out.",
-    "No admin dashboard, no inventory back office, no merchant management interface, no order-management tooling. That is a web app, and it is built as one when it is what was asked for.",
     "No blog index or article archive.",
     "Not a landing page with a Shop Now button and nothing behind it. If there is no catalog you can add to a cart, this is not a store.",
     "No image URL you invented. The only addresses that may appear are the ones in the asset manifest — everything else is a broken image, and a product page of broken images is worse than one of plain panels.",
   ],
+
+  frontendOnlyExclusions: [
+    "No admin dashboard, no inventory back office, no merchant management interface, no order-management tooling. This build is the shopper's storefront.",
+  ],
+
+  /* The merchant's half, and the thing that separates a store from a picture of
+     one. It is reached only when the manifest says this project has an admin —
+     which for a store it does by default, because a catalogue nobody can change
+     is a catalogue that was typed in once and is already out of date. */
+  admin: {
+    identity:
+      "The back office the person who owns this shop actually runs it from: what is for sale, what has sold, and what is left.",
+    requirements: [
+      "An admin shell at /admin — its own navigation, visibly a different place from the shop, and unreachable by anyone whose profile role is not admin.",
+      "Dashboard — the real numbers, each read from the database and none of them invented: orders placed, revenue summed from the orders actually recorded, products live against products in draft, and stock that has run out. A figure nobody can trace to a row does not go on this page.",
+      "Products — the full list including drafts and archived, with create, edit, publish, unpublish and delete. The form is the product: name, description, price, compare-at price, category, status, image, and its variants with their own prices and stock.",
+      "Orders — every order with its lines, its customer, its totals and its status, and the controls to move it through pending, paid, fulfilled, cancelled and refunded. Opening one shows what was bought at the price it was bought at.",
+      "Categories — create, rename, reorder and delete, and the storefront's navigation follows them.",
+      "Inventory — stock per variant, editable in place, with what has run out surfaced rather than buried.",
+      "Discounts — create a code with its kind, value, minimum, window and usage limit, and see which are live.",
+      "Every one of these writes to the same tables the storefront reads. A product published here is on the shop when it is reloaded; that is the test.",
+    ],
+  },
 
   qualityRules: [
     "The catalog reads like one store's range: a coherent set of things, priced coherently, described in one voice.",
