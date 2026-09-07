@@ -4,7 +4,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  *
  * Two entry points reach this and they must never answer differently:
  *
- *   /s/<slug>          the address every published project gets
+ *   /<slug>            the address every published project gets
  *   a custom domain    rewritten here by the middleware
  *
  * They are the same site by two names, so the lookup, the checks and the
@@ -13,7 +13,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  * ── The sandbox is the whole security model, and it carries more weight now ──
  *
  * A published page used to sit on its own subdomain — shop.quickstark.tech —
- * which gave it its own origin for free. Served at /s/shop it shares an origin
+ * which gave it its own origin for free. Served at /shop it shares an origin
  * with the dashboard, the API and the session cookie. So the sandbox header
  * stopped being defence in depth and became the only thing between a document
  * a model wrote to somebody's prompt and the signed-in user's account.

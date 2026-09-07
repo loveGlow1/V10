@@ -9,7 +9,7 @@ import { servePublished } from "@/lib/publish/serve";
  * identity, and the separation between this and the dashboard would otherwise
  * rest on one.
  *
- * Projects published to their quickstark address are served by /s/<slug>
+ * Projects published to their quickstark address are served by /<slug>
  * instead — no middleware and no DNS. Both call the same servePublished, so
  * the two names a site can have cannot answer differently. */
 
