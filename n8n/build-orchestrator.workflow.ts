@@ -150,6 +150,27 @@ const normalizeRequest = node({
             value: expr('{{ $json.body?.generationBody ?? $json.generationBody ?? {} }}') },
           { id: 'response-shape', name: 'responseShape', type: 'string',
             value: expr('{{ $json.body?.responseShape ?? $json.responseShape ?? "anthropic" }}') },
+          /* ── What to build, and what it is made of ─────────────────────────
+           *
+           * These three were the bug. This node has no `includeOtherFields`, so
+           * it emits ONLY what it names — and it did not name these, while two
+           * nodes downstream read `$("Normalize Build Request").item.json.stack`
+           * and got undefined every time. The save route therefore never learned
+           * that a build was a Next.js project, and scaffolded every one of them
+           * as a page with no database client.
+           *
+           * Named here rather than solved with includeOtherFields, because the
+           * point of this node is that the rest of the workflow reads a known
+           * shape rather than whatever a caller happened to post. */
+          { id: 'stack', name: 'stack', type: 'string',
+            value: expr('{{ $json.body?.stack ?? $json.stack ?? "standalone-html" }}') },
+          { id: 'backend', name: 'backend', type: 'boolean',
+            value: expr('{{ ($json.body?.backend ?? $json.backend) === true }}') },
+          /* Which layers the project has — see src/lib/builder/architecture.ts.
+             Carried whole and never modified: it is the record of what the
+             prompt was written against and what the schema was created from. */
+          { id: 'architecture', name: 'architecture', type: 'object',
+            value: expr('{{ $json.body?.architecture ?? $json.architecture ?? {} }}') },
         ],
       },
       options: {},
@@ -220,6 +241,12 @@ const webappSpec = node({
             value: expr('{{ $("Normalize Build Request").item.json.stack || "standalone-html" }}') },
           { id: 'backend', name: 'backend', type: 'boolean',
             value: expr('{{ $("Normalize Build Request").item.json.backend === true }}') },
+          /* The whole answer, where the two above are the old shape of it: they
+             cannot express an admin, a storage bucket or a checkout. Passed
+             through rather than branched on — nothing in this workflow reads
+             it, and the save route needs it intact. */
+          { id: 'architecture', name: 'architecture', type: 'object',
+            value: expr('{{ $("Normalize Build Request").item.json.architecture || {} }}') },
         ],
       },
       includeOtherFields: true,
@@ -703,7 +730,19 @@ const savePage = node({
          * files AND a rendered home page for the preview to serve. */
         'files: $json.files, ' +
         'stack: $("Normalize Build Request").item.json.stack, ' +
-        'backend: $("Normalize Build Request").item.json.backend }) }}',
+        'backend: $("Normalize Build Request").item.json.backend, ' +
+        /* Which layers this project is made of — see
+         * src/lib/builder/architecture.ts. Carried through untouched, and that
+         * matters more than it looks: it is the record of what the prompt was
+         * written against and what the schema was created from, so the save
+         * route scaffolds a Supabase client for the tables that actually exist.
+         * Modify it here and the project is scaffolded for a database it does
+         * not have.
+         *
+         * undefined on any caller that does not send one, and JSON.stringify
+         * drops undefined keys, so the save route falls back to `stack` and
+         * `backend` above exactly as it did before. */
+        'architecture: $("Normalize Build Request").item.json.architecture }) }}',
       ),
       options: { timeout: 120000 },
     },
