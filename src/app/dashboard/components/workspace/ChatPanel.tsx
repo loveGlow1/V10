@@ -12,7 +12,6 @@ import {
   ExternalLink,
   GitFork,
   Github,
-  HelpCircle,
   MicOff,
   Paperclip,
   Plus,
@@ -129,7 +128,7 @@ type Message = ThreadMessage & {
 /* How long the "your preview is ready" pill stays up after a build lands. */
 const PREVIEW_READY_MS = 6_000;
 
-type ComposerMode = "auto" | "edit" | "new_project" | "question";
+type ComposerMode = "auto" | "edit" | "new_project";
 
 export default function ChatPanel({
   project,
@@ -1494,11 +1493,17 @@ export default function ChatPanel({
         {/* What can be done from here, rather than one chip naming what is
             already happening.
 
-            Five actions in two groups. The first three set what the next
+            Four actions in two groups. The first two set what the next
             message means — they are a choice between each other, so pressing
             one lights it and pressing it again hands the reading back to the
             classifier. The last two happen on the press: they are not about the
             message in the box at all.
+
+            Asking a question used to be a third override and is gone: the
+            classifier already reads a question as a question, so the chip only
+            ever restated what typing one said. The intent itself is untouched —
+            src/lib/builder/intent.ts still returns it, and the tracker still
+            names it.
 
             Downloading used to be a sixth, and was removed as a duplicate: the
             preview header carries the permanent one and the finished-build card
@@ -1554,12 +1559,6 @@ export default function ChatPanel({
                 label: "New project",
                 icon: Plus,
                 title: "Build something new. You are asked before this page goes.",
-              },
-              {
-                id: "question" as const,
-                label: "Ask a question",
-                icon: HelpCircle,
-                title: "Ask about this app without changing it.",
               },
             ].map((action) => {
               const Icon = action.icon;
@@ -1618,9 +1617,7 @@ export default function ChatPanel({
           <p className="mt-2 px-1 text-[11.5px] text-muted">
             {mode === "new_project"
               ? "The next message replaces this page."
-              : mode === "question"
-                ? "The next message is a question, not a change."
-                : "The next message edits this page."}
+              : "The next message edits this page."}
           </p>
         )}
         </div>
