@@ -26,6 +26,7 @@ const RESERVED = new Set([
   "support", "status", "blog", "news", "about", "billing", "pay", "payments",
   "checkout", "account", "accounts", "auth", "login", "logout", "signup",
   "register", "settings", "console", "internal", "system", "root", "ns1",
+  "site", "sites",
   "ns2", "dns", "vpn", "proxy", "webhook", "webhooks", "quickstark",
 ]);
 
@@ -34,9 +35,13 @@ const RESERVED = new Set([
    subdomain, and the suffix has to fit beside it. */
 const MAX_SLUG = 40;
 
-/** A project name as a hostname label, or null if it cannot make one. */
-export function slugFrom(name: string): string | null {
-  const slug = name
+/* The label a name reduces to, before any judgement about whether it may be
+   used. Separated from slugFrom because addressFor needs to know the difference
+   between "this name is unusable" and "this name is empty" — a name with no
+   letters in it has nothing to qualify, and qualifying it produced an address
+   of just "site". */
+function labelFrom(name: string): string {
+  return name
     .toLowerCase()
     .normalize("NFKD")
     /* Accents dropped rather than encoded. "café" becoming "cafe" is the
@@ -47,6 +52,11 @@ export function slugFrom(name: string): string | null {
     .slice(0, MAX_SLUG)
     /* Sliced before this, so a cut that lands on a hyphen is tidied after. */
     .replace(/-+$/g, "");
+}
+
+/** A project name as a hostname label, or null if it cannot make one. */
+export function slugFrom(name: string): string | null {
+  const slug = labelFrom(name);
 
   if (slug.length < 3) return null;
   if (RESERVED.has(slug)) return null;
@@ -59,6 +69,36 @@ export function slugFrom(name: string): string | null {
 /** Whether a slug somebody chose themselves may be used. */
 export function slugIsUsable(slug: string): boolean {
   return slugFrom(slug) === slug;
+}
+
+/**
+ * A readable address for a project, trying harder than the name alone.
+ *
+ * The name is not always usable: it can be reserved, too short, or all digits.
+ * The first version fell straight from there to `site-<8 hex>`, which is what a
+ * project called "QuickStark" got — "quickstark" is reserved, so its address
+ * became site-8975e2ca.quickstark.tech. Correct, permanent, and not an address
+ * anybody would put on a business card.
+ *
+ * So a reserved or unusable name is qualified rather than abandoned:
+ * "quickstark-app" is still recognisably theirs and takes nothing from the
+ * platform. The hex remains only for a name with no letters in it at all,
+ * where there is genuinely nothing to build on.
+ */
+export function addressFor(name: string, projectId: string): string | null {
+  const stem = labelFrom(name);
+
+  /* Nothing to build on. Qualifying an empty stem gave the qualifier by
+     itself — a project called "!!!" published to site.quickstark.tech, which is
+     both meaningless and the address every such project would fight over. */
+  if (!stem) return slugFrom(`site-${projectId.slice(0, 8)}`);
+
+  return (
+    slugFrom(stem) ??
+    slugFrom(`${stem} app`) ??
+    slugFrom(`${stem} site`) ??
+    slugFrom(`site-${projectId.slice(0, 8)}`)
+  );
 }
 
 /**

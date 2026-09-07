@@ -263,6 +263,8 @@ export default function PreviewPanel({
     <PublishPanel
       projectId={project?.id ?? null}
       hasBuild={Boolean(project?.last_build_at)}
+      slug={project?.slug ?? null}
+      publishedAt={project?.published_at ?? null}
       priceNote={
         project && isPublished(project)
           ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`

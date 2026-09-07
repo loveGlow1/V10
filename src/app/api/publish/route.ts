@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { canAfford, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
 import { validatePage } from "@/lib/builder/validate";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
-import { publishedUrl, slugAttempt, slugFrom } from "@/lib/publish/naming";
+import { addressFor, publishedUrl, slugAttempt, slugIsUsable } from "@/lib/publish/naming";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
   let slug = project.slug as string | null;
 
   if (!slug) {
-    const base = slugFrom(project.name as string) ?? slugFrom(`site-${projectId.slice(0, 8)}`);
+    const base = addressFor(project.name as string, projectId);
     if (!base) return fail("That project's name can't be turned into a web address. Rename it and try again.", 422, "address");
 
     /* Walked until the database accepts one. The unique index is what actually
@@ -247,6 +247,65 @@ export async function POST(request: Request) {
     replaced: alreadyPublished,
     charged,
   });
+}
+
+/**
+ * Changes the address a published project answers on.
+ *
+ * Separate from publishing on purpose. An address is derived once from the
+ * project's name and then kept, because a published URL is something people
+ * have linked to — but "derived once" is only defensible if it can also be
+ * chosen. A name that is reserved, or simply wrong six months later, would
+ * otherwise be permanent.
+ *
+ * Changing it BREAKS THE OLD ADDRESS. Nothing redirects: the old slug becomes
+ * free for anyone else the moment it is released, so a redirect would be a
+ * promise this cannot keep. The caller is told, and it is their decision.
+ */
+export async function PATCH(request: Request) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return fail("Publishing is unavailable.", 503, "config");
+
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user;
+  if (!user) return fail("Sign in first.", 401, "auth");
+
+  const body = (await request.json().catch(() => ({}))) as { projectId?: unknown; slug?: unknown };
+  const projectId = typeof body.projectId === "string" ? body.projectId : null;
+  const wanted = typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "";
+  if (!projectId) return fail("No project was named.", 400, "request");
+
+  if (!wanted) return fail("Enter the address you want.", 400, "address");
+  if (!slugIsUsable(wanted)) {
+    /* One sentence covering every way a label can be wrong, because the rules
+       are not worth teaching: what somebody needs is the shape that works. */
+    return fail(
+      "That address can't be used. Letters, numbers and hyphens, at least three characters, and not a word we keep for the platform itself — like www, api or quickstark.",
+      422,
+      "address",
+    );
+  }
+
+  const service = createSupabaseServiceClient();
+  if (!service) return fail("Publishing is unavailable.", 503, "config");
+
+  /* The unique index settles it, as it does on the first publish. Checking
+     first and then writing would be two answers to one question with a gap
+     between them. */
+  const { error } = await service
+    .from("projects")
+    .update({ slug: wanted })
+    .eq("id", projectId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    if (error.code === "23505") {
+      return fail("That address is already taken. Try another.", 409, "address");
+    }
+    return fail("That address couldn't be saved. Try again.", 502, "address");
+  }
+
+  return NextResponse.json({ slug: wanted, url: publishedUrl(wanted) });
 }
 
 /** Takes a project off the web, leaving its history intact. */

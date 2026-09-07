@@ -66,7 +66,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { isApex, normaliseDomain, recordName, slugAttempt, slugFrom, slugIsUsable } =
+const { addressFor, isApex, normaliseDomain, recordName, slugAttempt, slugFrom, slugIsUsable } =
   await import(join(out, "lib/publish/naming.js"));
 const { isAppPath, routeFor } = await import(join(out, "lib/publish/routing.js"));
 
@@ -172,6 +172,36 @@ has(slugAttempt("shop", 2) === "shop-3", "and so on");
    legal — this is where an off-by-one produces a hostname nothing can serve. */
 const bumped = slugAttempt("a".repeat(40), 9);
 has(bumped.length <= 40 && !bumped.endsWith("-") && bumped.endsWith("-10"), "a suffix on a maximum-length name still fits", bumped);
+
+/* ── The address a project actually gets ──────────────────────────────────
+ *
+ * slugFrom refuses a name it cannot turn into a safe label, which is right.
+ * What was wrong was what happened next: it fell straight to `site-<8 hex>`.
+ * A project called "QuickStark" published to site-8975e2ca.quickstark.tech —
+ * correct, permanent, and not an address anybody would put on a business card.
+ * The name is qualified now rather than abandoned. */
+const ID = "8975e2ca-5cbc-4773-bc58-eb858894acd5";
+
+has(addressFor("Premium, futuristic landing", ID) === "premium-futuristic-landing", "an ordinary name is used as it is");
+
+/* THE ONE. Reserved, because nobody may take quickstark.quickstark.tech and
+   look official — but the project is still recognisably theirs. */
+has(addressFor("QuickStark", ID) === "quickstark-app", "a reserved name is qualified, not abandoned", addressFor("QuickStark", ID));
+has(addressFor("API", ID) === "api-app", "and so is another reserved one", addressFor("API", ID));
+
+/* A name too short to be a label on its own becomes usable with the suffix. */
+has(addressFor("Hi", ID) === "hi-app", "a very short name is extended rather than replaced", addressFor("Hi", ID));
+
+/* The hex remains for a name with nothing to build on. */
+has(addressFor("!!!", ID) === "site-8975e2ca", "a name with no letters still falls back to the id", addressFor("!!!", ID));
+has(addressFor("12345", ID) === "12345-app", "a number gets a suffix that makes it a name", addressFor("12345", ID));
+
+/* Whatever it returns must itself be a legal, usable address — otherwise the
+   fallback has produced something the next publish would refuse. */
+for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuristic landing", "www"]) {
+  const got = addressFor(name, ID);
+  has(got !== null && slugIsUsable(got), `the address for ${JSON.stringify(name)} is itself usable`, got);
+}
 
 // ── Domains people type ───────────────────────────────────────────────────
 /* All of these are the same domain, and all of them are normal to paste. */
