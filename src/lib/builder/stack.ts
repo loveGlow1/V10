@@ -45,7 +45,24 @@ export type StackNeeds = {
   routes: boolean;
   /** The words that decided it, so a wrong answer can be argued with. */
   why: string[];
+  /* Whether this was read off the brief or inferred from the shape of it.
+   *
+   * The distinction is worth money. Building a project when somebody wanted a
+   * landing page spends a build's credits on a scaffold they did not ask for,
+   * and the only way to find out is to look at it. So where the evidence is
+   * soft the caller asks instead of guessing — see stackQuestion. Certain
+   * means do not ask: a brief that says "log in" has said which it is, and a
+   * question about it is a question nobody needed. */
+  certain: boolean;
 };
+
+/* Words people use for software and also for a page about software.
+ *
+ * "A dashboard for my gym" is a real application about half the time and a
+ * marketing page with a screenshot on it the other half. Nobody can tell from
+ * the word, which is exactly why these do not decide anything on their own —
+ * they are what makes a brief worth asking about. */
+const LOOSE = /\b(dashboard|portal|platform|system|tool|admin|back ?office|app)\b/i;
 
 /* ── The signals ───────────────────────────────────────────────────────────
  *
@@ -174,7 +191,21 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
   const appKind = kind === "webapp";
   if (appKind) why.push("this was classified as software people sign into");
 
-  const wantsApp = auth || backend || routes || askedPhrase !== null || appKind;
+  /* Hard evidence: something in the brief that cannot be done on one page, or
+     the project asked for by name. Any of these settles it. */
+  const hardEvidence = auth || backendPhrase !== null || routePhrase !== null || askedPhrase !== null;
+
+  /* Soft evidence: the shape of the thing rather than anything it said. A kind
+     of "software people sign into" that never mentions signing in, or a word
+     that means an app and also means a page about an app. Enough to stop
+     defaulting, not enough to spend a build on. */
+  const loosePhrase = firstMatch([LOOSE], text);
+  const softEvidence = appKind || loosePhrase !== null;
+  if (loosePhrase && !hardEvidence) {
+    why.push(`"${loosePhrase}" is a word for software and also for a page about software`);
+  }
+
+  const wantsApp = hardEvidence || softEvidence;
 
   /* Somebody saying "one page" outranks everything except auth. They have told
      us what they want; the only thing that overrules it is a requirement that
@@ -193,6 +224,7 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
       backend: false,
       routes: false,
       why: [`"${pagePhrase}" — one page is what was asked for`],
+      certain: true,
     };
   }
   if (pagePhrase && auth) {
@@ -206,10 +238,43 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
       backend: false,
       routes: false,
       why: ["nothing here needs a session, a second route or data that outlives the visit"],
+      certain: true,
     };
   }
 
-  return { stack: "nextjs", auth, backend, routes, why };
+  /* Soft evidence only. The lean is toward the project, because that is what
+     the shape suggests — but it is a lean, and the caller should ask rather
+     than spend a build finding out. */
+  return { stack: "nextjs", auth, backend, routes, why, certain: hardEvidence };
+}
+
+/**
+ * The question to put to somebody, when the brief did not settle it.
+ *
+ * Written as a choice between two things they recognise rather than between
+ * two stacks, because "standalone-html or nextjs" is our vocabulary and not
+ * theirs. What they are actually choosing is whether anyone signs in.
+ */
+export function stackQuestion(needs: StackNeeds): string {
+  return needs.certain
+    ? ""
+    : "Before I spend a build on it — is this a site people just look at, or software they sign into? They're built differently and I'd rather ask than get it wrong.";
+}
+
+/** The two answers, the likelier one first. */
+export function stackOptions(needs: StackNeeds): { stack: Stack; label: string; blurb: string }[] {
+  const page = {
+    stack: "standalone-html" as const,
+    label: "A site people look at",
+    blurb: "One page, everything on it. Fastest to build and to change afterwards.",
+  };
+  const app = {
+    stack: "nextjs" as const,
+    label: "Software people sign into",
+    blurb: "A full Next.js project with accounts, its own pages and a database behind it.",
+  };
+
+  return needs.stack === "nextjs" ? [app, page] : [page, app];
 }
 
 /** The one sentence a person is told about it, when it is worth telling them. */

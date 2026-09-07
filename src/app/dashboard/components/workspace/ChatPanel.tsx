@@ -194,6 +194,18 @@ export default function ChatPanel({
   const [pendingKind, setPendingKind] = useState<
     { text: string; options: { kind: BuildKind; label: string; blurb: string }[] } | null
   >(null);
+  /* And the same question one level up: a site people look at, or software
+     they sign into. Asked only when the brief did not say, because the two are
+     different artefacts rather than two settings — getting it wrong is a build
+     spent on a scaffold nobody asked for, and it is only discoverable by
+     looking at what came back. See lib/builder/stack.ts. */
+  const [pendingStack, setPendingStack] = useState<
+    {
+      text: string;
+      kind?: BuildKind;
+      options: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+    } | null
+  >(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -813,6 +825,8 @@ export default function ChatPanel({
       confirmNewProject?: boolean;
       silent?: boolean;
       buildKind?: BuildKind | null;
+      /* The answer to "a site, or software" — see pendingStack. */
+      stack?: "standalone-html" | "nextjs";
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -915,6 +929,10 @@ export default function ChatPanel({
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
+        /* The answer to which of the two things to build, when one was given.
+           Absent means the server reads it from the brief — see stack.ts — and
+           asks if the brief did not say. */
+        stack: options.stack ?? null,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -990,6 +1008,15 @@ export default function ChatPanel({
       if (reply.needsKind && reply.kindOptions) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingKind({ text, options: reply.kindOptions });
+        setAttached(sent);
+        return;
+      }
+
+      /* Nothing has run and nothing has been charged — this is asked before
+         the asset resolver, which is the first thing here that costs money. */
+      if (reply.needsStack && reply.stackOptions) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingStack({ text, kind: reply.buildKind, options: reply.stackOptions });
         setAttached(sent);
         return;
       }
@@ -1624,6 +1651,38 @@ export default function ChatPanel({
             <button
               type="button"
               onClick={() => setPendingKind(null)}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* A site, or software. Two artefacts rather than two settings, which
+            is why this is a question and not a default: a scaffold is not a
+            landing page with the wrong colours, and the build that produced it
+            is already paid for by the time anybody can tell. */}
+        {pendingStack && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            {pendingStack.options.map((option) => (
+              <button
+                key={option.stack}
+                type="button"
+                title={option.blurb}
+                onClick={() => {
+                  const { text, kind } = pendingStack;
+                  setPendingStack(null);
+                  setMode("auto");
+                  void send(text, { stack: option.stack, buildKind: kind, silent: true });
+                }}
+                className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPendingStack(null)}
               className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
             >
               Cancel

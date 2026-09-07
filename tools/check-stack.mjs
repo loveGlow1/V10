@@ -39,7 +39,7 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
-const { decideStack, explainStack } = await import(join(out, "lib/builder/stack.js"));
+const { decideStack, explainStack, stackQuestion, stackOptions } = await import(join(out, "lib/builder/stack.js"));
 
 let failed = 0;
 const ok = (t, d) => console.log(`ok    ${t}${d !== undefined ? ` — ${d}` : ""}`);
@@ -179,6 +179,76 @@ has(
   "and an app build names the thing that forced it",
   explainStack(decideStack("people log in to see their orders")),
 );
+
+// ── When to ask, and when asking is noise ─────────────────────────────────
+/* The reason this exists, in the words it was asked for: so we do not end up
+ * wasting credit on a scaffold when somebody wanted a landing page. A build is
+ * the most expensive thing here and the wrong one is only discoverable by
+ * looking at it.
+ *
+ * But a question has a cost too, and it is not small — it is a round trip
+ * before anything happens, on every build, for a decision that was usually
+ * obvious. So the bar is: ask when the evidence is the SHAPE of the brief, and
+ * never when the brief said it outright. */
+
+const asks = (brief, kind) => {
+  const got = decideStack(brief, kind);
+  has(got.certain === false, `asks: "${brief}"`, `settled it as ${got.stack} — ${got.why.join("; ")}`);
+  return got;
+};
+const settles = (brief, kind) => {
+  const got = decideStack(brief, kind);
+  has(got.certain === true, `settles: "${brief}"`, `wanted to ask — ${got.why.join("; ")}`);
+  return got;
+};
+
+/* THE ONE. Words that mean software and also mean a page about software.
+   Nobody can tell from the word, so nobody should guess. */
+asks("a dashboard for tracking my macros");
+asks("an admin portal for the team", "webapp");
+asks("a platform for freelancers", "landing");
+asks("build me an app for my gym");
+asks("a system for the clinic", "webapp");
+
+/* And a kind of "software people sign into" that never once mentions signing
+   in. The kind classifier is reading the shape too. */
+asks("something for managing my team's work", "webapp");
+
+/* Never ask when the brief said it. A question here is a question nobody
+   needed, on the path of somebody who was already clear. */
+settles("a landing page for my gym", "landing");
+settles("a restaurant site with the menu and opening hours", "landing");
+settles("users log in to see their bookings");
+settles("a members area behind a login", "webapp");
+settles("a one-pager for my consultancy");
+settles("just a landing page, static html");
+settles("build it as a Next.js app");
+settles("save the responses to a database");
+settles("a multi-page site with routes for each service");
+settles("a dashboard design, just the front end, no accounts or data", "webapp");
+
+/* An ambiguous brief still leans, so the likelier answer is the first thing
+   under the thumb rather than a coin toss presented as a choice. */
+const leaning = asks("a dashboard for my gym", "webapp");
+has(leaning.stack === "nextjs", "an ambiguous brief still leans somewhere");
+has(
+  stackOptions(leaning)[0].stack === "nextjs",
+  "and the lean is offered first",
+  stackOptions(leaning).map((o) => o.stack).join(" then "),
+);
+has(
+  stackOptions(decideStack("a landing page for my gym"))[0].stack === "standalone-html",
+  "a page-leaning brief offers the page first",
+);
+
+/* The question is asked in their words, not ours. */
+const question = stackQuestion(leaning);
+has(question.length > 0, "an uncertain decision produces a question");
+has(!/nextjs|standalone|html|stack/i.test(question), "and it does not name a stack at them", question);
+has(stackQuestion(decideStack("users log in")) === "", "a settled decision produces no question");
+
+/* Both options always offered, so neither is a trap. */
+has(stackOptions(leaning).length === 2, "both answers are offered");
 
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

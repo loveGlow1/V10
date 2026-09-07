@@ -45,7 +45,7 @@ import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { treeBrief } from "@/lib/builder/scaffold";
-import { decideStack } from "@/lib/builder/stack";
+import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent,
   remainderAfterRevert,
@@ -116,6 +116,11 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Which of the two things to build, when the person was asked and answered.
+     Sent back with the next request the same way buildKind is — see the
+     needsStack branch, and stack.ts for when the question is worth asking at
+     all. Anything else here is ignored and the brief decides. */
+  stack?: unknown;
   /* Which blueprint to build from — landing, ecommerce, blog or webapp. Sent
      only when something in the interface already knows (a starter chip, a
      project whose kind is settled); otherwise the brief is classified. As with
@@ -1592,6 +1597,64 @@ async function handle(
     `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
   );
 
+  /* ── One page, or a project of files ────────────────────────────────────
+   *
+   * Decided here rather than at the generation call, and the position is the
+   * whole point: everything below this line costs money. The asset resolver
+   * makes real requests to a stock provider and stores what it finds, and the
+   * build after it is the most expensive thing in the system. Getting this
+   * wrong is not recoverable by editing — a scaffold is not a landing page
+   * with the wrong colours, it is a different artefact — so the only way to
+   * discover the mistake is to look at what came back and pay again.
+   *
+   * See stack.ts. Where the brief says which it is, it is taken and nothing is
+   * asked. Where the evidence is only the SHAPE of the brief — the word
+   * "dashboard", a kind of "software people sign into" that never mentions
+   * signing in — the question goes back before a penny is spent. */
+  const chosenStack: Stack | null =
+    body.stack === "nextjs" || body.stack === "standalone-html" ? body.stack : null;
+  const needs = chosenStack
+    ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
+    : decideStack(brief.text, kind.kind);
+
+  if (!needs.certain && ASK_WHEN_UNSURE) {
+    const asked = stackQuestion(needs);
+    const stored = await deliver(asked, { key: "which-stack" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsStack: true,
+      /* The lean first, so the likelier answer is under the thumb — read from
+         the same signals that could not settle it outright, which still know
+         which way they were leaning. */
+      stackOptions: stackOptions(needs),
+      /* Sent back so the answer does not re-run the classifier and possibly
+         land somewhere else: the person is answering a question about THIS
+         reading of the brief. */
+      buildKind: kind.kind,
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: kind.kind,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
+
+  steps.mark(
+    "stack",
+    needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
+    needs.why[0],
+  );
+
   /* ── And where it is set ────────────────────────────────────────────────
      The blueprint decides what is built; this decides the world it is built
      in — the currency on every price, the shape of an address, how people pay,
@@ -1707,16 +1770,6 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
-    /* One page, or a project of files.
-     *
-     * Read from the brief rather than from what was paid or what kind it is:
-     * the question is whether the thing asked for can EXIST as one page, and
-     * the answer is no the moment somebody signs in. A page has no session and
-     * no second route, so a login on one opens, looks right, and cannot work.
-     * See stack.ts, which is biased toward the page — an absent signal is not
-     * evidence for the heavier thing. */
-    const needs = decideStack(brief.text, kind.kind);
-
     const systemPrompt = composeBuildPrompt(kind.kind, brief.text, {
       projectName: project.name,
       attachmentText: attachedText,
@@ -1732,12 +1785,6 @@ async function handle(
          the shape of the answer changes. */
       treeInstructions: needs.stack === "nextjs" ? treeBrief(kind.kind, needs.backend) : undefined,
     });
-
-    steps.mark(
-      "kind",
-      needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
-      needs.why[0],
-    );
 
     const request = generationRequest(
       model,
