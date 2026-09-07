@@ -95,6 +95,21 @@ export const news: Blueprint = {
     "No timestamp that says 'now' on every story. A front page where everything broke this minute is a front page nobody edited.",
   ],
 
+  /* A newsroom's back office. The same shape as the blog's, in the vocabulary a
+     newsroom uses — a desk publishes and spikes, it does not save drafts. */
+  admin: {
+    identity:
+      "The desk this publication is actually run from: what is filed, what is live, and what leads.",
+    requirements: [
+      "An admin shell at /admin, plainly a different place from the publication, and unreachable by anyone whose profile role is not editor.",
+      "Dashboard — what is published against what is filed, the most recent stories, and what is scheduled, every figure read from the database.",
+      "Stories — the list including unpublished, with write, edit, spike, publish and unpublish. The editor carries headline, slug, standfirst, body, section, tags, lead image and a publish time, and filing is not the same action as publishing.",
+      "Sections and tags — create, rename and delete, with the publication's navigation and archives following them.",
+      "Media — real uploads, editable alt text, and deletion that removes the file as well as the row.",
+      "Everything here writes to the same tables the publication reads. A story published in the admin is on the front when it is reloaded.",
+    ],
+  },
+
   qualityRules: [
     "The lead story is obvious in the first second, without reading a word. That is what ranking means.",
     "Headlines are written as that publication would write them — a specific claim about a specific thing, in the register of the beat.",

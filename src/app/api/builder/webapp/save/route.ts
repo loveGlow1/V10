@@ -8,7 +8,11 @@ import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
+import { resolveBackend } from "@/lib/builder/backend/connection";
+import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
+import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, TreeError, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
@@ -50,6 +54,52 @@ function withBackendFor(body: SaveRequest): boolean {
   return body.stack === "nextjs-supabase" || body.backend === true;
 }
 
+/* Which layers this project has, as /api/build decided them.
+ *
+ * Sent back by the orchestrator, which carries it through unchanged — the same
+ * way it carries `stack` and `backend`. It is not re-derived here and must not
+ * be: the manifest is what the prompt was written against and what the schema
+ * was created from, and a second derivation from a different input is a second
+ * answer. A tree scaffolded against a manifest the build did not use gets a
+ * Supabase client for tables that were never created.
+ *
+ * Absent is the ordinary case, not an error: every build before this existed
+ * sends nothing, so the old two booleans are read instead and the project is
+ * scaffolded exactly as it was. */
+function architectureFor(body: SaveRequest): ArchitectureManifest {
+  const sent = body.architecture;
+
+  if (sent && typeof sent === "object") {
+    const layer = (name: Layer): boolean => (sent as Record<string, unknown>)[name] === true;
+    const type = (sent as { type?: unknown }).type;
+
+    if (isBuildKind(type)) {
+      return {
+        type,
+        frontend: true,
+        backend: layer("backend"),
+        database: layer("database"),
+        authentication: layer("authentication"),
+        admin: layer("admin"),
+        storage: layer("storage"),
+        payments: layer("payments"),
+      };
+    }
+  }
+
+  const backend = withBackendFor(body);
+  return {
+    type: "webapp",
+    frontend: true,
+    backend,
+    database: backend,
+    authentication: false,
+    admin: false,
+    storage: false,
+    payments: false,
+  };
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -72,6 +122,9 @@ type SaveRequest = {
   files?: unknown;
   stack?: unknown;
   backend?: unknown;
+  /* The architecture manifest /api/build decided, carried through the
+     orchestrator untouched. See architectureFor. */
+  architecture?: unknown;
 };
 
 /* ── A build that failed here says so, in the thread, in its own words ─────
@@ -278,7 +331,24 @@ export async function POST(request: Request) {
   let tree: FileTree = [];
   if (body.files !== undefined && body.files !== null) {
     try {
-      tree = completeTree(readTree(body.files), (project.name as string | null) ?? "app", withBackendFor(body));
+      /* The schema the generated client is pointed at has to be the one the
+         build actually created, so it is read back from where provisioning
+         recorded it rather than recomputed — a project on somebody's own
+         Supabase uses `public`, and a client scaffolded against app_<id>
+         would query a schema that is not there. */
+      const architecture = architectureFor(body);
+      const backend = architecture.database ? await resolveBackend(supabase, claim.projectId) : null;
+      const dataModel = dataModelFor(
+        architecture,
+        backend?.schema ?? schemaNameFor(claim.projectId),
+      );
+
+      tree = completeTree(
+        readTree(body.files),
+        (project.name as string | null) ?? "app",
+        architecture,
+        dataModel,
+      );
 
       const missing = missingFrom(tree);
       if (missing.length > 0) {

@@ -23,7 +23,9 @@
  * below is a browser client and why row-level security is not optional.
  */
 
+import type { ArchitectureManifest } from "./architecture";
 import type { BuildKind } from "./kinds";
+import { type DataModel, schemaBrief, toTypes } from "./schema";
 import type { FileTree, ProjectFile } from "./tree";
 
 /* The version of Next.js these projects are written against.
@@ -56,8 +58,13 @@ export const REQUIRED_FILES = [
  * project called "Jephthah's Café" is not a valid npm name and npm will refuse
  * the whole install over it.
  */
-export function platformFiles(name: string, withBackend: boolean): FileTree {
+export function platformFiles(
+  name: string,
+  manifest: ArchitectureManifest,
+  model: DataModel,
+): FileTree {
   const slug = packageName(name);
+  const withBackend = manifest.backend;
 
   const files: FileTree = [
     {
@@ -188,14 +195,25 @@ ${
     ? `
 ## Data
 
-This project reads and writes through Supabase from the browser, so every table
-it touches must have row-level security on with a policy that allows it.
-Set these before running:
+This project reads and writes through Supabase from the browser. There is no
+server here to hold a secret, so row-level security on the database is the only
+thing standing between a row and anybody — every table this app touches has RLS
+on and a policy behind it. Set these before running:
 
     NEXT_PUBLIC_SUPABASE_URL=
     NEXT_PUBLIC_SUPABASE_ANON_KEY=
+    NEXT_PUBLIC_SUPABASE_SCHEMA=${model.schema}
 
-See \`lib/supabase.ts\`.
+The schema is the third one because these tables live in \`${model.schema}\`
+rather than in \`public\`. Pointing the app at the wrong schema is how it ends
+up querying somebody else's tables and being refused by policies written for
+them.
+
+Never put a service-role key in any of these. They are compiled into the
+JavaScript and served to every visitor; a service key there bypasses every
+policy for everyone who loads the page.
+
+See \`lib/supabase.ts\` and \`lib/database.types.ts\`.
 `
     : ""
 }`,
@@ -207,6 +225,8 @@ See \`lib/supabase.ts\`.
       path: "lib/supabase.ts",
       content: `import { createClient } from "@supabase/supabase-js";
 
+import type { Database } from "@/lib/database.types";
+
 /* A BROWSER client, and only ever a browser client.
  *
  * This project is exported statically — there is no server of its own to hold
@@ -214,12 +234,20 @@ See \`lib/supabase.ts\`.
  * could use one safely. The anon key below is public by design: it identifies
  * the project, it does not authorise anything.
  *
- * What authorises is row-level security, on the database. Every table this
- * app touches needs RLS ON and a policy saying who may read and write which
- * rows. A table without one is readable by anybody who opens the page and
- * looks at the network tab. There is no second line of defence here. */
+ * What authorises is row-level security, on the database. Every table this app
+ * touches has RLS on and a policy saying who may read and write which rows —
+ * they were created with the project. A table without one would be readable by
+ * anybody who opens the page and looks at the network tab. There is no second
+ * line of defence here, which is why you must never filter for permission in
+ * this app: the database has already done it, and a query written as though it
+ * had not is a query that hides the case where it did not.
+ *
+ * The schema matters as much as the URL. These tables are in \`${model.schema}\`,
+ * not in \`public\` — an unscoped client would query a schema belonging to
+ * something else entirely. */
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const schema = process.env.NEXT_PUBLIC_SUPABASE_SCHEMA ?? "${model.schema}";
 
 if (!url || !anonKey) {
   throw new Error(
@@ -227,9 +255,28 @@ if (!url || !anonKey) {
   );
 }
 
-export const supabase = createClient(url, anonKey);
+export const supabase = createClient<Database>(url, anonKey, {
+  db: { schema: schema as "${model.schema}" },
+});
 `,
     });
+
+    /* The tables as types, so a column that does not exist is a compile error
+       here rather than a null in somebody's browser. Generated from the same
+       model the migration came from — see schema.ts, toTypes. */
+    const types = toTypes(model);
+    if (types) files.push({ path: "lib/database.types.ts", content: types });
+
+    /* No .env.example, deliberately, and the README names the three variables
+       instead.
+       
+       tree.ts refuses any path matching .env.* — it is how a generated project
+       is stopped from writing a .env that then gets downloaded and pushed to
+       GitHub with a key in it. An example file holds no values and would be
+       harmless, but the exception could not be written narrowly enough to stay
+       harmless: the same allowance that lets the scaffold write .env.example
+       lets a model write one, with whatever it decided to put in it. A guard
+       against leaking secrets is not worth widening for a convenience file. */
   }
 
   return files;
@@ -263,10 +310,15 @@ export function packageName(name: string): string {
  * for. The scaffold is a floor, not a ceiling — it supplies what is missing and
  * argues with nothing.
  */
-export function completeTree(generated: FileTree, name: string, withBackend: boolean): FileTree {
+export function completeTree(
+  generated: FileTree,
+  name: string,
+  manifest: ArchitectureManifest,
+  model: DataModel,
+): FileTree {
   const byPath = new Map<string, ProjectFile>();
 
-  for (const file of platformFiles(name, withBackend)) byPath.set(file.path, file);
+  for (const file of platformFiles(name, manifest, model)) byPath.set(file.path, file);
   for (const file of generated) byPath.set(file.path, file);
 
   return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -300,38 +352,155 @@ const ROUTES: Record<BuildKind, string[]> = {
   news: ["app/[section]/page.tsx", "app/article/[slug]/page.tsx"],
 };
 
+/* The back office, when the manifest says there is one.
+ *
+ * Under /admin rather than scattered, because the whole point of it is that it
+ * is a different place with a different audience and a different rule about who
+ * may be there. Every one of these reads and writes the same tables the public
+ * routes read — that is what makes it a CMS rather than a second website — and
+ * the sign-in is listed with them because an admin without one is a public back
+ * office.
+ *
+ * Short, again. A generated admin with fourteen screens is thirteen screens
+ * nobody asked for; these are the ones whose absence makes the admin a
+ * decoration. */
+const ADMIN_ROUTES: Partial<Record<BuildKind, string[]>> = {
+  ecommerce: [
+    "app/admin/page.tsx",
+    "app/admin/products/page.tsx",
+    "app/admin/orders/page.tsx",
+  ],
+  blog: ["app/admin/page.tsx", "app/admin/posts/page.tsx", "app/admin/media/page.tsx"],
+  news: ["app/admin/page.tsx", "app/admin/posts/page.tsx", "app/admin/media/page.tsx"],
+  webapp: ["app/admin/page.tsx"],
+};
+
+/* What each kind's customer-facing account area is. Only reached when the
+   manifest has authentication, and named per kind because "account" means
+   different things: a shopper's order history is not a reader's profile. */
+const ACCOUNT_ROUTES: Partial<Record<BuildKind, string[]>> = {
+  ecommerce: ["app/account/page.tsx", "app/account/orders/page.tsx"],
+};
+
 /**
  * The file-tree half of a build prompt: what to write, where, and what not to
  * bother with because it is written here.
+ *
+ * Driven by the manifest rather than by a boolean. The difference shows in the
+ * negative space: a project with no admin is told it has no admin, and a model
+ * told that does not build one. The layer that gets invented is always the one
+ * nothing said anything about.
  */
-export function treeBrief(kind: BuildKind, withBackend: boolean): string {
+export function treeBrief(kind: BuildKind, manifest: ArchitectureManifest, model: DataModel): string {
   const routes = ROUTES[kind] ?? [];
+  const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
+  const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []) : [];
 
-  return `RETURN A FILE TREE, not a single document.
+  const write = [
+    "- app/page.tsx — the home page, and the one that matters most",
+    "- app/layout.tsx — the shell: <html>, <body>, fonts, the nav and footer",
+    "- app/globals.css — the design system as CSS custom properties, imported by the layout",
+    ...routes.map((route) => `- ${route}`),
+  ];
+
+  if (manifest.authentication) {
+    write.push(
+      "- app/login/page.tsx — sign in and sign up, in one place, with inline errors",
+      ...account.map((route) => `- ${route}`),
+    );
+  }
+
+  if (manifest.admin) {
+    write.push(
+      ...admin.map((route) => `- ${route}`),
+      "- components/AdminGuard.tsx — renders nothing until the session is loaded and the profile's role is checked, then either the children or a refusal",
+    );
+  }
+
+  write.push(
+    "- components/*.tsx — anything used more than once. A component used once belongs in the page that uses it.",
+  );
+
+  const supplied = [
+    "- package.json, next.config.mjs, tsconfig.json, postcss.config.mjs, tailwind.config.ts, .gitignore, README.md",
+  ];
+  if (manifest.backend) {
+    supplied.push("- lib/supabase.ts — the client, already pointed at the right schema");
+    if (model.tables.length > 0) {
+      supplied.push("- lib/database.types.ts — the tables as types; import Database and the row aliases from here");
+    }
+  }
+
+  const rules = [
+    "- Next.js App Router, TypeScript, Tailwind. Every file must compile under `strict`.",
+    "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
+    "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
+    "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
+  ];
+
+  if (manifest.database) {
+    rules.push(
+      '- Data comes from `@/lib/supabase`, in a client component ("use client"), inside useEffect or an event handler. Never at module scope — it runs at build time and there is no session then.',
+      "- A dynamic route's generateStaticParams cannot query the database either, for the same reason. Export the shell and load the record in the browser from the route parameter.",
+      "- Every list has the four states and all four are reachable: loading while the query runs, empty when it returns nothing, the rows when it returns some, and the error when it fails. A list that renders nothing while it loads is indistinguishable from an empty one.",
+    );
+  } else {
+    rules.push(
+      "- There is no database. Data is typed constants in the file that renders it, or in `lib/data.ts` when two pages share it.",
+    );
+  }
+
+  if (manifest.authentication) {
+    rules.push(
+      "- Sign in, sign up and sign out through `supabase.auth`. Session state comes from `onAuthStateChange` and an initial `getSession`, held in one provider — never read from localStorage by hand.",
+      "- Signing up writes the profiles row for the new user. Nothing sets `role`: it defaults, and the database refuses a change to it from anyone but an admin.",
+      "- A protected page renders nothing until the session has actually loaded. Rendering the signed-out view first and correcting it is a flash of the wrong page on every load.",
+    );
+  }
+
+  if (manifest.admin) {
+    rules.push(
+      "- The admin reads and writes THE SAME TABLES the public pages read. That is the whole point of it: a product saved in /admin/products appears on /products because both are that row. An admin holding its own copy of the data is a second website.",
+      "- Admin actions are real: create, edit, delete, publish and unpublish are writes that persist and are visible after a reload. Never a local array that resets.",
+      "- Do not gate an admin action on a role you read in JavaScript. Attempt the write; the database refuses it if the caller is not an admin. AdminGuard decides what to SHOW, and it is not what decides what is ALLOWED.",
+    );
+  }
+
+  if (manifest.storage) {
+    rules.push(
+      "- Uploads go to Supabase Storage with `supabase.storage.from(bucket).upload(...)`, and the row that records them goes in `media`. Store the path, never a URL — build the URL at render time with `getPublicUrl`.",
+      "- Never turn an uploaded file into a placeholder or a data URI. If the upload fails, say so.",
+    );
+  }
+
+  if (manifest.payments) {
+    rules.push(
+      "- Payment cannot be taken from a static export: there is nowhere to put the secret key. Build the checkout in full, write the order and its items to the database, and at the point of charging show a plainly worded state saying payment connects to a back end that is not attached yet. Never a fake confirmation for a charge that did not happen.",
+    );
+  }
+
+  rules.push(
+    '- No placeholder copy. No lorem ipsum, no "Feature One", no "Your text here". Write what this business would actually say.',
+  );
+
+  const parts = [
+    `RETURN A FILE TREE, not a single document.
 
 Answer with JSON only: an object whose keys are file paths and whose values are the complete contents of those files. No prose, no markdown fences.
 
 WRITE THESE:
-- app/page.tsx — the home page, and the one that matters most
-- app/layout.tsx — the shell: <html>, <body>, fonts, the nav and footer
-- app/globals.css — the design system as CSS custom properties, imported by the layout
-${routes.map((route) => `- ${route}`).join("\n")}
-- components/*.tsx — anything used more than once. A component used once belongs in the page that uses it.
+${write.join("\n")}
 
 DO NOT WRITE THESE — they are supplied and yours would be overwritten:
-- package.json, next.config.mjs, tsconfig.json, postcss.config.mjs, tailwind.config.ts, .gitignore, README.md${withBackend ? "\n- lib/supabase.ts" : ""}
+${supplied.join("\n")}
 
 RULES:
-- Next.js App Router, TypeScript, Tailwind. Every file must compile under \`strict\`.
-- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no \`fetch\` in a server component against your own API. A page that needs data reads it in the browser.
-- Import across the project with \`@/\` — \`@/components/Nav\`, not a relative climb.
-- Every dynamic route needs \`generateStaticParams\`, or the export fails on it.
-- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.
-${
-  withBackend
-    ? `- Data comes from \`@/lib/supabase\`, in a client component ("use client"), inside useEffect or an event handler. Never at module scope — it runs at build time and there is no session then.
-- Assume every table has row-level security on. Write the query as the signed-in user, never as an admin.`
-    : `- There is no database. Data is typed constants in the file that renders it, or in \`lib/data.ts\` when two pages share it.`
-}
-- No placeholder copy. No lorem ipsum, no "Feature One", no "Your text here". Write what this business would actually say.`;
+${rules.join("\n")}`,
+  ];
+
+  const schema = schemaBrief(model);
+  if (schema) parts.push(schema);
+
+  return parts.join("\n\n");
 }

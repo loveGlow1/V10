@@ -57,6 +57,32 @@ export type Blueprint = {
   conditionalRequirements: ConditionalRequirement[];
   /** What this kind must not become. The separation lives here. */
   exclusions: string[];
+  /* Exclusions that hold only while this project has no admin layer.
+   *
+   * "No admin dashboard, no inventory back office" is the right instruction for
+   * a storefront that is a storefront, and exactly the wrong one for a store
+   * with a merchant behind it — which is what the manifest now decides. Keeping
+   * them in `exclusions` meant the prompt forbade the admin in one paragraph
+   * and required it in another, and a model handed a contradiction resolves it
+   * by picking one, silently.
+   *
+   * So they moved here, and blueprints/index.ts drops them when the manifest
+   * has an admin. A blueprint with no admin half leaves this empty and nothing
+   * changes for it. */
+  frontendOnlyExclusions?: string[];
+  /* The back office, when this project has one.
+   *
+   * Separate from `requirements` because it is a different product for a
+   * different person: the storefront is judged on whether a shopper can buy
+   * something and the admin on whether a merchant can run the shop, and a
+   * single list that interleaves them produces a shop with an "Add product"
+   * button on the home page. Only reached when the manifest says admin. */
+  admin?: {
+    /** What the back office IS, in one sentence. */
+    identity: string;
+    /** What it must contain. Read in place of nothing when there is no admin. */
+    requirements: string[];
+  };
   /** The standard this kind in particular is judged against. */
   qualityRules: string[];
   /** What "finished" means for this kind. Checked before the document ends. */
