@@ -14,7 +14,8 @@ import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { storeTree } from "@/lib/builder/store-tree";
-import { type FileTree, TreeError, readTree } from "@/lib/builder/tree";
+import { projectSummary } from "@/lib/builder/project-summary";
+import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -217,7 +218,16 @@ export async function POST(request: Request) {
      "your build failed" in somebody's conversation would be inventing an
      outcome out of a caller's mistake. Refused as a bad request, project row
      untouched, nothing said in the thread. */
-  if (typeof body.html !== "string" || !body.html.trim()) {
+  /* A build of the file-tree stack legitimately has no page in it. The model
+     returns `.tsx` source, the HTML is what `next build` would produce, and
+     nothing here runs `next build` — so `files` with no `html` is the ordinary
+     shape of a project rather than a malformed request, and the preview is
+     derived from the tree further down. Neither of them is still the caller
+     mistake this guard was written for. */
+  const sentPage = typeof body.html === "string" && body.html.trim().length > 0;
+  const sentFiles = body.files !== undefined && body.files !== null;
+
+  if (!sentPage && !sentFiles) {
     return NextResponse.json({ message: "This request carries no page to save." }, { status: 400 });
   }
 
@@ -250,14 +260,105 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "No such project." }, { status: 404 });
   }
 
-  let html: string;
-  try {
-    html = readGeneratedDocument(body.html);
-  } catch (error) {
-    if (error instanceof PageHtmlError) {
-      return await reportFailure(supabase, claim, error.message, error.status);
+  /* The files, if this build produced any.
+   *
+   * Read and completed BEFORE the build row is written, so a project that came
+   * back unbuildable is reported as a failed build rather than stored as a
+   * successful one with a hole in it. The scaffold is merged in here rather
+   * than asked for — see scaffold.ts, and treeBrief, which tells the model not
+   * to write the plumbing precisely because this does. */
+  let tree: FileTree = [];
+
+  /* Held out here rather than inside the branch, because the preview below is
+     derived from the same three answers the scaffold was built from. Deriving
+     them twice would be two chances to derive them differently, and the summary
+     would then describe a project that was not the one stored. */
+  const summaryArchitecture = architectureFor(body);
+  /* The schema the generated client is pointed at has to be the one the build
+     actually created, so it is read back from where provisioning recorded it
+     rather than recomputed — a project on somebody's own Supabase uses
+     `public`, and a client scaffolded against app_<id> would query a schema
+     that is not there. */
+  const summaryBackend = summaryArchitecture.database
+    ? await resolveBackend(supabase, claim.projectId)
+    : null;
+  const summaryBackendReady = summaryBackend?.ready === true;
+  const summaryModel = dataModelFor(
+    summaryArchitecture,
+    summaryBackend?.schema ?? schemaNameFor(claim.projectId),
+  );
+
+  if (body.files !== undefined && body.files !== null) {
+    try {
+      tree = completeTree(
+        readTree(body.files),
+        (project.name as string | null) ?? "app",
+        summaryArchitecture,
+        summaryModel,
+      );
+
+      const missing = missingFrom(tree);
+      if (missing.length > 0) {
+        return await reportFailure(
+          supabase,
+          claim,
+          `The project came back incomplete — ${missing.join("; ")}. Nothing was stored.`,
+          422,
+        );
+      }
+    } catch (error) {
+      if (error instanceof TreeError) {
+        return await reportFailure(supabase, claim, error.message, error.status);
+      }
+      throw error;
     }
-    throw error;
+  }
+
+  /* ── The document the preview shows ────────────────────────────────────
+   *
+   * Three cases, and the third is the one that did not exist before.
+   *
+   * A single-page build sends its page, and it is the page. A file-tree build
+   * that somehow carries a built export answers with that export. A file-tree
+   * build of source — which is every one of them, because nothing here runs
+   * `next build` — has no document at all, and previewDocument says so rather
+   * than guessing (see tree.ts).
+   *
+   * For that third case the preview is a summary of what was built: the
+   * routes, the tables, the files, and how to run it. Not a mock-up of the
+   * app. Rendering something that looked like the storefront would put a
+   * picture of a working shop in front of somebody who does not have one,
+   * which is the failure the blueprints spend paragraphs forbidding. */
+  let html: string;
+  let synthesised = false;
+
+  if (sentPage) {
+    try {
+      html = readGeneratedDocument(body.html);
+    } catch (error) {
+      if (error instanceof PageHtmlError) {
+        return await reportFailure(supabase, claim, error.message, error.status);
+      }
+      throw error;
+    }
+  } else {
+    const built = previewDocument(tree);
+    if (built) {
+      html = built;
+    } else {
+      html = projectSummary({
+        projectName: (project.name as string | null) ?? "Your project",
+        manifest: summaryArchitecture,
+        tree,
+        model: summaryModel,
+        /* Read from where provisioning stamped it, not from the manifest. The
+           manifest says a database was asked for; this says whether it was
+           made, and a summary that showed the first as the second would be
+           reporting an intention as a fact. */
+        databaseReady: summaryBackendReady,
+      });
+      synthesised = true;
+    }
   }
 
   /* ── The photographs ────────────────────────────────────────────────────
@@ -287,9 +388,14 @@ export async function POST(request: Request) {
    *
    * Trimmed hard for the same reason: a search engine wants a few words, not a
    * paragraph of instructions. */
-  const pictures = await fillImages(html, providerFromEnv(), {
-    context: searchContext(str(body.prompt)),
-  });
+  /* Skipped for a summary this route wrote itself. It declares no photograph
+     slots, so filling it would search for nothing and find nothing — and
+     `synthesised` is a cheaper way to know that than asking a stock provider. */
+  const pictures = synthesised
+    ? { html, credits: [], filled: 0, skipped: 0, bytes: 0 }
+    : await fillImages(html, providerFromEnv(), {
+        context: searchContext(str(body.prompt)),
+      });
   html = pictures.html;
 
   /* Who took them, in the page that publishes them.
@@ -319,52 +425,6 @@ export async function POST(request: Request) {
       return await reportFailure(supabase, claim, error.message, error.status);
     }
     throw error;
-  }
-
-  /* The files, if this build produced any.
-   *
-   * Read and completed BEFORE the build row is written, so a project that came
-   * back unbuildable is reported as a failed build rather than stored as a
-   * successful one with a hole in it. The scaffold is merged in here rather
-   * than asked for — see scaffold.ts, and treeBrief, which tells the model not
-   * to write the plumbing precisely because this does. */
-  let tree: FileTree = [];
-  if (body.files !== undefined && body.files !== null) {
-    try {
-      /* The schema the generated client is pointed at has to be the one the
-         build actually created, so it is read back from where provisioning
-         recorded it rather than recomputed — a project on somebody's own
-         Supabase uses `public`, and a client scaffolded against app_<id>
-         would query a schema that is not there. */
-      const architecture = architectureFor(body);
-      const backend = architecture.database ? await resolveBackend(supabase, claim.projectId) : null;
-      const dataModel = dataModelFor(
-        architecture,
-        backend?.schema ?? schemaNameFor(claim.projectId),
-      );
-
-      tree = completeTree(
-        readTree(body.files),
-        (project.name as string | null) ?? "app",
-        architecture,
-        dataModel,
-      );
-
-      const missing = missingFrom(tree);
-      if (missing.length > 0) {
-        return await reportFailure(
-          supabase,
-          claim,
-          `The project came back incomplete — ${missing.join("; ")}. Nothing was stored.`,
-          422,
-        );
-      }
-    } catch (error) {
-      if (error instanceof TreeError) {
-        return await reportFailure(supabase, claim, error.message, error.status);
-      }
-      throw error;
-    }
   }
 
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);

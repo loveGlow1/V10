@@ -691,7 +691,49 @@ const extractPage = node({
         "  html = parts.map((part) => (part && part.text) || '').join('');\n" +
         '}\n' +
         '\n' +
-        "return [{ json: { html, model: request.model || '', modelName: request.modelName || '', provider: request.provider || '', responseShape: shape } }];",
+        /* ── A file tree, when that is what came back ─────────────────────
+         *
+         * A build of the nextjs stack answers with a JSON object whose keys are
+         * paths and whose values are file contents — see treeBrief in
+         * src/lib/builder/scaffold.ts. This node only ever produced `html`, so
+         * the `files` key Save Page sends was undefined on every build and no
+         * project could ever be stored as one.
+         *
+         * Detected from the ANSWER rather than from request.stack: the stack is
+         * what was asked for and this is what came back, and a generation that
+         * ignored its instructions has to be handled as what it is rather than
+         * as what it was told to be. */
+        'let files = undefined;\n' +
+        "const trimmed = (html || '').trim();\n" +
+        'const fenced = trimmed.match(/^```(?:json|html)?\\s*\\n([\\s\\S]*?)\\n?```$/i);\n' +
+        'const body = (fenced ? fenced[1] : trimmed).trim();\n' +
+        '\n' +
+        "if (body.startsWith('{')) {\n" +
+        '  try {\n' +
+        '    const parsed = JSON.parse(body);\n' +
+        '    const paths = Object.keys(parsed);\n' +
+        /* Every key a path and every value a string. Without it, any JSON the
+           model returned — an error object, a refusal — would be stored as a
+           project's source. */
+        '    const isTree = paths.length > 0 && paths.every(\n' +
+        "      (key) => typeof parsed[key] === 'string' && /^[\\w./[\\]()-]+$/.test(key) && key.includes('.')\n" +
+        '    );\n' +
+        '    if (isTree) {\n' +
+        '      files = parsed;\n' +
+        /* Cleared on purpose. There is no HTML in a tree of .tsx, and inventing
+           one here would be a mock-up of an app nobody can run yet. The save
+           route derives the preview from the tree instead — see
+           src/lib/builder/project-summary.ts. */
+        "      html = '';\n" +
+        '    }\n' +
+        '  } catch (error) {\n' +
+        /* Not JSON, or JSON cut off at the model's ceiling. Either way it is not
+           a tree, and the save route refuses an unfinished document with a
+           sentence that says so. */
+        '  }\n' +
+        '}\n' +
+        '\n' +
+        "return [{ json: { html, files, model: request.model || '', modelName: request.modelName || '', provider: request.provider || '', responseShape: shape } }];",
     },
   },
 });
