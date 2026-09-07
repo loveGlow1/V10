@@ -25,7 +25,16 @@ const TAIL_OUTER_REACH = 2.75;
 const TAIL_STROKE_WIDTH = 0.8;
 const DIAGONAL = Math.SQRT1_2;
 
-const MARK_BLACK = "#050506";
+/* The mark, LIGHT.
+ *
+ * The logo is obsidian black, and on the page it sits on a bright halo where
+ * that reads beautifully. In a browser tab it does not: the icon is 16px on a
+ * dark ground, and black on near-black is a smudge you cannot pick out of a
+ * row of tabs — which is the one job a favicon has.
+ *
+ * So the tab icon inverts the relationship rather than the design. The ground
+ * stays the same dark sphere; the mark is the light on it. */
+const MARK_LIGHT = "#F2F3F7";
 
 /* How much of the icon the mark's ring spans. The tail reaches further than
    the ring does — 2.75 against 2.0 — so this leaves room for it to finish
@@ -48,12 +57,12 @@ export function brandIcon(size: number) {
   /* Small enough to disappear cleanly when the icon is scaled to 16px, which
      is what they should do — at that size they would be dirt on the glass. */
   const stars = [
-    { x: 0.26, y: 0.22, r: 0.9, o: 0.5 },
-    { x: 0.72, y: 0.19, r: 1.2, o: 0.7 },
-    { x: 0.81, y: 0.4, r: 0.8, o: 0.45 },
-    { x: 0.19, y: 0.63, r: 1.0, o: 0.55 },
-    { x: 0.63, y: 0.79, r: 0.9, o: 0.5 },
-    { x: 0.44, y: 0.14, r: 0.7, o: 0.4 },
+    { x: 0.26, y: 0.22, r: 0.9, o: 0.32 },
+    { x: 0.72, y: 0.19, r: 1.2, o: 0.42 },
+    { x: 0.81, y: 0.4, r: 0.8, o: 0.28 },
+    { x: 0.19, y: 0.63, r: 1.0, o: 0.34 },
+    { x: 0.63, y: 0.79, r: 0.9, o: 0.3 },
+    { x: 0.44, y: 0.14, r: 0.7, o: 0.24 },
   ];
 
   return new ImageResponse(
@@ -67,7 +76,7 @@ export function brandIcon(size: number) {
           /* The ground the mark sits on: lit a little above and left of centre,
              falling to near-black at the corners, so the square reads as a
              sphere rather than a tile. */
-          backgroundImage: `radial-gradient(circle at 44% 40%, #2a2a30 0%, #16161a 52%, #0a0a0c 100%)`,
+          backgroundImage: `radial-gradient(circle at 44% 40%, #23232a 0%, #121216 55%, #08080a 100%)`,
         }}
       >
         {stars.map((star, index) => (
@@ -97,7 +106,7 @@ export function brandIcon(size: number) {
             width: ringOuter,
             height: ringOuter,
             borderRadius: ringOuter,
-            border: `${ringBorder}px solid ${MARK_BLACK}`,
+            border: `${ringBorder}px solid ${MARK_LIGHT}`,
             boxSizing: "border-box",
           }}
         />
@@ -110,7 +119,7 @@ export function brandIcon(size: number) {
             top: size / 2 + tailOffset - tailWidth / 2,
             width: tailLength,
             height: tailWidth,
-            background: MARK_BLACK,
+            background: MARK_LIGHT,
             transform: "rotate(45deg)",
           }}
         />

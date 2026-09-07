@@ -13,9 +13,13 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#050505",
     theme_color: "#050505",
     icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      /* Generated from the brand mark rather than checked in — see icon.tsx,
+         which owns these ids. Two files in public/ held a resampled copy of an
+         older logo and were the reason the installed icon and the tab icon
+         could disagree. */
+      { src: "/icon/192", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon/512", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon/512", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }
