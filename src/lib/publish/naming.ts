@@ -165,9 +165,22 @@ export function publishedLabel(slug: string): string {
   return publishedUrl(slug).replace(/^https?:\/\//, "");
 }
 
-/** Where an unpublished project is worked on. Owner-only, and never public. */
-export function previewUrl(projectId: string): string {
-  return `${SITE_URL}/preview/${projectId}`;
+/* Where a project is worked on. Owner-only, and never public.
+ *
+ * Two shapes, and the first is what a project gets as soon as it has a name:
+ *
+ *   /quickstark-app/preview      once a slug is reserved
+ *   /preview/<uuid>              before that, and forever after
+ *
+ * The second is not a fallback to be tidied away later. It is what every link
+ * already written points at — the download links, the chat's own chips, the
+ * preview_url stored on older rows — and it keeps working. The first is simply
+ * shorter, readable, and the same name the published site will answer on, so
+ * publishing moves nothing. */
+export function previewUrl(project: { id: string; slug?: string | null }): string {
+  return project.slug
+    ? `${SITE_URL}/${project.slug}/preview`
+    : `${SITE_URL}/preview/${project.id}`;
 }
 
 /* ── Custom domains ────────────────────────────────────────────────────────

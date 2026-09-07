@@ -27,6 +27,8 @@ import {
 } from "@/lib/builder/attachments";
 import { readPage, regressions } from "@/lib/builder/brain";
 import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
+import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
+import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
 import {
   EDIT_MODEL,
@@ -433,7 +435,9 @@ async function handle(
   steps.begin("open", "Opening your app", "checking it's yours to open…");
   const { data: project, error: lookupError } = await supabase
     .from("projects")
-    .select("id, name")
+    /* slug included so the address does not have to be re-read: it is what
+       both the preview URL and the published URL are made from. */
+    .select("id, name, slug")
     .eq("id", projectId)
     .maybeSingle();
 
@@ -763,7 +767,32 @@ async function handle(
         : `claude-haiku-4-5, confidence ${decision.confidence.toFixed(2)}`,
   );
 
-  const previewUrl = `${SITE_URL}/preview/${project.id}`;
+  /* The project's own name, reserved on the first build rather than at publish.
+   *
+   * It is what BOTH addresses are made from — /quickstark-app/preview while it
+   * is being built, /quickstark-app once it is live — so the URL somebody
+   * learns while working on a page is the URL their site keeps. A preview
+   * addressed by project id was 36 characters of hex that told nobody anything.
+   *
+   * Never fatal. A project whose name yields no usable address still builds and
+   * still previews, at /preview/<id>, which is what every link already written
+   * points at anyway. */
+  let addressed: { id: string; name: string; slug: string | null } = {
+    id: project.id,
+    name: project.name as string,
+    slug: (project as { slug?: string | null }).slug ?? null,
+  };
+
+  if (service && !addressed.slug) {
+    const reserved = await reserveSlug(service, addressed, user.id);
+    if ("slug" in reserved) addressed = { ...addressed, slug: reserved.slug };
+    else {
+      // eslint-disable-next-line no-console
+      console.error(`build: ${project.id} could not reserve an address (${reserved.problem})`);
+    }
+  }
+
+  const previewUrl = publishPreviewUrl(addressed);
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   if (intent === "revert") {
@@ -835,7 +864,7 @@ async function handle(
 
     const { data: reverted } = await supabase
       .from("projects")
-      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
       .eq("id", project.id)
       .maybeSingle();
 
@@ -1345,7 +1374,7 @@ async function handle(
 
     const { data: after } = await supabase
       .from("projects")
-      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
       .eq("id", project.id)
       .maybeSingle();
 
@@ -1904,7 +1933,7 @@ async function handle(
      reply says so too instead of promising a row that was never written. */
   const { data: synced } = await supabase
     .from("projects")
-    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
     .eq("id", project.id)
     .maybeSingle();
 
