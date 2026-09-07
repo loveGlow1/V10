@@ -25,7 +25,7 @@ import type { IntegrationCategory } from "../../integrations";
 import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { SITE_URL } from "@/lib/site";
-import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
+import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
 import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
@@ -98,7 +98,17 @@ export default function PreviewPanel({
      are checked before they reach an href or an iframe src — see
      src/lib/safe-url.ts. Null means "do not render a link", never "render a
      broken one". */
-  const previewUrl = safeHttpUrl(project?.preview_url);
+  /* Derived from the project, not read from preview_url.
+   *
+   * The stored column is written when a build finishes, so it lags: a project
+   * that had an address reserved after its last build still held the old long
+   * form, and the panel showed it. Deriving means the address shown is always
+   * the address the project has now — and it upgrades from /preview/<id> to
+   * /<slug>/preview the moment a slug exists, with no rebuild and no backfill.
+   *
+   * safeHttpUrl still guards the result: it is built from SITE_URL, but a
+   * misconfigured environment should not put a broken href on the page. */
+  const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
   const repoUrl = safeHttpUrl(project?.repo_url);
 
   /* The page is fetched here and handed to the frame as srcdoc, rather than
@@ -287,18 +297,23 @@ export default function PreviewPanel({
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       {previewUrl ? (
         <div className="flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/[0.06] px-2.5">
-            <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
-              {previewUrl}
-            </span>
-            {/* A phone's header has no room for these two, so they ride on the
-                frame's own chrome instead — where the address they act on is.
-                From md up the header above carries them and this pair stands
-                down rather than saying the same thing twice. */}
+          {/* Nothing is written across the top of the frame. What used to sit
+              here was a private preview URL — nothing to click, nothing to do
+              with it, and on every screenshot and screen-share of somebody's
+              own build; the project's name in its place said no more, in a
+              panel that is already inside that project. The browser shows an
+              address when the preview is opened in a tab, which is where an
+              address belongs.
+
+              So the strip exists only for the two controls a phone has no
+              header room for. From md up the header above carries both and the
+              whole strip stands down rather than reserving nine pixels of
+              border for nothing. */}
+          <div className="flex h-9 shrink-0 items-center justify-end gap-2 border-b border-line/[0.06] px-2.5 md:hidden">
             <button
               onClick={() => setReloads((count) => count + 1)}
               aria-label="Reload the preview"
-              className="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
+              className="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06]"
             >
               <RotateCw className="h-3.5 w-3.5" />
             </button>
@@ -306,7 +321,7 @@ export default function PreviewPanel({
               href={previewUrl}
               target="_blank"
               rel="noreferrer"
-              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
+              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
             >
               Open
             </a>
