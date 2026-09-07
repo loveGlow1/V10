@@ -432,6 +432,11 @@ export type UsageSignal = {
    work — it is what separates a one-patch edit from a twelve-section build, and
    at 0.25 the two ended up close enough that a whole generated page priced
    like a typo fix. */
+/** Words in a brief, counted the way a person would count them. */
+export function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 const CHAT_TOKENS_PER_CREDIT = 900;
 const GENERATE_TOKENS_PER_CREDIT = 1500;
 const GENERATE_CREDITS_PER_FILE = 0.6;
@@ -550,8 +555,9 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     /* A short answer sits at the floor; a long one reaches the band's ceiling.
        Troubleshooting a build should not feel metered — though asking Fable
        about it costs what asking Fable costs. */
-    const base = clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max);
-    return roundCredits(base * rate);
+    return roundCredits(
+      clamp(roundCredits(outputTokens / CHAT_TOKENS_PER_CREDIT), spec.min, spec.max) * rate,
+    );
   }
 
   /* Generation starts at the floor — any edit is worth something — and grows
@@ -561,6 +567,12 @@ export function creditCostOf(action: CreditActionId, signal: UsageSignal = {}): 
     outputTokens / GENERATE_TOKENS_PER_CREDIT +
     filesTouched * GENERATE_CREDITS_PER_FILE;
 
+  /* What the brief itself costs is NOT added here, and deliberately: it would
+     have to ride outside this clamp — a band describing the model's turn cannot
+     also price what the person supplied — and it is charged outside this
+     function entirely, by contextSurcharge, which prices the carried
+     conversation on the same terms and in one place. Two allowances counting
+     the same words is a bill nobody can reconcile. */
   return roundCredits(clamp(roundCredits(cost), spec.min, spec.max) * rate);
 }
 

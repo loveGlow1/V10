@@ -1,3 +1,5 @@
+import { describeProject, readPage } from "./brain";
+
 /* What the model is told when a message is an edit or a question.
  *
  * The prompt for a *new* page is not here — a full build runs in the
@@ -38,6 +40,12 @@ ATTACHED PICTURES — when a message comes with images:
 - An image can also be direction rather than content — "match this screenshot", "use these colours". Then reproduce what it shows in HTML and CSS and do not place the file.
 - If the request does not say which, look at the picture: a photograph, a logo or a product shot is content to place; a screenshot of a website or a mockup is direction to follow.
 
+PICTURES ALREADY IN THE PAGE — src="stashed-image-0", src="stashed-image-1":
+- That token IS the photograph. The real image is millions of characters of base64 and was lifted out so the page would fit in front of you; the token is put back the moment your blocks are applied.
+- Copy it through character for character whenever it falls inside anything you rewrite. Changing an <img> that has one — its size, its classes, its alt text, the element around it — means writing the same src back out unchanged.
+- It is not a broken link and not a placeholder to fill in. Do not "fix" it, do not swap it for a URL, a path or a data: URI, and do not drop the src while editing the rest of the tag. A tag that comes back without its token is a picture deleted, and "make the logo bigger" is not a request to delete the logo.
+- Removing the whole <img> element is different and is allowed: if the request is for the picture to go, take the element and its token with it.
+
 AFTER THE LAST BLOCK you may add one line, and only one:
 
 NEXT: <a single concrete next step you would actually take on this page>
@@ -47,7 +55,20 @@ NEXT: <a single concrete next step you would actually take on this page>
 - Never ask permission in it and never ask a question. It is an offer, and the person takes it or does not.`;
 
 export function editPrompt(userMessage: string, html: string): string {
-  return `THE PAGE AS IT STANDS:
+  /* What the project IS, before what it says.
+   *
+   * The page is already below in full, so this is not a summary of it — it is
+   * the handful of facts that are genuinely hard to see from inside forty-six
+   * thousand characters of markup: which colours actually carry the design,
+   * which ids a script depends on, what the nav points at. A model that has
+   * them matches the page it is editing; a model without them invents a second
+   * design system halfway down and deletes the div a menu was hanging off.
+   *
+   * Placed FIRST because it is context for everything after it, and it is the
+   * cheap part of this prompt — a few lines against the whole document. */
+  const project = describeProject(readPage(html));
+
+  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS:
 
 ${html}
 
@@ -158,7 +179,13 @@ NEXT: <a single concrete next step you would actually take on this page>
 Leave it out when there is nothing worth saying, and never ask a question in it.`;
 
 export function linesPrompt(userMessage: string, numbered: string, failures: string): string {
-  return `THE PAGE AS IT STANDS, WITH LINE NUMBERS:
+  /* Wanted here MORE than on the search/replace path, not less: naming a line
+     range rewrites everything inside it, so what must survive the rewrite is
+     exactly what this says. Read from the numbered copy, whose line prefixes do
+     not disturb any of it. */
+  const project = describeProject(readPage(numbered));
+
+  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS, WITH LINE NUMBERS:
 
 ${numbered}
 

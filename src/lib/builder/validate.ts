@@ -66,6 +66,32 @@ function balance(html: string, tag: string): number {
   return opened.length - selfClosed - closed;
 }
 
+/* An embedded picture, which is bytes rather than page.
+ *
+ * Every measurement of "how much of the page is left" has to run on this
+ * version, and a real page says why. One stored here is 1,705,298 characters,
+ * of which 46,112 are the markup and 1,659,186 are a single logo somebody
+ * uploaded — the picture is 97% of the document by weight and none of it by
+ * structure.
+ *
+ * Measured whole, that page cannot be reasoned about. Losing the logo reads as
+ * losing 97% of the page and is refused as catastrophic; deleting HALF THE
+ * ACTUAL MARKUP reads as losing 1.4% and sails through. The floor below was
+ * inverted on exactly the pages it most needed to protect. */
+const EMBEDDED_IMAGE = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+/gi;
+
+function markupOf(html: string): string {
+  return html.replace(EMBEDDED_IMAGE, "");
+}
+
+/** How many `<img` tags and how many embedded pictures a document carries. */
+function pictures(html: string): { tags: number; embedded: number } {
+  return {
+    tags: (html.match(/<img\b/gi) ?? []).length,
+    embedded: (html.match(EMBEDDED_IMAGE) ?? []).length,
+  };
+}
+
 /* Below this share of the page, an edit has removed more than any ordinary one
  * does and is more likely to be a mistake than a request.
  *
@@ -106,11 +132,44 @@ export function validatePage(before: string, after: string): Verdict {
     return { ok: false, problem: "the change emptied the page" };
   }
 
-  if (before.length > 0 && trimmed.length < before.length * FLOOR) {
-    const lost = Math.round((1 - trimmed.length / before.length) * 100);
+  /* Measured on the markup, with the embedded pictures set aside. See
+     markupOf: on a page that is mostly one base64 logo, the two numbers do not
+     merely differ, they point opposite ways. */
+  const wasText = markupOf(before);
+  const nowText = markupOf(trimmed);
+
+  if (wasText.length > 0 && nowText.length < wasText.length * FLOOR) {
+    const lost = Math.round((1 - nowText.length / wasText.length) * 100);
     return {
       ok: false,
       problem: `the change removed ${lost}% of the page, which is more than that asked for`,
+    };
+  }
+
+  /* A picture that fell out of a tag that is still there.
+   *
+   * Removing an <img> is a change somebody can ask for, and it takes its
+   * picture with it — that is correct and is not this. This is the other one:
+   * the same number of <img> tags come out, and one of them has lost its
+   * source. It happens when the model rewrites a tag to change something else
+   * about it — "the logo is too small, increase it" — and does not carry the
+   * src through, because a src reading `stashed-image-0` does not look to a
+   * model like something worth preserving. The tag survives, the photograph
+   * does not, and what gets stored is a page with a hole where a logo was.
+   *
+   * Caught here as well as discouraged in the prompt, because a rule a model is
+   * asked to follow is not a rule until something checks. */
+  const had = pictures(before);
+  const has = pictures(trimmed);
+
+  if (has.tags >= had.tags && has.embedded < had.embedded) {
+    const lost = had.embedded - has.embedded;
+    return {
+      ok: false,
+      problem:
+        lost === 1
+          ? "the change would have dropped one of the page's pictures while keeping the tag it sat in"
+          : `the change would have dropped ${lost} of the page's pictures while keeping the tags they sat in`,
     };
   }
 

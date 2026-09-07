@@ -296,9 +296,12 @@ export const DEFAULT_MODEL = MODELS[0].id;
  * refusal. It never steps up: Auto cannot cost more than this line says, and
  * reaching Opus or Fable is always a deliberate choice in the picker.
  *
- * EDIT_MODEL is deliberately different — edits run on Haiku, because an edit is
- * a search-and-replace over a page that already exists and happens all
- * afternoon. See src/lib/builder/edit.ts. */
+ * Edits are chosen on a different axis again, and not here: a short
+ * instruction against a page that fits comfortably runs on Haiku, because that
+ * kind of edit is a search-and-replace over a page that already exists and
+ * happens all afternoon; a long brief or a large page runs on Sonnet, whose
+ * window can hold it. The balance does not enter into it. See editModelFor in
+ * src/lib/builder/edit.ts. */
 export const AUTO_MODEL = "claude-sonnet-5";
 
 export function modelById(id: string) {
