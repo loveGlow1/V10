@@ -243,5 +243,68 @@ has(
 const oneStray = PAGE.replace("<h1>Build. Edit. Launch.</h1>", "<h1>Build.</h1><div>extra");
 has(refused(PAGE, oneStray), "a single unclosed tag is refused — one is enough to break a page", why(PAGE, oneStray));
 
+// ── Pages that are mostly photograph ──────────────────────────────────────
+/* The failure this section exists for, with the real numbers on it.
+ *
+ * "the logo is too small. increase it" was refused twice, both times with
+ * "the change removed 97% of the page". The page was 1,705,298 characters, of
+ * which 46,112 were the markup and 1,659,186 were one logo somebody had
+ * uploaded a minute earlier. The edit had not removed 97% of anything — it had
+ * dropped one <img> src, and that src was 97% of the file.
+ *
+ * So every size judgement here runs on the markup, and the two checks below
+ * are the two halves of getting that right: the picture must stop dominating
+ * the measurement, and a real deletion must still be caught on a page where
+ * the markup is a rounding error. */
+const LOGO = `data:image/png;base64,${"A".repeat(200_000)}`;
+/* The real page's proportions: an ordinary document with one enormous logo
+   dropped into its header, so the picture outweighs the markup 36 to 1. */
+const HEAVY = PAGE.replace("<nav>", `<nav><img src="${LOGO}" alt="QuickStark" class="h-8">`);
+
+/* THE ONE. Making the logo bigger is a class change and nothing else. */
+const bigger = HEAVY.replace('class="h-8"', 'class="h-16"');
+has(
+  passes(HEAVY, bigger),
+  "making the logo bigger on a page that is mostly logo is allowed",
+  why(HEAVY, bigger),
+);
+
+/* The same edit with the src dropped — the tag survives, the picture does not.
+   This is what the model actually did, and it must be refused, but for the
+   right reason and in words that say what happened. */
+const lostSrc = HEAVY.replace(`<img src="${LOGO}" alt="QuickStark" class="h-8">`, '<img alt="QuickStark" class="h-16">');
+has(refused(HEAVY, lostSrc), "a tag that comes back without its picture is refused", why(HEAVY, lostSrc));
+has(
+  /dropped one of the page's pictures/.test(why(HEAVY, lostSrc)),
+  "and it is refused for losing the picture, not for a percentage",
+  why(HEAVY, lostSrc),
+);
+
+/* Taking the whole <img> out is a different thing and is allowed: if somebody
+   asks for the logo to go, it goes, and it takes its bytes with it. */
+const noLogo = HEAVY.replace(`<img src="${LOGO}" alt="QuickStark" class="h-8">`, "");
+has(passes(HEAVY, noLogo), "removing the whole <img> is still allowed", why(HEAVY, noLogo));
+
+/* THE OTHER HALF, and the more dangerous one. Everything but the header goes —
+   the whole document replaced by the one tag holding the logo. Measured on the
+   stored bytes that is a change of well under one percent, because the logo it
+   keeps is 97% of the file, and it sailed straight through the old floor. */
+const gutted = `<!doctype html>
+<html><body><header><nav><img src="${LOGO}" alt="QuickStark" class="h-8"></nav></header></body></html>`;
+has(
+  refused(HEAVY, gutted),
+  "an edit that guts the markup is caught even when the picture makes it look small",
+  why(HEAVY, gutted),
+);
+
+/* And the proof that this is not what the old code measured: by total bytes the
+   same edit is a rounding error, which is precisely why it used to pass. */
+const byBytes = Math.round((1 - gutted.length / HEAVY.length) * 100);
+has(
+  byBytes < 5,
+  `measured whole, gutting the page reads as a ${byBytes}% change`,
+  "the fixture no longer reproduces the conditions the bug needed",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
