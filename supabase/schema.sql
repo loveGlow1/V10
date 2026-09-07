@@ -1509,3 +1509,146 @@ $$;
 
 revoke all on function public.restore_project(uuid) from public, anon;
 grant execute on function public.restore_project(uuid) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Update 03: publishing and custom domains
+--
+-- PRODUCTION IS A SNAPSHOT, NOT A POINTER AT THE NEWEST BUILD. The whole
+-- separation between preview and production rests on that one decision. If a
+-- published project served the latest row in project_builds, every edit would
+-- change the live site the instant it applied and "publish" would mean nothing,
+-- so a publication holds its own copy of the document and editing cannot reach
+-- it.
+--
+-- PUBLICATION STATE DOES NOT LIVE IN projects.status. Status is the build
+-- lifecycle — Draft, Building, Built, Failed — and it is written by /api/build
+-- in nine places and by the n8n orchestrator in two more. A project published
+-- on Monday and edited on Tuesday would read as unpublished while its site was
+-- still being served. published_version_id and published_at are written only by
+-- the publish route, and they are what every decision reads. See
+-- src/lib/project-status.ts.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.project_publications (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- The build this was cut from, for tracing a live page back to the edit that
+  -- produced it. Nullable because a build may later be pruned; the html here is
+  -- the authority regardless.
+  build_id uuid references public.project_builds(id) on delete set null,
+  -- The document as it was published. Immutable once written.
+  html text not null,
+  -- 1, 2, 3 … per project. What "current production version" means.
+  version integer not null,
+  published_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists project_publications_version_idx
+  on public.project_publications (project_id, version);
+create index if not exists project_publications_project_idx
+  on public.project_publications (project_id, published_at desc);
+
+alter table public.projects
+  add column if not exists slug text,
+  add column if not exists published_version_id uuid
+    references public.project_publications(id) on delete set null,
+  add column if not exists published_at timestamptz;
+
+-- The subdomain a published project answers on. Unique across every account,
+-- because it is a hostname: two projects cannot both be "shop". The index is
+-- what settles a race — two people can publish "shop" in the same second, and
+-- only the index sees both.
+create unique index if not exists projects_slug_idx
+  on public.projects (slug) where slug is not null;
+
+create table if not exists public.project_domains (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  -- Lowercase, no scheme and no path. The unique index below is what stops two
+  -- accounts claiming the same hostname.
+  domain text not null,
+  -- pending      : added here, not yet added at Vercel
+  -- awaiting_dns : Vercel has it, the DNS record is not in place yet
+  -- live         : DNS verified and serving
+  -- failed       : Vercel refused it, or it belongs to another Vercel account
+  status text not null default 'pending',
+  -- Exactly what Vercel said to put in DNS: type, name, value. Never a value
+  -- written by this codebase — the record differs by domain and changes over
+  -- time, and a hard-coded CNAME is right often enough to look correct and
+  -- wrong often enough to strand somebody. There is deliberately nowhere to
+  -- hard-code one.
+  dns_record jsonb,
+  ssl_status text not null default 'pending',
+  -- The last reason verification did not pass, for showing the person.
+  last_error text,
+  verified_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists project_domains_domain_idx
+  on public.project_domains (lower(domain));
+create index if not exists project_domains_project_idx
+  on public.project_domains (project_id);
+
+alter table public.project_publications enable row level security;
+alter table public.project_domains enable row level security;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- READ-ONLY TO THEIR OWNER. This is the part that keeps a publish costing 50
+-- credits.
+--
+-- These policies were `for all` for about an hour, and that was a free-publish
+-- hole. RLS on `projects` lets an owner UPDATE their own row — correct, and with
+-- no COLUMN privileges it meant every column, slug and published_version_id
+-- included. Together with an insertable publications table, a browser holding
+-- nothing but an anon key and its own session could: insert a publication
+-- containing any HTML, point its project at it, and take any free subdomain.
+-- A complete publish, with no charge, no validatePage, and no server involved.
+--
+-- RLS was doing its job. It is ROW security, and this was never a question
+-- about rows — it was about which columns and which commands. So:
+--
+--   * publications and domains are SELECT-only to their owner; every write
+--     goes through the service key in /api/publish and /api/domains.
+--   * the publishing columns on `projects` are removed from the UPDATE grant
+--     below, which is where a column-level answer belongs.
+--
+-- A published page is served through the service key by a route that checks the
+-- project is published, so being public never requires these rows to be
+-- publicly readable.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+drop policy if exists "own publications" on public.project_publications;
+create policy "own publications" on public.project_publications
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "own domains" on public.project_domains;
+create policy "own domains" on public.project_domains
+  for select using (auth.uid() = user_id);
+
+-- Every column the app writes under a CALLER'S SESSION stays grantable:
+-- /api/build updates status, prompt, intent, preview_url and last_build_at
+-- through the session client, and the browser renames a project. What is absent
+-- from this list is the point of it — slug, published_version_id and
+-- published_at, plus id and user_id, which nothing has ever needed to update.
+revoke update on public.projects from authenticated;
+
+grant update (
+  name,
+  prompt,
+  status,
+  intent,
+  preview_url,
+  repo_url,
+  admin_url,
+  last_build_at,
+  pinned,
+  last_opened_at,
+  archived_at,
+  deleted_at,
+  updated_at
+) on public.projects to authenticated;

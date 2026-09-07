@@ -7,7 +7,7 @@ import {
   type UsageSignal,
 } from "@/app/dashboard/credits";
 import { EDIT_MODEL } from "@/lib/builder/edit";
-import { isPublishedStatus } from "@/lib/project-status";
+import { isPublishedProject } from "@/lib/project-status";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Where a charge is actually taken.
@@ -119,7 +119,10 @@ export async function POST(request: Request) {
 
     const { data: project, error: lookupError } = await supabase
       .from("projects")
-      .select("id, status")
+      /* published_version_id, not status: every build overwrites status, so a
+         project published last week and edited since would be priced as a
+         first publish — fifty credits instead of one. See isPublishedProject. */
+      .select("id, status, published_at, published_version_id")
       .eq("id", projectId)
       .maybeSingle();
 
@@ -132,7 +135,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That app is not in your account." }, { status: 404 });
     }
 
-    alreadyPublished = isPublishedStatus(project.status);
+    alreadyPublished = isPublishedProject(project);
   }
 
   /* EDIT_MODEL rather than anything the caller sent. A model id is worth money

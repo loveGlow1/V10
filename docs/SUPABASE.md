@@ -180,18 +180,30 @@ rather than as the user, which needs three things together:
 All three have to land together: revoking first breaks every charge the app
 makes, since it currently calls the function under the caller's own session.
 
-### Nothing ever marks a project published
+### Publication does not live in `projects.status`
 
-`PUBLISHED_STATUSES` is `["Live", "Published"]`, and no writer produces either.
-The column defaults to `Draft`; `/api/build` writes `Building` and `Failed`; the
-orchestrator writes `Building`, `Failed` or `Needs Clarification`. The live table
-holds only `Draft` and `Failed`.
+It used to be planned that way, and this section used to say so. Doing it would
+have been a bug, and it is worth writing down why so nobody puts it back.
 
-So `isPublished()` is false for every row, which makes the dashboard's
-"Published" filter permanently empty, the Manage pane's Published row always
-"Not yet", and `REDEPLOY_COST` unreachable — a publish would always price at
-`PUBLISH_COST`. All of that resolves when the publish step exists and writes one
-of these two statuses; there is no separate bug to fix.
+`status` is the BUILD lifecycle: `Draft`, `Building`, `Built`, `Failed`. It is
+written by `/api/build` in nine places and by the n8n orchestrator in two more —
+and the orchestrator is not this codebase, so those writes cannot simply be
+removed. A project published on Monday and edited on Tuesday would therefore
+have `status` back at `Built` while its published snapshot was still being
+served: the site live, the row denying it. Everything reading status would then
+quote the first-publish price to somebody already live — 50 credits instead of
+1 — show "Published: Not yet" beside a working URL, and drop the project out of
+the Published filter.
+
+So the authority is **`projects.published_version_id`** (and `published_at`),
+written only by `/api/publish` and touched by nothing else. `isPublishedProject`
+in `src/lib/project-status.ts` reads those, falling back to the status only for
+rows selected without them. A publish still sets `status = 'Published'` because
+it is a useful label on a fresh row — but nothing decides on it, and any code
+that starts to is reintroducing this.
+
+`PUBLISHED_STATUSES` and `isPublishedStatus` remain for that label and for rows
+written before publishing existed.
 
 Worth knowing: `projects.status` has no `CHECK` constraint, so a typo in a status
 string is accepted and silently becomes a state nothing recognises.
