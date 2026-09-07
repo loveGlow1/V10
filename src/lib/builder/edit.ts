@@ -230,6 +230,21 @@ function ranOutOfRoom(message: Anthropic.Message): boolean {
  * platform, which is the failure this exists to prevent. */
 const EDIT_DEADLINE_MS = 45_000;
 
+/* And the least of that budget a further attempt is worth starting with.
+ *
+ * The deadline above stops a call that is already running; this stops one from
+ * being started that cannot finish. A retry begun with eight seconds left
+ * produces eight seconds of tokens, places nothing, and reports "I couldn't
+ * place that change" for an edit nobody ever gave the time to try — the person
+ * waits the full minute for that. Below the floor the stage is skipped and the
+ * clock is named as the reason instead, which is at least something to act on. */
+const STAGE_FLOOR_MS = 12_000;
+
+/* Whether there is still room for another attempt. See STAGE_FLOOR_MS. */
+function roomForAnotherStage(deadlineAt: number): boolean {
+  return Date.now() <= deadlineAt - STAGE_FLOOR_MS;
+}
+
 /* Replies that were abandoned on the clock rather than finished.
  *
  * Held beside the message instead of inside it: the synthetic Message below has
@@ -709,6 +724,14 @@ export async function editPage(
        question a second time is the definition of hoping, and it is what this
        used to do: two attempts, one model, one answer, and a person told twice
        that their change could not be placed. */
+    if (!roomForAnotherStage(deadlineAt)) {
+      throw new EditError(
+        "That change is a big one and it ran out of time before it could be placed, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+        422,
+        result.failures,
+      );
+    }
+
     onProgress?.({
       kind: "reasoning",
       text: `That didn't place cleanly. Reading the page again with ${EDIT_MODEL_STRONG}…`,
@@ -775,6 +798,14 @@ export async function editPage(
       const whyPatchesFailed = result.failures.length
         ? describeFailures(result.failures)
         : "Both attempts returned no usable search/replace blocks.";
+
+      if (!roomForAnotherStage(deadlineAt)) {
+        throw new EditError(
+          "That change ran out of time before it could be placed, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+          422,
+          result.failures,
+        );
+      }
 
       onProgress?.({
         kind: "reasoning",
