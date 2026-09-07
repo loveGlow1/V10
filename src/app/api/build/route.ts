@@ -1188,9 +1188,16 @@ async function handle(
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      edited.failures.length > 0
-        ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-        : "Done.",
+      /* A big change that ran out of the minute this route is allowed, with
+         real edits already in it. Said plainly and first, because it is the
+         only one of these three that asks something of the reader: what landed
+         is saved, and the rest of it is still to do. Without this sentence a
+         half-applied redesign reads as the builder having misunderstood. */
+      edited.partial
+        ? `I got ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} in before that ran out of time — they're saved. Send the same message again and I'll carry on from here.`
+        : edited.failures.length > 0
+          ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+          : "Done.",
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */

@@ -297,5 +297,50 @@ has(
 const prose = applyLineEdits(PAGE, "I'll remove that section for you.");
 has(prose.applied === 0 && prose.html === PAGE, "a reply with no blocks leaves the page exactly as it was");
 
+// ── A reply cut short still carries its finished work ─────────────────────
+/* The failure this is for, from a real build: a large visual change, the model
+   streaming steadily, "six edits so far", and at 1m 1s the platform killed the
+   function. maxDuration is 60. Nothing was saved, nothing was reported, and the
+   person watched a spinner for a minute and got the client's fallback — "I
+   couldn't send that one" — which names nothing, because nothing came back.
+ *
+   Raising the token budget to 24,000 is what bought that: the old 8,000 could
+   not run long enough to reach the wall. So the edit path stops itself early
+   now and keeps what has already been written.
+ *
+   The property that makes that safe is here: a reply interrupted mid-block
+   still parses to the WHOLE blocks in it, and never to a partial one. If this
+   ever stops holding, an interrupted edit applies a half-written replacement to
+   somebody's page. */
+
+/* What an aborted stream actually looks like: complete blocks, then a final one
+   that stops in the middle of the SEARCH text with no ======= and no closing
+   marker. */
+const interrupted = `${block(`    <h2>Build. Edit. Launch.</h2>`, `    <h2>Ship it.</h2>`)}\n<<<<<<< SEARCH\n  <footer>\n    <p>Your code lea`;
+
+const partial = applyPatches(PAGE, interrupted);
+has(partial.applied === 1, "the complete block in an interrupted reply applies", JSON.stringify(partial.failures));
+has(partial.html.includes("<h2>Ship it.</h2>"), "and it is the change that was asked for");
+has(
+  partial.html.includes("Your code leaves with you, in full"),
+  "while the half-written block is ignored rather than half-applied",
+  partial.html,
+);
+has(partial.failures.length === 0, "an unfinished block is not reported as a failure — it was never a block");
+
+/* The same for the line-number route, whose blocks close with END. */
+const linesInterrupted = `${lineBlock("3", `    <h2>Ship it.</h2>`)}\n<<<<<<< LINES 6-8\n      <p>half`;
+const linesPartial = applyLineEdits(PAGE, linesInterrupted);
+has(linesPartial.applied === 1, "a line edit cut short applies only its finished range", JSON.stringify(linesPartial.failures));
+has(linesPartial.html.includes("$4,000"), "and the unfinished range is left alone");
+
+/* A reply cut off before ANY block completed changes nothing at all — the
+   caller then reports running out of time rather than saving a no-op. */
+const nothingFinished = applyLineEdits(PAGE, "<<<<<<< LINES 6-8\n      <p>half");
+has(nothingFinished.applied === 0 && nothingFinished.html === PAGE, "a reply cut off before any block finished changes nothing");
+
+const noBlocksAtAll = applyPatches(PAGE, "<<<<<<< SEARCH\n  <foot");
+has(noBlocksAtAll.applied === 0 && noBlocksAtAll.html === PAGE, "and the same for search/replace");
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

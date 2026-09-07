@@ -85,6 +85,40 @@ export const EDIT_MODEL_STRONG = "claude-sonnet-5";
  * thousand tokens of document. See ranOutOfRoom, which now checks. */
 const PATCH_TOKENS = 24_000;
 
+/* ── The wall, and how far in front of it to stop ──────────────────────────
+ *
+ * /api/build is a serverless function with maxDuration = 60. Past that the
+ * platform kills it mid-flight: no response, no error the app can catch, no
+ * page saved. What reaches the person is the client's fallback — "I couldn't
+ * send that one" — after a minute of watching a spinner, and it names nothing
+ * because nothing came back to name.
+ *
+ * That is exactly what raising the token budget bought. The old 8,000 could not
+ * run long enough to hit the wall; it truncated instead, which was the bug
+ * before this one. 24,000 tokens of patch on a forty-thousand-character page is
+ * a minute of streaming, and a real request — "six edits so far" — died on the
+ * wall with every one of those six thrown away.
+ *
+ * So the edit path now carries a clock. It is not a precaution: on a big change
+ * it is the thing that decides whether anything is saved at all.
+ *
+ * The margin covers what happens either side of the model calls — reading the
+ * page, classifying, storing the version, updating the row — measured from the
+ * step timings on the failing build: 2.2s to receive, 0.8s to open, 0.4s to
+ * read, 0.3s to classify, and the writes afterwards. Ten seconds is comfortably
+ * more than that and still leaves fifty for the work.
+ *
+ * THIS NUMBER AND maxDuration IN api/build/route.ts MOVE TOGETHER. On a plan
+ * that allows a longer function, raise that one and then raise this one to ten
+ * seconds under it; raising either alone gets you back to one of the two bugs
+ * this pair is holding shut. */
+export const EDIT_BUDGET_MS = 50_000;
+
+/* The least time a further attempt is worth starting with. Below this it cannot
+   read the page, think and write blocks before the clock runs out, so starting
+   it only converts a reportable failure into an unreportable one. */
+const STAGE_FLOOR_MS = 12_000;
+
 /**
  * The headings this page actually has, for the sentence that asks somebody to
  * name a section.
@@ -239,6 +273,13 @@ async function ask(
   /* Which model does this one. Defaults to the fast one, because most edits are
      small ones — see EDIT_MODEL_STRONG for when they are not. */
   model: string = EDIT_MODEL,
+  /* When this call must be finished by, as a clock time. Past it the stream is
+     stopped and WHAT HAS ALREADY BEEN WRITTEN IS RETURNED — which is the whole
+     point. A reply that was interrupted after six complete search/replace
+     blocks contains six usable edits; letting the platform kill the function
+     instead throws all six away and shows somebody a spinner and an apology.
+     See EDIT_BUDGET_MS. */
+  deadline?: number,
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -281,9 +322,14 @@ async function ask(
       ],
     });
 
+    /* Whether this reply was cut short by the clock rather than finished. It
+       changes what the caller may conclude from an empty result: nothing came
+       back because there was no time, not because the model had nothing. */
+    let ranLong = false;
+    let written = "";
+
     if (onProgress) {
       let reasoning = "";
-      let written = "";
       let lastSent = 0;
       let lastLine = "";
       /* Answer text held back since it was last passed on. Coalesced rather
@@ -292,6 +338,17 @@ async function ask(
       let lastAnswerAt = 0;
 
       for await (const event of stream) {
+        /* Out of time. The connection is dropped and the loop breaks, so what
+           follows works from the text that did arrive. Checked on every event
+           rather than on a timer, because this has to happen between deltas —
+           once the platform's own limit is reached there is no code of ours
+           left running to notice. */
+        if (deadline !== undefined && Date.now() > deadline) {
+          ranLong = true;
+          stream.abort();
+          break;
+        }
+
         if (event.type !== "content_block_delta") continue;
 
         if (event.delta.type === "thinking_delta") {
@@ -338,6 +395,36 @@ async function ask(
          never flushes truncates by design, and the caller's final message would
          disagree with what the reader watched arrive. */
       if (pending) onProgress({ kind: "answer", delta: pending });
+    }
+
+    /* Stopped for time. The stream was aborted, so there is no final message to
+       ask for — and asking would throw and lose the very thing worth keeping.
+       What is returned is the text that did arrive, shaped like a reply that
+       ran out of room, because from every caller's point of view that is
+       exactly what happened: the answer is real and it is incomplete.
+     *
+       The usage figure is the one honest casualty. The API reports it in the
+       final message and there is no final message, so an interrupted call is
+       billed as zero output rather than guessed at — under-charging on a reply
+       nobody asked to be cut short is the right way round to be wrong. */
+    if (ranLong) {
+      return {
+        id: "interrupted",
+        type: "message",
+        role: "assistant",
+        model,
+        content: written ? [{ type: "text", text: written, citations: null }] : [],
+        stop_reason: "max_tokens",
+        stop_sequence: null,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+          server_tool_use: null,
+          service_tier: null,
+        },
+      } as unknown as Anthropic.Message;
     }
 
     return await stream.finalMessage();
@@ -411,6 +498,13 @@ export type EditOutcome = {
      the second route is the weaker one, and which route an edit took is the
      first thing worth knowing when one lands wrong. */
   route: "patch" | "lines";
+  /* Whether the reply was cut short by the clock with edits already in it.
+   *
+     This is a real outcome, not an error: the blocks that arrived were complete
+     and they applied, and the rest of the change was never written. Saying so
+     is the difference between somebody thinking the builder half-understood
+     them and knowing there is more to ask for. */
+  partial: boolean;
   /* The one next step the model was allowed to offer after its blocks, when it
      had one worth offering. It rides on the edit call rather than costing a
      second one — the model has just read the page closely enough to patch it,
@@ -436,6 +530,16 @@ export async function editPage(
   const looking = attachments.some((block) => block.type === "image");
   const model = looking ? EDIT_MODEL_STRONG : EDIT_MODEL;
 
+  /* One clock for the whole edit, set when it starts.
+   *
+   * Three model calls can run here — patch, retry, line numbers — and each one
+   * has to finish inside the SAME sixty seconds the platform allows the whole
+   * request. Budgeting them separately is how a request ends up two thirds of
+   * the way through its third call when the function is killed. So the deadline
+   * is absolute, every stage is measured against it, and a stage that cannot
+   * start in time is not started. */
+  const finishBy = Date.now() + EDIT_BUDGET_MS;
+
   const first = await ask(
     EDIT_SYSTEM,
     editPrompt(userMessage, html),
@@ -445,6 +549,7 @@ export async function editPage(
     onProgress,
     false,
     model,
+    finishBy,
   );
 
   if (first.stop_reason === "refusal") {
@@ -487,6 +592,19 @@ export async function editPage(
       text: `That didn't place cleanly. Reading the page again with ${EDIT_MODEL_STRONG}…`,
     });
 
+    /* Enough left to be worth starting. A second attempt begun with eight
+       seconds on the clock produces eight seconds of tokens and then dies with
+       the function — the person waits the full minute for that, and gets the
+       client's apology rather than a reason. Below the floor this stage is
+       skipped and the failure is reported honestly instead. */
+    if (Date.now() > finishBy - STAGE_FLOOR_MS) {
+      throw new EditError(
+        "That change is a big one and it ran out of time before it could be placed, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+        422,
+        result.failures,
+      );
+    }
+
     const second = await ask(
       EDIT_SYSTEM,
       retryPrompt(userMessage, html, reason),
@@ -496,6 +614,7 @@ export async function editPage(
       onProgress,
       false,
       EDIT_MODEL_STRONG,
+      finishBy,
     );
     output = textOf(second);
     result = applyPatches(html, output);
@@ -527,6 +646,14 @@ export async function editPage(
         text: "Quoting the page isn't landing. Reading it by line number instead…",
       });
 
+      if (Date.now() > finishBy - STAGE_FLOOR_MS) {
+        throw new EditError(
+          "That change ran out of time before it could be placed, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+          422,
+          result.failures,
+        );
+      }
+
       const numbered = numberLines(html);
       const third = await ask(
         LINES_SYSTEM,
@@ -537,6 +664,7 @@ export async function editPage(
         onProgress,
         false,
         EDIT_MODEL_STRONG,
+        finishBy,
       );
 
       const byLine = applyLineEdits(html, textOf(third));
@@ -552,6 +680,7 @@ export async function editPage(
           retried: true,
           model: EDIT_MODEL_STRONG,
           route: "lines",
+          partial: ranOutOfRoom(third) && byLine.applied > 0,
         };
       }
 
@@ -592,6 +721,10 @@ export async function editPage(
        finished by it whatever the first attempt used. */
     model: retried ? EDIT_MODEL_STRONG : model,
     route: "patch",
+    /* Cut short, but with work in it. The blocks that arrived were whole —
+       applyPatches cannot parse a half-written one — so they are kept, and the
+       caller says what did not fit. */
+    partial: ranOutOfRoom(first) && result.applied > 0,
   };
 }
 
