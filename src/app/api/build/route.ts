@@ -25,6 +25,7 @@ import {
   placeAttachments,
   signedImageUrls,
 } from "@/lib/builder/attachments";
+import { readPage, regressions } from "@/lib/builder/brain";
 import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -1191,6 +1192,25 @@ async function handle(
     steps.begin("check", "Checking the change", "making sure the page still holds together…");
     const verdict = validatePage(currentHtml, edited.html);
 
+    /* And the second question, which the first one cannot answer.
+     *
+     * validatePage asks whether the document still HOLDS TOGETHER — tags
+     * balanced, nothing catastrophically removed. This asks whether it still
+     * WORKS, and the failures are the ones that pass every other check in the
+     * pipeline: a nav link pointing at a section the edit deleted, a script
+     * reaching for an id that is gone, the viewport tag lost so the page stops
+     * laying out on a phone. Each of those renders. Each of those diffs
+     * cleanly. Each of those is found by the person whose site it is.
+     *
+     * Reported rather than refused, and that distinction is the whole design.
+     * A broken anchor is not a reason to throw away an edit somebody asked for
+     * — the edit is probably right and the nav is probably a line behind it. So
+     * the change is kept and the consequence is said out loud, in the reply,
+     * with enough in it to ask for the follow-up in one sentence. Refusing
+     * would be the failure this codebase has had twice: a rule that is right in
+     * principle and wrong about the documents it meets. */
+    const broke = verdict.ok ? regressions(readPage(currentHtml), readPage(edited.html)) : [];
+
     if (!verdict.ok) {
       /* Discarded, not stored. The previous version is still the working
          version and was never touched — the edit only ever existed in memory,
@@ -1214,7 +1234,13 @@ async function handle(
       );
     }
 
-    steps.mark("check", "The page still holds together");
+    steps.mark(
+      "check",
+      broke.length === 0
+        ? "The page still holds together"
+        : `Applied, but ${broke.length} thing${broke.length === 1 ? "" : "s"} the change knocked loose`,
+      broke.length === 0 ? undefined : broke.join("; "),
+    );
 
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
@@ -1258,6 +1284,16 @@ async function handle(
         : edited.failures.length > 0
           ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
           : "Done.",
+      /* What the change knocked loose on its way through.
+       *
+       * Said before the model's own suggestion, because it outranks it: a
+       * broken anchor is a fact about the page somebody now owns, and a next
+       * step is an offer. Said at all because nothing else in the pipeline
+       * can — the page renders, the markup balances, and this is the only
+       * point at which anybody notices the menu stopped working. */
+      broke.length > 0
+        ? `One thing to know: ${broke.join("; and ")}. Say the word and I'll tidy that up.`
+        : null,
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
