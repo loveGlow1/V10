@@ -112,8 +112,18 @@ export default function PublishPanel({
       ? { url: publishedUrl(slug), version: 0, publishedAt, charged: 0 }
       : null,
   );
+  /* The address as it stands, held here rather than read from the prop: the
+     project row does not refresh the moment this saves, so the prop is stale
+     until the workspace reloads and every comparison against it would be
+     wrong. */
+  const [live_slug, setLiveSlug] = useState(slug ?? "");
   const [address, setAddress] = useState(slug ?? "");
+  /* Whether the editor is OPEN. */
   const [renaming, setRenaming] = useState(false);
+  /* Whether a save is IN FLIGHT — a different question, and conflating the two
+     is what made the Save button do nothing at all: the guard bailed out
+     whenever the editor was open, which is exactly when Save is pressed. */
+  const [savingAddress, setSavingAddress] = useState(false);
   const [addressProblem, setAddressProblem] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   /* What went wrong, and at which step. The stage is worth keeping: "couldn't
@@ -205,10 +215,12 @@ export default function PublishPanel({
   }
 
   async function saveAddress() {
-    if (!projectId || renaming) return;
-    const wanted = address.trim().toLowerCase();
-    if (!wanted || wanted === slug) { setRenaming(false); return; }
+    if (!projectId || savingAddress) return;
 
+    const wanted = address.trim().toLowerCase();
+    if (!wanted || wanted === live_slug) { setRenaming(false); return; }
+
+    setSavingAddress(true);
     setAddressProblem(null);
     try {
       const response = await fetch("/api/publish", {
@@ -223,10 +235,18 @@ export default function PublishPanel({
         return;
       }
 
+      /* Everything the server confirmed, together: the address it stored and
+         the link it is served at. The editor closes only on success — a
+         refused address keeps what was typed, so it can be corrected rather
+         than retyped. */
+      setLiveSlug(body.slug);
+      setAddress(body.slug);
       setPublished((current) => (current ? { ...current, url: body.url } : current));
       setRenaming(false);
     } catch {
       setAddressProblem("That didn't get through. Try again.");
+    } finally {
+      setSavingAddress(false);
     }
   }
 
@@ -249,27 +269,36 @@ export default function PublishPanel({
       {live && renaming ? (
         <div className="mt-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="shrink-0 text-[12px] text-muted">{publishedLabel("").replace(/\/$/, "/")}</span>
             <input
               value={address}
               onChange={(event) => setAddress(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") void saveAddress();
-                if (event.key === "Escape") { setAddress(slug ?? ""); setRenaming(false); }
+                if (event.key === "Escape") { setAddress(live_slug); setRenaming(false); }
               }}
               autoFocus
               spellCheck={false}
               autoCapitalize="none"
               autoCorrect="off"
-              className="min-w-0 flex-1 rounded-lg border border-line/[0.14] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-ink focus:border-line/[0.24] focus:outline-none"
+              placeholder="your-address"
+              className="min-w-0 flex-1 rounded-lg border border-line/[0.14] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-ink placeholder:text-muted focus:border-line/[0.24] focus:outline-none"
             />
             <button
               onClick={saveAddress}
-              className="shrink-0 rounded-lg border border-line/[0.12] px-2.5 py-2 text-[12px] text-ink transition-colors hover:bg-layer/[0.06]"
+              disabled={savingAddress || !address.trim()}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line/[0.12] px-2.5 py-2 text-[12px] text-ink transition-colors hover:bg-layer/[0.06] disabled:text-muted"
             >
-              Save
+              {savingAddress && <Loader2 className="h-3 w-3 animate-spin" />}
+              {savingAddress ? "Saving…" : "Save"}
             </button>
           </div>
+
+          {/* The whole address, as it will read once saved. A bare input on a
+              prefix somebody cannot see is a guess about what they are about to
+              publish under — this is the answer, updating as they type. */}
+          <p className="mt-1.5 break-all font-mono text-[11.5px] text-ink">
+            {publishedLabel(address.trim().toLowerCase() || "your-address")}
+          </p>
           {/* Said before it happens, not after. Nothing redirects — the old
               address is released and anyone may take it — so this is a decision
               rather than a detail. */}
@@ -284,9 +313,12 @@ export default function PublishPanel({
             href={published.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 flex-1 truncate text-[12px] text-emerald-300 hover:underline"
+            /* Wrapped rather than truncated. A path address is longer than a
+               subdomain was, and an address ending in an ellipsis is one
+               somebody cannot read back or check. */
+            className="min-w-0 flex-1 break-all text-[12px] leading-snug text-emerald-300 hover:underline"
           >
-            {published.url.replace(/^https:\/\//, "")}
+            {published.url.replace(/^https?:\/\//, "")}
           </a>
           <button
             onClick={() => { setAddress(slug ?? ""); setRenaming(true); }}
