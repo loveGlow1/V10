@@ -29,6 +29,7 @@
     "check:standalone": "node tools/check-standalone.mjs",
     "check:stock-query": "node tools/check-stock-query.mjs",
     "check:theme": "node tools/check-theme.mjs",
+    "check:tree": "node tools/check-tree.mjs",
     "check:validate": "node tools/check-validate.mjs",
     "audit:page": "node tools/audit-page.mjs",
     "settle": "node tools/settle-payment.mjs"
