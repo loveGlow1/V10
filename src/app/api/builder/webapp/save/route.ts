@@ -10,6 +10,7 @@ import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { resolveBackend } from "@/lib/builder/backend/connection";
+import { systemByName } from "@/lib/builder/design";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -126,6 +127,11 @@ type SaveRequest = {
   /* The architecture manifest /api/build decided, carried through the
      orchestrator untouched. See architectureFor. */
   architecture?: unknown;
+  /* Which of the six design systems, by name. Looked up rather than trusted as
+     a payload: a name either matches one of six or it does not, so a value
+     mangled in transit becomes a project with no tokens file rather than a
+     project with a corrupted palette in it. */
+  designSystem?: unknown;
 };
 
 /* ── A build that failed here says so, in the thread, in its own words ─────
@@ -295,6 +301,11 @@ export async function POST(request: Request) {
         (project.name as string | null) ?? "app",
         summaryArchitecture,
         summaryModel,
+        /* Null for any build that did not send one — every build before this
+           existed, and any caller that is not /api/build. The scaffold then
+           writes no tokens file and the project keeps whatever stylesheet the
+           model wrote, exactly as it did before. */
+        systemByName(body.designSystem) ?? undefined,
       );
 
       const missing = missingFrom(tree);

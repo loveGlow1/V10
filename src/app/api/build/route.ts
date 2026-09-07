@@ -47,6 +47,7 @@ import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import { decideArchitecture, describeArchitecture } from "@/lib/builder/architecture";
+import { decideDesign } from "@/lib/builder/design";
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { treeBrief } from "@/lib/builder/scaffold";
@@ -1819,6 +1820,18 @@ async function handle(
   const sources = Object.entries(pictures.bySource)
     .map(([id, count]) => `${count} from ${id}`)
     .join(", ");
+  /* ── And the design system, from the same decision ──────────────────────
+   *
+   * Read off the register the planner just chose rather than derived again
+   * from the brief. That is the whole point of doing it here: one answer to
+   * "what does this look like" produces both halves, so a project cannot end
+   * up with warm documentary photography inside a clinical blue interface.
+   *
+   * Free, deterministic, and one of six systems written by hand — see
+   * src/lib/builder/design.ts. */
+  const design = decideDesign(plan.direction.register, kind.kind, brief.text);
+  steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
+
   steps.mark(
     "assets",
     `Chose the imagery — ${plan.direction.register}`,
@@ -1876,6 +1889,8 @@ async function handle(
       /* Which layers exist, so the blueprint's admin half is switched on and
          its frontend-only exclusions are switched off. */
       architecture: architecture.manifest,
+      /* And what it looks like: one system, named tokens, no invented values. */
+      design: design.dna,
       /* And, when this is a project rather than a page, what a project has to
          come back as: the files, the routes, and the plumbing NOT to write
          because scaffold.ts writes it. Appended to the blueprint rather than
@@ -1883,7 +1898,7 @@ async function handle(
          the shape of the answer changes. */
       treeInstructions:
         needs.stack === "nextjs"
-          ? treeBrief(kind.kind, architecture.manifest, dataModel)
+          ? treeBrief(kind.kind, architecture.manifest, dataModel, design.dna)
           : undefined,
     });
 
@@ -1923,6 +1938,11 @@ async function handle(
          route scaffolds against the same answer the prompt was written
          against. */
       architecture: architecture.manifest,
+      /* And what it looks like. The NAME rather than the system: every value in
+         one is a constant this app already holds, so sending the whole thing
+         would push a palette down a wire to arrive at something already on the
+         other end. The save route looks it up — see design.ts, systemByName. */
+      designSystem: design.dna.name,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.
