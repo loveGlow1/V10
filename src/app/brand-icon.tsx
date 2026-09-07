@@ -25,21 +25,28 @@ const TAIL_OUTER_REACH = 2.75;
 const TAIL_STROKE_WIDTH = 0.8;
 const DIAGONAL = Math.SQRT1_2;
 
-/* The mark, as the brand draws it: obsidian black on the dark sphere.
- *
- * This was tried light for legibility — a favicon is 16px, and black on
- * near-black is hard to pick out of a row of tabs — and the black is the
- * deliberate choice, made after seeing both. Kept here rather than argued
- * with: it is the mark, and it is what the brand looks like.
- *
- * If it ever wants more separation without changing the mark, the ground is
- * the thing to lift, not this. */
+/* The mark stays black — it is the brand, and it is not the thing to change.
+ * What changed is what it sits on. */
 const MARK_BLACK = "#050506";
+
+/* A white ground, which is how a dark mark survives a browser tab.
+ *
+ * The mark on its own dark sphere is right on the page, where it sits against
+ * a lit halo. As a favicon it was black on near-black: a smudge nobody can
+ * pick out of a row of tabs, which is the one job the icon has. Lightening the
+ * mark would have fixed the contrast by changing the logo, which is backwards.
+ *
+ * So the ground carries it instead. This is the arrangement OpenAI, Vercel,
+ * Linear and Notion all land on for the same reason: one flat field, the mark
+ * in full contrast on top, and nothing else competing at 16 pixels. It also
+ * holds up in both browser themes — a white tile reads as a deliberate object
+ * on a dark tab strip, where a dark tile disappears into it. */
+const GROUND_WHITE = "#FFFFFF";
 
 /* How much of the icon the mark's ring spans. The tail reaches further than
    the ring does — 2.75 against 2.0 — so this leaves room for it to finish
    inside the frame rather than touching the edge. */
-const RING_SHARE = 0.52;
+const RING_SHARE = 0.58;
 
 export function brandIcon(size: number) {
   /* Pixels per world unit, derived from the ring so every other measurement
@@ -54,17 +61,6 @@ export function brandIcon(size: number) {
   /* The tail's midpoint, out along the 45° diagonal from the centre. */
   const tailOffset = ((TAIL_INNER_REACH + TAIL_OUTER_REACH) / 2) * unit * DIAGONAL;
 
-  /* Small enough to disappear cleanly when the icon is scaled to 16px, which
-     is what they should do — at that size they would be dirt on the glass. */
-  const stars = [
-    { x: 0.26, y: 0.22, r: 0.9, o: 0.5 },
-    { x: 0.72, y: 0.19, r: 1.2, o: 0.7 },
-    { x: 0.81, y: 0.4, r: 0.8, o: 0.45 },
-    { x: 0.19, y: 0.63, r: 1.0, o: 0.55 },
-    { x: 0.63, y: 0.79, r: 0.9, o: 0.5 },
-    { x: 0.44, y: 0.14, r: 0.7, o: 0.4 },
-  ];
-
   return new ImageResponse(
     (
       <div
@@ -73,28 +69,12 @@ export function brandIcon(size: number) {
           height: size,
           display: "flex",
           position: "relative",
-          /* The ground the mark sits on: lit a little above and left of centre,
-             falling to near-black at the corners, so the square reads as a
-             sphere rather than a tile. */
-          backgroundImage: `radial-gradient(circle at 44% 40%, #2a2a30 0%, #16161a 52%, #0a0a0c 100%)`,
+          /* Flat, edge to edge. The stars and the vignette went with the dark
+             sphere: on white the first are invisible and the second would be a
+             grey haze at 16px, which is dirt rather than depth. */
+          background: GROUND_WHITE,
         }}
       >
-        {stars.map((star, index) => (
-          <div
-            key={index}
-            style={{
-              position: "absolute",
-              left: star.x * size,
-              top: star.y * size,
-              width: (star.r * size) / 100,
-              height: (star.r * size) / 100,
-              borderRadius: size,
-              background: "#ffffff",
-              opacity: star.o,
-            }}
-          />
-        ))}
-
         {/* The ring: a circle whose border IS the stroke, so its inner and
             outer edges land on RING_INNER_RADIUS and RING_OUTER_RADIUS
             exactly. */}
