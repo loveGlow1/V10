@@ -552,6 +552,39 @@ export async function POST(request: Request) {
     });
   }
 
+  /* ── What this project IS, written down ────────────────────────────────
+   *
+   * The manifest and the design system were decided at build time, carried
+   * through the orchestrator, used to scaffold — and then dropped. Nothing kept
+   * them, so an edit arriving later read the last stored page and nothing else,
+   * and could not learn that this project has a database, an admin area and a
+   * design system it must stay inside.
+   *
+   * Recorded per project rather than per build, because that is the question an
+   * edit asks: not "what did the build in March decide" but "what is this
+   * project". Best effort — a project whose architecture row fails to write is
+   * a project whose next edit is less informed, which is where it already was,
+   * and is not a reason to fail a build that succeeded. */
+  await supabase
+    .from("project_architecture")
+    .upsert(
+      {
+        project_id: project.id,
+        user_id: claim.userId,
+        kind: summaryArchitecture.type,
+        manifest: summaryArchitecture,
+        design_system: typeof body.designSystem === "string" ? body.designSystem : null,
+        stack: tree.length > 0 ? "nextjs" : "standalone-html",
+      },
+      { onConflict: "project_id" },
+    )
+    .then(({ error }) => {
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("save: the architecture was not recorded:", error.message);
+      }
+    });
+
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
 
   /* The row the workspace is watching. This is the moment the spinner in the

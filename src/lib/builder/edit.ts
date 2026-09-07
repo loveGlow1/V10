@@ -618,6 +618,11 @@ export async function editPage(
   attachments: Anthropic.ContentBlockParam[] = [],
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
+  /* What the project is, and what this change may not touch — see
+     src/lib/builder/edit-plan.ts, editPlanBrief. Optional, and absent for every
+     project built before the architecture was recorded: the edit then behaves
+     exactly as it did, which is the correct fallback when nothing is known. */
+  architecture?: string,
 ): Promise<EditOutcome> {
   /* A picture in the message changes what this call is. The model has to read
      the photograph, find the markup behind what it shows, and copy that markup
@@ -635,7 +640,7 @@ export async function editPage(
 
   const first = await ask(
     EDIT_SYSTEM,
-    editPrompt(userMessage, html),
+    editPrompt(userMessage, html, architecture),
     PATCH_TOKENS,
     attachments,
     prior,
@@ -716,7 +721,7 @@ export async function editPage(
 
     const second = await ask(
       EDIT_SYSTEM,
-      retryPrompt(userMessage, html, reason),
+      retryPrompt(userMessage, html, reason, architecture),
       PATCH_TOKENS,
       attachments,
       prior,
@@ -784,7 +789,7 @@ export async function editPage(
       const numbered = numberLines(html);
       const third = await ask(
         LINES_SYSTEM,
-        linesPrompt(userMessage, numbered, whyPatchesFailed),
+        linesPrompt(userMessage, numbered, whyPatchesFailed, architecture),
         PATCH_TOKENS,
         attachments,
         prior,
