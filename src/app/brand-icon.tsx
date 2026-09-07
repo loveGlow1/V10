@@ -25,6 +25,15 @@ const TAIL_OUTER_REACH = 2.75;
 const TAIL_STROKE_WIDTH = 0.8;
 const DIAGONAL = Math.SQRT1_2;
 
+/* The mark, as the brand draws it: obsidian black on the dark sphere.
+ *
+ * This was tried light for legibility — a favicon is 16px, and black on
+ * near-black is hard to pick out of a row of tabs — and the black is the
+ * deliberate choice, made after seeing both. Kept here rather than argued
+ * with: it is the mark, and it is what the brand looks like.
+ *
+ * If it ever wants more separation without changing the mark, the ground is
+ * the thing to lift, not this. */
 const MARK_BLACK = "#050506";
 
 /* How much of the icon the mark's ring spans. The tail reaches further than
