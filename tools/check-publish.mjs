@@ -66,7 +66,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { addressFor, isApex, normaliseDomain, publishedLabel, publishedUrl, recordName, RESERVED_APP_ROUTES, slugAttempt, slugFrom, slugIsUsable } =
+const { addressFor, isApex, normaliseDomain, previewUrl, publishedLabel, publishedUrl, recordName, RESERVED_APP_ROUTES, slugAttempt, slugFrom, slugIsUsable } =
   await import(join(out, "lib/publish/naming.js"));
 const { isAppPath, routeFor } = await import(join(out, "lib/publish/routing.js"));
 
@@ -216,6 +216,45 @@ for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuris
 has(publishedUrl("shop") === "https://www.quickstark.tech/shop", "a published project is served from a path", publishedUrl("shop"));
 has(!publishedUrl("shop").includes("shop.quickstark"), "and never from a subdomain", publishedUrl("shop"));
 has(publishedLabel("shop") === "www.quickstark.tech/shop", "the label drops the scheme", publishedLabel("shop"));
+
+/* ── The preview address ──────────────────────────────────────────────────
+ *
+ * /preview/8975e2ca-5cbc-4773-bc58-eb858894acd5 is 36 characters of hex that
+ * tells nobody anything and cannot be read down a phone. The short form uses
+ * the name the project already answers on, with one word appended — so the
+ * address somebody learns while building is the address their site keeps, and
+ * publishing moves nothing.
+ *
+ * The id form is not a fallback to be tidied away. Every link already written
+ * points at it — the download links, the chat's chips, preview_url on older
+ * rows — so a project with no slug must still get a working address. */
+has(
+  previewUrl({ id: "8975e2ca-5cbc", slug: "quickstark-app" }) === "https://www.quickstark.tech/quickstark-app/preview",
+  "a named project previews at its own name",
+  previewUrl({ id: "8975e2ca-5cbc", slug: "quickstark-app" }),
+);
+has(
+  previewUrl({ id: "8975e2ca-5cbc", slug: "quickstark-app" }).endsWith("/preview"),
+  "and the address ends with the word preview",
+);
+has(
+  previewUrl({ id: "8975e2ca-5cbc", slug: null }) === "https://www.quickstark.tech/preview/8975e2ca-5cbc",
+  "a project with no name yet still has a working address",
+  previewUrl({ id: "8975e2ca-5cbc", slug: null }),
+);
+has(
+  previewUrl({ id: "8975e2ca-5cbc" }) === "https://www.quickstark.tech/preview/8975e2ca-5cbc",
+  "and so does one whose row was read without the column",
+);
+
+/* The two addresses of one project differ by exactly one segment — that is
+   what makes publishing a change of nothing rather than a move. */
+const named = { id: "x", slug: "quickstark-app" };
+has(
+  previewUrl(named) === `${publishedUrl(named.slug)}/preview`,
+  "the preview address is the published one plus /preview",
+  `${previewUrl(named)} vs ${publishedUrl(named.slug)}`,
+);
 
 /* ── THE LIST AND THE ROUTER MUST AGREE ───────────────────────────────────
  *

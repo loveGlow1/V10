@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { canAfford, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
 import { validatePage } from "@/lib/builder/validate";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
-import { addressFor, publishedUrl, slugAttempt, slugIsUsable } from "@/lib/publish/naming";
+import { publishedUrl, slugIsUsable } from "@/lib/publish/naming";
+import { reserveSlug } from "@/lib/publish/reserve";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -121,36 +122,25 @@ export async function POST(request: Request) {
   }
 
   /* ── The address ─────────────────────────────────────────────────────────
-     Kept once it exists: a published project's URL is something people have
-     linked to, and re-deriving it from a renamed project would break those
-     links silently. */
-  let slug = project.slug as string | null;
+     Usually already there: it is reserved on the first build, so both the
+     preview and the published site are named the same thing and publishing
+     moves no URL. Only a project built before that behaviour existed reaches
+     the reservation here. */
+  const reserved = await reserveSlug(service, { id: projectId, name: project.name as string, slug: project.slug as string | null }, user.id);
 
-  if (!slug) {
-    const base = addressFor(project.name as string, projectId);
-    if (!base) return fail("That project's name can't be turned into a web address. Rename it and try again.", 422, "address");
-
-    /* Walked until the database accepts one. The unique index is what actually
-       settles it — two people can publish "shop" in the same second, and only
-       the index sees both. */
-    for (let attempt = 0; attempt < 25 && !slug; attempt += 1) {
-      const candidate = slugAttempt(base, attempt);
-      const { error } = await service
-        .from("projects")
-        .update({ slug: candidate })
-        .eq("id", projectId)
-        .eq("user_id", user.id);
-
-      if (!error) slug = candidate;
-      /* 23505 is unique_violation: taken, try the next. Anything else is a real
-         failure and must not be retried into a loop. */
-      else if (error.code !== "23505") {
-        return fail("The web address couldn't be reserved. Try again in a moment.", 502, "address");
-      }
-    }
-
-    if (!slug) return fail("Every address close to that name is taken. Rename the project and try again.", 409, "address");
+  if ("problem" in reserved) {
+    return fail(
+      reserved.problem === "unusable-name"
+        ? "That project's name can't be turned into a web address. Rename it and try again."
+        : reserved.problem === "all-taken"
+          ? "Every address close to that name is taken. Rename the project and try again."
+          : "The web address couldn't be reserved. Try again in a moment.",
+      reserved.problem === "database" ? 502 : 422,
+      "address",
+    );
   }
+
+  const slug = reserved.slug;
 
   /* ── The snapshot ────────────────────────────────────────────────────────
      Written before the project is marked published, so the pointer can never
