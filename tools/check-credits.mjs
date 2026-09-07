@@ -155,6 +155,71 @@ try {
     "iterating must not be taxed like provisioning",
   );
 
+  /* ── What /api/publish is allowed to charge ──────────────────────────────
+   *
+   * The publish route quotes a price to the person, checks their balance
+   * against it, publishes, and then charges. Those are three separate reads of
+   * the same number, and they are only safe if the number cannot move — so what
+   * is asserted here is that NOTHING about the page can shift a publish off its
+   * advertised price.
+   *
+   * This is the largest single charge on the platform. Somebody shown "5
+   * credits" and billed something else has been overcharged, whatever the
+   * arithmetic says. */
+  const firstPublish = credits.creditCostOf("publish");
+  const redeploy = credits.creditCostOf("publish", { alreadyPublished: true });
+
+  has(firstPublish === credits.PUBLISH_COST, "a first publish is the advertised price", `${firstPublish}`);
+  has(redeploy === credits.REDEPLOY_COST, "and a redeploy is the redeploy price", `${redeploy}`);
+
+  /* A long page, a big model, a thousand files touched. A deploy is a commit
+     and a subdomain: no model runs, so none of these may register. */
+  for (const [name, signal] of [
+    ["a huge page", { outputTokens: 500_000 }],
+    ["many files", { filesTouched: 1_000 }],
+    ["the priciest model", { modelId: "claude-fable-5-1" }],
+    ["all three at once", { outputTokens: 500_000, filesTouched: 1_000, modelId: "claude-fable-5-1" }],
+  ]) {
+    has(
+      credits.creditCostOf("publish", signal) === credits.PUBLISH_COST,
+      `${name} does not change what a publish costs`,
+      `${credits.creditCostOf("publish", signal)}`,
+    );
+    has(
+      credits.creditCostOf("publish", { ...signal, alreadyPublished: true }) === credits.REDEPLOY_COST,
+      `${name} does not change what a redeploy costs`,
+      `${credits.creditCostOf("publish", { ...signal, alreadyPublished: true })}`,
+    );
+  }
+
+  /* Both prices survive rounding unchanged. The route rounds before charging,
+     and a price that moves when rounded is a price quoted wrong. */
+  has(
+    credits.roundCredits(firstPublish) === firstPublish && credits.roundCredits(redeploy) === redeploy,
+    "both publish prices are already in the units a balance is kept in",
+    `${credits.roundCredits(firstPublish)} / ${credits.roundCredits(redeploy)}`,
+  );
+
+  /* An account with exactly the price can publish; one a hair short cannot.
+     canAfford is what the route checks before anything is written, so an
+     off-by-one here either blocks a paying customer or lets a publish through
+     unpaid. */
+  const exactly = { daily: 0, rollover: 0, monthly: firstPublish, topUp: 0, planId: "free" };
+  const short = { daily: 0, rollover: 0, monthly: firstPublish - 0.01, topUp: 0, planId: "free" };
+  has(credits.canAfford(exactly, firstPublish) === true, "exactly enough credits can publish");
+  has(credits.canAfford(short, firstPublish) === false, "a hair short cannot");
+
+  /* Credits from different buckets add up — somebody with a part-used monthly
+     allowance and a top-up pack must be able to publish. */
+  const spread = {
+    daily: firstPublish / 4,
+    rollover: firstPublish / 4,
+    monthly: firstPublish / 4,
+    topUp: firstPublish / 4,
+    planId: "free",
+  };
+  has(credits.canAfford(spread, firstPublish) === true, "and credits spread across buckets still add up");
+
   /* ── What a long brief costs ─────────────────────────────────────────────
      A price, not a cost — 700 words is about a fifth of a cent of input
      against a build that costs about a dollar. So there is nothing here for a

@@ -35,7 +35,15 @@ type DomainRow = {
   verifiedAt: string | null;
 };
 
-type Published = { url: string; version: number; publishedAt: string } | null;
+type Published = {
+  url: string;
+  version: number;
+  publishedAt: string;
+  /* What it actually cost, as the ledger recorded it — not what the panel
+     quoted beforehand. A person who was quoted one number and charged another
+     should see the one that was taken. */
+  charged: number;
+} | null;
 
 function Copyable({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -143,7 +151,7 @@ export default function PublishPanel({
         return;
       }
 
-      setPublished({ url: body.url, version: body.version, publishedAt: body.publishedAt });
+      setPublished({ url: body.url, version: body.version, publishedAt: body.publishedAt, charged: body.charged ?? 0 });
       /* A domain connected earlier may have been waiting on exactly this. */
       void loadDomains(false);
     } catch {
@@ -227,14 +235,25 @@ export default function PublishPanel({
 
       {live && (
         <p className="mt-1.5 text-[12px] text-muted">
-          Version {published.version} is live. Edits stay in preview until you publish again.
+          Version {published.version} is live
+          {published.charged > 0 ? ` · ${published.charged} credit${published.charged === 1 ? "" : "s"}` : ""}. Edits
+          stay in preview until you publish again.
         </p>
       )}
 
       <p className="mt-1 text-[12px] leading-relaxed text-muted">{priceNote}</p>
 
       {problem && (
-        <p className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-2.5 py-2 text-[12px] leading-relaxed text-rose-300">
+        /* Amber rather than red when the only thing wrong is the balance:
+           that is not a fault, it is a thing to go and do, and colouring it
+           like a crash tells somebody their app is broken when it is not. */
+        <p
+          className={`mt-2 rounded-lg border px-2.5 py-2 text-[12px] leading-relaxed ${
+            problem.stage === "credits"
+              ? "border-amber-500/20 bg-amber-500/[0.06] text-amber-300"
+              : "border-rose-500/20 bg-rose-500/[0.06] text-rose-300"
+          }`}
+        >
           {problem.message}
         </p>
       )}

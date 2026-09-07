@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { canAfford, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
 import { validatePage } from "@/lib/builder/validate";
+import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { publishedUrl, slugAttempt, slugFrom } from "@/lib/publish/naming";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -95,6 +97,29 @@ export async function POST(request: Request) {
     return fail("Publishing is unavailable — this workspace has no service key set.", 503, "config");
   }
 
+  /* ── The price ───────────────────────────────────────────────────────────
+   *
+   * Two flat prices, and which one applies is read from the project rather than
+   * from anything the caller sent: a project that is already live pays the
+   * redeploy price. See creditCostOf — no model runs during a publish, so
+   * nothing about the page can move it off its advertised price.
+   *
+   * Checked BEFORE anything is published, which is the whole reason this is
+   * here rather than only after. A publish is the largest single charge on the
+   * platform, and somebody who cannot afford it should be told while nothing
+   * has happened — not shown a live URL and a negative balance. */
+  const alreadyPublished = Boolean(project.published_version_id);
+  const cost = roundCredits(creditCostOf("publish", { alreadyPublished }));
+
+  const balance = await currentBalance(service, user.id);
+  if (balance && !canAfford(balance, cost)) {
+    return fail(
+      `Publishing costs ${formatCredits(cost)} credits and there aren't enough on the account. Top up and it will go straight out.`,
+      402,
+      "credits",
+    );
+  }
+
   /* ── The address ─────────────────────────────────────────────────────────
      Kept once it exists: a published project's URL is something people have
      linked to, and re-deriving it from a renamed project would break those
@@ -181,6 +206,36 @@ export async function POST(request: Request) {
     return fail("That couldn't be made live just now. Nothing has changed — try again.", 502, "live");
   }
 
+  /* ── Charged, after it is live ───────────────────────────────────────────
+   *
+   * This order round on purpose. The page is public the moment the pointer
+   * flips, and a charge taken before that could be taken for a publish that
+   * then failed — money for nothing, which is the worse of the two ways to be
+   * wrong. The balance was checked above, so the only path that reaches here
+   * unpaid is the credit ledger itself failing, and that is logged rather than
+   * used to take a live site back down.
+   *
+   * The dedupe key is the publication, not the request: two tabs pressing
+   * Publish produce two publications and two charges, which is correct, while a
+   * retried request that reuses a publication is charged once. */
+  const charge = await chargeCredits(service, {
+    userId: user.id,
+    action: "publish",
+    cost,
+    description: alreadyPublished
+      ? `Redeploy: ${project.name} (v${publication.version})`
+      : `Publish: ${project.name}`,
+    projectId,
+    dedupeKey: `publish:${publication.id}`,
+  });
+
+  if (!charge) {
+    // eslint-disable-next-line no-console
+    console.error(`publish: ${projectId} v${publication.version} went live but could not be charged`);
+  }
+
+  const charged = charge?.charged ?? 0;
+
   return NextResponse.json({
     published: true,
     url: publishedUrl(slug),
@@ -189,7 +244,8 @@ export async function POST(request: Request) {
     publishedAt: publication.published_at,
     /* True when this replaced a version that was already live, which is what
        decides whether the reply says "published" or "updated". */
-    replaced: Boolean(project.published_version_id),
+    replaced: alreadyPublished,
+    charged,
   });
 }
 
