@@ -21,6 +21,13 @@ export type Project = {
   repo_url: string | null;
   admin_url: string | null;
   last_build_at: string | null;
+  /* The address this project answers on once it is live. Null until the first
+     publish reserves one, and kept from then on — a published URL is something
+     people have linked to, so renaming the project must not move it. */
+  slug: string | null;
+  /* When it last went live. Null means nothing of this project is public,
+     whatever its status column happens to say. */
+  published_at: string | null;
 };
 
 /* The orchestrator's answer to one build, as /api/build passes it on. */
@@ -177,7 +184,7 @@ const BUILD_FAILED_GRACE_MS = 20_000;
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
 const COLUMNS =
-  "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at";
+  "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at";
 
 /* The projects table is the only place a project exists, so one loader serves
    the switcher and the list below it — otherwise creating a project in one

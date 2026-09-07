@@ -24,6 +24,7 @@
     "check:narration": "node tools/check-narration.mjs",
     "check:patch": "node tools/check-patch.mjs",
     "check:payments": "node tools/check-payments.mjs",
+    "check:publish": "node tools/check-publish.mjs",
     "check:reconcile": "node tools/check-reconcile.mjs",
     "check:standalone": "node tools/check-standalone.mjs",
     "check:stock-query": "node tools/check-stock-query.mjs",
