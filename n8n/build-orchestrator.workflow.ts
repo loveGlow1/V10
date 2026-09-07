@@ -220,6 +220,12 @@ const webappSpec = node({
             value: expr('{{ $("Normalize Build Request").item.json.stack || "standalone-html" }}') },
           { id: 'backend', name: 'backend', type: 'boolean',
             value: expr('{{ $("Normalize Build Request").item.json.backend === true }}') },
+          /* The whole answer, where the two above are the old shape of it: they
+             cannot express an admin, a storage bucket or a checkout. Passed
+             through rather than branched on — nothing in this workflow reads
+             it, and the save route needs it intact. */
+          { id: 'architecture', name: 'architecture', type: 'object',
+            value: expr('{{ $("Normalize Build Request").item.json.architecture || {} }}') },
         ],
       },
       includeOtherFields: true,
@@ -703,7 +709,19 @@ const savePage = node({
          * files AND a rendered home page for the preview to serve. */
         'files: $json.files, ' +
         'stack: $("Normalize Build Request").item.json.stack, ' +
-        'backend: $("Normalize Build Request").item.json.backend }) }}',
+        'backend: $("Normalize Build Request").item.json.backend, ' +
+        /* Which layers this project is made of — see
+         * src/lib/builder/architecture.ts. Carried through untouched, and that
+         * matters more than it looks: it is the record of what the prompt was
+         * written against and what the schema was created from, so the save
+         * route scaffolds a Supabase client for the tables that actually exist.
+         * Modify it here and the project is scaffolded for a database it does
+         * not have.
+         *
+         * undefined on any caller that does not send one, and JSON.stringify
+         * drops undefined keys, so the save route falls back to `stack` and
+         * `backend` above exactly as it did before. */
+        'architecture: $("Normalize Build Request").item.json.architecture }) }}',
       ),
       options: { timeout: 120000 },
     },
