@@ -25,6 +25,7 @@ import type { IntegrationCategory } from "../../integrations";
 import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import { ManageMark, PreviewMark } from "./panelMarks";
@@ -40,17 +41,6 @@ export type ManageRequest = {
   category: IntegrationCategory;
   n: number;
 };
-
-/* The address a published project would answer on. Derived from the name so it
-   is the same string the Manage tab shows and the publish panel promises. */
-function subdomainFor(project: Project | null) {
-  const slug = (project?.name ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return `${slug || "your-app"}${PUBLISH_SUBDOMAIN}`;
-}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -265,37 +255,22 @@ export default function PreviewPanel({
     { id: "payments", label: "Payments", icon: CreditCard },
   ];
 
+  /* The publish flow, which is a real one now: it calls /api/publish, reports
+     what came back, and only says an app is live when the server said so. See
+     PublishPanel — the button used to be disabled with a note promising it
+     would work once a build finished. */
   const publishBody = (
-    <>
-      <p className="hidden text-[13px] font-medium text-ink md:block">Publish this app</p>
-      <p className="break-all rounded-lg border border-line/[0.06] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-soft md:mt-1.5">
-        {subdomainFor(project)}
-      </p>
-      {/* Honest rather than convincing: there is no build to put on that address
-          yet, so the button says why instead of failing. */}
-      <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
-        Goes live once your first build finishes.
-      </p>
-      {/* The price belongs next to the button, not only on the pricing page: a
-          first publish is the largest single charge on the platform, and it is
-          the one action nobody should discover the cost of after taking it.
-
-          Which of the two prices applies is read from the project itself, so a
-          live app quotes the redeploy price rather than the provisioning one. */}
-      <p className="mt-1 text-[12px] leading-relaxed text-muted">
-        {project && isPublished(project)
+    <PublishPanel
+      projectId={project?.id ?? null}
+      hasBuild={Boolean(project?.last_build_at)}
+      priceNote={
+        project && isPublished(project)
           ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`
           : `Going live costs ${formatCredits(creditCostOf("publish"))} credits, then ${formatCredits(
               creditCostOf("publish", { alreadyPublished: true }),
-            )} per deploy after that.`}
-      </p>
-      <button
-        disabled
-        className="mt-3 h-10 w-full rounded-xl bg-layer/[0.08] text-[13px] font-medium text-muted md:h-8 md:rounded-lg"
-      >
-        Publish app
-      </button>
-    </>
+            )} per deploy after that.`
+      }
+    />
   );
 
   /* Once a build has somewhere to look, this is where it is looked at. The
@@ -435,7 +410,24 @@ export default function PreviewPanel({
             <div className="mt-5">
               <Row label="Status">{project ? project.status : "—"}</Row>
               <Row label="Address">
-                <span className="break-all text-soft">{subdomainFor(project)}</span>
+                {/* The real one, or nothing. This used to derive an address
+                    from the project's name and show it whether or not anything
+                    was live — so a project that had never been published
+                    displayed a confident URL that resolved to nothing, and
+                    renaming it appeared to move a site that did not exist. */}
+                {project?.slug ? (
+                  <a
+                    href={`https://${project.slug}${PUBLISH_SUBDOMAIN}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all text-accent hover:underline"
+                  >
+                    {project.slug}
+                    {PUBLISH_SUBDOMAIN}
+                  </a>
+                ) : (
+                  <span className="text-soft">Gets one when you publish</span>
+                )}
               </Row>
               <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
               <Row label="Build type">{project?.intent ?? "—"}</Row>
