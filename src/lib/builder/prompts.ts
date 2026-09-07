@@ -1,3 +1,5 @@
+import { describeProject, readPage } from "./brain";
+
 /* What the model is told when a message is an edit or a question.
  *
  * The prompt for a *new* page is not here — a full build runs in the
@@ -53,7 +55,20 @@ NEXT: <a single concrete next step you would actually take on this page>
 - Never ask permission in it and never ask a question. It is an offer, and the person takes it or does not.`;
 
 export function editPrompt(userMessage: string, html: string): string {
-  return `THE PAGE AS IT STANDS:
+  /* What the project IS, before what it says.
+   *
+   * The page is already below in full, so this is not a summary of it — it is
+   * the handful of facts that are genuinely hard to see from inside forty-six
+   * thousand characters of markup: which colours actually carry the design,
+   * which ids a script depends on, what the nav points at. A model that has
+   * them matches the page it is editing; a model without them invents a second
+   * design system halfway down and deletes the div a menu was hanging off.
+   *
+   * Placed FIRST because it is context for everything after it, and it is the
+   * cheap part of this prompt — a few lines against the whole document. */
+  const project = describeProject(readPage(html));
+
+  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS:
 
 ${html}
 
@@ -164,7 +179,13 @@ NEXT: <a single concrete next step you would actually take on this page>
 Leave it out when there is nothing worth saying, and never ask a question in it.`;
 
 export function linesPrompt(userMessage: string, numbered: string, failures: string): string {
-  return `THE PAGE AS IT STANDS, WITH LINE NUMBERS:
+  /* Wanted here MORE than on the search/replace path, not less: naming a line
+     range rewrites everything inside it, so what must survive the rewrite is
+     exactly what this says. Read from the numbered copy, whose line prefixes do
+     not disturb any of it. */
+  const project = describeProject(readPage(numbered));
+
+  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS, WITH LINE NUMBERS:
 
 ${numbered}
 

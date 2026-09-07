@@ -58,6 +58,11 @@ export function blueprintFor(kind: BuildKind): Blueprint {
 export type ProjectContext = {
   /** What the project is called. Not a brand — a name someone can rename. */
   projectName?: string | null;
+  /* What a project has to come back AS, when it is a project rather than a
+     page: the files to write, the routes, and the plumbing not to bother with.
+     Absent means the single self-contained page this builder has always made.
+     See scaffold.ts (treeBrief) and stack.ts, which decides which it is. */
+  treeInstructions?: string;
   /** Text pulled out of anything attached to the message. */
   attachmentText?: string | null;
   /** How many images came with it, which the caller passes separately. */
@@ -161,9 +166,16 @@ export function composeBuildPrompt(
 ): string {
   const blueprint = BLUEPRINTS[kind];
 
+  /* The one sentence that differs between the two stacks. Everything after it
+     — what this kind of thing IS, what it must contain, the brief, the
+     imagery — is the same question whichever shape the answer takes. */
+  const shape = context.treeInstructions
+    ? "as a Next.js project"
+    : "as a single self-contained HTML file";
+
   return `You are building ${
     kind === "webapp" ? "a web application" : `a ${KIND_LABEL[kind].toLowerCase()}`
-  } as a single self-contained HTML file, to a professional standard, for a real business that will use it.
+  } ${shape}, to a professional standard, for a real business that will use it.
 
 WHAT THIS IS: ${blueprint.identity}
 
@@ -198,5 +210,5 @@ ${localeFor(context.market ?? DEFAULT_MARKET)}
 
 ${BAR}
 
-${BASE}`;
+${BASE}${context.treeInstructions ? `\n\n${BAR}\n\n${context.treeInstructions}` : ""}`;
 }

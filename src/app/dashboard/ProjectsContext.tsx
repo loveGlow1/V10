@@ -50,6 +50,12 @@ export type BuildReply = {
      message with the kind attached. */
   needsKind?: boolean;
   kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
+  /* One page, or a project of files — asked when the brief did not say. See
+     lib/builder/stack.ts. buildKind rides along so the answer is applied to
+     the same reading of the brief that produced the question. */
+  needsStack?: boolean;
+  stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  buildKind?: BuildKind;
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
   error?: string;
@@ -68,6 +74,12 @@ type BuildPayload = {
   needsConfirmation?: boolean;
   needsKind?: boolean;
   kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
+  /* One page, or a project of files — asked when the brief did not say. See
+     lib/builder/stack.ts. buildKind rides along so the answer is applied to
+     the same reading of the brief that produced the question. */
+  needsStack?: boolean;
+  stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  buildKind?: BuildKind;
   build?: BuildOutcome;
   project?: Project | null;
   error?: string;
@@ -97,6 +109,16 @@ export type BuildOptions = {
    * src/lib/builder/kinds.ts.
    */
   buildKind?: BuildKind | null;
+  /**
+   * One page, or a Next.js project — when the person has been asked and has
+   * answered.
+   *
+   * Left off, the server reads it from the brief and asks only if the brief did
+   * not say. Set, it is taken as the answer and nothing is asked again: the
+   * person has already decided, and asking twice about the same message is how
+   * a question stops being worth reading. See lib/builder/stack.ts.
+   */
+  stack?: "standalone-html" | "nextjs" | null;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -458,6 +480,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         needsConfirmation: payload.needsConfirmation === true,
         needsKind: payload.needsKind === true,
         kindOptions: payload.kindOptions,
+        needsStack: payload.needsStack === true,
+        stackOptions: payload.stackOptions,
+        buildKind: payload.buildKind,
         outcome: payload.build,
         stored: payload.stored === true,
         messageLinks: payload.messageLinks,

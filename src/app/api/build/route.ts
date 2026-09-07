@@ -25,6 +25,7 @@ import {
   placeAttachments,
   signedImageUrls,
 } from "@/lib/builder/attachments";
+import { readPage, regressions } from "@/lib/builder/brain";
 import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -43,6 +44,8 @@ import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
+import { treeBrief } from "@/lib/builder/scaffold";
+import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import { classifyIntent, type Intent,
   remainderAfterRevert,
@@ -113,6 +116,11 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Which of the two things to build, when the person was asked and answered.
+     Sent back with the next request the same way buildKind is — see the
+     needsStack branch, and stack.ts for when the question is worth asking at
+     all. Anything else here is ignored and the brief decides. */
+  stack?: unknown;
   /* Which blueprint to build from — landing, ecommerce, blog or webapp. Sent
      only when something in the interface already knows (a starter chip, a
      project whose kind is settled); otherwise the brief is classified. As with
@@ -1191,6 +1199,25 @@ async function handle(
     steps.begin("check", "Checking the change", "making sure the page still holds together…");
     const verdict = validatePage(currentHtml, edited.html);
 
+    /* And the second question, which the first one cannot answer.
+     *
+     * validatePage asks whether the document still HOLDS TOGETHER — tags
+     * balanced, nothing catastrophically removed. This asks whether it still
+     * WORKS, and the failures are the ones that pass every other check in the
+     * pipeline: a nav link pointing at a section the edit deleted, a script
+     * reaching for an id that is gone, the viewport tag lost so the page stops
+     * laying out on a phone. Each of those renders. Each of those diffs
+     * cleanly. Each of those is found by the person whose site it is.
+     *
+     * Reported rather than refused, and that distinction is the whole design.
+     * A broken anchor is not a reason to throw away an edit somebody asked for
+     * — the edit is probably right and the nav is probably a line behind it. So
+     * the change is kept and the consequence is said out loud, in the reply,
+     * with enough in it to ask for the follow-up in one sentence. Refusing
+     * would be the failure this codebase has had twice: a rule that is right in
+     * principle and wrong about the documents it meets. */
+    const broke = verdict.ok ? regressions(readPage(currentHtml), readPage(edited.html)) : [];
+
     if (!verdict.ok) {
       /* Discarded, not stored. The previous version is still the working
          version and was never touched — the edit only ever existed in memory,
@@ -1214,7 +1241,13 @@ async function handle(
       );
     }
 
-    steps.mark("check", "The page still holds together");
+    steps.mark(
+      "check",
+      broke.length === 0
+        ? "The page still holds together"
+        : `Applied, but ${broke.length} thing${broke.length === 1 ? "" : "s"} the change knocked loose`,
+      broke.length === 0 ? undefined : broke.join("; "),
+    );
 
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
@@ -1258,6 +1291,16 @@ async function handle(
         : edited.failures.length > 0
           ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
           : "Done.",
+      /* What the change knocked loose on its way through.
+       *
+       * Said before the model's own suggestion, because it outranks it: a
+       * broken anchor is a fact about the page somebody now owns, and a next
+       * step is an offer. Said at all because nothing else in the pipeline
+       * can — the page renders, the markup balances, and this is the only
+       * point at which anybody notices the menu stopped working. */
+      broke.length > 0
+        ? `One thing to know: ${broke.join("; and ")}. Say the word and I'll tidy that up.`
+        : null,
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
@@ -1554,6 +1597,64 @@ async function handle(
     `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
   );
 
+  /* ── One page, or a project of files ────────────────────────────────────
+   *
+   * Decided here rather than at the generation call, and the position is the
+   * whole point: everything below this line costs money. The asset resolver
+   * makes real requests to a stock provider and stores what it finds, and the
+   * build after it is the most expensive thing in the system. Getting this
+   * wrong is not recoverable by editing — a scaffold is not a landing page
+   * with the wrong colours, it is a different artefact — so the only way to
+   * discover the mistake is to look at what came back and pay again.
+   *
+   * See stack.ts. Where the brief says which it is, it is taken and nothing is
+   * asked. Where the evidence is only the SHAPE of the brief — the word
+   * "dashboard", a kind of "software people sign into" that never mentions
+   * signing in — the question goes back before a penny is spent. */
+  const chosenStack: Stack | null =
+    body.stack === "nextjs" || body.stack === "standalone-html" ? body.stack : null;
+  const needs = chosenStack
+    ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
+    : decideStack(brief.text, kind.kind);
+
+  if (!needs.certain && ASK_WHEN_UNSURE) {
+    const asked = stackQuestion(needs);
+    const stored = await deliver(asked, { key: "which-stack" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsStack: true,
+      /* The lean first, so the likelier answer is under the thumb — read from
+         the same signals that could not settle it outright, which still know
+         which way they were leaning. */
+      stackOptions: stackOptions(needs),
+      /* Sent back so the answer does not re-run the classifier and possibly
+         land somewhere else: the person is answering a question about THIS
+         reading of the brief. */
+      buildKind: kind.kind,
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: kind.kind,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
+
+  steps.mark(
+    "stack",
+    needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
+    needs.why[0],
+  );
+
   /* ── And where it is set ────────────────────────────────────────────────
      The blueprint decides what is built; this decides the world it is built
      in — the currency on every price, the shape of an address, how people pay,
@@ -1677,6 +1778,12 @@ async function handle(
       market: market.market,
       /* What the code generator is told about imagery, and all it is told. */
       manifest: pictures.manifest,
+      /* And, when this is a project rather than a page, what a project has to
+         come back as: the files, the routes, and the plumbing NOT to write
+         because scaffold.ts writes it. Appended to the blueprint rather than
+         replacing it — what to build is the same question either way, and only
+         the shape of the answer changes. */
+      treeInstructions: needs.stack === "nextjs" ? treeBrief(kind.kind, needs.backend) : undefined,
     });
 
     const request = generationRequest(
@@ -1701,6 +1808,14 @@ async function handle(
          with no diff and no review, and that is how one prompt came to serve
          four different kinds of product. */
       buildKind: kind.kind,
+      /* Which of the two things the orchestrator is building, and whether it
+         gets a database client. The workflow branches on this; the save route
+         reads it back to decide whether to write @/lib/supabase into the tree.
+         Sent explicitly rather than inferred from what comes back, so a
+         generation that ignored its instructions is a failed build rather than
+         a silently different product. */
+      stack: needs.stack,
+      backend: needs.backend,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.
