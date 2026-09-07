@@ -150,6 +150,27 @@ const normalizeRequest = node({
             value: expr('{{ $json.body?.generationBody ?? $json.generationBody ?? {} }}') },
           { id: 'response-shape', name: 'responseShape', type: 'string',
             value: expr('{{ $json.body?.responseShape ?? $json.responseShape ?? "anthropic" }}') },
+          /* ── What to build, and what it is made of ─────────────────────────
+           *
+           * These three were the bug. This node has no `includeOtherFields`, so
+           * it emits ONLY what it names — and it did not name these, while two
+           * nodes downstream read `$("Normalize Build Request").item.json.stack`
+           * and got undefined every time. The save route therefore never learned
+           * that a build was a Next.js project, and scaffolded every one of them
+           * as a page with no database client.
+           *
+           * Named here rather than solved with includeOtherFields, because the
+           * point of this node is that the rest of the workflow reads a known
+           * shape rather than whatever a caller happened to post. */
+          { id: 'stack', name: 'stack', type: 'string',
+            value: expr('{{ $json.body?.stack ?? $json.stack ?? "standalone-html" }}') },
+          { id: 'backend', name: 'backend', type: 'boolean',
+            value: expr('{{ ($json.body?.backend ?? $json.backend) === true }}') },
+          /* Which layers the project has — see src/lib/builder/architecture.ts.
+             Carried whole and never modified: it is the record of what the
+             prompt was written against and what the schema was created from. */
+          { id: 'architecture', name: 'architecture', type: 'object',
+            value: expr('{{ $json.body?.architecture ?? $json.architecture ?? {} }}') },
         ],
       },
       options: {},
