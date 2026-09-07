@@ -670,7 +670,16 @@ const savePage = node({
         'userId: $("Normalize Build Request").item.json.userId, ' +
         'signature: $("Normalize Build Request").item.json.signature, ' +
         'prompt: $("Normalize Build Request").item.json.prompt, ' +
-        'model: $json.model, html: $json.html }) }}',
+        'model: $json.model, html: $json.html, ' +
+        /* The project as files, when the generator produced one.
+         *
+         * undefined on every standalone-html build, and JSON.stringify drops
+         * undefined keys — so this is inert on the stack that exists today and
+         * carries the tree the moment a branch produces one. `html` travels
+         * alongside it rather than instead of it: a tree of .tsx cannot be
+         * shown to anybody without a build step, so a file-tree build sends its
+         * files AND a rendered home page for the preview to serve. */
+        'files: $json.files, stack: $json.stack }) }}',
       ),
       options: { timeout: 120000 },
     },

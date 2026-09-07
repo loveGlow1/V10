@@ -8,6 +8,9 @@ import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import { completeTree, missingFrom } from "@/lib/builder/scaffold";
+import { storeTree } from "@/lib/builder/store-tree";
+import { type FileTree, TreeError, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -38,6 +41,15 @@ import { SITE_URL } from "@/lib/site";
  * since that HTML is then served to its owner, is the one thing here worth
  * attacking. See src/lib/build-signature.ts. */
 
+/* Whether this project was asked to talk to a database.
+ *
+ * Read from the build request rather than guessed from the files: a project
+ * that imports @/lib/supabase because the model felt like it should still not
+ * get the dependency unless somebody asked for a backend. */
+function withBackendFor(body: SaveRequest): boolean {
+  return body.stack === "nextjs-supabase" || body.backend === true;
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -49,6 +61,17 @@ type SaveRequest = {
   prompt?: unknown;
   html?: unknown;
   model?: unknown;
+  /* The project as files, when the orchestrator built one.
+   *
+   * Absent on every build of the single-page stack, which is every build so
+   * far — so this is additive and nothing that does not send it changes. See
+   * lib/builder/tree.ts. `html` stays required either way, and that is not
+   * redundancy: a tree of .tsx source cannot be shown to anybody without a
+   * build step, so a file-tree build sends its files AND a rendered home page
+   * to serve as the preview. */
+  files?: unknown;
+  stack?: unknown;
+  backend?: unknown;
 };
 
 /* ── A build that failed here says so, in the thread, in its own words ─────
@@ -160,7 +183,7 @@ export async function POST(request: Request) {
      now has somewhere to be reported. */
   const { data: project, error: lookupError } = await supabase
     .from("projects")
-    .select("id, deleted_at")
+    .select("id, name, deleted_at")
     .eq("id", claim.projectId)
     .eq("user_id", claim.userId)
     .maybeSingle();
@@ -245,9 +268,38 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  const filesTouched = filesTouchedFor(html);
+  /* The files, if this build produced any.
+   *
+   * Read and completed BEFORE the build row is written, so a project that came
+   * back unbuildable is reported as a failed build rather than stored as a
+   * successful one with a hole in it. The scaffold is merged in here rather
+   * than asked for — see scaffold.ts, and treeBrief, which tells the model not
+   * to write the plumbing precisely because this does. */
+  let tree: FileTree = [];
+  if (body.files !== undefined && body.files !== null) {
+    try {
+      tree = completeTree(readTree(body.files), (project.name as string | null) ?? "app", withBackendFor(body));
 
-  const { error: insertError } = await supabase.from("project_builds").insert({
+      const missing = missingFrom(tree);
+      if (missing.length > 0) {
+        return await reportFailure(
+          supabase,
+          claim,
+          `The project came back incomplete — ${missing.join("; ")}. Nothing was stored.`,
+          422,
+        );
+      }
+    } catch (error) {
+      if (error instanceof TreeError) {
+        return await reportFailure(supabase, claim, error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
+  const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
+
+  const { data: inserted, error: insertError } = await supabase.from("project_builds").insert({
     project_id: project.id,
     user_id: claim.userId,
     request_id: claim.requestId || null,
@@ -255,7 +307,7 @@ export async function POST(request: Request) {
     html,
     model: str(body.model) || null,
     files_touched: filesTouched,
-  });
+  }).select("id").single();
 
   if (insertError) {
     // eslint-disable-next-line no-console
@@ -269,6 +321,35 @@ export async function POST(request: Request) {
       "The page was built but could not be stored, so nothing changed. Trying again is worth it — this one is at our end.",
       500,
     );
+  }
+
+  /* The files, against the build row that now exists.
+   *
+   * After the build rather than before it, because a file needs a build to
+   * belong to. The cost of that order is the window this catches: if the files
+   * fail to land, there is already a build row saying a project was stored, and
+   * it would be a project consisting of one preview page and nothing else. So
+   * the build is deleted again and the whole thing is reported as failed — a
+   * half-stored project is worse than no project, because the row claims
+   * success. */
+  if (tree.length > 0) {
+    try {
+      await storeTree(
+        supabase,
+        { buildId: inserted.id as string, projectId: project.id, userId: claim.userId },
+        tree,
+      );
+    } catch (error) {
+      await supabase.from("project_builds").delete().eq("id", inserted.id as string);
+      // eslint-disable-next-line no-console
+      console.error("save: the project's files could not be stored:", error);
+      return await reportFailure(
+        supabase,
+        claim,
+        "The project was built but its files could not be stored, so nothing changed. This one is at our end — trying again is worth it.",
+        500,
+      );
+    }
   }
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;

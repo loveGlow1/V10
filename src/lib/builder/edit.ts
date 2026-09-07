@@ -3,6 +3,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import { modelById } from "@/app/dashboard/models";
 
 import {
+  PICK_SYSTEM,
+  type FilePick,
+  homePageOf,
+  pickFileLocally,
+  pickPrompt,
+  readPick,
+} from "./pick-file";
+import { type FileTree, describeTree } from "./tree";
+import {
   applyLineEdits,
   applyPatches,
   describeFailures,
@@ -557,6 +566,52 @@ export type EditOutcome = {
  * Applies a described change to a page. Throws {@link EditError} when nothing
  * could be applied — and in that case the page is left exactly as it was.
  */
+/**
+ * Which file in a project an instruction is about.
+ *
+ * Local rules first and a model only when they run out — see pick-file.ts,
+ * which carries the reasoning. The call, when it happens, is the cheapest one
+ * in the pipeline: the file LISTING goes over, not the files, so choosing among
+ * forty of them costs a few hundred tokens rather than the whole project.
+ *
+ * Never throws. Everything here has a fallback, because failing to choose must
+ * degrade to editing the home page rather than to refusing an edit somebody
+ * asked for.
+ */
+export async function pickFile(
+  userMessage: string,
+  tree: FileTree,
+  onProgress?: OnProgress,
+): Promise<FilePick | null> {
+  const local = pickFileLocally(userMessage, tree);
+  if (local) return local;
+
+  onProgress?.({ kind: "reasoning", text: "Working out which file that belongs in…" });
+
+  try {
+    const answer = await ask(
+      PICK_SYSTEM,
+      pickPrompt(userMessage, describeTree(tree)),
+      /* One path. Anything past this is the model explaining itself, which it
+         was told not to do and which readPick discards anyway. */
+      100,
+      [],
+      [],
+      undefined,
+      false,
+      EDIT_MODEL,
+    );
+
+    const path = readPick(textOf(answer), tree);
+    if (path) return { path, why: "model" };
+  } catch {
+    /* A picker that cannot run must not take the edit down with it. */
+  }
+
+  const home = homePageOf(tree);
+  return home ? { path: home, why: "convention" } : null;
+}
+
 export async function editPage(
   userMessage: string,
   html: string,
