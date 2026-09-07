@@ -24,7 +24,8 @@ import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import { SITE_URL } from "@/lib/site";
+import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
 import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
@@ -419,13 +420,12 @@ export default function PreviewPanel({
                     renaming it appeared to move a site that did not exist. */}
                 {project?.slug ? (
                   <a
-                    href={`https://${project.slug}${PUBLISH_SUBDOMAIN}`}
+                    href={publishedUrl(project.slug)}
                     target="_blank"
                     rel="noreferrer"
                     className="break-all text-accent hover:underline"
                   >
-                    {project.slug}
-                    {PUBLISH_SUBDOMAIN}
+                    {publishedLabel(project.slug)}
                   </a>
                 ) : (
                   <span className="text-soft">Gets one when you publish</span>

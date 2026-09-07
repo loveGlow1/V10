@@ -115,9 +115,24 @@ export function slugAttempt(base: string, attempt: number): string {
   return `${base.slice(0, MAX_SLUG - suffix.length).replace(/-+$/g, "")}${suffix}`;
 }
 
-/** Where a published project is served. */
+/* Where a published project is served.
+ *
+ * A PATH, not a subdomain. shop.quickstark.tech is the nicer address and it
+ * needs two things this cannot assume: a wildcard DNS record, and a wildcard
+ * domain on the Vercel project. The first fails silently — a publish succeeds,
+ * takes the credits and hands back a hostname that does not resolve, which is
+ * exactly what happened — and the second has historically needed a paid plan.
+ *
+ * This works the moment the code is deployed, on any plan, with no DNS. The
+ * slug still has to be a legal label, so nothing here forecloses moving to
+ * subdomains later: the same slugs would work unchanged. */
 export function publishedUrl(slug: string): string {
-  return `https://${slug}${PUBLISH_SUBDOMAIN}`;
+  return `${SITE_URL}/s/${slug}`;
+}
+
+/** The same address without its scheme, for showing rather than linking. */
+export function publishedLabel(slug: string): string {
+  return publishedUrl(slug).replace(/^https?:\/\//, "");
 }
 
 /** Where an unpublished project is worked on. Owner-only, and never public. */
