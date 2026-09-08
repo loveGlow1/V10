@@ -40,7 +40,7 @@ export default function TopBar({
   const upgrade = (
     <button
       onClick={onUpgradeClick}
-      className="flex h-[34px] shrink-0 items-center rounded-full bg-solid px-3.5 text-[12px] font-semibold leading-none text-onSolid shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(184,160,255,0.14)] transition-all hover:brightness-105 active:scale-[0.98]"
+      className="flex h-[34px] shrink-0 items-center rounded-full bg-gradient-to-b from-accentBright to-accent px-3.5 text-[12px] font-semibold leading-none text-onSolid shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(184,160,255,0.14)] transition-all hover:brightness-105 active:scale-[0.98]"
     >
       Upgrade
     </button>

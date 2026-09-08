@@ -670,7 +670,7 @@ export default function PreviewPanel({
               <button
                 onClick={() => setPublishOpen(true)}
                 aria-expanded={publishOpen}
-                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-solid px-3 text-[12px] font-semibold text-onSolid shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(184,160,255,0.14)] transition-all active:scale-[0.98]"
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-accentBright to-accent px-3 text-[12px] font-semibold text-onSolid shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(184,160,255,0.14)] transition-all active:scale-[0.98]"
               >
                 <Rocket className="h-3.5 w-3.5" />
                 Publish

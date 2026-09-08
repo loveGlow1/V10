@@ -144,7 +144,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
 
           <button
             onClick={onUpgradeClick}
-            className="h-[34px] w-[112px] rounded-full bg-solid text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.98]"
+            className="h-[34px] w-[112px] rounded-full bg-gradient-to-b from-accentBright to-accent text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.98]"
           >
             Upgrade
           </button>
@@ -196,7 +196,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                       setPanelOpen(false);
                       onUpgradeClick();
                     }}
-                    className="mt-2.5 h-8 w-full rounded-lg bg-solid text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.99]"
+                    className="mt-2.5 h-8 w-full rounded-lg bg-gradient-to-b from-accentBright to-accent text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.99]"
                   >
                     Upgrade
                   </button>
