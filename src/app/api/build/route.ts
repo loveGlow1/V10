@@ -37,9 +37,16 @@ import {
   askClarifying,
   editModelFor,
   editPage,
-  maxEditPromptChars,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { estimateTokens } from "@/lib/context/budget";
+import { extractRequirements } from "@/lib/context/compress";
+import { decompose, describeDecomposition } from "@/lib/context/decompose";
+import { describeExpansion, expandContext } from "@/lib/context/expand";
+import { describePlan } from "@/lib/context/fit";
+import { fitEdit } from "@/lib/context/requests";
+import { describeState, readCache, writeCache } from "@/lib/context/state";
+import { readContext, readProjectIndex, saveContext } from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
@@ -228,6 +235,20 @@ const INTENT_WORDS: Record<string, string> = {
  * for a caller that cannot be asked — an API integration, a scheduled build —
  * and the wrong one for a person sitting in front of the builder. */
 const ASK_WHEN_UNSURE = true;
+
+/* What retrieval may spend on an edit.
+ *
+ * Four thousand tokens is a handful of small files or a dozen one-line
+ * summaries — enough for the dependency chain behind one component, and nowhere
+ * near enough to turn "retrieve what this reaches" into "send the project".
+ * The point of a retrieval budget is that it is much smaller than the window;
+ * a generous one is just a slower way of sending everything. */
+const RETRIEVAL_TOKENS = 4_000;
+
+/* What this app's edit system prompt costs, measured once here rather than
+   guessed inside the fit. See fitEdit, which uses the same figure when a caller
+   cannot supply one. */
+const EDIT_SYSTEM_TOKENS = 4_000;
 
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
@@ -1144,28 +1165,120 @@ async function handle(
       );
     }
 
-    /* Checked here rather than at the top, because it only applies once the
-       message is known to be an edit: a build's brief may be seven times this
-       long, and refusing it on the edit model's window would be refusing it for
-       a reason that does not apply. Said as a sentence with the next step in
-       it, rather than as a limit.
+    /* ── What else this change reaches ──────────────────────────────────
+     *
+     * Two blocks, both cheap, both assembled before the fit so their cost is
+     * budgeted rather than added afterwards.
+     *
+     * The first is what the project IS — kind, layers, design system, routes,
+     * and the decisions already taken. Read from the cache when the project has
+     * not structurally changed since it was written, which is nearly always:
+     * the same bytes on every message is what makes a provider-side prompt
+     * cache hit rather than miss, and rebuilding it each time was spending
+     * tokens to produce an identical paragraph.
+     *
+     * The second is retrieval. Given the index the build wrote, this finds the
+     * files the request names and then follows their imports — retrieve,
+     * discover a dependency, retrieve again — bounded by a budget, so a change
+     * to a checkout button learns about the payment client without the project
+     * being sent. Empty on a single-page project, which has one file and
+     * nothing to retrieve, and empty on any project built before the index
+     * existed: the edit then behaves exactly as it did. */
+    const stored = await readContext(service, project.id);
+    const cachedState = readCache(stored.cache, "architecture", stored.state, stored.version);
+    const projectBlock = cachedState ?? describeState(stored.state);
 
-       And the window is the one the CHOSEN model has — see maxEditPromptChars.
-       This used to be a single number sized for Haiku's 200K, which was right
-       while Haiku took every edit and wrong the moment a long brief started
-       going to Sonnet instead: it would have refused, on a window's behalf, a
-       brief that was long enough to be routed away from that window in the
-       first place. */
-    if (prompt.length > maxEditPromptChars(editModel)) {
-      const said =
-        `That's a lot to change in one message — it goes to the page along with everything already on it, ` +
-        `and together they're past what I can read at once. Ask for it a section at a time and each part will land.`;
-      const stored = await deliver(said, { tone: "error", key: "edit-too-long" });
+    if (!cachedState && projectBlock) {
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        state: stored.state,
+        cache: writeCache(stored.cache, "architecture", projectBlock, stored.state, stored.version),
+      });
+    }
+
+    const indexed = await readProjectIndex(service, project.id);
+    const expansion =
+      indexed.length > 0 ? expandContext(indexed, prompt, RETRIEVAL_TOKENS) : null;
+    const retrievedBlock = expansion ? describeExpansion(expansion) : "";
+
+    /* Whether this edit fits, measured rather than guessed — and made to fit
+       where it can be.
+     *
+       This was a character count: 80,000 for Haiku, 600,000 for Sonnet, and a
+       sentence telling the person to send their message again in pieces when
+       they went past it. Three things were wrong with that, and the third is
+       the one that matters. It counted characters against a limit the model
+       states in tokens. It counted only the message, while the page, the
+       carried conversation and every attached screenshot went into the same
+       window uncounted — a screenshot is about 1,600 tokens and was treated as
+       zero. And it asked the user to do the system's job.
+
+       fitEdit measures all of it against the chosen model's real window, holds
+       back room for the reply, and when the total is over it restructures the
+       INSTRUCTION rather than cutting it: every sentence that constrains the
+       outcome is carried word for word as a numbered requirement and only the
+       prose between them is reduced. The page is never summarised — an edit is
+       a change to a specific document, and a model shown a summarised page
+       rewrites it from memory. See src/lib/context/requests.ts. */
+    const fitted = fitEdit({
+      prompt,
+      pageHtml: leanHtml ?? currentHtml,
+      modelId: editModel,
+      images: files.blocks.filter((block) => block.type === "image").length,
+      priorTokens: prior.reduce(
+        (total, turn) => total + estimateTokens(String(turn.content)),
+        0,
+      ),
+      /* The retrieved context is part of the system half of this call, so it is
+         declared here rather than discovered afterwards. Adding text to a
+         prompt AFTER measuring whether the prompt fits is how a budget becomes
+         decoration. */
+      systemTokens:
+        EDIT_SYSTEM_TOKENS + estimateTokens(projectBlock) + estimateTokens(retrievedBlock),
+    });
+
+    /* Written on every edit, not only on the ones that were tight: a call that
+       fitted comfortably is the baseline that makes the one that did not
+       legible. This is the only place the internal pressure states appear —
+       never on a screen. */
+    // eslint-disable-next-line no-console
+    console.log(describePlan(fitted.plan));
+
+    /* The one case that still cannot be done in a single call: the page alone
+       fills the window, so there is no room left for any instruction at all.
+       Said as what to do about it, and about the PAGE rather than about what
+       they wrote — the length of their message is not the problem here. */
+    if (fitted.mustDecompose) {
+      /* Not a refusal with a limit in it. The work is split here and the split
+         is shown, so the person is told what will happen rather than what did
+         not — see src/lib/context/decompose.ts. */
+      const split = decompose({
+        brief: prompt,
+        requirements: extractRequirements(prompt),
+        manifest: knownArchitecture,
+        force: true,
+      });
+
+      const said = [
+        `This page has grown past what I can read and rewrite in one go, so I've not changed anything.`,
+        describeDecomposition(split),
+        `Ask for one of those at a time — name the section in the words that appear on it — and each change will land.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const stored = await deliver(said, { tone: "error", key: "edit-page-too-large" });
       return NextResponse.json(
-        { error: said, intent: "edit", code: "edit_prompt_too_long", stored },
+        { error: said, intent: "edit", code: "edit_page_too_large", stored },
         { status: 400 },
       );
     }
+
+    /* What the model is asked, which is the person's message unless it had to
+       be restructured to fit. Their own message is stored and shown exactly as
+       they typed it either way — this is the model's copy, not theirs. */
+    const editPrompt = fitted.prompt;
 
     let edited;
     try {
@@ -1187,20 +1300,30 @@ async function handle(
        * layers already work and are not part of this request does not touch
        * them; a model told nothing has no reason not to, which is how a
        * question about one section comes back having restyled the site. */
-      const plan = planEdit(prompt, knownArchitecture);
+      const plan = planEdit(editPrompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
 
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
-        prompt,
+        editPrompt,
         leanHtml ?? currentHtml,
         files.blocks,
         prior,
         narrate("edit", "Making the change"),
         /* What already exists, what this reaches, and what it must leave
            alone. Empty when nothing was ever recorded about the project, and
-           the edit is then exactly what it was before. */
-        editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+           the edit is then exactly what it was before.
+         *
+           The project's own state and whatever retrieval found are appended to
+           it: same channel, same budget, and both were counted in the fit
+           above. */
+        [
+          editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          projectBlock,
+          retrievedBlock,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       );
 
       /* The photographs that were lifted out so the page could be read, put

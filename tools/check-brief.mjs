@@ -22,21 +22,58 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-brief");
 mkdirSync(out, { recursive: true });
 
-execFileSync(
-  "npx",
-  ["tsc", "src/lib/builder/brief.ts", "src/lib/builder/download.ts",
-   "src/app/dashboard/components/workspace/resume.ts",
-   "src/app/dashboard/components/workspace/threadView.ts",
-   "--outDir", out, "--rootDir", "src",
-   "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler", "--skipLibCheck"],
-  { stdio: ["ignore", "ignore", "inherit"] },
+/* Compiled through a tsconfig rather than a bare file list, because brief.ts
+   now reads the context engine (@/lib/context/…) to decide how much of a
+   conversation travels with a message, and an alias needs `paths` to resolve. */
+const config = join(out, "tsconfig.json");
+writeFileSync(
+  config,
+  JSON.stringify({
+    compilerOptions: {
+      outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022",
+      moduleResolution: "bundler", skipLibCheck: true,
+      baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
+    },
+    files: [
+      join(process.cwd(), "src/lib/builder/brief.ts"),
+      join(process.cwd(), "src/lib/builder/download.ts"),
+      join(process.cwd(), "src/app/dashboard/components/workspace/resume.ts"),
+      join(process.cwd(), "src/app/dashboard/components/workspace/threadView.ts"),
+    ],
+  }),
 );
+
+execFileSync("npx", ["tsc", "-p", config], { stdio: ["ignore", "ignore", "inherit"] });
+
+/* And the emitted specifiers made loadable: tsc leaves both the alias and the
+   extensionless relative form, and Node's ESM loader resolves neither. */
+const rewrite = (dir) => {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) { rewrite(path); continue; }
+    if (!path.endsWith(".js")) continue;
+    const depth = path.slice(out.length + 1).split("/").length - 1;
+    const prefix = depth === 0 ? "./" : "../".repeat(depth);
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8")
+        .replace(/(["'])@\/([^"']+)\1/g, (_, q, rest) => {
+          const asFile = join(out, `${rest}.js`);
+          const target = existsSync(asFile) ? `${rest}.js` : `${rest}/index.js`;
+          return `${q}${prefix}${target}${q}`;
+        })
+        .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (whole, head, spec, tail) =>
+          /\.(js|json)$/.test(spec) ? whole : `${head}${spec}.js${tail}`),
+    );
+  }
+};
+rewrite(out);
 const { carryBrief, conversational, priorTurns, isContinuation, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
   await import(join(out, "lib/builder/brief.js"));
 const { wantsDownload } = await import(join(out, "lib/builder/download.js"));

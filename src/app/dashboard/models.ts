@@ -57,6 +57,21 @@ export type Model = {
    *  number is allowed to be 64k, and it is why raising it again means raising
    *  the timeout in the same change, not afterwards. */
   maxOutput?: number;
+  /** How much the model can hold at once — input and output TOGETHER, in
+   *  tokens.
+   *
+   *  Distinct from maxOutput above, and the distinction is the one every
+   *  hand-written cap in this app used to get wrong: maxOutput is what the
+   *  model may WRITE, this is what it may hold while writing it. A request is
+   *  legal when the prompt plus the reply fit inside this one number, which is
+   *  why lib/context/budget.ts subtracts the reservation from it rather than
+   *  treating the two as separate allowances.
+   *
+   *  Required on any model marked available; check:context enforces that.
+   *  Absent on a model this deployment cannot call, because a window nobody
+   *  has verified is worse than no window at all — budget.ts falls back to the
+   *  smallest real window rather than to a guess. */
+  contextWindow?: number;
   /* ── Whether this deployment can actually call it ──────────────────────
    *
    * False while there is no working credential for the model's provider. The
@@ -181,6 +196,7 @@ export const MODELS: Model[] = [
     note: "2x costlier",
     apiId: "claude-fable-5-1",
     maxOutput: 64000,
+    contextWindow: 1_000_000,
   },
   {
     id: "claude-opus-5",
@@ -193,6 +209,7 @@ export const MODELS: Model[] = [
     provider: "claude",
     apiId: "claude-opus-5",
     maxOutput: 64000,
+    contextWindow: 1_000_000,
   },
   {
     id: "claude-sonnet-5",
@@ -204,6 +221,7 @@ export const MODELS: Model[] = [
     provider: "claude",
     apiId: "claude-sonnet-5",
     maxOutput: 64000,
+    contextWindow: 1_000_000,
   },
   {
     id: "claude-haiku-4-5",
@@ -217,6 +235,7 @@ export const MODELS: Model[] = [
     provider: "claude",
     apiId: "claude-haiku-4-5-20251001",
     maxOutput: 64000,
+    contextWindow: 200_000,
   },
 
   // ChatGPT

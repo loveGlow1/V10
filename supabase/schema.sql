@@ -1871,3 +1871,239 @@ create trigger project_architecture_set_updated_at
 
 create index if not exists project_architecture_user_id_idx
   on public.project_architecture (user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_index — what is in this project, so context can be RETRIEVED rather
+-- than sent.
+--
+-- The builder's problem is not that projects are large. It is that every model
+-- call was given either everything or nothing: one whole page, or one file
+-- picked by a guess, with no way to ask "which files does a checkout button
+-- actually touch". A project that outgrows a single window then has no shape at
+-- all — there is nothing to search.
+--
+-- So each build writes what it made: one row per file, route, table, component
+-- and design token. Small rows, derived from the tree, never authored by hand.
+-- Retrieval scores them against the request (src/lib/context/project-index.ts)
+-- and the winners go into the prompt; everything else stays here, one query
+-- away, which is the whole point of an index.
+--
+-- Replaced wholesale by each build rather than merged: a stale row pointing at
+-- a file that no longer exists is worse than no index, because it retrieves
+-- confidently.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_index (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- file | route | component | table | api | token | page-section
+  kind        text not null,
+  -- What it is called: a component name, a route path, a table name.
+  name        text not null,
+  -- Where it lives, when it lives somewhere. Null for a design token.
+  path        text,
+  -- The identifiers this entry defines or reaches: imports, exported symbols,
+  -- ids the scripts use. This is what a dependency walk follows.
+  symbols     text[] not null default '{}',
+  -- One line about it, for a prompt that mentions it without opening it.
+  summary     text,
+  -- Roughly what including this entry's source would cost, so retrieval can
+  -- budget before it fetches.
+  tokens      integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.project_index enable row level security;
+
+drop policy if exists "Owners read their project index" on public.project_index;
+create policy "Owners read their project index"
+  on public.project_index for select
+  using (auth.uid() = user_id);
+
+-- Written by the build under the service key, like the architecture row. A
+-- client that could write this could point an edit at a file of its choosing.
+revoke all on public.project_index from anon, authenticated;
+grant select on public.project_index to authenticated;
+
+create index if not exists project_index_project_kind_idx
+  on public.project_index (project_id, kind);
+create index if not exists project_index_name_idx
+  on public.project_index (project_id, lower(name));
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_context — the project's state, versioned, plus the cache built from
+-- it.
+--
+-- Three things that turn out to be one thing:
+--
+--   VERSION      Architecture changes. "This project has a database" was true
+--                in v3 and is the reason an edit in v4 must not be answered
+--                from a prompt assembled in v2.
+--   CACHE        The architecture brief, the design summary and the route list
+--                are rebuilt from scratch on every message and are identical
+--                between builds. Cached here, they are read rather than
+--                recomputed, and — because they are stored as text — they are
+--                also identical between messages, which is what makes a
+--                provider-side prompt cache hit.
+--   INVALIDATION When the schema changes, the schema cache and everything
+--                derived from it is wrong and the DESIGN cache is not. Kept as
+--                per-kind fingerprints so invalidation can be that precise.
+--
+-- One row per project. The history lives next door in project_checkpoints.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_context (
+  project_id  uuid primary key references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- Bumped whenever something structural changes. Never reused.
+  version     integer not null default 1,
+  -- The structured state a later message is answered against: summary,
+  -- architecture, design, routes, decisions.
+  state       jsonb not null default '{}'::jsonb,
+  -- kind -> { text, fingerprint, written_at }. Read only when the fingerprint
+  -- still matches what the project is now.
+  cache       jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.project_context enable row level security;
+
+drop policy if exists "Owners read their project context" on public.project_context;
+create policy "Owners read their project context"
+  on public.project_context for select
+  using (auth.uid() = user_id);
+
+revoke all on public.project_context from anon, authenticated;
+grant select on public.project_context to authenticated;
+
+drop trigger if exists project_context_set_updated_at on public.project_context;
+create trigger project_context_set_updated_at
+  before update on public.project_context
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_checkpoints — the state at each point worth being able to continue
+-- from.
+--
+-- Append-only, and that is the difference between this and project_context: the
+-- context row is what the project IS, and this is what it was when the homepage
+-- was finished, when checkout was implemented, when QA passed. A long build
+-- session that goes wrong at step nine needs the state at step eight, and a
+-- single mutable row cannot supply it.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_checkpoints (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- The context version this checkpoint captured.
+  version     integer not null,
+  -- "Homepage completed", "Checkout implemented", "Visual QA passed".
+  label       text not null,
+  state       jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.project_checkpoints enable row level security;
+
+drop policy if exists "Owners read their checkpoints" on public.project_checkpoints;
+create policy "Owners read their checkpoints"
+  on public.project_checkpoints for select
+  using (auth.uid() = user_id);
+
+revoke all on public.project_checkpoints from anon, authenticated;
+grant select on public.project_checkpoints to authenticated;
+
+create index if not exists project_checkpoints_project_created_idx
+  on public.project_checkpoints (project_id, created_at desc);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_requirements — what the person asked for, kept until it is done.
+--
+-- A long brief is mostly prose wrapped around a few things that have to be true
+-- at the end, and those are exactly what any length-based reduction loses
+-- first. Extraction happens in src/lib/context/compress.ts; this is where the
+-- result stops being a detail of one request and becomes the project's.
+--
+-- Verbatim, never paraphrased: a requirement rewritten is a requirement argued
+-- about later. `ref` is stable for the life of the project, so REQ-004 means
+-- the same thing in a message six weeks later.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_requirements (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- REQ-001, and stable. Unique per project.
+  ref         text not null,
+  body        text not null,
+  -- A digest of the body, so the same sentence sent twice is one requirement.
+  digest      text not null,
+  priority    text not null default 'normal' check (priority in ('high', 'normal')),
+  -- Where it came from: the person, or something derived from what they said.
+  source      text not null default 'user' check (source in ('user', 'derived')),
+  status      text not null default 'pending' check (status in ('pending', 'complete', 'dropped')),
+  -- Which part of the project it touches, when that is known.
+  area        text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.project_requirements enable row level security;
+
+drop policy if exists "Owners read their requirements" on public.project_requirements;
+create policy "Owners read their requirements"
+  on public.project_requirements for select
+  using (auth.uid() = user_id);
+
+revoke all on public.project_requirements from anon, authenticated;
+grant select on public.project_requirements to authenticated;
+
+create unique index if not exists project_requirements_ref_idx
+  on public.project_requirements (project_id, ref);
+-- The same sentence, sent again, is the same requirement.
+create unique index if not exists project_requirements_digest_idx
+  on public.project_requirements (project_id, digest);
+
+drop trigger if exists project_requirements_set_updated_at on public.project_requirements;
+create trigger project_requirements_set_updated_at
+  before update on public.project_requirements
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- tool_results — what a tool actually returned, kept out of the next prompt.
+--
+-- QA measurements, asset provider responses, render output: all of them are
+-- large, and appending one to the next model call is how a conversation runs
+-- out of room for the thing it was about. What the model needs is the finding
+-- and the identifiers; what a person debugging needs is the raw result. Those
+-- are different needs and they now live in different places — the summary goes
+-- into the prompt, the raw stays here and is fetched by id when it is asked
+-- for.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.tool_results (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  -- "qa", "render", "assets", "publish".
+  tool        text not null,
+  -- What goes into a prompt: a few lines.
+  summary     text not null,
+  -- The identifiers the summary mentions, kept exact so a later message can be
+  -- matched back to this result.
+  identifiers text[] not null default '{}',
+  -- Everything else. Never sent to a model unless it is asked for by id.
+  raw         jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.tool_results enable row level security;
+
+drop policy if exists "Owners read their tool results" on public.tool_results;
+create policy "Owners read their tool results"
+  on public.tool_results for select
+  using (auth.uid() = user_id);
+
+revoke all on public.tool_results from anon, authenticated;
+grant select on public.tool_results to authenticated;
+
+create index if not exists tool_results_project_created_idx
+  on public.tool_results (project_id, created_at desc);

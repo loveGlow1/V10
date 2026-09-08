@@ -116,22 +116,18 @@ export function editModelFor(prompt: string, html: string): string {
   return EDIT_MODEL;
 }
 
-/* How long an instruction may be, for the model it is going to.
+/* How long an instruction may be is no longer a constant, and this is where it
+ * used to be.
  *
- * An edit sends the whole page as well as the brief, so the brief cannot have
- * the room a build's brief has — and hitting the real ceiling is a 400 from the
- * API rather than a sentence anybody can act on.
+ * It was maxEditPromptChars: 80,000 characters for Haiku, 600,000 for Sonnet,
+ * counted against the message alone and used to refuse the person. Characters
+ * are not what a model measures, and the message is not what fills a window —
+ * the page, the carried conversation and every attached screenshot go into the
+ * same one, and the screenshots were counted as free.
  *
- * Haiku's 200K window makes 80,000 characters (about 20,000 tokens) the sane
- * stop, leaving the page the rest with margin. Sonnet's is a million, so the
- * only ceiling that still means anything there is the one the route already
- * applies to every brief. Note that a brief long enough for the Haiku number to
- * bind is thousands of words, so editModelFor has already sent it to Sonnet by
- * the time this is asked; the small ceiling exists for correctness, not because
- * it is reached. */
-export function maxEditPromptChars(model: string): number {
-  return model === EDIT_MODEL ? 80_000 : 600_000;
-}
+ * fitEdit in src/lib/context/requests.ts measures all of it in tokens against
+ * the chosen model's real window, reserves room for the reply, and restructures
+ * the instruction instead of refusing it. See the note at the top of that file. */
 
 /* Room for the reply to an edit.
  *
