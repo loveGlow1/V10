@@ -72,7 +72,7 @@ import {
   type KindResult,
 } from "@/lib/builder/kinds";
 import { builderAvailability } from "@/lib/builder/availability";
-import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
+import { detectMarket, isMarket } from "@/lib/builder/market";
 import {
   DEFAULT_MODEL,
   PROVIDER_LABEL,
@@ -1801,9 +1801,24 @@ async function handle(
      which way round a date goes, and which English it is spelled in. Free, and
      read from the brief rather than assumed: "a storefront with Paystack
      checkout" is Nigerian without anybody typing the word. See
-     src/lib/builder/market.ts. */
+     src/lib/builder/market.ts.
+
+     Not announced in the step list, and that is deliberate.
+
+     This picks which DEFAULT block of locale conventions travels with the
+     prompt, out of the two that are written. It does not decide where the
+     build is set — the brief does, and the blueprint's locale section opens by
+     saying so: a brief naming any country, city or currency wins outright,
+     including one neither block covers. So "Set in the United States" was not
+     a report of a decision, it was a lookup being read out, and for anyone
+     outside the two markets it was read out wrong. A bakery in Nairobi named
+     its city, gets a Kenyan page, and was told the build was American.
+
+     Nothing is lost by the silence. What was actually chosen is visible in the
+     page itself, in the currency on every price and the shape of every
+     address, and a person who names their city can see whether they were
+     listened to without a line of narration claiming otherwise. */
   const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
-  steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
 
   /* ── The pictures, decided before a line of the page is written ─────────
      The architectural rule, at the point it actually applies: the model that
