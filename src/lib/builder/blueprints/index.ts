@@ -74,6 +74,15 @@ export type ProjectContext = {
   imageCount?: number;
   /** The earlier description a one-word message leant on, when it leant on one. */
   carriedFrom?: string | null;
+  /* Which stage of a multi-stage build this is, when the project is being built
+     in stages — see src/lib/context/stages.ts, stagePlanBrief.
+     
+     Placed with the brief rather than with the rules, because it modifies what
+     is being ASKED FOR rather than how to do it: the blueprint still describes
+     the whole product, and this says which part of it is this build's job. A
+     model given the blueprint and no stage plan builds all of it, which is
+     exactly right when there is no plan and exactly wrong when there is. */
+  stagePlan?: string;
   /* Which market's conventions the content defaults to — see
      src/lib/builder/market.ts. Only a default: the locale section it selects
      opens by handing precedence back to the brief. */
@@ -260,7 +269,7 @@ ${context.architecture ? `${architectureBrief(context.architecture)}\n\n──�
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest)}\n` : ""}
+${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest)}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 

@@ -451,6 +451,27 @@ try {
     .find((row) => row.includes("This continues an earlier description"));
   const buildCarried = carriedLine ? countWords(carriedLine.match(/"((?:word ?)+)"/)?.[1] ?? "") : 0;
 
+  /* ── A staged build tells the model which stage it is ────────────────────
+   *
+   * The plan is decided in src/lib/context/decompose.ts and run by stages.ts,
+   * and neither of those can do anything unless the stage reaches the prompt.
+   * A build with no plan must be byte-identical to what it was before staging
+   * existed — nearly every build has no plan, and a stray line in all of them
+   * would be a change to every product this thing makes. */
+  const STAGE_BLOCK = "THIS BUILD IS STAGE 2 OF 5.";
+  const plain = composeBuildPrompt("ecommerce", "a shop for hats");
+  const staged = composeBuildPrompt("ecommerce", "a shop for hats", { stagePlan: STAGE_BLOCK });
+
+  if (plain.includes("STAGE")) {
+    fail("a build with no plan mentions stages anyway");
+  } else if (!staged.includes(STAGE_BLOCK)) {
+    fail("a staged build does not carry its stage into the prompt");
+  } else if (staged.replace(STAGE_BLOCK, "").replace(/─+\n\n\n/g, "").length < plain.length - 40) {
+    fail("adding a stage plan changed more of the prompt than the stage plan");
+  } else {
+    console.log("ok   stages     the stage reaches the prompt, and only when there is one");
+  }
+
   if (editCarried !== 2000) {
     fail(`an edit carries ${editCarried} words of a 2000-word message, not all of it`);
   } else if (squeezedCarried === 0 || squeezedCarried >= 2000) {

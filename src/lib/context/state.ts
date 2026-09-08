@@ -22,6 +22,8 @@
  * shape and the rules, so both the writer and the reader agree on them and so a
  * checker can hold them without a connection. */
 
+import type { StagePlan } from "./stages";
+
 /** What the project is, as the next message needs to know it. */
 export type ContextState = {
   /** landing | ecommerce | blog | news | webapp. */
@@ -40,6 +42,13 @@ export type ContextState = {
   /** One paragraph about what this project is, for a prompt that needs the
    *  gist rather than the manifest. */
   summary?: string;
+  /* The build plan this project is being made in stages against, when it is.
+   *
+   * Kept in the state rather than in a table of its own because it IS state —
+   * "which stage is this project on" is the same kind of question as "what is
+   * this project", asked by the same callers, and a plan in a second place is a
+   * plan that can disagree with the row beside it. See stages.ts. */
+  plan?: StagePlan;
 };
 
 /** The blocks worth keeping built. Each is derived from a different slice of
@@ -202,6 +211,10 @@ export function invalidate(cache: ContextCache | null | undefined, change: Chang
  * stops being safe. Text changes on a page do not move it, and if they did the
  * cache below would be worthless. */
 export function isStructuralChange(before: ContextState, after: ContextState): boolean {
+  /* Deliberately not `plan`: a plan advancing a stage is the project doing what
+     it was already going to do, and bumping the version on it would throw the
+     cache away between every stage of exactly the build that needs it most. The
+     stage's OUTPUT moves routes and the manifest, and those are on the list. */
   const structural: (keyof ContextState)[] = ["kind", "manifest", "designSystem", "stack", "routes"];
   return structural.some((field) => stable(before[field] ?? null) !== stable(after[field] ?? null));
 }

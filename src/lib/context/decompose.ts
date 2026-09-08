@@ -6,12 +6,13 @@
  * payments and analytics" is a perfectly reasonable sentence that no single
  * model call should try to answer in one document.
  *
- * What this file does is decide the STEPS. What it deliberately does not do is
- * run them — the build path executes one orchestrator call today, and a
- * decomposer that quietly started making several would change what a build
- * costs and how long it takes without anybody asking for that. So the plan is
- * produced, carried into the prompt, and shown to the person; wiring it to an
- * executor is a change to the orchestrator, not to this module.
+ * What this file does is decide the STEPS. Running them is stages.ts, which
+ * turns the ones a generation performs into a sequence of ordinary builds and
+ * edits. Two of the steps here are not generations at all — the architecture is
+ * decided by the app before any model is called, and the check runs over
+ * whatever came back — and they are marked as such rather than left out,
+ * because a plan that does not mention them describes a project nobody would
+ * recognise.
  *
  * Deterministic: the order below is an ordering of the architecture layers,
  * which is a fact about how software is built rather than a judgement about
@@ -29,6 +30,17 @@ export type Step = {
   outcome: string;
   /** The requirement refs this step satisfies, when any are known. */
   requirements: string[];
+  /**
+   * Who does this one.
+   *
+   * "system" means the app performs it and no generation is involved — the
+   * architecture is decided by src/lib/builder/architecture.ts before any model
+   * is called, and the check is runQa over what came back. They are in the plan
+   * because a plan that does not mention them describes a project nobody would
+   * recognise, and they are marked because a STAGE is a generation somebody
+   * pays for and these are not. stages.ts runs only the "build" ones.
+   */
+  performedBy: "system" | "build";
 };
 
 /* The layers of a project, in the only order they can be built in.
@@ -42,11 +54,15 @@ const LAYERS: {
   outcome: string;
   needs?: (manifest: PlanManifest) => boolean;
   words?: RegExp;
+  /** Absent means a generation builds it. */
+  performedBy?: "system";
 }[] = [
   {
     key: "architecture",
     title: "Architecture",
     outcome: "The shape of the project: what it is, what it needs, and what it does not.",
+    /* Decided by the app from the brief, before any model is called. */
+    performedBy: "system",
   },
   {
     key: "database",
@@ -104,6 +120,8 @@ const LAYERS: {
     key: "qa",
     title: "Check it works",
     outcome: "Every page rendered and read back, and anything broken repaired.",
+    /* Run over whatever came back, on every build, by the save route. */
+    performedBy: "system",
   },
 ];
 
@@ -165,6 +183,7 @@ export function decompose(input: {
       requirements: requirements
         .filter((requirement) => layer.words?.test(requirement.text) ?? false)
         .map((requirement) => requirement.id),
+      performedBy: layer.performedBy ?? "build",
     });
   }
 
@@ -192,7 +211,12 @@ export function decompose(input: {
  */
 export function describeDecomposition(plan: Decomposition): string {
   if (plan.steps.length === 0) return "";
-  const lines = plan.steps.map((step) => `${step.order}. ${step.title} — ${step.outcome}`);
+  const lines = plan.steps.map(
+    (step) =>
+      `${step.order}. ${step.title} — ${step.outcome}${
+        step.performedBy === "system" ? " (I do this one myself)" : ""
+      }`,
+  );
   return [`This is big enough to do in stages — ${plan.why}:`, ...lines].join("\n");
 }
 
