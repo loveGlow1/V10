@@ -10,8 +10,8 @@ function CoinMark({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="creditCoin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgb(var(--warn))" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="rgb(var(--warn))" />
+          <stop offset="0%" stopColor="#FFE998" />
+          <stop offset="100%" stopColor="#F0B93B" />
         </linearGradient>
       </defs>
       <circle cx="12" cy="12" r="9" fill="url(#creditCoin)" />
@@ -19,7 +19,7 @@ function CoinMark({ className }: { className?: string }) {
           glyph reads at 14px instead of dissolving into the disc. */}
       <path
         d="M12 6.75l1.6 3.65 3.65 1.6-3.65 1.6L12 17.25l-1.6-3.65L6.75 12l3.65-1.6z"
-        fill="rgb(var(--canvas))"
+        fill="#3a2e00"
         opacity="0.85"
       />
     </svg>

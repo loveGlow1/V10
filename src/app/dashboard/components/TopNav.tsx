@@ -144,7 +144,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
 
           <button
             onClick={onUpgradeClick}
-            className="h-[34px] w-[112px] rounded-full bg-gradient-to-b from-accentBright to-accent text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.98]"
+            className="h-[34px] w-[112px] rounded-full bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.98]"
           >
             Upgrade
           </button>
@@ -177,7 +177,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
 
                 {/* Project */}
                 <div className="flex items-center gap-2.5 px-4 pb-3">
-                  <span className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-accentBright to-accentDark" />
+                  <span className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium leading-tight text-ink">{projectName}</p>
                     <p className="truncate text-xs leading-tight text-muted">Owner · 1 member</p>
@@ -196,7 +196,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                       setPanelOpen(false);
                       onUpgradeClick();
                     }}
-                    className="mt-2.5 h-8 w-full rounded-lg bg-gradient-to-b from-accentBright to-accent text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.99]"
+                    className="mt-2.5 h-8 w-full rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.99]"
                   >
                     Upgrade
                   </button>

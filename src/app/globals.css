@@ -10,29 +10,22 @@
      alpha into and the class silently compiles to nothing. tailwind.config.js reads the
      `*-rgb` triplets; the `--brand*` values below wrap them back into ready-to-use
      colours for the hand-written CSS in this file, so both spellings share one source. */
-  --brandBg-rgb: 8 9 10;
-  --brandSurface-rgb: 16 18 20;
-  --brandSurfaceAccent-rgb: 23 25 28;
-  --brandAccent-rgb: 184 160 255;
-  --brandTextSec-rgb: 165 165 162;
+  --brandBg-rgb: 5 5 5;
+  --brandSurface-rgb: 15 15 15;
+  --brandSurfaceAccent-rgb: 21 21 21;
+  --brandGreen-rgb: 142 240 138;
+  --brandTextSec-rgb: 161 161 170;
 
   --brandBg: rgb(var(--brandBg-rgb));
   --brandSurface: rgb(var(--brandSurface-rgb));
   --brandSurfaceAccent: rgb(var(--brandSurfaceAccent-rgb));
-  --brandAccent: rgb(var(--brandAccent-rgb));
+  --brandGreen: rgb(var(--brandGreen-rgb));
   --brandTextSec: rgb(var(--brandTextSec-rgb));
   /* Carries its own alpha, so it is not a channel triplet: it is used as a flat border
      tint and never takes an opacity variant. */
   --brandBorder: rgba(255, 255, 255, 0.08);
 
   /* ── The dark palette ───────────────────────────────────────────────────────
-     Graphite and a restrained violet: a near-black ground at #08090A, two
-     surfaces above it, and one accent that appears where something is pressable,
-     active, focused or a link — and almost nowhere else. The rest is
-     monochrome on purpose. A second accent colour is what makes an interface
-     look assembled rather than designed, which is why green here means only
-     "this worked", gold means only "credits", and red means only "this failed".
-
      The app's own colours, named for the job each does rather than for what it
      looks like. Everything in the markup points at these, so the light palette
      below is the whole of the second theme — there is no second set of classes.
@@ -45,33 +38,25 @@
      space beyond the page should be painted. */
   color-scheme: dark;
 
-  --ink: 244 241 234;
-  --soft: 197 197 194;
-  --muted: 165 165 162;
-  --faint: 122 122 120;
+  --ink: 255 255 255;
+  --soft: 199 202 208;
+  --muted: 143 147 154;
+  --faint: 111 115 122;
 
   --layer: 255 255 255;
   --line: 255 255 255;
 
-  --canvas: 8 9 10;
-  --bar: 12 13 15;
-  --panel: 16 18 20;
-  --sunken: 23 25 28;
+  --canvas: 13 13 15;
+  --bar: 12 12 14;
+  --panel: 18 18 21;
+  --sunken: 14 15 18;
 
-  /* Primary actions are the accent now, rather than a white button. That is
-     the one place the direction spends colour without hesitation, and it is
-     what makes the violet read as this product's rather than as a highlight
-     somebody applied afterwards. 9:1 against its own ink, so the button is
-     more legible than the white one it replaces. */
-  --solid: 184 160 255;
-  --on-solid: 8 9 10;
+  --solid: 255 255 255;
+  --on-solid: 13 13 15;
 
-  --accent: 184 160 255;
-  --accent-bright: 199 181 255;
-  --accent-dark: 111 91 168;
-  --success: 105 211 154;
-  --danger: 232 121 121;
-  --warn: 201 162 75;
+  --accent: 52 245 160;
+  --danger: 255 107 107;
+  --warn: 244 217 107;
 }
 
 /* ── Dark, whatever the theme says ────────────────────────────────────────────
@@ -91,33 +76,30 @@
 .theme-dark-scope {
   color-scheme: dark;
 
-  --ink: 244 241 234;
-  --soft: 197 197 194;
-  --muted: 165 165 162;
-  --faint: 122 122 120;
+  --ink: 255 255 255;
+  --soft: 199 202 208;
+  --muted: 143 147 154;
+  --faint: 111 115 122;
 
   --layer: 255 255 255;
   --line: 255 255 255;
 
-  --canvas: 8 9 10;
-  --bar: 12 13 15;
-  --panel: 16 18 20;
-  --sunken: 23 25 28;
+  --canvas: 13 13 15;
+  --bar: 12 12 14;
+  --panel: 18 18 21;
+  --sunken: 14 15 18;
 
-  --solid: 184 160 255;
-  --on-solid: 8 9 10;
+  --solid: 255 255 255;
+  --on-solid: 13 13 15;
 
-  --accent: 184 160 255;
-  --accent-bright: 199 181 255;
-  --accent-dark: 111 91 168;
-  --success: 105 211 154;
-  --danger: 232 121 121;
-  --warn: 201 162 75;
+  --accent: 52 245 160;
+  --danger: 255 107 107;
+  --warn: 244 217 107;
 
-  --brandBg-rgb: 8 9 10;
-  --brandSurface-rgb: 16 18 20;
-  --brandSurfaceAccent-rgb: 23 25 28;
-  --brandTextSec-rgb: 165 165 162;
+  --brandBg-rgb: 5 5 5;
+  --brandSurface-rgb: 15 15 15;
+  --brandSurfaceAccent-rgb: 21 21 21;
+  --brandTextSec-rgb: 161 161 170;
   --brandBorder: rgba(255, 255, 255, 0.08);
 }
 
@@ -128,10 +110,8 @@
    the opposite direction, which is why this is a hand-picked palette rather than
    a filter.
 
-   The accent is re-picked outright: #B8A0FF on white measures 2.2:1, which is
-   not a colour so much as a suggestion of one. Success and error are darkened
-   for the same reason. Each stays recognisably the same hue — it is the same
-   violet, not a different one. */
+   The mint and the coral are re-picked outright: #34F5A0 on white measures about
+   1.4:1, which is not a colour so much as a suggestion of one. */
 [data-theme='light'] {
   color-scheme: light;
 
@@ -140,7 +120,6 @@
   --brandBg-rgb: 246 246 248;
   --brandSurface-rgb: 255 255 255;
   --brandSurfaceAccent-rgb: 250 250 252;
-  --brandAccent-rgb: 111 91 168;
   --brandTextSec-rgb: 99 103 111;
   --brandBorder: rgba(17, 17, 20, 0.1);
 
@@ -157,19 +136,11 @@
   --panel: 255 255 255;
   --sunken: 255 255 255;
 
-  --solid: 111 91 168;
+  --solid: 24 24 27;
   --on-solid: 255 255 255;
 
-  /* The accent, re-picked rather than reused: #B8A0FF on white measures 2.2:1,
-     which is not a colour so much as a suggestion of one. This is the system's
-     own ACCENT DARK, which reads as the same violet and clears AA on the light
-     ground at 5.2:1. Success and error are the same family darkened for the
-     same reason. */
-  --accent: 111 91 168;
-  --accent-bright: 124 95 203;
-  --accent-dark: 95 75 150;
-  --success: 31 122 76;
-  --danger: 185 68 68;
+  --accent: 4 142 96;
+  --danger: 205 34 34;
   --warn: 146 89 6;
 }
 
@@ -323,8 +294,8 @@ body {
 
 /* In the components layer, not as plain CSS after `@tailwind utilities`, so a utility on
    the element still wins. As a plain rule the `border` shorthand here re-set the colour
-   after Tailwind had run, which is why the Pro tier's `border-brandAccent/40` rendered as
-   the default hairline instead of the accent. */
+   after Tailwind had run, which is why the Pro tier's `border-brandGreen/40` rendered as
+   the default hairline instead of green. */
 @layer components {
   .glass-card {
     background: rgb(var(--panel) / 0.65);
@@ -336,15 +307,15 @@ body {
 
   @media (hover: hover) and (pointer: fine) {
     .glass-card:hover {
-      border-color: rgb(var(--brandAccent-rgb) / 0.3);
+      border-color: rgba(142, 240, 138, 0.3);
       transform: translateY(-6px);
-      box-shadow: 0 20px 40px -15px rgb(var(--brandAccent-rgb) / 0.12);
+      box-shadow: 0 20px 40px -15px rgba(142, 240, 138, 0.12);
     }
   }
 }
 
 /* `isolation: isolate` makes the card its own stacking context unconditionally, so the
-   accent wave below always paints on the card surface (above its background, beneath the
+   green wave below always paints on the card surface (above its background, beneath the
    text) instead of depending on .glass-card's backdrop-filter to establish that context —
    which is what the original relied on, and what would have dropped the wave behind the
    card entirely in a browser without backdrop-filter support. */
@@ -358,7 +329,7 @@ body {
   position: absolute;
   inset: -1px;
   border-radius: 24px;
-  background: linear-gradient(90deg, transparent, rgb(var(--brandAccent-rgb) / 0.4), transparent);
+  background: linear-gradient(90deg, transparent, rgba(142, 240, 138, 0.4), transparent);
   z-index: -1;
   background-size: 200% 100%;
   animation: border-glow 4s linear infinite;
@@ -418,11 +389,11 @@ body {
 .workflow-glow-dot {
   position: absolute;
   inset: 0;
-  background: var(--brandAccent);
+  background: var(--brandGreen);
   height: 1px;
   width: 60px;
   border-radius: 9999px;
-  box-shadow: 0 0 8px var(--brandAccent);
+  box-shadow: 0 0 8px var(--brandGreen);
   animation: edge-glow-scroll 5s linear infinite;
 }
 
@@ -497,7 +468,7 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--brandAccent) 45%, transparent));
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--brandGreen) 45%, transparent));
 }
 
 /* Floating application screenshots behind the hero (see HERO_APPS in page.tsx). The

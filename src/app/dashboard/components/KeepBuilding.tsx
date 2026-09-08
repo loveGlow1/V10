@@ -11,9 +11,14 @@ import DotMatrixText from "./DotMatrixText";
    in the app, which is why it is drawn rather than set. The button sits in a
    pool of its own light, so the eye lands on it after reading the line above. */
 export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () => void }) {
-  /* The board's own light: the green it is lit in, and the bloom a lit dot has
-     against a dark room. */
-  const lit = "text-accent [filter:drop-shadow(0_0_10px_rgba(52,245,160,0.35))]";
+  /* The board's own light, and the one place in the app that is lit in violet.
+   *
+   * Written as a literal rather than taken from the accent, because that is
+   * exactly what it is: a single deliberate exception to the palette, on the
+   * one piece of display type in the product. The accent is the mint
+   * everywhere else, and this band does not follow it. */
+  const VIOLET = "#B8A0FF";
+  const lit = "text-[#B8A0FF] [filter:drop-shadow(0_0_10px_rgba(184,160,255,0.35))]";
 
   return (
     <section className="relative w-full overflow-hidden px-4 pb-20 pt-16 text-center md:px-6 md:pb-28 md:pt-24">
@@ -48,7 +53,12 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
 
         <button
           onClick={onKeepBuilding}
-          className="mt-10 h-[52px] rounded-full bg-solid px-8 text-[15px] font-semibold text-onSolid shadow-[0_10px_40px_rgba(255,255,255,0.16)] transition-all hover:brightness-95 active:scale-[0.98] md:mt-12"
+          /* The button belongs to the board above it rather than to the rest of
+             the page, so it is lit in the same violet and pools the same
+             light. Everything else about it — the height, the radius, the
+             padding, the press — is what it was. */
+          style={{ backgroundColor: VIOLET }}
+          className="mt-10 h-[52px] rounded-full px-8 text-[15px] font-semibold text-[#08090A] shadow-[0_10px_40px_rgba(184,160,255,0.22)] transition-all hover:brightness-95 active:scale-[0.98] md:mt-12"
         >
           Keep Building
         </button>
