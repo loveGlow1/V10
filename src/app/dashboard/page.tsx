@@ -877,7 +877,7 @@ export default function DashboardPage() {
                   <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
                   {starter.label}
                   {"beta" in starter && starter.beta ? (
-                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-accent/[0.14] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-accent">
                       Beta
                     </span>
                   ) : null}
@@ -1154,7 +1154,7 @@ export default function DashboardPage() {
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Select MCP Tools
                     </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4D96B] text-black">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent/[0.14] text-accent">
                       New
                     </span>
                   </div>

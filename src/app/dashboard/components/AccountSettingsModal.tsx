@@ -602,7 +602,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                             <button
                               onClick={() => void deleteProject()}
                               disabled={deleting}
-                              className="flex h-10 items-center gap-2 rounded-lg border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-[#FF8A8A] transition-colors hover:bg-danger/25 disabled:opacity-50"
+                              className="flex h-10 items-center gap-2 rounded-lg border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-danger transition-colors hover:bg-danger/25 disabled:opacity-50"
                             >
                               <Trash2 className="h-4 w-4" />
                               {deleting ? "Deleting…" : "Yes, delete permanently"}
@@ -618,7 +618,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           <button
                             onClick={() => setConfirmingDelete(true)}
                             disabled={!project}
-                            className="flex h-10 items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-medium text-[#FF8A8A] transition-colors hover:bg-danger/20 disabled:opacity-40"
+                            className="flex h-10 items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-medium text-danger transition-colors hover:bg-danger/20 disabled:opacity-40"
                           >
                             <Trash2 className="h-4 w-4" />
                             Delete Project
@@ -710,7 +710,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       </div>
                       <button
                         onClick={onUpgradeClick}
-                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-opacity hover:opacity-90"
                       >
                         Upgrade Plan <Sparkles className="h-4 w-4" />
                       </button>
@@ -823,7 +823,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                         <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                         <button
                           onClick={onUpgradeClick}
-                          className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                          className="flex h-10 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-opacity hover:opacity-90"
                         >
                           Upgrade Plan <Sparkles className="h-4 w-4" />
                         </button>
@@ -839,7 +839,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                       <button
                         onClick={onUpgradeClick}
-                        className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                        className="flex h-10 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-opacity hover:opacity-90"
                       >
                         Upgrade Plan <Sparkles className="h-4 w-4" />
                       </button>
@@ -1158,13 +1158,13 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                                 title={active ? undefined : "QuickStark.Ai is dark-only for now"}
                                 className={`flex h-[74px] w-full items-center justify-center rounded-lg border-2 transition-colors ${
                                   active
-                                    ? "border-[#4A90E2] bg-panel"
+                                    ? "border-accent bg-panel"
                                     : "cursor-not-allowed border-line/[0.08] bg-layer/[0.03] opacity-45"
                                 }`}
                               >
                                 <span
                                   className={`flex h-[46px] w-[76px] flex-col gap-1 rounded p-2 ${
-                                    id === "light" ? "bg-solid" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-[#0d0d0f]"
+                                    id === "light" ? "bg-white" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-canvas"
                                   }`}
                                 >
                                   <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-layer/40"}`} />

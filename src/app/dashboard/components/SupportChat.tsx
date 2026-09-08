@@ -225,7 +225,7 @@ export default function SupportChat() {
       >
         {open ? <ChevronDown className="h-5 w-5" /> : <ChatMark className="h-6 w-6" />}
         {!open && unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#F45B5B] text-[11px] font-semibold text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[11px] font-semibold text-onSolid">
             {unread}
           </span>
         )}

@@ -14,7 +14,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
    smaller size, and the thing it is anchored to sits under a thumb.
 
    So a phone gets the sheet this app already uses everywhere else: the blurred
-   black field, the #121215 card with a titled header and a round close button,
+   black field, the elevated card with a titled header and a round close button,
    the same one the agent, privacy and advanced panels open. Same content, the
    shape each screen already knows. */
 export default function Popover({

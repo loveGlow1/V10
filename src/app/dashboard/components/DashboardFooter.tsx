@@ -98,7 +98,7 @@ export default function DashboardFooter() {
                     ) : (
                       <span
                         title="Not published yet"
-                        className="text-[14px] text-[#5C6068]"
+                        className="text-[14px] text-faint"
                       >
                         {link.label}
                       </span>
