@@ -65,21 +65,42 @@ export default function DotMatrixText({
   /** How much of each cell the dot fills. Below ~0.9 the line reads as dots; at
       1 they touch and it reads as a solid stroke. */
   fill = 0.78,
+  highlight,
+  highlightColor,
 }: {
   text: string;
   className?: string;
   fill?: number;
+  /* A run of characters lit in a second colour — ".Ai" in the middle of the
+     name. A board where one word is a different colour is how a real display
+     picks out the part that matters, and it is the whole reason this takes a
+     substring rather than a colour for the line. Matched case-insensitively
+     against the same characters that get drawn, so a character the alphabet
+     does not carry cannot shift the run out of place. */
+  highlight?: string;
+  /** What that run is lit in. Anything else is lit in currentColor. */
+  highlightColor?: string;
 }) {
   const characters = [...text.toUpperCase()].filter((character) => character in GLYPHS);
   const width = characters.length * (COLS + GAP) - GAP;
 
-  const dots: { x: number; y: number }[] = [];
+  /* Where the highlighted run starts, or -1. */
+  const wanted = [...(highlight ?? "").toUpperCase()].filter((c) => c in GLYPHS);
+  const start =
+    wanted.length === 0
+      ? -1
+      : characters.findIndex((_, index) =>
+          wanted.every((character, offset) => characters[index + offset] === character),
+        );
+
+  const dots: { x: number; y: number; lit: boolean }[] = [];
   characters.forEach((character, index) => {
     const glyph = GLYPHS[character];
     const left = index * (COLS + GAP);
+    const lit = start !== -1 && index >= start && index < start + wanted.length;
     glyph.forEach((row, y) => {
       [...row].forEach((cell, x) => {
-        if (cell === "1") dots.push({ x: left + x, y });
+        if (cell === "1") dots.push({ x: left + x, y, lit });
       });
     });
   });
@@ -99,7 +120,7 @@ export default function DotMatrixText({
           cx={dot.x + 0.5}
           cy={dot.y + 0.5}
           r={fill / 2}
-          fill="currentColor"
+          fill={dot.lit && highlightColor ? highlightColor : "currentColor"}
         />
       ))}
     </svg>
