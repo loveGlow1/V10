@@ -1228,18 +1228,17 @@ export default function ChatPanel({
     "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
 
   /* The action row's pill. The composer's own chip, squared off a little and
-     brought down a size: these sit in a block of five above the box rather than
-     one at a time inside it, and at full round with the composer's type they
-     read as five buttons shouting.
+     brought down a size: these sit in a block above the box rather than one at
+     a time inside it, and at full round with the composer's type they read as
+     four buttons shouting.
 
-     Each is the width of its own label — shrink-0 against the wrapping row, so
-     a pill keeps its natural size and the row breaks around it. A grid would
-     have made every pill as wide as the longest, which pads "New project" out
-     to the width of "Undo last change" and turns five labels into five
-     identical slabs. Ragged is the point: different words are different lengths, and the
-     eye finds a name faster in a line that admits it. */
+     Each fills its half of the row, because the row is a two-column grid — see
+     the block itself for why. min-w-0 and the truncate on the label are what
+     keep that safe: a grid column can be narrower than the words in it, and
+     without these the longest label would run out of its own pill in a narrow
+     panel rather than shortening inside it. */
   const action_chip =
-    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12.5px] transition-all active:scale-[0.98]";
+    "flex h-9 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-[10px] border px-3 text-[12.5px] transition-all active:scale-[0.98]";
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
@@ -1517,9 +1516,24 @@ export default function ChatPanel({
             stands down entirely while the replace-or-edit question is up: that
             question is the one thing on this bar worth reading.
 
-            They wrap rather than sit in a grid: the row fills, breaks and fills
-            again, which puts as many as fit on each line whatever the screen is
-            and needs no column count guessed per breakpoint. */}
+            Two columns, and they are the two groups. Wrapping put them there
+            anyway at every width this panel is ever given — the four labels
+            come to 570px and the chat column is nowhere near that — but it put
+            them there by accident, and an accident is not a layout: the two
+            lines ended 111px and 51px short of the edge, at different points,
+            which is a block of four buttons with a torn right side and a
+            hundred pixels of nothing beside it.
+
+            So it is stated instead. Each pill fills its half, the pairs line
+            up, and the break falls where the meaning already breaks: the two
+            that set what the next message means on top, the two that happen on
+            the press underneath. The columns are what carry that grouping —
+            the same reason the labels are centred, since a centred label is
+            read as filling its cell and a left-aligned one as having run
+            short.
+
+            One column below 360px, where two would be narrower than the
+            longest label. */}
         {/* Said once, above the composer, before anybody writes anything.
             
             Not a toast and not a modal: a toast is gone by the time somebody
@@ -1546,7 +1560,7 @@ export default function ChatPanel({
            above it, and on a phone close enough to catch with the thumb on the
            way to typing. */
         <div className="mb-4">
-          <div className="flex flex-wrap gap-1.5 px-1">
+          <div className="grid grid-cols-1 gap-2 px-1 min-[360px]:grid-cols-2">
             {[
               {
                 id: "edit" as const,
@@ -1577,7 +1591,7 @@ export default function ChatPanel({
                   }`}
                 >
                   <Icon className={`h-3.5 w-3.5 shrink-0 ${on ? "text-ink" : "text-muted"}`} />
-                  {action.label}
+                  <span className="truncate">{action.label}</span>
                 </button>
               );
             })}
@@ -1591,7 +1605,7 @@ export default function ChatPanel({
               className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
             >
               <Repeat2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              Replace this app
+              <span className="truncate">Replace this app</span>
             </button>
 
             {/* Sent as a message rather than done behind the scenes, so the
@@ -1606,7 +1620,7 @@ export default function ChatPanel({
               className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink disabled:pointer-events-none disabled:opacity-40`}
             >
               <Undo2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              Undo last change
+              <span className="truncate">Undo last change</span>
             </button>
           </div>
 
