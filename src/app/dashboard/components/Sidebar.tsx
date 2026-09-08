@@ -330,7 +330,24 @@ export default function Sidebar({
             {/* Nav items */}
             {/* min-h-11 keeps each row at a thumb-sized target while the gaps close up. */}
             <nav className="mb-5 shrink-0 space-y-1">
-              <button className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink">
+              {/* Published Apps was a button with no onClick — it looked like
+                  navigation and did nothing, which is worse than not being
+                  there: somebody looking for the sites they had put online
+                  pressed the thing named after them and got silence.
+
+                  It goes to the projects list on its Live view. Not a page of
+                  its own: published projects are the same projects, and a
+                  second list of them would be a second place to keep in step
+                  with renames, archiving and deletion. The filter is in the
+                  address so the view survives a reload and can be linked to —
+                  see /dashboard/projects, which reads it. */}
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push("/dashboard/projects?filter=published");
+                }}
+                className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+              >
                 <LayoutGrid className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-medium">Published Apps</span>
               </button>
