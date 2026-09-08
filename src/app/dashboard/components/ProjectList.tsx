@@ -189,7 +189,7 @@ export default function ProjectList() {
                     {row.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted" />}
                     <span className="truncate text-[15px] text-ink">{project.name}</span>
                     {isPublished(project) && (
-                      <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+                      <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
                         Published
                       </span>
                     )}

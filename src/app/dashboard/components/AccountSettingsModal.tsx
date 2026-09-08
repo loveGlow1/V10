@@ -1164,7 +1164,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                               >
                                 <span
                                   className={`flex h-[46px] w-[76px] flex-col gap-1 rounded p-2 ${
-                                    id === "light" ? "bg-solid" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-[#0d0d0f]"
+                                    id === "light" ? "bg-white" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-canvas"
                                   }`}
                                 >
                                   <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-layer/40"}`} />
