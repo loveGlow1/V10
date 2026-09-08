@@ -42,6 +42,7 @@ import {
 } from "@/lib/builder/edit";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
+import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
 import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
@@ -1879,6 +1880,20 @@ async function handle(
   const sources = Object.entries(pictures.bySource)
     .map(([id, count]) => `${count} from ${id}`)
     .join(", ");
+
+  /* ── Whose pictures these are ──────────────────────────────────────────
+   *
+   * The registry is written by the resolver as each slot is filled: what the
+   * picture is for, what it is of, how it was shot, where it sits, and which
+   * picture it IS. Recording it is what makes "are this project's images its
+   * own" a question with an answer rather than an assurance.
+   *
+   * A duplicate inside one project is worth saying out loud. It is not an
+   * error — a gallery is a legitimate reason for one subject to appear
+   * repeatedly — but one photograph doing a whole catalogue's work is the
+   * clearest tell that nothing on the page is real, and it is invisible unless
+   * something counts. */
+  const duplicated = duplicatesIn(pictures.registry);
   /* ── And the design system, from the same decision ──────────────────────
    *
    * Read off the register the planner just chose rather than derived again
@@ -1895,7 +1910,9 @@ async function handle(
     "assets",
     `Chose the imagery — ${plan.direction.register}`,
     sources
-      ? `${sources}${pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""}`
+      ? `${describeRegistry(pictures.registry)}${
+          pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""
+        }${duplicated.length > 0 ? `, ${duplicated.length} used more than once` : ""}`
       : "no image source configured, so the layout holds plain panels",
   );
 

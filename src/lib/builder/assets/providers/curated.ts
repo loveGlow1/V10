@@ -1,3 +1,4 @@
+import { rotate, rotationFor } from "@/lib/builder/assets/asset-registry";
 import type { AssetProvider, ProviderHealth, Supply } from "@/lib/builder/assets/providers/types";
 import type { AssetRequest, AssetType } from "@/lib/builder/assets/asset-types";
 
@@ -80,11 +81,29 @@ export const CATALOGUE: CuratedEntry[] = [
   { path: "background/concrete-01.webp", type: "background", tags: ["concrete", "texture", "grey"], registers: ["technical documentary"], aspect: "16/9", width: 2400, height: 1350, license: "quickstark-owned" },
 ];
 
-/** Everything in the catalogue that could answer this request, best first. */
-export function search(request: AssetRequest, register: string, used: Set<string>): CuratedEntry[] {
+/**
+ * Everything in the catalogue that could answer this request, best first.
+ *
+ * `projectId` is what stops two customers in the same trade being handed the
+ * same photograph. The catalogue is shared and finite — that is what a library
+ * IS, and pretending each project can have an exclusive hero from it would mean
+ * refusing to serve the twenty-fifth project at all. What CAN be guaranteed is
+ * that they are not handed the same frame: candidates that score within a
+ * hair's breadth of each other are equally right, and each project starts at a
+ * different one of them. Two bakeries get two different loaves.
+ *
+ * Deterministic, so the same project gets the same picture on every rebuild.
+ * An edit that changes a headline must not reshuffle the photography.
+ */
+export function search(
+  request: AssetRequest,
+  register: string,
+  used: Set<string>,
+  projectId = "",
+): CuratedEntry[] {
   const subject = (request.spec?.subject ?? request.alt).toLowerCase();
 
-  return CATALOGUE.filter((entry) => entry.type === request.type)
+  const ranked = CATALOGUE.filter((entry) => entry.type === request.type)
     .map((entry) => {
       let score = 0;
       /* Register first. A photograph from the project's own visual direction is
@@ -96,11 +115,14 @@ export function search(request: AssetRequest, register: string, used: Set<string
       /* Anything already used in this project drops to the back, so a
          twelve-product grid does not show the same photograph twelve times. */
       if (used.has(entry.path)) score -= 20;
-      return { entry, score };
+      return { item: entry, score };
     })
     .filter(({ score }) => score > -10)
-    .sort((a, b) => b.score - a.score)
-    .map(({ entry }) => entry);
+    .sort((a, b) => b.score - a.score);
+
+  /* A band of 1, against scores that move in steps of 2 and 3: two entries are
+     rotated between only when nothing in the ranking actually separates them. */
+  return projectId ? rotate(ranked, rotationFor(projectId), 1) : ranked.map(({ item }) => item);
 }
 
 /**
@@ -130,7 +152,7 @@ export function curatedProvider(): AssetProvider {
     async supply(request, context): Promise<Supply | null> {
       if (!base) return null;
 
-      const matches = search(request, context.direction.register, used);
+      const matches = search(request, context.direction.register, used, context.projectId);
       const entry = matches[0];
       if (!entry) return null;
 

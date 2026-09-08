@@ -245,6 +245,9 @@ async function findBest(
   terms: string[],
   taken: ReadonlySet<string>,
   key: string,
+  /* Whose project this is, so two customers in the same trade are not handed
+     the same photograph. See pickBest. */
+  projectId: string,
 ): Promise<Found | null> {
   let fallback: { found: Found; score: number } | null = null;
 
@@ -252,7 +255,7 @@ async function findBest(
     const results = await adapter.search(term, want.orientation, key);
     if (results.length === 0) continue;
 
-    const chosen = pickBest(results.map((result) => result.candidate), want, taken);
+    const chosen = pickBest(results.map((result) => result.candidate), want, taken, projectId);
     if (!chosen) continue;
 
     const found = results.find((result) => result.candidate.id === chosen.candidate.id);
@@ -297,7 +300,7 @@ function stockProvider(adapter: Adapter): AssetProvider {
       });
 
       const taken = context.taken ?? new Set<string>();
-      const found = await findBest(adapter, want, searchTerms(want), taken, key);
+      const found = await findBest(adapter, want, searchTerms(want), taken, key, context.projectId);
       if (!found) return null;
 
       /* Claimed before the supply is built, so the next slot in this build

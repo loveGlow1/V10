@@ -108,6 +108,59 @@ export function repairFor(issue: Issue): Repair | null {
         verifiable: true,
       };
 
+    case "responsive/image-overflow":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.where ?? "An image"} is wider than the box it sits in, so it is cut off or spilling out of it. Give the image \`max-width: 100%\`, \`height: auto\` and \`object-fit: cover\`, and let the container decide the size. Change nothing else.`,
+        verifiable: true,
+      };
+
+    case "responsive/collision":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message} Give the header a layout for this width: let the items wrap, stack them, or collapse the links behind a menu button that opens a panel already in the markup. Do not shrink the text to make it fit and do not hide the navigation without giving it somewhere to go.`,
+        verifiable: true,
+      };
+
+    case "responsive/form-unusable":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message} Make the form usable at this width: full-width fields, one per line, at least 44px tall, with their labels above them. Change nothing about what the form does.`,
+        verifiable: true,
+      };
+
+    case "content/invented-metric":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message}
+
+Do not replace them with different numbers, do not soften them into "hundreds of" or "thousands of", and do not add "approximately". The section keeps its place in the layout and says something that is true instead: what the business does, how the work is done, what is sold, who it is for.`,
+        verifiable: true,
+      };
+
+    case "content/fabricated-chart":
+      return {
+        rule: issue.rule,
+        instruction:
+          'A chart on this page is drawn from numbers nobody supplied. Replace it with an empty state that keeps the same box and reads "Analytics will appear once data is connected", or with real content in the same space — what is sold, how it works, where it happens. Do not generate replacement figures, and do not leave a chart shape with no data behind it.',
+        verifiable: true,
+      };
+
+    case "content/invented-reviews":
+      return {
+        rule: issue.rule,
+        instruction:
+          "Reviews, ratings or testimonials on this page were written by nobody. Remove the block, or keep the layout and label it plainly as an example — a heading that says these are placeholders until real reviews exist. Never present an invented quote, name or star rating as a real customer's.",
+        verifiable: true,
+      };
+
+    case "content/repeated-image":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message} Give each place its own picture: change the data-shot brief on each <img> so it describes a different subject, and leave the src attributes alone — they are filled in after this.`,
+        verifiable: true,
+      };
+
     case "visual/table-overflow":
       return {
         rule: issue.rule,

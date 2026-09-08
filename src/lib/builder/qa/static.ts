@@ -407,6 +407,68 @@ export function staticVisualGate(html: string): GateResult {
     });
   }
 
+  /* ── Nothing in this page changes with the screen ────────────────────
+   *
+   * The deepest version of the mobile failure, and the one every other
+   * responsive finding is a symptom of: a document with no media queries, no
+   * responsive utility classes and no intrinsic sizing was designed at one
+   * width and shipped at all of them. It usually looks fine on the laptop it
+   * was written on, which is why it reaches customers.
+   *
+   * Three ways of being responsive are accepted, because all three are real:
+   * media queries, a utility framework's breakpoint prefixes, and intrinsic
+   * layout — `auto-fit`/`minmax`, `clamp()`, `flex-wrap`. Any one of them is
+   * evidence somebody thought about width. */
+  const hasMediaQueries = /@media[^{]*\b(min|max)-width/i.test(styles);
+  const hasUtilityBreakpoints = /\b(sm|md|lg|xl|2xl):[a-z-]/.test(html);
+  const hasIntrinsic = /\b(auto-fit|auto-fill|minmax\s*\(|clamp\s*\(|flex-wrap\s*:\s*wrap)/i.test(
+    styles + html,
+  );
+
+  if (html.length > 1500 && !hasMediaQueries && !hasUtilityBreakpoints && !hasIntrinsic) {
+    issues.push({
+      gate: "visual",
+      severity: "error",
+      rule: "visual/no-breakpoints",
+      message:
+        "Nothing in this page changes with the width of the screen — no media queries, no responsive classes, no fluid sizing. It was laid out once and shipped at every size.",
+    });
+  }
+
+  /* Overflow hidden on the page itself.
+   *
+   * The fix everybody reaches for and the one that makes the defect
+   * unmeasurable: the sideways scrolling stops, the content that was hanging
+   * off the side is now unreachable instead of merely awkward, and every
+   * layout check downstream goes quiet. Reported as a warning rather than an
+   * error because a few designs genuinely need it — but it is named, because
+   * it is far more often a symptom being covered up. */
+  if (/\b(?:html|body)[^{}]*\{[^}]*overflow-x\s*:\s*hidden/i.test(styles)) {
+    issues.push({
+      gate: "visual",
+      severity: "warning",
+      rule: "visual/overflow-hidden",
+      message:
+        "The page hides its own horizontal overflow. That stops the sideways scrolling without fixing what is too wide — whatever was hanging off the side is now cut off instead.",
+    });
+  }
+
+  /* A grid that cannot become one column. `repeat(4, 1fr)` is four columns at
+     every width including 320px, where each is 70px wide. `auto-fit` with a
+     `minmax` floor is the same layout on a laptop and a correct one on a
+     phone. */
+  const rigidGrids = [...styles.matchAll(/grid-template-columns\s*:\s*repeat\(\s*(\d+)\s*,/gi)]
+    .map((match) => Number(match[1]))
+    .filter((columns) => columns >= 3);
+  if (rigidGrids.length > 0 && !hasMediaQueries && !hasUtilityBreakpoints) {
+    issues.push({
+      gate: "visual",
+      severity: "warning",
+      rule: "visual/rigid-grid",
+      message: `${rigidGrids.length} grid${rigidGrids.length === 1 ? " holds" : "s hold"} a fixed column count (${[...new Set(rigidGrids)].join(", ")}) at every width. Use repeat(auto-fit, minmax(min(100%, 260px), 1fr)) so the columns become one on a phone.`,
+    });
+  }
+
   /* No viewport meta. Every responsive rule in the document is inert without
      it, and the page renders at desktop width on a phone. */
   if (!/<meta\b[^>]*name\s*=\s*["']viewport["']/i.test(html)) {

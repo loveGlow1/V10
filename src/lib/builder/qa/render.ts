@@ -26,10 +26,18 @@
  *
  * ── The viewports ─────────────────────────────────────────────────────────
  *
- * The three from §2, and they are not arbitrary. 1440×900 is the laptop most
- * of this is looked at on; 768×1024 is the width where two-column layouts have
- * to decide what they are; 390×844 is a current iPhone and the width where
- * everything that was going to break has broken.
+ * Six, and mobile is three of them, which is the whole argument of this file.
+ * A page checked at one phone width is a page checked at the width that
+ * happened to work: 320 is where a fixed 360px card first hangs off the side,
+ * 375 is the iPhone most people are holding, and 480 is where a two-column grid
+ * decides whether it was ever going to become one column. Desktop gets two
+ * because 1280 and 1440 disagree about container padding and about whether a
+ * max-width was ever set.
+ *
+ * They are ordered narrowest first on purpose. A run that is cut short — a
+ * timeout, a crashed browser, a CI job that ran out of minutes — then has
+ * measured the sizes that break, rather than the ones that were always going to
+ * be fine.
  */
 
 import type { GateResult, Issue } from "./types";
@@ -38,10 +46,17 @@ import { emptyGate } from "./types";
 export type Viewport = { name: string; width: number; height: number };
 
 export const VIEWPORTS: Viewport[] = [
-  { name: "desktop", width: 1440, height: 900 },
+  { name: "small", width: 320, height: 640 },
+  { name: "mobile", width: 375, height: 812 },
+  { name: "large-mobile", width: 480, height: 900 },
   { name: "tablet", width: 768, height: 1024 },
-  { name: "mobile", width: 390, height: 844 },
+  { name: "laptop", width: 1280, height: 800 },
+  { name: "desktop", width: 1440, height: 900 },
 ];
+
+/** Everything at or below 480px, where a layout is a phone layout. */
+export const isPhoneViewport = (name: string): boolean =>
+  name === "small" || name === "mobile" || name === "large-mobile";
 
 /* What one viewport's measurement comes back as. Deliberately plain data: the
    thing doing the measuring runs inside a browser page and can only return
@@ -59,6 +74,14 @@ export type Measurement = {
   clipped: { selector: string }[];
   /** Tap targets under the size a finger can reliably hit. */
   smallTargets: { selector: string; width: number; height: number }[];
+  /** Images wider than the box they are in. */
+  imageOverflow: { selector: string; width: number; parentWidth: number }[];
+  /** Two things in the navigation sitting on top of each other. */
+  collisions: { a: string; b: string }[];
+  /** Form controls too narrow, too short, or hanging out of their container. */
+  formProblems: { selector: string; problem: string }[];
+  /** Sections holding a screenful of nothing. */
+  emptySections: { selector: string; height: number }[];
   /** Whether anything was actually laid out — a blank render is a failed one. */
   bodyHeight: number;
 };
@@ -130,6 +153,87 @@ export const MEASURE_SCRIPT = `(() => {
     }
   }
 
+  /* An image wider than the box holding it. Distinct from page overflow: a
+     picture can burst its own card without the page scrolling, and it looks
+     exactly as broken. */
+  const imageOverflow = [];
+  for (const img of Array.from(document.images)) {
+    const box = img.getBoundingClientRect();
+    if (box.width === 0) continue;
+    const parent = img.parentElement;
+    if (!parent) continue;
+    const parentBox = parent.getBoundingClientRect();
+    if (parentBox.width > 0 && box.width > parentBox.width + 2) {
+      imageOverflow.push({
+        selector: selectorFor(img),
+        width: Math.round(box.width),
+        parentWidth: Math.round(parentBox.width),
+      });
+    }
+    if (imageOverflow.length >= 6) break;
+  }
+
+  /* Navigation on top of itself. The classic phone failure: a horizontal nav
+     that never became a menu, so the links stack over the logo. Only the
+     direct children of a nav are compared, and only against their siblings —
+     an overlap between a link and its own icon is a design, not a defect. */
+  const collisions = [];
+  const navs = Array.from(document.querySelectorAll("nav, [role=navigation], header"));
+  for (const nav of navs) {
+    const kids = Array.from(nav.children).filter((el) => {
+      const box = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return box.width > 0 && box.height > 0 && style.position !== "absolute" && style.position !== "fixed";
+    });
+    for (let i = 0; i < kids.length && collisions.length < 4; i += 1) {
+      for (let j = i + 1; j < kids.length && collisions.length < 4; j += 1) {
+        const a = kids[i].getBoundingClientRect();
+        const b = kids[j].getBoundingClientRect();
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        /* Real overlap, not a shared edge: a quarter of the smaller box in
+           both directions before this counts as a collision. */
+        if (overlapX > Math.min(a.width, b.width) / 4 && overlapY > Math.min(a.height, b.height) / 4) {
+          collisions.push({ a: selectorFor(kids[i]), b: selectorFor(kids[j]) });
+        }
+      }
+    }
+  }
+
+  /* Forms that cannot be filled in. A field narrower than a thumb, a control
+     shorter than a tap, or one hanging out of the form it belongs to. */
+  const formProblems = [];
+  for (const field of Array.from(document.querySelectorAll("input, select, textarea, button"))) {
+    const box = field.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) continue;
+    const type = (field.getAttribute("type") || "").toLowerCase();
+    if (type === "hidden" || type === "checkbox" || type === "radio") continue;
+
+    if (box.right > docWidth + 1) {
+      formProblems.push({ selector: selectorFor(field), problem: "runs off the right edge" });
+    } else if (docWidth <= 480 && box.width < 120 && type !== "submit") {
+      formProblems.push({ selector: selectorFor(field), problem: Math.round(box.width) + "px wide, too narrow to type in" });
+    } else if (box.height < 28) {
+      formProblems.push({ selector: selectorFor(field), problem: Math.round(box.height) + "px tall, too short to tap" });
+    }
+    if (formProblems.length >= 6) break;
+  }
+
+  /* A screenful of nothing. A section taller than the viewport holding almost
+     no text and no picture is padding that was never filled — the shape of a
+     page assembled rather than designed. */
+  const emptySections = [];
+  for (const section of Array.from(document.querySelectorAll("section, .section, main > div"))) {
+    const box = section.getBoundingClientRect();
+    if (box.height < window.innerHeight * 1.2) continue;
+    const text = (section.textContent || "").trim();
+    const media = section.querySelectorAll("img, svg, video, canvas, picture").length;
+    if (text.length < 60 && media === 0) {
+      emptySections.push({ selector: selectorFor(section), height: Math.round(box.height) });
+    }
+    if (emptySections.length >= 4) break;
+  }
+
   return {
     scrollWidth: Math.round(document.documentElement.scrollWidth),
     clientWidth: Math.round(docWidth),
@@ -137,6 +241,10 @@ export const MEASURE_SCRIPT = `(() => {
     brokenImages,
     clipped,
     smallTargets,
+    imageOverflow,
+    collisions,
+    formProblems,
+    emptySections,
     bodyHeight: Math.round(document.body ? document.body.scrollHeight : 0),
   };
 })()`;
@@ -166,7 +274,23 @@ export function gatesFrom(measurements: Measurement[]): { visual: GateResult; re
   const visual: Issue[] = [];
   const responsive: Issue[] = [];
 
-  for (const measurement of measurements) {
+  for (const raw of measurements) {
+    /* Read defensively, because a Measurement can come from a renderer this
+       module did not write — the CLI, a CI job, a worker running a version of
+       MEASURE_SCRIPT from before a field existed. A missing array must mean
+       "nothing found for that check", never a thrown TypeError that takes the
+       whole responsive gate down with it and reports it as not run. */
+    const measurement: Measurement = {
+      ...raw,
+      overflowing: raw.overflowing ?? [],
+      brokenImages: raw.brokenImages ?? [],
+      clipped: raw.clipped ?? [],
+      smallTargets: raw.smallTargets ?? [],
+      imageOverflow: raw.imageOverflow ?? [],
+      collisions: raw.collisions ?? [],
+      formProblems: raw.formProblems ?? [],
+      emptySections: raw.emptySections ?? [],
+    };
     const { viewport } = measurement;
 
     /* A render with no height is a render that produced nothing — a script
@@ -229,6 +353,60 @@ export function gatesFrom(measurements: Measurement[]): { visual: GateResult; re
         where: target.selector,
       });
     }
+
+    /* A picture bursting its own card. Not page overflow — the page can be
+       perfectly contained while every image inside it is 40px too wide — and
+       it is the one layout defect a screenshot makes obvious and a scroll
+       measurement misses entirely. */
+    for (const image of measurement.imageOverflow.slice(0, 3)) {
+      responsive.push({
+        gate: "responsive",
+        severity: "error",
+        rule: "responsive/image-overflow",
+        message: `${image.selector} is ${image.width}px inside a ${image.parentWidth}px box at ${viewport}, so the picture is cut off or spilling out of it. An image needs max-width: 100% and object-fit: cover.`,
+        viewport,
+        where: image.selector,
+      });
+    }
+
+    /* Navigation sitting on top of itself. Always a phone failure and always
+       the first thing a visitor sees. */
+    for (const collision of measurement.collisions.slice(0, 2)) {
+      responsive.push({
+        gate: "responsive",
+        severity: "error",
+        rule: "responsive/collision",
+        message: `${collision.a} and ${collision.b} overlap each other in the header at ${viewport}. The navigation has not been given a layout for this width — stack it, or collapse it into a menu.`,
+        viewport,
+        where: collision.a,
+      });
+    }
+
+    /* A form that cannot be filled in is a page that cannot be used, whatever
+       else is right about it. */
+    for (const problem of measurement.formProblems.slice(0, 3)) {
+      responsive.push({
+        gate: "responsive",
+        severity: problem.problem.includes("off the right") ? "error" : "warning",
+        rule: "responsive/form-unusable",
+        message: `${problem.selector} ${problem.problem} at ${viewport}.`,
+        viewport,
+        where: problem.selector,
+      });
+    }
+
+    /* Empty space, which is a design finding rather than a layout one — but it
+       is only measurable here, with the page laid out. */
+    for (const section of measurement.emptySections.slice(0, 2)) {
+      visual.push({
+        gate: "visual",
+        severity: "warning",
+        rule: "visual/empty-section",
+        message: `${section.selector} is ${section.height}px tall at ${viewport} with almost nothing in it. A section exists because it has something to say.`,
+        viewport,
+        where: section.selector,
+      });
+    }
   }
 
   /* Broken images are collected across every viewport and reported once.
@@ -240,7 +418,7 @@ export function gatesFrom(measurements: Measurement[]): { visual: GateResult; re
    * viewports it breaks at is the first thing anybody fixing it asks. */
   const brokenSeen = new Set<string>();
   for (const measurement of measurements) {
-    for (const image of measurement.brokenImages) {
+    for (const image of measurement.brokenImages ?? []) {
       const key = image.src || image.alt || "unknown";
       if (brokenSeen.has(key)) continue;
       brokenSeen.add(key);

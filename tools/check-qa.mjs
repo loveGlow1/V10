@@ -257,6 +257,10 @@ console.log("\nNot run is not passed");
     brokenImages: [],
     clipped: [],
     smallTargets: [],
+    imageOverflow: [],
+    collisions: [],
+    formProblems: [],
+    emptySections: [],
     bodyHeight: viewport.name === "mobile" ? 2000 : 900,
   });
 
@@ -394,6 +398,192 @@ console.log("\nThe loop");
   else pass("a refused repair is not retried");
 }
 
+/* ── The responsive constructions, without a browser ──────────────────────
+ *
+ * These are the mobile defects that are visible in the markup itself, so they
+ * are caught on every build rather than only on the ones something rendered.
+ * A long document is needed for some of them: the no-breakpoints rule
+ * deliberately ignores short pages, because a 40-line document with no media
+ * query is a fragment rather than a page that forgot about phones.
+ */
+
+const LONG = (body) =>
+  CLEAN.replace("<body>", "<body>" + "<p>Real sentences about a real business, repeated to make this a page rather than a fragment. </p>".repeat(20) + body);
+
+console.log("\nResponsive, from the markup alone");
+
+const RESPONSIVE_RULES = [
+  {
+    rule: "visual/no-breakpoints",
+    bad: LONG("<div>Nothing here reacts to width.</div>"),
+    good: LONG("<div>Reacts</div>").replace("</style>", "@media (max-width: 600px){.card{padding:8px}}</style>"),
+  },
+  {
+    rule: "visual/overflow-hidden",
+    bad: CLEAN.replace("body{margin:0", "body{overflow-x:hidden;margin:0"),
+    good: CLEAN,
+  },
+  {
+    rule: "visual/rigid-grid",
+    bad: CLEAN.replace(".card{", ".grid{display:grid;grid-template-columns:repeat(4,1fr)}\n.card{"),
+    good: CLEAN.replace(
+      ".card{",
+      ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}\n.card{",
+    ),
+  },
+];
+
+for (const entry of RESPONSIVE_RULES) {
+  const onBad = await qa.runQa({ html: entry.bad, manifest: manifest(), design: CRAFT });
+  const onGood = await qa.runQa({ html: entry.good, manifest: manifest(), design: CRAFT });
+
+  const firedOnBad = qa.allIssues(onBad).some((issue) => issue.rule === entry.rule);
+  const firedOnGood = qa.allIssues(onGood).some((issue) => issue.rule === entry.rule);
+
+  if (!firedOnBad) fail(entry.rule, "did not fire on a page that has the defect");
+  else if (firedOnGood) fail(entry.rule, "fired on a page that does not have the defect");
+  else pass(entry.rule);
+}
+
+/* ── Nobody's numbers ─────────────────────────────────────────────────────
+ *
+ * The gate that decides whether a figure on somebody's website is theirs. Both
+ * halves matter and the second one more: a page that repeats a number its
+ * owner typed must never be flagged, or the gate teaches people that it does
+ * not understand their business.
+ */
+
+console.log("\nBusiness data, against what the customer supplied");
+
+const STATS = CLEAN.replace(
+  "<h1>A title</h1>",
+  '<h1>A title</h1><section><p>2,400 happy customers</p><p>340% growth last year</p><p>$1.2m in revenue</p></section>',
+);
+
+{
+  /* Nothing supplied: every figure on the page is invented. */
+  const invented = await qa.runQa({ html: STATS, manifest: manifest(), design: CRAFT, evidence: "a bakery in Peckham" });
+  if (!qa.allIssues(invented).some((issue) => issue.rule === "content/invented-metric")) {
+    fail("content/invented-metric", "did not fire on figures nobody supplied");
+  } else pass("content/invented-metric fires on figures nobody supplied");
+
+  /* The same page, where the customer gave those numbers. */
+  const theirs = await qa.runQa({
+    html: STATS,
+    manifest: manifest(),
+    design: CRAFT,
+    evidence: "We have 2,400 customers, grew 340% last year and turned over $1.2m.",
+  });
+  if (qa.allIssues(theirs).some((issue) => issue.rule === "content/invented-metric")) {
+    fail(
+      "content/invented-metric",
+      "flagged the customer's own figures — the gate would be telling them their business is made up",
+    );
+  } else pass("the customer's own figures are not flagged");
+
+  /* Prices, weights and opening hours are content, not claims. This is the
+     false positive that would make the gate unusable on every shop. */
+  const shop = CLEAN.replace(
+    "<h1>A title</h1>",
+    '<h1>A title</h1><p>Sourdough £4.50, 800g. Open 7am–4pm. 1,200g festive loaf £12.00. Call 020 7946 0102.</p>',
+  );
+  const onShop = await qa.runQa({ html: shop, manifest: manifest(), design: CRAFT, evidence: "a bakery" });
+  if (qa.allIssues(onShop).some((issue) => issue.rule === "content/invented-metric")) {
+    fail("content/invented-metric", "flagged prices and opening hours as business claims");
+  } else pass("prices, weights and hours are content, not claims");
+
+  /* A chart of performance with no data behind it. */
+  const chart = CLEAN.replace(
+    "<h1>A title</h1>",
+    '<h1>A title</h1><section><h2>Revenue growth</h2><canvas id="revenue-chart"></canvas></section>',
+  );
+  const onChart = await qa.runQa({ html: chart, manifest: manifest(), design: CRAFT, evidence: "" });
+  if (!qa.allIssues(onChart).some((issue) => issue.rule === "content/fabricated-chart")) {
+    fail("content/fabricated-chart", "did not fire on a revenue chart with no data behind it");
+  } else pass("content/fabricated-chart fires on a revenue chart nobody has data for");
+
+  /* Reviews nobody wrote. */
+  const reviews = CLEAN.replace(
+    "<h1>A title</h1>",
+    '<h1>A title</h1><section><h2>What our customers say</h2><p>★★★★★ 4.9 out of 5</p><p>“Wonderful.” — Sarah T.</p></section>',
+  );
+  const onReviews = await qa.runQa({ html: reviews, manifest: manifest(), design: CRAFT, evidence: "" });
+  if (!qa.allIssues(onReviews).some((issue) => issue.rule === "content/invented-reviews")) {
+    fail("content/invented-reviews", "did not fire on testimonials nobody wrote");
+  } else pass("content/invented-reviews fires on testimonials nobody wrote");
+
+  /* One photograph standing in for a catalogue. */
+  const repeated = CLEAN.replace(
+    "<h1>A title</h1>",
+    '<h1>A title</h1><img src="a.jpg" alt="One"><img src="a.jpg" alt="Two"><img src="a.jpg" alt="Three">',
+  );
+  const onRepeated = await qa.runQa({ html: repeated, manifest: manifest(), design: CRAFT, evidence: "shop" });
+  if (!qa.allIssues(onRepeated).some((issue) => issue.rule === "content/repeated-image")) {
+    fail("content/repeated-image", "did not notice one photograph used three times");
+  } else pass("content/repeated-image notices one photograph doing a catalogue's work");
+
+  /* And with no evidence passed at all the gate must report itself not run,
+     rather than reporting a page with nothing wrong with it. */
+  const blind = await qa.runQa({ html: STATS, manifest: manifest(), design: CRAFT });
+  if (blind.content.ran) fail("content", "ran with nothing to judge the figures against");
+  else pass("no evidence → the content gate reports itself not run");
+}
+
+/* ── The mechanical repairs ───────────────────────────────────────────────
+ *
+ * autofix has one property that matters more than any individual rule: it may
+ * only make a wrong page right, never a right page different. So the clean
+ * page goes through it and has to come out with nothing changed but the
+ * guards, and everything it does fix has to stay fixed when run twice.
+ */
+
+console.log("\nThe mechanical repairs");
+{
+  const broken = CLEAN.replace("body{margin:0", "body{width:1200px;margin:0").replace(
+    /<meta name="viewport"[^>]*>/,
+    "",
+  );
+
+  const fixed = qa.autofix(broken);
+  const rules = fixed.applied.map((fix) => fix.rule);
+
+  if (!rules.includes("visual/viewport-meta")) fail("autofix", "did not add the missing viewport meta");
+  else if (!rules.includes("visual/fixed-width")) fail("autofix", "did not release the 1200px width");
+  else pass(`autofix repaired ${rules.length}: ${rules.join(", ")}`);
+
+  /* And the page it produced passes the gates that were failing. */
+  const after = await qa.runQa({ html: fixed.html, manifest: manifest(), design: CRAFT });
+  const stillBroken = qa
+    .allIssues(after)
+    .filter((issue) => issue.rule === "visual/viewport-meta" || issue.rule === "visual/fixed-width");
+  if (stillBroken.length > 0) {
+    fail("autofix", `the repaired page still fails: ${stillBroken.map((i) => i.rule).join(", ")}`);
+  } else pass("the repaired page passes the gates it was failing");
+
+  /* Twice is the same as once. A fix that keeps appending is a fix that grows
+     a document by a kilobyte on every build. */
+  const twice = qa.autofix(fixed.html);
+  if (twice.html !== fixed.html) fail("autofix", "is not idempotent — running it twice changed the page again");
+  else pass("running it twice changes nothing");
+
+  /* A wide screen's own rules are left alone: `width: 1200px` inside
+     `@media (min-width: 1024px)` is correct and rewriting it would be the
+     exact failure this is written to avoid. */
+  const scoped = CLEAN.replace(
+    "</style>",
+    "@media (min-width: 1024px){.wrap{width:1200px}}</style>",
+  );
+  const untouched = qa.autofix(scoped);
+  if (!untouched.html.includes("width:1200px")) {
+    fail("autofix", "rewrote a fixed width that was correctly scoped to a wide screen");
+  } else pass("a width inside a min-width media query is left alone");
+
+  /* 100vw is wrong in every document that contains it. */
+  const vw = qa.autofix(CLEAN.replace("body{margin:0", "body{width:100vw;margin:0"));
+  if (vw.html.includes("100vw")) fail("autofix", "left width: 100vw in place");
+  else pass("width: 100vw becomes 100%");
+}
+
 /* ── Contrast is one implementation (§7) ──────────────────────────────────*/
 
 console.log("\nContrast");
@@ -411,7 +601,7 @@ console.log("\nContrast");
      there being one implementation. */
   const bad = SYSTEMS.filter((system) => {
     const result = qa.allIssues(
-      { accessibility: { issues: [] }, visual: { issues: [] }, responsive: { issues: [] }, functional: { issues: [] }, design: { issues: [] } },
+      { accessibility: { issues: [] }, visual: { issues: [] }, responsive: { issues: [] }, functional: { issues: [] }, design: { issues: [] }, content: { issues: [] } },
     );
     return result.length > 0;
   });
