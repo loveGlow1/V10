@@ -640,7 +640,7 @@ export default function PreviewPanel({
                   aria-label={`Open the published site, ${publishedLabel(liveSlug)}`}
                   className="flex items-center gap-1.5 pl-3 pr-2 text-[12px] font-semibold text-ink transition-opacity active:opacity-70"
                 >
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
                   {/* The word, not the address.
                    *
                    * The address was tried here first and it does not fit: at

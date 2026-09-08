@@ -27,7 +27,7 @@ const DIAGONAL = Math.SQRT1_2;
 
 /* The mark stays black — it is the brand, and it is not the thing to change.
  * What changed is what it sits on. */
-const MARK_BLACK = "#050506";
+const MARK_BLACK = "#08090A";
 
 /* A white ground, which is how a dark mark survives a browser tab.
  *

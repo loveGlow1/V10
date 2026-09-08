@@ -10,8 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "Build full-stack web and mobile apps in minutes — interface, backend, database and sign-in from one description.",
     start_url: "/",
     display: "standalone",
-    background_color: "#050505",
-    theme_color: "#050505",
+    background_color: "#08090A",
+    theme_color: "#08090A",
     icons: [
       /* Generated from the brand mark rather than checked in — see icon.tsx,
          which owns these ids. Two files in public/ held a resampled copy of an

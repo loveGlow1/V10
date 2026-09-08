@@ -39,7 +39,7 @@ export default function LegalPage({
         <div className="page-shell flex h-20 items-center justify-between">
           <Link
             href="/"
-            className="text-xl font-bold tracking-tight focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40"
+            className="text-xl font-bold tracking-tight focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40"
             aria-label="QuickStark.Ai home"
           >
             <span className="wordmark-quickstart">QuickStark</span>
@@ -47,7 +47,7 @@ export default function LegalPage({
           </Link>
           <Link
             href="/"
-            className="text-sm text-brandTextSec transition-colors hover:text-brandGreen focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40"
+            className="text-sm text-brandTextSec transition-colors hover:text-brandAccent focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40"
           >
             Back to site
           </Link>
@@ -88,10 +88,10 @@ export default function LegalPage({
 
       <footer className="border-t border-brandBorder px-6 py-10">
         <div className="page-shell flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-brandTextSec">
-          <Link href="/terms" className="transition-colors hover:text-brandGreen">
+          <Link href="/terms" className="transition-colors hover:text-brandAccent">
             Terms of Service
           </Link>
-          <Link href="/privacy" className="transition-colors hover:text-brandGreen">
+          <Link href="/privacy" className="transition-colors hover:text-brandAccent">
             Privacy Policy
           </Link>
           <span className="text-ink/30">
@@ -119,7 +119,7 @@ export function Clause({
   return (
     <section id={id} className="scroll-mt-8">
       <h2 className="flex items-baseline gap-3 text-lg font-semibold tracking-tight text-ink">
-        <span className="font-mono text-sm text-brandGreen">{n}</span>
+        <span className="font-mono text-sm text-brandAccent">{n}</span>
         {title}
       </h2>
       <div className="mt-3 space-y-4 text-[15px] leading-[1.75] text-brandTextSec">{children}</div>
@@ -133,7 +133,7 @@ export function Points({ items }: { items: React.ReactNode[] }) {
     <ul className="space-y-2">
       {items.map((item, index) => (
         <li key={index} className="flex gap-3">
-          <span aria-hidden className="mt-[0.7em] h-1 w-1 shrink-0 rounded-full bg-brandGreen" />
+          <span aria-hidden className="mt-[0.7em] h-1 w-1 shrink-0 rounded-full bg-brandAccent" />
           <span>{item}</span>
         </li>
       ))}

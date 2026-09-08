@@ -177,7 +177,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
 
                 {/* Project */}
                 <div className="flex items-center gap-2.5 px-4 pb-3">
-                  <span className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-[#34F5A0] to-[#2B6CB0]" />
+                  <span className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-accentBright to-accentDark" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium leading-tight text-ink">{projectName}</p>
                     <p className="truncate text-xs leading-tight text-muted">Owner · 1 member</p>

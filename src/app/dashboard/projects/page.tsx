@@ -299,7 +299,12 @@ function ProjectsScreen() {
                       {row.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted" />}
                       <span className="truncate text-[15px] text-ink">{row.name}</span>
                       {live && (
-                        <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                        /* Success rather than accent, and the same green as the
+                           dot on the workspace's own Live pill. "Live" has to
+                           mean one thing in both places, and in this palette
+                           the accent means "press this" — a state indicator in
+                           it reads as an action. */
+                        <span className="shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
                           Live
                         </span>
                       )}

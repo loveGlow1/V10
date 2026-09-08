@@ -63,13 +63,20 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <WorkspaceTabsProvider>
     <CreditsProvider initial={balance} initialPlan={planId}>
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
-      {/* The page stays nearly black so nothing competes with the composer; the
-          existing blue is kept only as a faint wash rather than a backdrop.
+      {/* The page stays nearly black so nothing competes with the composer, and
+          what little colour there is belongs to the accent.
+
+          This used to be a blue wash over a slightly different black — two
+          colours that were in the app and in no palette, and the blue was a
+          second accent quietly tinting every screen behind the violet one.
+          Now it is the accent's own dark shade at a fifth of its strength,
+          fading into the ground within the first screenful: an ambient effect
+          rather than a colour.
 
           Dark only. On the light theme there is no dark ground for it to wash,
-          and a blue haze over white is not the same idea in a lighter key — it
-          is a different one. */}
-      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f] [html[data-theme=light]_&]:hidden" />
+          and a violet haze over white is not the same idea in a lighter key —
+          it is a different one. */}
+      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-accentDark/[0.18] via-canvas to-canvas [html[data-theme=light]_&]:hidden" />
 
       {children}
     </div>
