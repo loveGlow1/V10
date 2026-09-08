@@ -15,6 +15,7 @@ import {
   type ArchitectureManifest,
   architectureBrief,
 } from "@/lib/builder/architecture";
+import { type DesignDNA, designBrief } from "@/lib/builder/design";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
 
@@ -97,6 +98,14 @@ export type ProjectContext = {
      existed and every build of the single-page stack. A prompt with no
      architecture section behaves exactly as it did. */
   architecture?: ArchitectureManifest;
+  /* The design system this project is built to — see src/lib/builder/design.ts.
+     
+     Derived from the same visual register the photographs were, so the
+     interface and the imagery cannot disagree. Absent means the question was
+     never asked, and the prompt behaves exactly as it did before: the bar still
+     says "one palette, one type scale", which is the weaker instruction this
+     replaces rather than contradicts. */
+  design?: DesignDNA;
 };
 
 function list(items: readonly string[]): string {
@@ -247,7 +256,7 @@ DONE MEANS:
 ${list(blueprint.completionRules)}
 
 ────────────────────────────────────────
-${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}
+${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}${context.design ? `\n${designBrief(context.design)}\n\n────────────────────────────────────────\n` : ""}
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}

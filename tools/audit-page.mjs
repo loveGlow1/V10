@@ -14,6 +14,19 @@
  * is any good is still a judgement someone has to make by looking.
  *
  * It runs offline against a file. Nothing here calls a model.
+ *
+ * ── Where the QA gates live ───────────────────────────────────────────────
+ *
+ * Not here. This asks whether a page obeyed its BLUEPRINT — enough products, a
+ * real price list, no placeholder copy, the right market's conventions — which
+ * is a question about content and is answered per kind.
+ *
+ * Whether it overflows on a phone, whether its buttons have names, whether it
+ * used the design system it was given: those are src/lib/builder/qa, they run
+ * inside the pipeline on every build, and `node tools/qa.mjs <file.html>` runs
+ * them here with a real browser as well. Two tools because they fail in
+ * different places and neither substitutes for the other — a page can obey
+ * every blueprint rule and still be unreadable on a phone.
  */
 
 import { readFileSync } from "node:fs";

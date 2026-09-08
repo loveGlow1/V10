@@ -24,6 +24,7 @@
  */
 
 import type { ArchitectureManifest } from "./architecture";
+import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import type { FileTree, ProjectFile } from "./tree";
@@ -62,6 +63,7 @@ export function platformFiles(
   name: string,
   manifest: ArchitectureManifest,
   model: DataModel,
+  design?: DesignDNA,
 ): FileTree {
   const slug = packageName(name);
   const withBackend = manifest.backend;
@@ -173,6 +175,21 @@ export default {
 } satisfies Config;
 `,
     },
+
+    ...(design
+      ? [
+          {
+            /* The design system as a file, written here rather than requested.
+             *
+             * Same rule as the rest of this scaffold: a model asked to reproduce
+             * a palette will type #5C6470 in one place and #5C6472 in another,
+             * and nobody will ever notice. Written once, imported by the layout,
+             * and the prompt asks for the NAMES — see designBrief. */
+            path: "app/tokens.css",
+            content: tokensCss(design),
+          },
+        ]
+      : []),
 
     {
       path: ".gitignore",
@@ -315,10 +332,11 @@ export function completeTree(
   name: string,
   manifest: ArchitectureManifest,
   model: DataModel,
+  design?: DesignDNA,
 ): FileTree {
   const byPath = new Map<string, ProjectFile>();
 
-  for (const file of platformFiles(name, manifest, model)) byPath.set(file.path, file);
+  for (const file of platformFiles(name, manifest, model, design)) byPath.set(file.path, file);
   for (const file of generated) byPath.set(file.path, file);
 
   return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -391,7 +409,12 @@ const ACCOUNT_ROUTES: Partial<Record<BuildKind, string[]>> = {
  * told that does not build one. The layer that gets invented is always the one
  * nothing said anything about.
  */
-export function treeBrief(kind: BuildKind, manifest: ArchitectureManifest, model: DataModel): string {
+export function treeBrief(
+  kind: BuildKind,
+  manifest: ArchitectureManifest,
+  model: DataModel,
+  design?: DesignDNA,
+): string {
   const routes = ROUTES[kind] ?? [];
   const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
   const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []) : [];
@@ -399,7 +422,9 @@ export function treeBrief(kind: BuildKind, manifest: ArchitectureManifest, model
   const write = [
     "- app/page.tsx — the home page, and the one that matters most",
     "- app/layout.tsx — the shell: <html>, <body>, fonts, the nav and footer",
-    "- app/globals.css — the design system as CSS custom properties, imported by the layout",
+    design
+      ? "- app/globals.css — imports ./tokens.css on its first line, then only what the tokens cannot express: resets, base element styles, and any keyframes. Never a colour, size, radius or duration that is not a token."
+      : "- app/globals.css — the design system as CSS custom properties, imported by the layout",
     ...routes.map((route) => `- ${route}`),
   ];
 
@@ -424,6 +449,11 @@ export function treeBrief(kind: BuildKind, manifest: ArchitectureManifest, model
   const supplied = [
     "- package.json, next.config.mjs, tsconfig.json, postcss.config.mjs, tailwind.config.ts, .gitignore, README.md",
   ];
+  if (design) {
+    supplied.push(
+      "- app/tokens.css — every colour, size, radius and duration this project has. Import it from globals.css and use the variable names; do not restate the values.",
+    );
+  }
   if (manifest.backend) {
     supplied.push("- lib/supabase.ts — the client, already pointed at the right schema");
     if (model.tables.length > 0) {

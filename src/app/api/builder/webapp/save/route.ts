@@ -10,6 +10,8 @@ import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { resolveBackend } from "@/lib/builder/backend/connection";
+import { systemByName } from "@/lib/builder/design";
+import { allIssues, describeQa, runQa } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -126,6 +128,11 @@ type SaveRequest = {
   /* The architecture manifest /api/build decided, carried through the
      orchestrator untouched. See architectureFor. */
   architecture?: unknown;
+  /* Which of the six design systems, by name. Looked up rather than trusted as
+     a payload: a name either matches one of six or it does not, so a value
+     mangled in transit becomes a project with no tokens file rather than a
+     project with a corrupted palette in it. */
+  designSystem?: unknown;
 };
 
 /* ── A build that failed here says so, in the thread, in its own words ─────
@@ -273,6 +280,7 @@ export async function POST(request: Request) {
      derived from the same three answers the scaffold was built from. Deriving
      them twice would be two chances to derive them differently, and the summary
      would then describe a project that was not the one stored. */
+  const sentArchitecture = Boolean(body.architecture && typeof body.architecture === "object");
   const summaryArchitecture = architectureFor(body);
   /* The schema the generated client is pointed at has to be the one the build
      actually created, so it is read back from where provisioning recorded it
@@ -295,6 +303,11 @@ export async function POST(request: Request) {
         (project.name as string | null) ?? "app",
         summaryArchitecture,
         summaryModel,
+        /* Null for any build that did not send one — every build before this
+           existed, and any caller that is not /api/build. The scaffold then
+           writes no tokens file and the project keeps whatever stylesheet the
+           model wrote, exactly as it did before. */
+        systemByName(body.designSystem) ?? undefined,
       );
 
       const missing = missingFrom(tree);
@@ -427,6 +440,32 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  /* ── The quality gates ─────────────────────────────────────────────────
+   *
+   * Run on the finished document, after the photographs are in it, because
+   * that is the artefact somebody will actually look at — a page judged before
+   * its images are filled is a page judged in a state that never ships.
+   *
+   * Only the gates that need no browser run here, and that is a deployment
+   * fact rather than a preference: this is a serverless function, a headless
+   * Chromium is fifty megabytes and several seconds of cold start, and a
+   * project of .tsx cannot be laid out at all until it has been built. The
+   * rendered gates run where a browser exists — the CLI, CI — against the same
+   * types, and a run without them reports "incomplete" rather than a pass. See
+   * src/lib/builder/qa.
+   *
+   * IT DOES NOT BLOCK THE SAVE. The build is finished and paid for; refusing to
+   * store it over a missing alt attribute would throw away work somebody waited
+   * for and can fix in one edit. The result is recorded and reported, which is
+   * what makes it actionable — a gate that deletes the thing it was judging is
+   * a gate people disable. */
+  const qa = await runQa({
+    html,
+    tree,
+    manifest: sentArchitecture ? summaryArchitecture : null,
+    design: systemByName(body.designSystem),
+  });
+
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
 
   const { data: inserted, error: insertError } = await supabase.from("project_builds").insert({
@@ -481,6 +520,70 @@ export async function POST(request: Request) {
       );
     }
   }
+
+  /* ── Saying what the gates found ───────────────────────────────────────
+   *
+   * Only when something is actually wrong. A message on every build saying
+   * "nothing to fix" is a message people stop reading, and the one time it
+   * says something else it is read as noise too.
+   *
+   * Written as what to do rather than as a score. "3 problems" is a grade;
+   * naming the missing alt attributes is something somebody can ask for in one
+   * sentence, and the edit path can act on. */
+  const qaErrors = qa.status === "failed" ? allIssues(qa).filter((issue) => issue.severity === "error") : [];
+
+  if (qaErrors.length > 0) {
+    await recordMessage(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      role: "system",
+      body: `The build finished, and a check of it found ${qaErrors.length} ${
+        qaErrors.length === 1 ? "thing" : "things"
+      } worth fixing:\n\n${qaErrors
+        .slice(0, 5)
+        .map((issue) => `• ${issue.message}`)
+        .join("\n")}${
+        qaErrors.length > 5 ? `\n\n…and ${qaErrors.length - 5} more.` : ""
+      }\n\nAsk me to fix ${qaErrors.length === 1 ? "it" : "them"} and I will.`,
+      tone: "normal",
+      kind: "build_qa",
+      /* Keyed on the build, so a retried save does not say it twice. */
+      dedupeKey: `qa:${claim.requestId || project.id}`,
+    });
+  }
+
+  /* ── What this project IS, written down ────────────────────────────────
+   *
+   * The manifest and the design system were decided at build time, carried
+   * through the orchestrator, used to scaffold — and then dropped. Nothing kept
+   * them, so an edit arriving later read the last stored page and nothing else,
+   * and could not learn that this project has a database, an admin area and a
+   * design system it must stay inside.
+   *
+   * Recorded per project rather than per build, because that is the question an
+   * edit asks: not "what did the build in March decide" but "what is this
+   * project". Best effort — a project whose architecture row fails to write is
+   * a project whose next edit is less informed, which is where it already was,
+   * and is not a reason to fail a build that succeeded. */
+  await supabase
+    .from("project_architecture")
+    .upsert(
+      {
+        project_id: project.id,
+        user_id: claim.userId,
+        kind: summaryArchitecture.type,
+        manifest: summaryArchitecture,
+        design_system: typeof body.designSystem === "string" ? body.designSystem : null,
+        stack: tree.length > 0 ? "nextjs" : "standalone-html",
+      },
+      { onConflict: "project_id" },
+    )
+    .then(({ error }) => {
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("save: the architecture was not recorded:", error.message);
+      }
+    });
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
 
@@ -559,7 +662,7 @@ export async function POST(request: Request) {
   if (!announced) {
     // eslint-disable-next-line no-console
     console.error("save: the page was stored but could not be announced; not charging for it.");
-    return NextResponse.json({ previewUrl, filesTouched });
+    return NextResponse.json({ previewUrl, filesTouched, qa });
   }
 
   /* Not for a page nobody can see.
@@ -582,7 +685,7 @@ export async function POST(request: Request) {
   if (project.deleted_at) {
     // eslint-disable-next-line no-console
     console.info(`save: ${project.id} was deleted while its build ran; storing the page, not charging for it.`);
-    return NextResponse.json({ previewUrl, filesTouched, charged: false });
+    return NextResponse.json({ previewUrl, filesTouched, charged: false, qa });
   }
 
   /* charge_credits rather than spend_credits: the build has happened and the
@@ -639,5 +742,5 @@ export async function POST(request: Request) {
     dedupeKey: `build:${claim.requestId || project.id}`,
   });
 
-  return NextResponse.json({ previewUrl, filesTouched });
+  return NextResponse.json({ previewUrl, filesTouched, qa });
 }

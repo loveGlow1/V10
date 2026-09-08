@@ -46,7 +46,13 @@ import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
-import { decideArchitecture, describeArchitecture } from "@/lib/builder/architecture";
+import {
+  type ArchitectureManifest,
+  decideArchitecture,
+  describeArchitecture,
+} from "@/lib/builder/architecture";
+import { decideDesign, systemByName } from "@/lib/builder/design";
+import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { treeBrief } from "@/lib/builder/scaffold";
@@ -503,6 +509,27 @@ async function handle(
     .maybeSingle();
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
+
+  /* ── What this project is, as the last build recorded it ────────────────
+   *
+   * Read next to the page rather than derived from it, and that is the whole
+   * of §19: a document cannot tell you whether the project behind it has a
+   * database, an admin area or a design system, so an edit that only reads the
+   * page can only ever change markup. This row is written by the save route —
+   * see project_architecture.
+   *
+   * Absent for every project built before it existed, and the edit then behaves
+   * exactly as it did: a plan with no manifest protects nothing and asserts
+   * nothing, which is the honest answer when nothing is known. */
+  const { data: architectureRow } = await supabase
+    .from("project_architecture")
+    .select("manifest, design_system, stack")
+    .eq("project_id", project.id)
+    .maybeSingle();
+
+  const knownArchitecture =
+    (architectureRow?.manifest as ArchitectureManifest | undefined) ?? null;
+  const knownDesign = systemByName(architectureRow?.design_system);
 
   /* The same page with its photographs lifted out, which is the only version a
      model can be shown.
@@ -1148,6 +1175,20 @@ async function handle(
          the message, or an attempt that placed nothing — so this opening line
          is the likely model rather than the settled one. steps.mark below
          reports what actually did the work. */
+      /* ── What this change is, before it is made ────────────────────────
+       *
+       * Classified against what the project actually is rather than against
+       * the message alone: "add a wishlist" is a button on a landing page and
+       * a table, a policy and an account page on a store, and the difference
+       * is the manifest. See src/lib/builder/edit-plan.ts.
+       *
+       * The half that changes behaviour most is `protect`. A model told which
+       * layers already work and are not part of this request does not touch
+       * them; a model told nothing has no reason not to, which is how a
+       * question about one section comes back having restyled the site. */
+      const plan = planEdit(prompt, knownArchitecture);
+      steps.mark("plan", describeEdit(plan), plan.why[0]);
+
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
         prompt,
@@ -1155,6 +1196,10 @@ async function handle(
         files.blocks,
         prior,
         narrate("edit", "Making the change"),
+        /* What already exists, what this reaches, and what it must leave
+           alone. Empty when nothing was ever recorded about the project, and
+           the edit is then exactly what it was before. */
+        editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
       );
 
       /* The photographs that were lifted out so the page could be read, put
@@ -1819,6 +1864,18 @@ async function handle(
   const sources = Object.entries(pictures.bySource)
     .map(([id, count]) => `${count} from ${id}`)
     .join(", ");
+  /* ── And the design system, from the same decision ──────────────────────
+   *
+   * Read off the register the planner just chose rather than derived again
+   * from the brief. That is the whole point of doing it here: one answer to
+   * "what does this look like" produces both halves, so a project cannot end
+   * up with warm documentary photography inside a clinical blue interface.
+   *
+   * Free, deterministic, and one of six systems written by hand — see
+   * src/lib/builder/design.ts. */
+  const design = decideDesign(plan.direction.register, kind.kind, brief.text);
+  steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
+
   steps.mark(
     "assets",
     `Chose the imagery — ${plan.direction.register}`,
@@ -1876,6 +1933,8 @@ async function handle(
       /* Which layers exist, so the blueprint's admin half is switched on and
          its frontend-only exclusions are switched off. */
       architecture: architecture.manifest,
+      /* And what it looks like: one system, named tokens, no invented values. */
+      design: design.dna,
       /* And, when this is a project rather than a page, what a project has to
          come back as: the files, the routes, and the plumbing NOT to write
          because scaffold.ts writes it. Appended to the blueprint rather than
@@ -1883,7 +1942,7 @@ async function handle(
          the shape of the answer changes. */
       treeInstructions:
         needs.stack === "nextjs"
-          ? treeBrief(kind.kind, architecture.manifest, dataModel)
+          ? treeBrief(kind.kind, architecture.manifest, dataModel, design.dna)
           : undefined,
     });
 
@@ -1923,6 +1982,11 @@ async function handle(
          route scaffolds against the same answer the prompt was written
          against. */
       architecture: architecture.manifest,
+      /* And what it looks like. The NAME rather than the system: every value in
+         one is a constant this app already holds, so sending the whole thing
+         would push a palette down a wire to arrive at something already on the
+         other end. The save route looks it up — see design.ts, systemByName. */
+      designSystem: design.dna.name,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.

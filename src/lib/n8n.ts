@@ -50,6 +50,13 @@ export type BuildRequest = {
    *
    * Supersedes `stack` and `backend` above, which stay because every build in
    * flight when this shipped is still sending them and nothing else. */
+  /* Which of the six design systems this project is built to — see
+     src/lib/builder/design.ts. The NAME rather than the system: every value in
+     one is a constant this app already holds, so sending the whole thing would
+     push a palette down a wire to arrive at something already on the other end,
+     and give every hop a chance to alter a colour. Carried through untouched
+     and read back by the save route, which writes the tokens. */
+  designSystem?: string;
   architecture?: {
     type: BuildKind;
     frontend: true;

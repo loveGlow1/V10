@@ -54,7 +54,7 @@ NEXT: <a single concrete next step you would actually take on this page>
 - Leave it out when there is nothing worth saying. An unnecessary suggestion after every edit is noise, and noise is what gets ignored.
 - Never ask permission in it and never ask a question. It is an offer, and the person takes it or does not.`;
 
-export function editPrompt(userMessage: string, html: string): string {
+export function editPrompt(userMessage: string, html: string, architecture?: string): string {
   /* What the project IS, before what it says.
    *
    * The page is already below in full, so this is not a summary of it — it is
@@ -68,7 +68,18 @@ export function editPrompt(userMessage: string, html: string): string {
    * cheap part of this prompt — a few lines against the whole document. */
   const project = describeProject(readPage(html));
 
-  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS:
+  /* And what the project is ARCHITECTURALLY, which no amount of reading the
+     document can tell you: whether there is a database behind it, an admin
+     area, a design system this change has to stay inside, and which of those
+     the request is not about. Written by the caller from the stored manifest —
+     see src/lib/builder/edit-plan.ts.
+     
+     Placed above everything, including the page's own description: it is the
+     frame the rest is read in, and its most important sentence is the one
+     naming what must not be touched. */
+  return `${architecture ? `${architecture}\n\n────────────────────────────────────────\n\n` : ""}${
+    project ? `${project}\n\n` : ""
+  }THE PAGE AS IT STANDS:
 
 ${html}
 
@@ -76,8 +87,13 @@ USER REQUEST: ${userMessage}`;
 }
 
 /** Sent after a failed attempt, with the page again and what went wrong. */
-export function retryPrompt(userMessage: string, html: string, failures: string): string {
-  return `${editPrompt(userMessage, html)}
+export function retryPrompt(
+  userMessage: string,
+  html: string,
+  failures: string,
+  architecture?: string,
+): string {
+  return `${editPrompt(userMessage, html, architecture)}
 
 Your previous attempt did not apply:
 ${failures}
@@ -178,14 +194,25 @@ NEXT: <a single concrete next step you would actually take on this page>
 
 Leave it out when there is nothing worth saying, and never ask a question in it.`;
 
-export function linesPrompt(userMessage: string, numbered: string, failures: string): string {
+export function linesPrompt(
+  userMessage: string,
+  numbered: string,
+  failures: string,
+  architecture?: string,
+): string {
   /* Wanted here MORE than on the search/replace path, not less: naming a line
      range rewrites everything inside it, so what must survive the rewrite is
      exactly what this says. Read from the numbered copy, whose line prefixes do
      not disturb any of it. */
   const project = describeProject(readPage(numbered));
 
-  return `${project ? `${project}\n\n` : ""}THE PAGE AS IT STANDS, WITH LINE NUMBERS:
+  /* And what must survive it architecturally. This matters more on this path
+     than on any other for the reason above: a line range rewrites everything
+     between its ends, so a model that does not know the admin markup inside
+     that range is load-bearing will replace it with whatever it was asked for. */
+  return `${architecture ? `${architecture}\n\n────────────────────────────────────────\n\n` : ""}${
+    project ? `${project}\n\n` : ""
+  }THE PAGE AS IT STANDS, WITH LINE NUMBERS:
 
 ${numbered}
 

@@ -269,6 +269,23 @@ export default function PreviewPanel({
      what came back, and only says an app is live when the server said so. See
      PublishPanel — the button used to be disabled with a note promising it
      would work once a build finished. */
+  /* ── Whether this app is live, and where ───────────────────────────────
+   *
+   * Both headers below showed the same "Publish" button whether a project had
+   * been live for a month or had never been deployed, and the address was two
+   * clicks away inside a popover. So the one thing somebody wants after
+   * publishing — to look at the thing they published — was the one thing the
+   * button did not offer.
+   *
+   * Read from the project row rather than from publish state held in the panel:
+   * the panel is unmounted until its popover opens, so a header that waited for
+   * it would show "Publish" on a live app until somebody clicked to find out.
+   *
+   * isPublished rather than the status, deliberately. Every build overwrites
+   * status, so a published app that has since been edited reads as unpublished
+   * while its site is still up — see lib/project-status.ts. */
+  const liveSlug = project && isPublished(project) ? project.slug : null;
+
   const publishBody = (
     <PublishPanel
       projectId={project?.id ?? null}
@@ -596,14 +613,69 @@ export default function PreviewPanel({
             <ManageMark className="h-4 w-4" />
           </button>
           <div className="relative" ref={publishRef}>
-            <button
-              onClick={() => setPublishOpen(true)}
-              aria-expanded={publishOpen}
-              className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Publish
-            </button>
+            {/* Live: the pill IS the published site.
+             *
+             * The phone is where this matters most. On a laptop the address is
+             * a click away in the panel and there is a browser around it; on a
+             * phone the workspace is the whole screen, and "it published" and
+             * "here it is" were the same two-step nobody completed. So the left
+             * half is a real anchor carrying the address — one tap and you are
+             * looking at the thing you published.
+             *
+             * Split rather than replaced, because publishing again and
+             * connecting a domain still have to be reachable here: the right
+             * half keeps the panel. The halves are about 62px and 36px at
+             * 390px, both comfortably past the 24px a finger needs, and the
+             * pair is no wider than the Publish button it stands in for — so
+             * the project name beside it keeps the room it had.
+             *
+             * One shell rather than two pills: they are one object about one
+             * thing, and the rounded ends belong to the pair. */}
+            {liveSlug ? (
+              <div className="flex h-[30px] shrink-0 items-stretch overflow-hidden rounded-full border border-line/[0.14] bg-layer/[0.10]">
+                <a
+                  href={publishedUrl(liveSlug)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open the published site, ${publishedLabel(liveSlug)}`}
+                  className="flex items-center gap-1.5 pl-3 pr-2 text-[12px] font-semibold text-ink transition-opacity active:opacity-70"
+                >
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
+                  {/* The word, not the address.
+                   *
+                   * The address was tried here first and it does not fit: at
+                   * 390px a legible slug leaves the project name as "Pe…", and
+                   * a slug cut to fit — "peckham-sou…" — is worse than not
+                   * showing one, because a truncated address tells you nothing
+                   * and still costs the room. The word says the state, the
+                   * arrow says it leaves, and the tap does the rest. The full
+                   * address is in the panel and in the label below, where
+                   * there is room for it to be read. */}
+                  <span>Live</span>
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+                </a>
+
+                <span aria-hidden className="my-1 w-px shrink-0 bg-line/[0.16]" />
+
+                <button
+                  onClick={() => setPublishOpen(true)}
+                  aria-expanded={publishOpen}
+                  aria-label="Publish again, or connect a domain"
+                  className="flex items-center px-2.5 text-soft transition-opacity active:opacity-70"
+                >
+                  <Rocket className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                Publish
+              </button>
+            )}
             <Popover
               open={publishOpen}
               onClose={() => setPublishOpen(false)}

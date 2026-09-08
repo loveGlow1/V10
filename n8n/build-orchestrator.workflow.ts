@@ -171,6 +171,13 @@ const normalizeRequest = node({
              prompt was written against and what the schema was created from. */
           { id: 'architecture', name: 'architecture', type: 'object',
             value: expr('{{ $json.body?.architecture ?? $json.architecture ?? {} }}') },
+          /* Which of the six design systems, by name — see
+             src/lib/builder/design.ts. A name rather than the palette: every
+             value in one is a constant the app already holds, so sending the
+             whole thing would push a palette down a wire to arrive at something
+             already on the other end. */
+          { id: 'design-system', name: 'designSystem', type: 'string',
+            value: expr('{{ $json.body?.designSystem ?? $json.designSystem ?? "" }}') },
         ],
       },
       options: {},
@@ -784,7 +791,8 @@ const savePage = node({
          * undefined on any caller that does not send one, and JSON.stringify
          * drops undefined keys, so the save route falls back to `stack` and
          * `backend` above exactly as it did before. */
-        'architecture: $("Normalize Build Request").item.json.architecture }) }}',
+        'architecture: $("Normalize Build Request").item.json.architecture, ' +
+        'designSystem: $("Normalize Build Request").item.json.designSystem }) }}',
       ),
       options: { timeout: 120000 },
     },

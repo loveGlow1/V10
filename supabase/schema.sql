@@ -1744,3 +1744,59 @@ create trigger project_backends_set_updated_at
 
 create index if not exists project_backends_user_id_idx
   on public.project_backends (user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_architecture — what a project IS, so an edit can know before it acts.
+--
+-- The manifest was being decided in /api/build, carried through the orchestrator
+-- and used by the save route to scaffold the project — and then dropped. Nothing
+-- kept it. So an edit arriving six weeks later had no way to learn that this
+-- project has a database, an admin area and a design system: it read the last
+-- stored page and nothing else, which is why "add a discount code" could only
+-- ever be answered by changing some markup.
+--
+-- One row per project, replaced by each build. Per project rather than per build
+-- because that is the question an edit asks — "what is this project" — and a
+-- history of what it used to be would answer a question nobody is asking.
+--
+-- Everything here is derived rather than authored: it is written by the build
+-- that decided it, and re-derivable from the same brief. It carries no secret,
+-- so it is readable by its owner in full.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.project_architecture (
+  project_id     uuid primary key references public.projects (id) on delete cascade,
+  user_id        uuid not null references auth.users (id) on delete cascade,
+  -- landing / ecommerce / blog / news / webapp. Kept alongside the manifest
+  -- rather than read out of it, so a query can filter on it.
+  kind           text not null,
+  -- The seven layers, as src/lib/builder/architecture.ts decided them.
+  manifest       jsonb not null default '{}'::jsonb,
+  -- Which of the six design systems, by name. See src/lib/builder/design.ts.
+  design_system  text,
+  -- "standalone-html" or "nextjs". What shape the project came back as.
+  stack          text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+alter table public.project_architecture enable row level security;
+
+drop policy if exists "Owners read their project architecture" on public.project_architecture;
+create policy "Owners read their project architecture"
+  on public.project_architecture for select
+  using (auth.uid() = user_id);
+
+-- Written by the build, under the service key, never by the browser. There is
+-- no insert or update policy for `authenticated` on purpose: this records what
+-- the builder decided, and a client that could edit it could tell the next edit
+-- that a project has an admin it does not have.
+revoke all on public.project_architecture from anon, authenticated;
+grant select on public.project_architecture to authenticated;
+
+drop trigger if exists project_architecture_set_updated_at on public.project_architecture;
+create trigger project_architecture_set_updated_at
+  before update on public.project_architecture
+  for each row execute function public.set_updated_at();
+
+create index if not exists project_architecture_user_id_idx
+  on public.project_architecture (user_id);
