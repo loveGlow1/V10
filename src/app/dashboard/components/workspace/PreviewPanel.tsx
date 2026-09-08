@@ -8,6 +8,7 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  Database,
   Download,
   ExternalLink,
   Link2,
@@ -28,10 +29,11 @@ import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@
 import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
+import BackendPanel from "./BackendPanel";
 import { ManageMark, PreviewMark, SupportMark } from "./panelMarks";
 import Popover from "./Popover";
 
-type ManageSection = "settings" | "integrations" | "payments";
+type ManageSection = "settings" | "database" | "integrations" | "payments";
 
 /* A request from the other half of the workspace to show a particular drawer.
    The counter is what makes a second, identical request register: pressing the
@@ -261,6 +263,10 @@ export default function PreviewPanel({
 
   const sections: { id: ManageSection; label: string; icon: typeof Blocks }[] = [
     { id: "settings", label: "App settings", icon: SlidersHorizontal },
+    /* Between the app's own settings and the services it can be wired to,
+       which is where it belongs: the database is not an integration to go
+       shopping for, it is the one every generated app already has. */
+    { id: "database", label: "Database", icon: Database },
     { id: "integrations", label: "Integrations", icon: Blocks },
     { id: "payments", label: "Payments", icon: CreditCard },
   ];
@@ -533,6 +539,8 @@ export default function PreviewPanel({
             </div>
           </div>
         )}
+
+        {section === "database" && <BackendPanel projectId={project?.id ?? null} />}
 
         {section === "integrations" && (
           // Keyed on the category so arriving from Payments opens on that drawer
