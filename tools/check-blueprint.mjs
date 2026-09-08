@@ -384,7 +384,18 @@ try {
 
     if (own < 350) fail(`${kind}: the blueprint is ${own} words, which is too thin to be one`);
     else if (own > 1800) fail(`${kind}: the blueprint is ${own} words, which is more than one kind needs`);
-    else if (words > 4000) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
+    /* Raised from 4000 once, deliberately, when the responsive contract, the
+       evidence rule and the craft standard went into the shared tail. Those are
+       three things the build has to be told and could not be told inside the
+       old number.
+
+       What the ceiling is actually protecting is attention, not context: six
+       thousand tokens of input is nothing to the model, but a rule buried in
+       its fortieth paragraph is a rule that gets half-followed. So it stays a
+       hard number and moving it stays an edit somebody has to argue for — this
+       is that argument, and the blueprint half above is untouched, because an
+       individual kind doubling by accident is the failure this really catches. */
+    else if (words > 4400) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
     else
       console.log(
         `ok   ${kind.padEnd(10)} ${String(own).padStart(4)} own + ${String(words - own).padStart(4)} shared · ${

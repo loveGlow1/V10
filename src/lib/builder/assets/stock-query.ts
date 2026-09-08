@@ -1,3 +1,4 @@
+import { rotate, rotationFor } from "@/lib/builder/assets/asset-registry";
 import type { AssetType, VisualDirection } from "@/lib/builder/assets/asset-types";
 import type { BuildKind } from "@/lib/builder/kinds";
 
@@ -309,7 +310,18 @@ export type Chosen = { candidate: Candidate; score: number } | null;
  * ranking, so without this the same picture wins every slot — which is exactly
  * what was happening, silently, on every build with repeated slots.
  */
-export function pickBest(candidates: Candidate[], want: StockWant, taken: ReadonlySet<string>): Chosen {
+export function pickBest(
+  candidates: Candidate[],
+  want: StockWant,
+  taken: ReadonlySet<string>,
+  /* The project this is for. Two projects in the same trade write the same
+     brief, produce the same query and get the same results back in the same
+     order — so without this the top photograph wins on both sites, and the two
+     businesses discover they share a hero. Candidates within a hair of each
+     other are equally right; this picks a different one of them per project,
+     and the same one every time for the same project. */
+  projectId = "",
+): Chosen {
   const avoid = contaminationFor(want.kind, want.subject);
 
   const eligible = candidates.filter((candidate) => {
@@ -320,18 +332,14 @@ export function pickBest(candidates: Candidate[], want: StockWant, taken: Readon
 
   if (eligible.length === 0) return null;
 
-  let best = eligible[0];
-  let bestScore = scoreCandidate(best, want);
+  const ranked = eligible
+    .map((candidate) => ({ item: candidate, score: scoreCandidate(candidate, want) }))
+    .sort((a, b) => b.score - a.score);
 
-  for (const candidate of eligible.slice(1)) {
-    const score = scoreCandidate(candidate, want);
-    if (score > bestScore) {
-      best = candidate;
-      bestScore = score;
-    }
-  }
+  if (!projectId) return { candidate: ranked[0].item, score: ranked[0].score };
 
-  return { candidate: best, score: bestScore };
+  const [chosen] = rotate(ranked, rotationFor(projectId));
+  return { candidate: chosen, score: scoreCandidate(chosen, want) };
 }
 
 /** A slot and the project's direction, as the one thing this file reasons about. */

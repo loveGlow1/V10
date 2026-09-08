@@ -25,6 +25,7 @@
 import type { ArchitectureManifest } from "@/lib/builder/architecture";
 import type { DesignDNA } from "@/lib/builder/design";
 import type { FileTree } from "@/lib/builder/tree";
+import { type Evidence, contentGate, evidenceFrom } from "./evidence";
 import { type Renderer, gatesFrom, measureAll } from "./render";
 import { type Repair, repairInstruction, repairsFor } from "./repair";
 import { accessibilityGate, designGate, functionalGate, staticVisualGate } from "./static";
@@ -39,7 +40,16 @@ import {
 } from "./types";
 
 export * from "./types";
-export { VIEWPORTS, type Measurement, type Renderer, type Viewport, MEASURE_SCRIPT } from "./render";
+export {
+  VIEWPORTS,
+  isPhoneViewport,
+  type Measurement,
+  type Renderer,
+  type Viewport,
+  MEASURE_SCRIPT,
+} from "./render";
+export { type Evidence, contentGate, evidenceFrom, supplied } from "./evidence";
+export { autofix, describeFixes, type Fix, type FixResult } from "./autofix";
 export { type Repair, repairInstruction, repairsFor } from "./repair";
 export { contrast, luminance, isDarkColor } from "./contrast";
 
@@ -52,6 +62,12 @@ export type QaInput = {
   design?: DesignDNA | null;
   /** Supplied where a browser exists. Absent means the rendered gates do not run. */
   render?: Renderer;
+  /* What the customer actually gave us — their brief, their attachments, their
+     own numbers. The content gate judges every figure on the page against this,
+     so it has to be everything they wrote and nothing they did not. Absent
+     means the gate cannot run, which is reported as not run rather than as a
+     page with nothing wrong with it. */
+  evidence?: Evidence | string | null;
 };
 
 /** Merges two results for the same gate — the static findings and the rendered ones. */
@@ -79,6 +95,7 @@ export async function runQa(input: QaInput): Promise<QaResult> {
     functional: emptyGate(false),
     accessibility: emptyGate(false),
     design: emptyGate(false),
+    content: emptyGate(false),
   };
 
   try {
@@ -86,6 +103,13 @@ export async function runQa(input: QaInput): Promise<QaResult> {
     gates.accessibility = accessibilityGate(input.html, input.design);
     gates.design = designGate(input.html, input.design);
     gates.functional = functionalGate(input.html, tree, input.manifest);
+    if (input.evidence !== undefined && input.evidence !== null) {
+      gates.content = contentGate({
+        html: input.html,
+        evidence:
+          typeof input.evidence === "string" ? evidenceFrom(input.evidence) : input.evidence,
+      });
+    }
   } catch {
     /* A gate that threw contributes nothing and stays `ran: false`, which the
        summary turns into "incomplete" rather than into a pass. */
@@ -119,6 +143,12 @@ export async function runQa(input: QaInput): Promise<QaResult> {
   const required: Gate[] = ["visual", "accessibility", "responsive"];
   if (input.manifest) required.push("functional");
   if (input.design) required.push("design");
+  /* Only where there was something to judge against. A run given no evidence
+     cannot tell an invented figure from a supplied one, and demanding the gate
+     anyway would make every such run "incomplete" for a reason nobody could
+     act on. Where evidence IS given, the gate is required: that is the whole
+     point of passing it. */
+  if (input.evidence !== undefined && input.evidence !== null) required.push("content");
 
   return summarise(gates, { required });
 }

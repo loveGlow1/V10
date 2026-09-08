@@ -129,8 +129,22 @@ STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of thes
 - Icons, rules, patterns, textures and background shapes.
 Never send one of these through a photo slot, and never send a photograph through an SVG.
 - Prefer a system font stack over a webfont link. The page is downloadable as a file, and everything it fetches is something that file has to carry. Reach for a webfont only when the typeface is genuinely the design, and then only one family.
-- Responsive from 320px up. Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
+- Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Forms and interactive controls must behave — validate and respond in-page. There is no server, so never post to one; show the state a real submission would produce.
+
+THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
+- Lay it out for 320px first and let it grow. It is checked at 320, 375, 480, 768, 1280 and 1440 and has to be right at all six, not merely uncut.
+- ZERO horizontal scrolling at any width. What causes it, every time: a fixed px width, an unmeetable min-width, \`width: 100vw\` (that includes the scrollbar — use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width. Never hide it with \`overflow-x: hidden\` — that leaves the content cut off where nobody can reach it.
+- Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type that scales, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
+- The navigation needs a layout for a narrow screen — stacked, wrapped, or behind a button opening a panel already in the markup. A horizontal nav that never becomes anything else lands on top of itself.
+- Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`, and their container decides the size. Tables scroll inside their own box, never by taking the page with them.
+
+WHAT IS TRUE — the rule about numbers, and it outranks how the page looks:
+- NEVER invent business data: revenue, sales, turnover, growth, customer or user counts, transactions, ratings, review counts, uptime, conversion — unless the brief supplied the figure. These go out under a real company's name to their own customers, and the plausible ones are the worst, because nobody catches them.
+- NEVER draw a chart of business performance from numbers you chose; a revenue graph with invented data is a lie with axes on it. NEVER write a testimonial, review, star rating or customer quote and present it as real. If the design needs the block, label it plainly as an example.
+- Where a section wanted a statistic and the brief has none, say something true in the same space: what the business does, how the work is done, what is sold, who it is for, where it happens, what it costs.
+- Where analytics or a dashboard is explicitly asked for and no data exists, build the real interface around an EMPTY STATE — "Analytics will appear once data is connected" — axes, filters and layout present, no invented series.
+- Numbers that ARE content stay: prices, sizes, weights, opening hours, distances, dates, a menu's figures. The rule is about claims of performance, not about arithmetic.
 
 CONTENT GOES IN THE HTML — the rule people notice when it is broken:
 - Write every piece of content the build is about into the markup itself. Headlines, cards, prices, table rows, articles, list items, testimonials, the lot. If a reader is meant to see it, it is in the HTML.
@@ -152,7 +166,15 @@ FINISHING — how this is judged before anything else:
 - Everything the build claims must exist. A nav item names a section that is there; a filter names a category that has entries; a view named in the navigation is a view that was built.
 - Keep it internally consistent. One palette, one type scale, one voice, one currency, one date format. The same product costs the same everywhere it appears; the same person has the same name and role everywhere they appear.
 - Never imply functionality that is not there. It is better to leave a feature out than to draw a control for it.
-- The last line of the document is </html>, and what precedes it is a complete product rather than a screenshot of one.`;
+- The last line of the document is </html>, and what precedes it is a complete product rather than a screenshot of one.
+
+THE STANDARD IT IS JUDGED AGAINST — a studio's work, not a template's:
+- Hierarchy before decoration. One thing is the most important thing on each screen, and size, weight, space and colour agree about which. A page where everything is emphasised has emphasised nothing.
+- Space is the material. Generous, uneven, intentional: a section break is bigger than a paragraph break, a heading owns the room above it, and nothing is centred merely because it fitted.
+- Typography carries the design. A real scale with real jumps, long-form text at 60–75 characters a line, headings that are allowed to be large.
+- Restraint. A card, a border and a shadow are each a decision; three of them stacked around the same content are none. Do not fill space with cards, tiles, badges, stats or a dashboard because a section looked empty — cut the section or deepen it.
+- Motion, sparingly and always for a reason: a transition on hover and focus, a considered state change. Nothing that moves on its own, nothing that delays the reading.
+- The result should look art-directed — as though somebody chose the crop, the pairing and the order — rather than assembled from parts that each looked reasonable alone.`;
 
 export const BAR = `THE BAR — you are building the real thing, not a demonstration of it:
 

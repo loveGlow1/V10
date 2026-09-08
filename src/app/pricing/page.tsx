@@ -29,7 +29,7 @@ export default function PricingPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {tiers.map((t) => (
-            <div key={t.name} className={`glass-card rounded-premium p-8 flex flex-col justify-between ${t.highlight ? 'border-brandGreen/40 pro-glow-border scale-[1.02]' : ''}`}>
+            <div key={t.name} className={`glass-card rounded-premium p-8 flex flex-col justify-between ${t.highlight ? 'border-brandAccent/40 pro-glow-border scale-[1.02]' : ''}`}>
               <div>
                 <h3 className="text-xl font-bold text-ink">{t.name}</h3>
                 <p className="text-sm text-brandTextSec mt-2 leading-relaxed">{t.desc}</p>
@@ -38,7 +38,7 @@ export default function PricingPage() {
                   <span className="text-brandTextSec text-sm">/ month</span>
                 </div>
               </div>
-              <button className={`mt-8 w-full py-3 px-4 rounded-pill font-bold text-sm transition-all duration-300 ${t.highlight ? 'bg-brandGreen text-onSolid hover:bg-solid' : 'bg-brandSurface border border-brandBorder text-ink hover:border-brandGreen'}`}>
+              <button className={`mt-8 w-full py-3 px-4 rounded-pill font-bold text-sm transition-all duration-300 ${t.highlight ? 'bg-brandAccent text-onSolid hover:bg-solid' : 'bg-brandSurface border border-brandBorder text-ink hover:border-brandAccent'}`}>
                 Select Matrix Allocation
               </button>
             </div>

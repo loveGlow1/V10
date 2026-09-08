@@ -30,7 +30,9 @@ const asJson = args.includes("--json");
 const kind = args[args.indexOf("--kind") + 1] ?? "landing";
 
 if (!file) {
-  console.error("usage: node tools/qa.mjs <file.html> [--kind ecommerce] [--json]");
+  console.error(
+    "usage: node tools/qa.mjs <file.html> [--kind ecommerce] [--design 'Warm craft'] [--brief 'what the customer said'] [--json]",
+  );
   process.exit(2);
 }
 
@@ -229,7 +231,7 @@ async function makeRenderer(binary) {
 
 /* ── Run ──────────────────────────────────────────────────────────────────*/
 
-const html = readFileSync(file, "utf8");
+let html = readFileSync(file, "utf8");
 const binary = chromiumPath();
 
 let render;
@@ -258,7 +260,39 @@ const manifest = {
   payments: false,
 };
 
-const result = await qa.runQa({ html, tree: [], manifest, design: dna, render });
+/* What the customer supplied, for the content gate.
+ *
+ * Given on the command line because a file on disk carries no record of the
+ * brief it was built from. Without it the gate reports itself not run, which is
+ * the honest answer: with nothing to check the figures against, every number on
+ * the page is equally unexplained and flagging them all would say nothing. */
+const briefIndex = args.indexOf("--brief");
+const brief = briefIndex === -1 ? null : args[briefIndex + 1] ?? "";
+
+/* --fix applies the mechanical repairs first, exactly as the build pipeline
+   does, and says what it changed. Without it this reports a page the pipeline
+   would never have shipped in that state — which makes the numbers here
+   pessimistic rather than wrong, but not comparable. */
+if (args.includes("--fix")) {
+  const repaired = qa.autofix(html);
+  html = repaired.html;
+  if (repaired.applied.length > 0) {
+    console.log(`\nRepaired before checking: ${qa.describeFixes(repaired.applied)}`);
+  }
+  if (args.includes("--write")) {
+    writeFileSync(file, html);
+    console.log(`Wrote the repairs back to ${file}`);
+  }
+}
+
+const result = await qa.runQa({
+  html,
+  tree: [],
+  manifest,
+  design: dna,
+  render,
+  evidence: brief === null ? undefined : qa.evidenceFrom(brief),
+});
 
 if (asJson) {
   console.log(JSON.stringify(result, null, 2));
@@ -268,6 +302,11 @@ if (asJson) {
 console.log(`\n${file} — ${result.status.toUpperCase()}`);
 if (!render) {
   console.log("  (no browser found, so the rendered gates were not exercised)");
+} else {
+  console.log(`  rendered at ${qa.VIEWPORTS.map((viewport) => viewport.width).join(", ")}px`);
+}
+if (brief === null) {
+  console.log("  (no --brief, so the figures on the page were not checked against anything)");
 }
 console.log("");
 

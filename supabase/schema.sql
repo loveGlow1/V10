@@ -1016,8 +1016,32 @@ create table if not exists public.project_builds (
   html          text not null,
   model         text,
   files_touched integer not null default 0,
+
+  -- ── What the gates found, per build ──────────────────────────────────────
+  --
+  -- "passed", "failed" or "incomplete", and the findings behind it. Recorded
+  -- rather than merely reported, because "is this build finished" is a question
+  -- asked long after the message that answered it has scrolled away — by the
+  -- person, by a publish, and by anything that wants to know whether the page
+  -- it is about to put on a real domain was ever actually checked.
+  --
+  -- "incomplete" is a real and common answer here, not a failure: the pipeline
+  -- runs in a serverless function with no browser, so the rendered gates cannot
+  -- run there, and a build that says "incomplete" is one whose layout was
+  -- checked as far as the markup allows. See src/lib/builder/qa.
+  qa_status     text,
+  qa_issues     jsonb,
+  -- The mechanical repairs applied on the way past — see qa/autofix.ts. Kept
+  -- because a page that needed six of them is a page the generator wrote badly,
+  -- and that is only visible if somebody counted.
+  qa_fixes      jsonb,
+
   created_at    timestamptz not null default now()
 );
+
+alter table public.project_builds add column if not exists qa_status text;
+alter table public.project_builds add column if not exists qa_issues jsonb;
+alter table public.project_builds add column if not exists qa_fixes jsonb;
 
 -- The preview reads the newest row for a project on every load.
 create index if not exists project_builds_project_created_idx

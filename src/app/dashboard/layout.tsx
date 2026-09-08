@@ -66,10 +66,14 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop.
 
+          The ground it fades into is the canvas token rather than a literal, so
+          it follows the palette instead of holding the shade the ground used to
+          be.
+
           Dark only. On the light theme there is no dark ground for it to wash,
           and a blue haze over white is not the same idea in a lighter key — it
           is a different one. */}
-      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f] [html[data-theme=light]_&]:hidden" />
+      <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-canvas to-canvas [html[data-theme=light]_&]:hidden" />
 
       {children}
     </div>

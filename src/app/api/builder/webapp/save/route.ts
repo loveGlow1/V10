@@ -11,7 +11,7 @@ import { providerFromEnv } from "@/lib/builder/image-providers";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName } from "@/lib/builder/design";
-import { allIssues, describeQa, runQa } from "@/lib/builder/qa";
+import { allIssues, autofix, describeQa, evidenceFrom, runQa } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -134,6 +134,40 @@ type SaveRequest = {
      project with a corrupted palette in it. */
   designSystem?: unknown;
 };
+
+/* Everything this customer has told us, as the evidence a figure is judged
+ * against.
+ *
+ * The prompt for this build is most of it, and it is not all of it. Somebody
+ * who wrote "we turned over £1.2m last year" three messages ago and then asked
+ * for a page about it supplied that number, and a gate that flagged it would be
+ * telling them their own accounts are made up — which is the false positive
+ * that would get this whole check switched off in a week.
+ *
+ * Their own messages only. Everything the system said came from a model, and
+ * a model's earlier invention is not evidence for its next one: taking system
+ * messages as evidence would let a page launder a figure into legitimacy by
+ * having mentioned it before.
+ *
+ * Best effort. A query that fails leaves the gate with the prompt alone, which
+ * is stricter rather than looser — the failure mode is a warning about a real
+ * number, not silence about an invented one.
+ */
+async function evidenceForProject(
+  supabase: SupabaseClient,
+  projectId: string,
+  prompt: string,
+) {
+  const { data } = await supabase
+    .from("project_messages")
+    .select("body")
+    .eq("project_id", projectId)
+    .eq("role", "you")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  return evidenceFrom(prompt, ...(data ?? []).map((row) => String(row.body ?? "")));
+}
 
 /* ── A build that failed here says so, in the thread, in its own words ─────
  *
@@ -440,6 +474,32 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  /* ── The mechanical repairs, before anything judges the page ───────────
+   *
+   * A handful of mobile defects have exactly one correct fix, and asking a
+   * model to make it is spending a model call and thirty seconds on a
+   * substitution. A missing viewport meta tag needs no opinion. `width:
+   * 1200px` needs no opinion. `100vw` is wrong in every document that has ever
+   * contained it, for the same reason, every time.
+   *
+   * So they are fixed here, on the way past, before the gates run and before
+   * the page is stored. What the customer sees is a page that does not have
+   * the defect — which is the difference between a QA stage that reports the
+   * mobile layout is broken and one that means the mobile layout is not.
+   *
+   * Only documents. A project of .tsx files carries the same defects in
+   * Tailwind classes, where a regex is a liability; those go to the gates and
+   * the edit path like anything else. See src/lib/builder/qa/autofix.ts. */
+  const repaired = autofix(html);
+  html = repaired.html;
+
+  if (repaired.applied.length > 0) {
+    // eslint-disable-next-line no-console
+    console.info(
+      `save: repaired ${repaired.applied.map((fix) => `${fix.rule}×${fix.count}`).join(", ")}`,
+    );
+  }
+
   /* ── The quality gates ─────────────────────────────────────────────────
    *
    * Run on the finished document, after the photographs are in it, because
@@ -464,6 +524,11 @@ export async function POST(request: Request) {
     tree,
     manifest: sentArchitecture ? summaryArchitecture : null,
     design: systemByName(body.designSystem),
+    /* What the customer actually supplied, which is the only thing that makes
+       a figure on their website theirs. Their brief and their attachments —
+       and nothing else, because everything else on the page came from a model
+       and is exactly what is being judged. */
+    evidence: await evidenceForProject(supabase, project.id, str(body.prompt)),
   });
 
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
@@ -476,6 +541,20 @@ export async function POST(request: Request) {
     html,
     model: str(body.model) || null,
     files_touched: filesTouched,
+    /* The verdict, kept with the build it is about.
+     *
+     * The message below says what to fix and is read once; this is what
+     * remains. "Was this page ever actually checked" is a question asked much
+     * later — before a publish, by somebody looking at a site that is already
+     * live — and it needs an answer that outlives the conversation.
+     *
+     * Errors only, and at most twenty: this is a record, not a log. */
+    qa_status: qa.status,
+    qa_issues: allIssues(qa)
+      .filter((issue) => issue.severity === "error")
+      .slice(0, 20)
+      .map((issue) => ({ rule: issue.rule, message: issue.message, viewport: issue.viewport ?? null })),
+    qa_fixes: repaired.applied,
   }).select("id").single();
 
   if (insertError) {

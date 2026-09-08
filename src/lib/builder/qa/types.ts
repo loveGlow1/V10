@@ -8,7 +8,21 @@
  * empty issue lists and must never be reported identically.
  */
 
-export const GATES = ["visual", "responsive", "functional", "accessibility", "design"] as const;
+/* Six, and the sixth is not like the others.
+ *
+ * visual, responsive, functional, accessibility and design all ask whether the
+ * page works. `content` asks whether it is TRUE — whether the figures on it
+ * were supplied by the person whose name is on the site, or chosen by a model
+ * because a stat block looked empty. A page can pass every other gate and still
+ * be publishing invented revenue. See evidence.ts. */
+export const GATES = [
+  "visual",
+  "responsive",
+  "functional",
+  "accessibility",
+  "design",
+  "content",
+] as const;
 export type Gate = (typeof GATES)[number];
 
 /** How much a finding matters. Only `error` can fail a gate. */
@@ -47,6 +61,7 @@ export type QaResult = {
   functional: GateResult;
   accessibility: GateResult;
   design: GateResult;
+  content: GateResult;
   /** How many repair rounds ran before this result. */
   repairAttempts: number;
   issuesFound: number;
@@ -85,6 +100,7 @@ export function summarise(
     functional: gates.functional,
     accessibility: gates.accessibility,
     design: gates.design,
+    content: gates.content,
     repairAttempts: opts.repairAttempts ?? 0,
     issuesFound: issues.length,
     issuesFixed: opts.issuesFixed ?? 0,

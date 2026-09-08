@@ -56,14 +56,26 @@ try {
       if (!path.endsWith(".js")) continue;
       const depth = path.slice(out.length + 1).split("/").length - 1;
       const prefix = depth === 0 ? "./" : "../".repeat(depth);
-      writeFileSync(path, readFileSync(path, "utf8").replace(
-        /(["'])@\/([^"']+)\1/g, (_, q, rest) => {
-          /* A bare directory import — "@/lib/builder/blueprints" — is the
-             package's index, and node will not find it by appending .js. */
-          const asFile = join(out, `${rest}.js`);
-          const target = existsSync(asFile) ? `${rest}.js` : `${rest}/index.js`;
-          return `${q}${prefix}${target}${q}`;
-        }));
+      writeFileSync(path, readFileSync(path, "utf8")
+        .replace(
+          /(["'])@\/([^"']+)\1/g, (_, q, rest) => {
+            /* A bare directory import — "@/lib/builder/blueprints" — is the
+               package's index, and node will not find it by appending .js. */
+            const asFile = join(out, `${rest}.js`);
+            const target = existsSync(asFile) ? `${rest}.js` : `${rest}/index.js`;
+            return `${q}${prefix}${target}${q}`;
+          })
+        /* And the relative ones, which tsc also leaves as written. Missing
+           here while every other checker in this directory had it, so this
+           check stopped running the moment any module it loads grew a
+           relative import — which design.ts did, when its dark-colour test
+           was moved into qa/contrast. A checker that cannot start is a
+           checker that is not checking anything. */
+        .replace(
+          /(from\s+["'])(\.\.?\/[^"']+?)(["'])/g,
+          (whole, before, specifier, after) =>
+            specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
+        ));
     }
   };
   rewrite(out);
@@ -352,6 +364,84 @@ try {
      "and everything below the fold waits its turn");
   is(optimizer.transformed("data:image/png;base64,AAAA", 320, "premium"), "data:image/png;base64,AAAA",
      "an inline image is left alone rather than given a transform it cannot take");
+
+  /* ── The registry: whose pictures these are (§1) ────────────────────────
+   *
+   * The failure this exists to stop is invisible from inside one build. Two
+   * customers ask for a bakery; the planner writes the same direction for
+   * both, the same direction makes the same query, and the same query ranks
+   * the same photographs in the same order. Nothing anywhere is an error and
+   * both websites show the same loaf.
+   *
+   * So the property under test is a property BETWEEN projects, and it has to be
+   * checked with two of them.
+   */
+  const assetRegistry = await import(join(out, "lib/builder/assets/asset-registry.js"));
+  const curated = await import(join(out, "lib/builder/assets/providers/curated.js"));
+
+  const A = "11111111-1111-4111-8111-111111111111";
+  const B = "22222222-2222-4222-8222-222222222222";
+
+  is(assetRegistry.rotationFor(A) === assetRegistry.rotationFor(A), true,
+     "a project's rotation is the same on every rebuild");
+  is(assetRegistry.rotationFor(A) !== assetRegistry.rotationFor(B), true,
+     "and two projects do not share one");
+
+  /* The rotation may only reorder candidates that are equally good. A weak
+     match promoted over a strong one for the sake of variety is a worse
+     picture, which is not the trade being made here. */
+  const ranked = [
+    { item: "best", score: 1 },
+    { item: "tied", score: 0.98 },
+    { item: "weak", score: 0.2 },
+  ];
+  const rotated = assetRegistry.rotate(ranked, 1, 0.08);
+  is(rotated[rotated.length - 1], "weak", "a weak match is never rotated ahead of a strong one");
+  is(rotated.length, 3, "and nothing is lost in the rotation");
+
+  /* One project's stored asset is never served inside another's site. */
+  is(assetRegistry.belongsToAnotherProject(`https://x.co/storage/v1/object/public/project-assets/${B}/pic.png`, A),
+     true, "another project's stored picture is recognised as theirs");
+  is(assetRegistry.belongsToAnotherProject(`https://x.co/storage/v1/object/public/project-assets/${A}/pic.png`, A),
+     false, "and the project's own is not");
+
+  /* The promise itself, through the curated library: the same request, the
+     same register, two projects — and not the same photograph.
+
+     Product photography is what this is asked of, because it is where the
+     catalogue actually holds alternatives: four seamless studio shots in one
+     register, equally right for the same request, which is precisely the
+     situation where the top result used to win for everybody.
+
+     Where the catalogue holds ONE candidate for a register — as it does for
+     several of the heroes — no amount of rotation can produce a second, and
+     two projects will share it. That is a fact about the size of the library
+     rather than about this code, and the honest answer to it is more
+     photographs, not a worse match. */
+  const productRequest = {
+    slot: "product-1",
+    type: "product",
+    purpose: "the catalogue",
+    aspectRatio: "4/5",
+    quality: "premium",
+    alt: "A product on a seamless background",
+    spec: { type: "product", subject: "product on seamless", environment: "studio",
+            composition: "centred", lighting: "soft", style: "catalogue", mood: "neutral",
+            aspectRatio: "4/5", text: false, watermark: false },
+  };
+
+  const forA = curated.search(productRequest, "catalogue-consistent product photography", new Set(), A);
+  const forB = curated.search(productRequest, "catalogue-consistent product photography", new Set(), B);
+
+  is(forA.length >= 2, true, "the catalogue holds alternatives for this request");
+  is(forA[0].path !== forB[0].path, true,
+     "two projects asking for the same picture are not handed the same one");
+
+  /* And the same project asked twice gets the same one, because a rebuild must
+     not reshuffle a page's photography. */
+  is(curated.search(productRequest, "catalogue-consistent product photography", new Set(), A)[0]?.path,
+     forA[0]?.path,
+     "the same project gets the same photograph on every build");
 
   console.log(`\n${failed === 0 ? "All checks passed." : `${failed} failed.`}`);
   if (failed > 0) process.exit(1);
