@@ -162,23 +162,37 @@ nobody can credit themselves. The exposure is the price of a charge, not the
 creation of one.
 
 This contradicts what `/api/credits/spend` says about itself: that the browser
-says what happened and never what it costs. Today it is latent rather than
-exploitable for value, because the only client-priced actions are chat (which
-tops out at one credit) and publish (which nothing implements yet). It stops
-being latent the moment publishing ships at `PUBLISH_COST`, because charging
-yourself zero for it would then be worth doing.
+says what happened and never what it costs. It was latent while chat, which
+tops out at one credit, was the only client-priced action that worked. It is
+not latent any more — publishing ships at `PUBLISH_COST`, and charging yourself
+zero for it is worth doing.
 
-Closing it properly means the server calling the function as `service_role`
-rather than as the user, which needs three things together:
+Closing it means the server calling the function as `service_role` rather than
+as the user. The parts are now written, and they are deliberately three steps
+rather than one, because a migration and a deployment cannot land in the same
+instant and charging must keep working across the gap:
 
-1. `spend_credits` taking the user id as an argument — under `service_role`
-   there is no `auth.uid()` for it to read.
-2. A service-role Supabase client for `/api/credits/spend` and `/api/build`,
-   which needs `SUPABASE_SERVICE_ROLE_KEY` set in the deployment.
-3. `revoke execute on function public.spend_credits(...) from authenticated;`
+1. **Run `supabase/schema.sql`.** It adds `spend_credits_for(p_user_id, …)`,
+   which is told whose account to charge and is executable by the service role
+   alone, and turns `spend_credits` into a wrapper over it so the two cannot
+   drift. Nothing changes for the running app — the wrapper keeps whatever
+   grant it already had, since `create or replace function` preserves
+   privileges.
+2. **Deploy.** `/api/credits/spend` charges through `spend_credits_for` with
+   the service key, having settled who the caller is under their own session
+   first. Until step 1 has run it falls back to the session-scoped wrapper and
+   logs an error naming the migration, so the order of 1 and 2 cannot break
+   charging.
+3. **Run `supabase/close-spend-credits.sql`.** One `revoke`, plus a query that
+   proves it. This is the step that actually closes the hole, and running it
+   before step 2 breaks every charge the app makes.
 
-All three have to land together: revoking first breaks every charge the app
-makes, since it currently calls the function under the caller's own session.
+The fallback in step 2 needs no cleanup: after step 3 `authenticated` no longer
+holds `EXECUTE` on the wrapper, so that path fails on its own. Removing the
+dead branch afterwards is tidying, not a fix.
+
+`SUPABASE_SERVICE_ROLE_KEY` must be set in the deployment for any of this —
+without it the route stays on the fallback and says so in the log.
 
 ### Publication does not live in `projects.status`
 
