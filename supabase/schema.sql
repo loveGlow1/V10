@@ -89,6 +89,10 @@ declare
   v_daily   numeric(10,2);
   v_monthly numeric(10,2);
   v_bonus   numeric(10,2);
+  -- Whether THIS statement opened the balance, rather than finding one already
+  -- there. Null when the insert conflicted, which is what stops a second run of
+  -- the signup path recording a welcome the account was never given.
+  v_opened  uuid;
 begin
   insert into public.user_profiles (user_id, full_name, avatar_url)
   values (
@@ -104,20 +108,39 @@ begin
 
   select daily_credits, monthly_credits into v_daily, v_monthly
     from public.credit_plans where id = 'free';
-  v_bonus := public.signup_bonus_credits();
+
+  -- Clamped on the way in as well as inside signup_bonus_credits(), because
+  -- this is the statement that actually moves credit into an account and the
+  -- ceiling is worth enforcing where the money lands. Never negative either: a
+  -- grant function returning a negative would otherwise open an account below
+  -- zero, which the check constraint would reject and the signup would fail on.
+  v_bonus := least(
+    greatest(coalesce(public.signup_bonus_credits(), 0), 0),
+    public.max_signup_bonus_credits()
+  );
 
   -- Into the top-up bucket, which is the one that neither expires nor refills.
   -- On Free that bucket is the entire balance: v_daily and v_monthly are both
   -- zero, so this is the only credit the account ever receives without paying.
+  --
+  -- `on conflict do nothing` means an account that somehow already has a
+  -- balance keeps the one it has: the welcome is granted once, at the moment
+  -- the balance is opened, and never added to an existing pool.
   insert into public.credit_balances (user_id, plan_id, daily, monthly, top_up)
   values (new.id, 'free', v_daily, v_monthly, v_bonus)
-  on conflict (user_id) do nothing;
+  on conflict (user_id) do nothing
+  returning user_id into v_opened;
 
   -- Recorded like any other movement, so a balance is always explainable from
   -- the ledger rather than appearing from nowhere.
-  if v_bonus > 0 then
-    insert into public.credit_ledger (user_id, action, credits, description)
-    values (new.id, 'grant', v_bonus, 'Welcome credit');
+  --
+  -- Only when this statement opened the balance, and named so it cannot be
+  -- written twice: a ledger line for credit that never landed reads as a
+  -- welcome granted twice, which is exactly the thing being ruled out.
+  if v_opened is not null and v_bonus > 0 then
+    insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
+    values (new.id, 'grant', v_bonus, 'Welcome credit', 'signup-bonus')
+    on conflict do nothing;
   end if;
 
   return new;
@@ -345,20 +368,44 @@ grant select on public.credit_plans to authenticated;
 -- The welcome credit every new account arrives with.
 --
 -- Counted in credits, which is what the account holds and what every screen
--- shows; at the top-up pack's rate of fifty credits for ten dollars, this is
--- two dollars' worth. Mirrors SIGNUP_BONUS_CREDITS in
+-- shows; at the top-up pack's rate of fifty credits for fifteen dollars, this
+-- is a dollar fifty's worth. Mirrors SIGNUP_CREDITS in
 -- src/app/dashboard/credits.ts.
 --
 -- Read by handle_new_user() above, which runs after this file has been applied
 -- in full, so the definition order here does not matter at runtime.
 -- ─────────────────────────────────────────────────────────────────────────────
--- Everything a new account ever gets for free: four credits, once.
+
+-- The most a first-time account may ever be handed for free.
+--
+-- Separate from the grant below because the two answer different questions:
+-- what a new account is given is a number somebody may want to move, and how
+-- much a new account is ALLOWED to be given is the rule that move has to obey.
+-- signup_bonus_credits() clamps itself to this, and handle_new_user() clamps
+-- again on the way into the balance, so no signup path — a promotion, a second
+-- grant, a hand-edited grant function — can put a first-timer above it.
+--
+-- Keep in step with MAX_SIGNUP_CREDITS in src/app/dashboard/credits.ts.
+create or replace function public.max_signup_bonus_credits()
+returns numeric
+language sql
+immutable
+set search_path = ''
+as $$
+  select 5::numeric(10,2);
+$$;
+
+-- Everything a new account ever gets for free: five credits, once.
 --
 -- It lands in the top-up bucket, which is what makes it a one-time balance
 -- rather than an allowance — top-ups never expire and nothing refills them.
 -- The free plan's daily_credits is 0 for the same reason: a refilling daily
 -- grant means an account that never pays can build forever at whatever rate
 -- the refill sets, which is not a free tier but a free product.
+--
+-- least(), so the ceiling holds whatever this figure is edited to: raising the
+-- grant on its own clamps back to max_signup_bonus_credits() rather than
+-- shipping a bigger welcome than anybody agreed to.
 --
 -- Keep in step with SIGNUP_CREDITS in src/app/dashboard/credits.ts.
 create or replace function public.signup_bonus_credits()
@@ -367,7 +414,7 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select 4::numeric(10,2);
+  select least(5::numeric(10,2), public.max_signup_bonus_credits());
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
