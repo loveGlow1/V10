@@ -472,7 +472,7 @@ export default function Sidebar({
                 </div>
                 <button
                   onClick={onUpgradeClick}
-                  className="text-xs font-semibold text-black bg-gradient-to-r from-[#F4D96B] to-[#E2C244] px-4 py-2 rounded-full hover:brightness-105 transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(244,217,107,0.25)]"
+                  className="text-xs font-semibold text-onSolid bg-gradient-to-r from-accent to-accentDark px-4 py-2 rounded-full hover:brightness-105 transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(244,217,107,0.25)]"
                 >
                   <span>Upgrade</span>
                   <span className="w-4 h-4 rounded-full bg-black/15 flex items-center justify-center text-[10px] font-bold">+</span>
@@ -554,7 +554,7 @@ export default function Sidebar({
                             setAccountMenuOpen(false);
                             onUpgradeClick();
                           }}
-                          className="mt-2.5 h-9 w-full rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.99]"
+                          className="mt-2.5 h-9 w-full rounded-lg bg-gradient-to-b from-accentBright to-accent text-[13px] font-semibold text-onSolid transition-all hover:brightness-105 active:scale-[0.99]"
                         >
                           Upgrade
                         </button>
