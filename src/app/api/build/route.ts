@@ -37,9 +37,11 @@ import {
   askClarifying,
   editModelFor,
   editPage,
-  maxEditPromptChars,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { estimateTokens } from "@/lib/context/budget";
+import { describePlan } from "@/lib/context/fit";
+import { fitEdit } from "@/lib/context/requests";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
@@ -1144,28 +1146,62 @@ async function handle(
       );
     }
 
-    /* Checked here rather than at the top, because it only applies once the
-       message is known to be an edit: a build's brief may be seven times this
-       long, and refusing it on the edit model's window would be refusing it for
-       a reason that does not apply. Said as a sentence with the next step in
-       it, rather than as a limit.
+    /* Whether this edit fits, measured rather than guessed — and made to fit
+       where it can be.
+     *
+       This was a character count: 80,000 for Haiku, 600,000 for Sonnet, and a
+       sentence telling the person to send their message again in pieces when
+       they went past it. Three things were wrong with that, and the third is
+       the one that matters. It counted characters against a limit the model
+       states in tokens. It counted only the message, while the page, the
+       carried conversation and every attached screenshot went into the same
+       window uncounted — a screenshot is about 1,600 tokens and was treated as
+       zero. And it asked the user to do the system's job.
 
-       And the window is the one the CHOSEN model has — see maxEditPromptChars.
-       This used to be a single number sized for Haiku's 200K, which was right
-       while Haiku took every edit and wrong the moment a long brief started
-       going to Sonnet instead: it would have refused, on a window's behalf, a
-       brief that was long enough to be routed away from that window in the
-       first place. */
-    if (prompt.length > maxEditPromptChars(editModel)) {
+       fitEdit measures all of it against the chosen model's real window, holds
+       back room for the reply, and when the total is over it restructures the
+       INSTRUCTION rather than cutting it: every sentence that constrains the
+       outcome is carried word for word as a numbered requirement and only the
+       prose between them is reduced. The page is never summarised — an edit is
+       a change to a specific document, and a model shown a summarised page
+       rewrites it from memory. See src/lib/context/requests.ts. */
+    const fitted = fitEdit({
+      prompt,
+      pageHtml: leanHtml ?? currentHtml,
+      modelId: editModel,
+      images: files.blocks.filter((block) => block.type === "image").length,
+      priorTokens: prior.reduce(
+        (total, turn) => total + estimateTokens(String(turn.content)),
+        0,
+      ),
+    });
+
+    /* Written on every edit, not only on the ones that were tight: a call that
+       fitted comfortably is the baseline that makes the one that did not
+       legible. This is the only place the internal pressure states appear —
+       never on a screen. */
+    // eslint-disable-next-line no-console
+    console.log(describePlan(fitted.plan));
+
+    /* The one case that still cannot be done in a single call: the page alone
+       fills the window, so there is no room left for any instruction at all.
+       Said as what to do about it, and about the PAGE rather than about what
+       they wrote — the length of their message is not the problem here. */
+    if (fitted.mustDecompose) {
       const said =
-        `That's a lot to change in one message — it goes to the page along with everything already on it, ` +
-        `and together they're past what I can read at once. Ask for it a section at a time and each part will land.`;
-      const stored = await deliver(said, { tone: "error", key: "edit-too-long" });
+        `This page has grown past what I can read and rewrite in one go, so I've not changed anything. ` +
+        `Ask for one section at a time — name the section in the words that appear on it — and each change will land.`;
+      const stored = await deliver(said, { tone: "error", key: "edit-page-too-large" });
       return NextResponse.json(
-        { error: said, intent: "edit", code: "edit_prompt_too_long", stored },
+        { error: said, intent: "edit", code: "edit_page_too_large", stored },
         { status: 400 },
       );
     }
+
+    /* What the model is asked, which is the person's message unless it had to
+       be restructured to fit. Their own message is stored and shown exactly as
+       they typed it either way — this is the model's copy, not theirs. */
+    const editPrompt = fitted.prompt;
 
     let edited;
     try {
@@ -1187,12 +1223,12 @@ async function handle(
        * layers already work and are not part of this request does not touch
        * them; a model told nothing has no reason not to, which is how a
        * question about one section comes back having restyled the site. */
-      const plan = planEdit(prompt, knownArchitecture);
+      const plan = planEdit(editPrompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
 
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
-        prompt,
+        editPrompt,
         leanHtml ?? currentHtml,
         files.blocks,
         prior,

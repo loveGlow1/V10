@@ -1,5 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { estimateTokens } from "@/lib/context/budget";
+import { condense, summarizeTurns } from "@/lib/context/compress";
+
 /* What a message means given the ones before it.
  *
  * Every model call in this app used to be handed one sentence and nothing else.
@@ -87,7 +90,8 @@ const SUBSTANTIVE = 24;
  * expressed in anything else is a limit they cannot predict.
  *
  * Enough to hold a pasted brief in full; not so much that six of them crowd out
- * the page they are about. An edit sends up to MAX_TURNS of these.
+ * the page they are about. An edit sends as many of these as its token
+ * budget holds — see priorTurns.
  */
 export const MAX_CONTEXT_WORDS = 1000;
 
@@ -118,9 +122,26 @@ export function trimToWords(text: string, max: number): string {
 
   return text;
 }
-/* How many turns of context to send. Three exchanges is what "it", "that" and
-   "too" ever refer to in practice. */
-const MAX_TURNS = 6;
+/* How much of the conversation travels with a message, in tokens.
+ *
+ * It was six turns of a thousand words each, and both numbers were the same
+ * kind of guess: a count of things rather than a measure of what they cost. Six
+ * one-line turns is nothing and six pasted specifications is more than some
+ * windows hold, so the same rule produced a thread that remembered too little
+ * and one that would not fit.
+ *
+ * A budget instead. Roughly nine thousand words of conversation, which is far
+ * more than the old rule carried in the ordinary case and bounded in the case
+ * that used to break — and it is now the CALLER's to set, because the caller
+ * knows which model this is going to and what else is going in the window.
+ * See src/lib/context/budget.ts for where a real one comes from. */
+export const PRIOR_TURN_TOKENS = 12_000;
+
+/* Of that, what is held back for the summary of everything older. A tenth: the
+   summary is a dozen one-line entries, and the point is that it always fits —
+   an older conversation that gets squeezed out entirely is the failure this
+   exists to prevent. */
+const SUMMARY_SHARE = 0.1;
 
 /* A cap on what travels to the orchestrator, so a long thread cannot push an
    unbounded payload through a webhook. Two full descriptions' worth in words:
@@ -206,15 +227,68 @@ export function carriedContextWords(composed: string): number {
  * The final user turn is NOT included: callers add their own, carrying the page
  * with it. This is only what came before.
  */
-export function priorTurns(history: Turn[]): Anthropic.MessageParam[] {
+export function priorTurns(
+  history: Turn[],
+  maxTokens: number = PRIOR_TURN_TOKENS,
+): Anthropic.MessageParam[] {
   const turns: Anthropic.MessageParam[] = [];
 
-  /* Filtered BEFORE the last six are taken, so a run of failures cannot push
-     the messages that actually matter out of the window. Six errors in a row is
-     exactly the state this is for, and taking the last six first would leave
-     nothing behind after the filter. */
-  for (const turn of history.filter(conversational).slice(-MAX_TURNS)) {
-    const text = trimToWords(turn.text.trim(), MAX_CONTEXT_WORDS);
+  /* Filtered BEFORE anything is measured, so a run of failures cannot push the
+     messages that actually matter out of the window. Six errors in a row is
+     exactly the state this is for, and measuring first would spend the budget
+     on text that is then thrown away. */
+  const said = history.filter(conversational).filter((turn) => turn.text.trim());
+
+  /* Newest first, taken whole while there is room for them.
+   *
+   * Backwards rather than forwards because recency is the only thing that makes
+   * "it", "that" and "too" resolvable — that is what this history is FOR. What
+   * changes is what happens to the rest: it used to be silently dropped, and it
+   * is now summarised, so a decision taken twenty messages ago survives as a
+   * line rather than as nothing. */
+  const summaryRoom = Math.round(maxTokens * SUMMARY_SHARE);
+  let spent = 0;
+  const carried: { turn: Turn; text: string }[] = [];
+  let oldest = said.length;
+
+  for (let index = said.length - 1; index >= 0; index -= 1) {
+    const turn = said[index];
+    const body = turn.text.trim();
+    const cost = estimateTokens(body);
+    const room = maxTokens - summaryRoom - spent;
+
+    if (cost <= room) {
+      carried.unshift({ turn, text: body });
+      spent += cost;
+      oldest = index;
+      continue;
+    }
+
+    /* One turn bigger than the room left. Condensed rather than dropped when
+       there is enough room left for the result to say something — a pasted
+       specification three messages back is exactly the case, and losing it
+       whole is what the old rule did. */
+    if (room > 400) {
+      const shorter = condense(body, room);
+      if (shorter.reduced) {
+        carried.unshift({ turn, text: shorter.text });
+        spent += shorter.tokens;
+        oldest = index;
+      }
+    }
+    break;
+  }
+
+  /* Everything older than what was carried, as a list of what they asked for.
+     Placed first, as a user turn, which is also the only role the API will
+     accept in that position. */
+  const summary = oldest > 0 ? summarizeTurns(said.slice(0, oldest)) : "";
+  const shaped: { from: string; text: string }[] = summary
+    ? [{ from: "you", text: summary }, ...carried.map((entry) => ({ from: entry.turn.from, text: entry.text }))]
+    : carried.map((entry) => ({ from: entry.turn.from, text: entry.text }));
+
+  for (const turn of shaped) {
+    const text = turn.text;
     if (!text) continue;
 
     const role: "user" | "assistant" = turn.from === "you" ? "user" : "assistant";

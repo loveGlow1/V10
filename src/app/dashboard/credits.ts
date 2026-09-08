@@ -488,7 +488,9 @@ export function roundCredits(value: number): number {
  *
  * Per message rather than per request, matching the ceiling it sits under: the
  * message somebody sent and each earlier one carried with it get their own 300
- * free. An edit sends up to MAX_TURNS of the latter.
+ * free. How many of the latter an edit sends is decided by the token budget in
+ * lib/context/budget.ts rather than by a fixed count, and MAX_CONTEXT_SURCHARGE
+ * below is what keeps the total bounded however many that turns out to be.
  */
 export const FREE_CONTEXT_WORDS = 300;
 export const CONTEXT_CREDITS_PER_100_WORDS = 0.1;
@@ -497,10 +499,10 @@ export const CONTEXT_CREDITS_PER_100_WORDS = 0.1;
    contain on its own.
  *
  * 0.1 per 100 words reads as small — seven tenths of a credit for a full
- * thousand-word brief. But it is charged per message, and an edit carries up to
- * six earlier ones as well as its own, so the arithmetic nobody does in their
- * head runs to several credits: more than the edit it rides on, for a long
- * brief and a long memory.
+ * thousand-word brief. But it is charged per message, and an edit carries as
+ * many earlier ones as its token budget holds, so the arithmetic nobody does in
+ * their head runs to several credits: more than the edit it rides on, for a
+ * long brief and a long memory.
  *
  * That is not a surcharge, it is a second price. One credit is the most the
  * text on any single turn can add, and under it the per-100 rate applies

@@ -104,7 +104,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { lastSentence, editModelFor, maxEditPromptChars, EDIT_MODEL, EDIT_MODEL_STRONG } =
+const { lastSentence, editModelFor, EDIT_MODEL, EDIT_MODEL_STRONG } =
   createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
 
 const CASES = [
@@ -164,11 +164,12 @@ for (const [input, want, why] of CASES) {
  * going unchecked is a real failure — a one-line change to a huge page is the
  * case that reads as simple and is not.
  *
- * The last case is the one worth having. maxEditPromptChars still carries a
- * small ceiling for Haiku, and it must be unreachable: a brief long enough to
- * approach it is thousands of words, which routes to Sonnet long before. If
- * that ever stops being true, the app refuses a brief on the window of a model
- * that was never going to see it. */
+ * The size ceilings that used to live beside this — maxEditPromptChars, in
+ * characters, used to refuse the person — are gone: what an edit may spend is
+ * measured in tokens against the chosen model's real window by
+ * src/lib/context/budget.ts and enforced by check:context. What is still
+ * asserted here is the ROUTING, which decides which window is the relevant one
+ * in the first place. */
 const word = (n) => Array.from({ length: n }, () => "change").join(" ");
 const page = (n) => "x".repeat(n);
 
@@ -195,14 +196,13 @@ for (const [prompt, html, want, why] of ROUTING) {
   }
 }
 
+/* A long brief is routed by its length before any window is consulted, which is
+   what makes the token budget downstream a budget for the right model. 11,430
+   words is the old Haiku character ceiling in words — the case that used to be
+   refused, and which must now simply be Sonnet's. */
 const CEILINGS = [
-  [maxEditPromptChars(EDIT_MODEL) === 80_000, "Haiku's brief ceiling is sized for a 200K window"],
-  [maxEditPromptChars(EDIT_MODEL_STRONG) > maxEditPromptChars(EDIT_MODEL), "Sonnet's is larger"],
-  [
-    editModelFor(word(Math.ceil(maxEditPromptChars(EDIT_MODEL) / 7) + 1), page(2_000)) ===
-      EDIT_MODEL_STRONG,
-    "a brief long enough to hit Haiku's ceiling has already been routed to Sonnet",
-  ],
+  [editModelFor(word(11_430), page(2_000)) === EDIT_MODEL_STRONG, "a brief of thousands of words is Sonnet's"],
+  [editModelFor(word(3), page(2_000)) === EDIT_MODEL, "and a short one is still Haiku's"],
 ];
 
 for (const [passed, why] of CEILINGS) {

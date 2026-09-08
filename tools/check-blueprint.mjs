@@ -406,33 +406,44 @@ try {
       );
   }
 
-  /* ── The same memory, whichever way a message came in ─────────────────────
+  /* ── How much of the conversation travels with a message ─────────────────
    *
-   * How much of the conversation travels with a message used to depend on which
-   * path it took: 700 characters of each earlier turn for an edit, 400 of the
-   * carried description for a brand new page. Two numbers, set months apart,
-   * for one promise — and the person typing cannot see which path their
-   * sentence took, so from where they sit the builder simply remembered
-   * different amounts on different days.
+   * This used to assert that both ways in trimmed an over-long message to
+   * exactly the same 1,000 words: 700 characters per earlier turn for an edit
+   * and 400 of the carried description for a brand new page had been set months
+   * apart, and the person typing cannot see which path their sentence took, so
+   * from where they sat the builder remembered different amounts on different
+   * days.
    *
-   * Both are measured here, on the same over-long message, and must agree.
-   * Written as a measurement rather than as "the constant is 1000", because a
-   * constant nothing reads would pass that and change nothing.
+   * The edit side no longer trims by word count at all. What an edit carries is
+   * a TOKEN budget against the model's real window (see priorTurns and
+   * src/lib/context/budget.ts), which is the same promise made in the unit the
+   * model actually measures — a rule in words cannot be right for both a
+   * 200K-window model and a 1M one. So what is asserted here is the promise
+   * rather than the number: an ordinary long message is carried WHOLE, and one
+   * too big for the budget is reduced rather than dropped.
    *
-   * In words, which is the unit somebody pasting a brief actually has — and the
-   * reason the trim is measured rather than assumed: cutting a thousand words
-   * on a word boundary is real work, and an off-by-one there is a sentence
-   * ending mid-.
+   * The new-page side still trims the carried description to MAX_CONTEXT_WORDS,
+   * because that line sits inside a composed system prompt and is priced on the
+   * same figure (see carriedContextWords), and it is still measured rather than
+   * assumed: cutting a thousand words on a word boundary is real work, and an
+   * off-by-one there is a sentence ending mid-.
    */
   const { priorTurns, MAX_CONTEXT_WORDS, countWords } = await import(
     join(out, "lib/builder/brief.js")
   );
   /* A word that cannot be confused with the quotes around it, repeated well
-     past the ceiling. */
+     past the old ceiling. */
   const LONG = Array(2000).fill("word").join(" ");
 
   const edit = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }]);
   const editCarried = countWords(String(edit[0]?.content ?? ""));
+
+  /* The same message against a budget far too small for it. It must come back
+     shorter and it must come back — silently dropping the only thing somebody
+     said is the failure the budget exists to prevent. */
+  const squeezed = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }], 600);
+  const squeezedCarried = countWords(String(squeezed[0]?.content ?? ""));
 
   const newPage = composeBuildPrompt("landing", "rebuild it", { carriedFrom: LONG });
   const carriedLine = newPage
@@ -440,13 +451,15 @@ try {
     .find((row) => row.includes("This continues an earlier description"));
   const buildCarried = carriedLine ? countWords(carriedLine.match(/"((?:word ?)+)"/)?.[1] ?? "") : 0;
 
-  if (editCarried !== MAX_CONTEXT_WORDS) {
-    fail(`an edit carries ${editCarried} words of context, not ${MAX_CONTEXT_WORDS}`);
+  if (editCarried !== 2000) {
+    fail(`an edit carries ${editCarried} words of a 2000-word message, not all of it`);
+  } else if (squeezedCarried === 0 || squeezedCarried >= 2000) {
+    fail(`a message too big for the budget came back as ${squeezedCarried} words — it must be reduced, not dropped`);
   } else if (buildCarried !== MAX_CONTEXT_WORDS) {
     fail(`a new page carries ${buildCarried} words of context, not ${MAX_CONTEXT_WORDS}`);
   } else {
     console.log(
-      `ok   context    ${MAX_CONTEXT_WORDS} words carried on both ways in — an edit and a brand new page remember alike`,
+      `ok   context    an edit carries all 2000 words on budget and ${squeezedCarried} when squeezed; a new page carries ${MAX_CONTEXT_WORDS}`,
     );
   }
 
