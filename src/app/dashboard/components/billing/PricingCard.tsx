@@ -12,7 +12,7 @@ export default function PricingCard({ plan }: PricingCardProps) {
   const { name, monthlyPriceUsd } = PLANS[plan];
 
   return (
-    <div className="relative overflow-hidden rounded-[22px] bg-gradient-to-br from-[#F6E7A8] via-[#F4D48C] to-[#F1C38A] p-5">
+    <div className="relative overflow-hidden rounded-[22px] bg-gradient-to-br from-accentBright via-accent to-accentDark p-5">
       {/* Dotted decorative pattern */}
       <div
         className="pointer-events-none absolute top-0 right-0 h-24 w-24 opacity-30"

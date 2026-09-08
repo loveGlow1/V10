@@ -710,7 +710,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       </div>
                       <button
                         onClick={onUpgradeClick}
-                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-all hover:brightness-105"
                       >
                         Upgrade Plan <Sparkles className="h-4 w-4" />
                       </button>
@@ -823,7 +823,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                         <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                         <button
                           onClick={onUpgradeClick}
-                          className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                          className="flex h-10 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-all hover:brightness-105"
                         >
                           Upgrade Plan <Sparkles className="h-4 w-4" />
                         </button>
@@ -839,7 +839,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                       <span className="text-[28px] font-bold leading-none text-ink">Free</span>
                       <button
                         onClick={onUpgradeClick}
-                        className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                        className="flex h-10 items-center gap-2 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-all hover:brightness-105"
                       >
                         Upgrade Plan <Sparkles className="h-4 w-4" />
                       </button>
