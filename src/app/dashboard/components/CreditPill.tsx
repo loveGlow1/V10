@@ -2,32 +2,25 @@
 
 import React from "react";
 
-/* The coin. Drawn rather than borrowed from an icon set, on a 24 grid like the
-   rest of the marks: a struck disc with a lit top edge and a spark cut into its
-   face.
-
-   It is the one warm thing left in the interface, and it is small. Gold here is
-   a semantic — this is money — in the same way red is a semantic for a failure,
-   and it survives the monochrome rule for the same reason. What it no longer
-   does is fill a button: the pill around it is the same layer and hairline as
-   every other control on the bar, so the coin reads as a unit of currency
-   rather than as a second brand colour arriving at 34px. */
+/* The coin. Drawn rather than borrowed from an icon set so it carries the same
+   gold as the Upgrade pill beside it: a struck disc with a lit top edge and a
+   spark cut into its face. On a 24 grid, like the rest of the marks. */
 function CoinMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="creditCoin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgb(var(--warn))" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="rgb(var(--warn))" />
+          <stop offset="0%" stopColor="#FFE998" />
+          <stop offset="100%" stopColor="#F0B93B" />
         </linearGradient>
       </defs>
       <circle cx="12" cy="12" r="9" fill="url(#creditCoin)" />
-      {/* The spark, cut in the page's own ground so the glyph reads at 14px
-          instead of dissolving into the disc. */}
+      {/* The spark, in the dark the gold buttons use for their text, so the
+          glyph reads at 14px instead of dissolving into the disc. */}
       <path
         d="M12 6.75l1.6 3.65 3.65 1.6-3.65 1.6L12 17.25l-1.6-3.65L6.75 12l3.65-1.6z"
-        fill="rgb(var(--canvas))"
-        opacity="0.9"
+        fill="#3a2e00"
+        opacity="0.85"
       />
     </svg>
   );

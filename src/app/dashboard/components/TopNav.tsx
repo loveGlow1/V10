@@ -144,7 +144,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
 
           <button
             onClick={onUpgradeClick}
-            className="h-[34px] w-[112px] rounded-full bg-solid text-[13px] font-semibold text-onSolid transition-opacity hover:opacity-90 active:scale-[0.98]"
+            className="h-[34px] w-[112px] rounded-full bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.98]"
           >
             Upgrade
           </button>
@@ -196,7 +196,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                       setPanelOpen(false);
                       onUpgradeClick();
                     }}
-                    className="mt-2.5 h-8 w-full rounded-lg bg-solid text-[13px] font-semibold text-onSolid transition-opacity hover:opacity-90 active:scale-[0.99]"
+                    className="mt-2.5 h-8 w-full rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] text-[13px] font-semibold text-[#3a2e00] transition-all hover:brightness-105 active:scale-[0.99]"
                   >
                     Upgrade
                   </button>
@@ -228,7 +228,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
                     onClick={handleSignOut}
                     disabled={signingOut}
                     role="menuitem"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-danger transition-colors hover:bg-danger/[0.08] disabled:opacity-60"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-danger transition-colors hover:bg-[#ef7777]/[0.08] disabled:opacity-60"
                   >
                     <LogOut className="h-4 w-4 shrink-0" />
                     <span className="text-[13px]">{signingOut ? "Signing out…" : "Logout"}</span>

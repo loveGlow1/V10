@@ -50,12 +50,6 @@
   --muted: 165 165 162;
   --faint: 122 122 120;
 
-  /* The two tints every translucent fill and every hairline in the app is made
-     of. They stay white rather than becoming the system's #24272B, because a
-     border here is a tint over whatever surface it lands on rather than a
-     colour: white at 9% over the #101214 surface resolves to #252729, which is
-     the border the system specifies, and the same tint over the elevated
-     surface resolves correctly there too. One rule, right on three grounds. */
   --layer: 255 255 255;
   --line: 255 255 255;
 

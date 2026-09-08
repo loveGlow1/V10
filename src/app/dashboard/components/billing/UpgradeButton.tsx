@@ -28,7 +28,7 @@ export default function UpgradeButton({
       transition={{ duration: 0.15 }}
       onClick={() => !free && onUpgrade?.(plan)}
       disabled={free}
-      className="h-13 w-full rounded-2xl bg-solid py-3.5 text-base font-bold text-onSolid disabled:opacity-60"
+      className="h-13 w-full rounded-2xl bg-solid py-3.5 text-base font-bold text-[#0A0A0A] disabled:opacity-60"
     >
       {free ? `Stay on ${name}` : `Upgrade to ${name}`}
     </motion.button>

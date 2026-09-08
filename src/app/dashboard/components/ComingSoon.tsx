@@ -22,7 +22,7 @@ export function ComingSoonBadge({ className = "" }: { className?: string }) {
 }
 
 /* What pressing it says. The app's own sheet — the blurred black field, the
-   elevated card, the round close button — so it belongs to this product rather
+   #121215 card, the round close button — so it belongs to this product rather
    than arriving from somewhere else.
 
    No "notify me": there is nothing behind a form to put an address into, and a
