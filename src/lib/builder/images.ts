@@ -44,6 +44,14 @@ export type ImageSlot = {
   /** "4/5", "16/9" — how it is cropped. */
   ratio: string;
   weight: SlotWeight;
+  /* Where the subject sits inside the frame, as the generator declared it —
+     "50% 32%", and empty where no decision was taken. The ratio above is the
+     shape of the BOX; this is which part of the picture that box keeps, and the
+     two are different questions that were being answered by one attribute. See
+     src/lib/builder/framing.ts, which compiles it into object-position. */
+  focal: string;
+  /** "cover" or "contain" — whether the subject may be cropped at all. */
+  fit: string;
 };
 
 /** What a provider gives back for one slot. */
@@ -93,12 +101,15 @@ export function readSlots(html: string): ImageSlot[] {
       tag.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i"))?.[1] ?? "";
 
     const weight = attribute("data-weight").toLowerCase();
+    const fit = attribute("data-fit").trim().toLowerCase();
     slots.push({
       tag,
       shot: attribute("data-shot").trim(),
       alt: attribute("alt").trim(),
       ratio: attribute("data-ratio").trim() || "4/3",
       weight: weight === "hero" || weight === "feature" ? weight : "thumb",
+      focal: attribute("data-focal").trim(),
+      fit: fit === "contain" ? "contain" : "cover",
     });
   }
 

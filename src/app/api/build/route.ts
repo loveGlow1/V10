@@ -76,6 +76,8 @@ import {
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
+import { reframe } from "@/lib/builder/framing";
+import { referenceEditBrief } from "@/lib/builder/reference";
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { treeBrief } from "@/lib/builder/scaffold";
@@ -1281,6 +1283,110 @@ async function handle(
        shown or priced still reads `prompt`. */
     const asked = stageRequest ?? prompt;
 
+    /* ── The change that needs no model ────────────────────────────────────
+     *
+     * "Bring the cake down a bit." "The cone is cut off." "Move the photo up."
+     *
+     * Every one of those has exactly one correct implementation — two
+     * attributes on one <img> — and every one of them was costing a credit, a
+     * minute of somebody's attention, and about half the time a wrong answer:
+     * a margin added to the section, the hero's height changed, the header
+     * shortened. Then the same request again, phrased differently, for another
+     * credit. Five prompts to move a photograph fifteen per cent down its own
+     * frame is the single loudest complaint this builder has.
+     *
+     * So it is done here, arithmetically, before anything is spent. reframe
+     * reads the request, finds the picture it is about, and returns null the
+     * moment it is not certain — the subject names something on the page that
+     * is not a picture, the page has no pictures, the framing is already what
+     * was asked for. Anything it declines falls through to the model edit
+     * below, which is what used to happen every time.
+     *
+     * Not charged, and that is the point rather than an oversight: this
+     * consumed no model, and an account that pays for arithmetic is an account
+     * that learns to describe framing changes as something else.
+     *
+     * Read from `prompt` rather than from `asked`, and skipped entirely while a
+     * plan is driving: `asked` is then the stage's own instruction rather than
+     * something somebody typed, and a stage that finished here would skip the
+     * advance below and leave the plan stuck on it. Skipped with an attachment
+     * too — a picture in the message is something to look at, and this looks at
+     * nothing. */
+    const reframed =
+      attachments.length === 0 && !stageAsk ? reframe(currentHtml, prompt) : null;
+
+    if (reframed) {
+      steps.mark("plan", "Reframing a picture", "no rebuild needed — this is one attribute on one image");
+
+      /* Checked exactly as a model's edit is. A rewrite this small cannot
+         unbalance a document, and "cannot" is not a thing to assert about
+         markup somebody else generated. */
+      const verdict = validatePage(currentHtml, reframed.html);
+      if (verdict.ok) {
+        steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
+        await service.from("project_builds").insert({
+          project_id: project.id,
+          user_id: user.id,
+          request_id: requestId,
+          prompt,
+          html: reframed.html,
+          /* Named for what did it. A row saying "claude-haiku" over a change no
+             model made is how a ledger stops being evidence. */
+          model: "framing (no model)",
+          files_touched: 1,
+        });
+        steps.mark("version", "Saved a new version of the page");
+
+        await service
+          .from("projects")
+          .update({
+            prompt,
+            status: "Built",
+            intent: "webapp",
+            preview_url: previewUrl,
+            last_build_at: new Date().toISOString(),
+          })
+          .eq("id", project.id)
+          .eq("user_id", user.id);
+
+        const said = `${reframed.said} That one was free — it is a framing change, so nothing had to be rebuilt.`;
+        const storedReframe = await deliver(said, { key: "edit" });
+
+        /* Re-read exactly as the model path re-reads it: the row now carries a
+           new last_build_at and the workspace shows it without a refresh. */
+        const { data: afterReframe } = await supabase
+          .from("projects")
+          .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+          .eq("id", project.id)
+          .maybeSingle();
+
+        return NextResponse.json({
+          stored: storedReframe,
+          steps: steps.list(),
+          intent: "edit",
+          build: {
+            ok: true,
+            requestId: "",
+            projectId: project.id,
+            intent: "webapp",
+            status: "Built",
+            links: { preview: previewUrl, repo: "", admin: "" },
+            configKeys: {},
+            artifacts: { applied: 1 },
+            message: said,
+          },
+          project: afterReframe ?? null,
+        });
+      }
+
+      /* It did not hold together, which should not be possible for a one-tag
+         rewrite and is exactly why it was checked. Nothing is stored and the
+         request carries on to the model path below as though this had never
+         run. */
+      // eslint-disable-next-line no-console
+      console.error(`reframe ${requestId}: refused after applying — ${verdict.problem}`);
+    }
+
     const indexed = await readProjectIndex(service, project.id);
     const expansion =
       indexed.length > 0 ? expandContext(indexed, asked, RETRIEVAL_TOKENS) : null;
@@ -1402,6 +1508,13 @@ async function handle(
            above. */
         [
           editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* What the attached pictures are FOR, when any came with the message.
+             The system prompt already says a screenshot is direction and a
+             photograph is content; this is the composition half — that a
+             reference is a set of measurements rather than a mood, and which
+             measurements. Empty when nothing was attached, which is most
+             messages. See src/lib/builder/reference.ts. */
+          referenceEditBrief(files.blocks.filter((block) => block.type === "image").length),
           projectBlock,
           retrievedBlock,
         ]

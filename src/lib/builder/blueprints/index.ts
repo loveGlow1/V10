@@ -16,6 +16,7 @@ import {
   architectureBrief,
 } from "@/lib/builder/architecture";
 import { type DesignDNA, designBrief } from "@/lib/builder/design";
+import { referenceBrief } from "@/lib/builder/reference";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
 
@@ -142,15 +143,20 @@ function projectContext(context: ProjectContext): string {
       )}". The brief above is what to build; this is what it refers back to.`,
     );
   }
-  if (context.imageCount && context.imageCount > 0) {
-    lines.push(
-      `- ${context.imageCount} image${context.imageCount === 1 ? " was" : "s were"} attached and ${
-        context.imageCount === 1 ? "is" : "are"
-      } supplied alongside this prompt. Treat ${
-        context.imageCount === 1 ? "it" : "them"
-      } as direction for the design or as content to reproduce, whichever the brief implies.`,
-    );
-  }
+  /* Nothing about the attached pictures here any more.
+   *
+   * The line that used to sit at this point said to treat them "as direction
+   * for the design or as content to reproduce, whichever the brief implies",
+   * which is one sentence about the single most specific instruction anybody
+   * ever gives a builder. What came back was the palette and none of the
+   * composition, and then five messages of "move it down, no, smaller, the top
+   * is cut off" — each of them a credit.
+   *
+   * A reference is a specification, and reading one is a list of measurable
+   * things rather than an attitude. That list is long enough to be its own
+   * section rather than a bullet in this one: see referenceBrief in
+   * src/lib/builder/reference.ts, which composeBuildPrompt places directly
+   * above the base rules. */
   if (context.attachmentText?.trim()) {
     lines.push(
       `- Text was attached to the message. Use its content rather than inventing your own where the two would cover the same ground:\n\n${context.attachmentText
@@ -272,7 +278,14 @@ ${brief.trim()}
 ${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest)}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
-
+${
+    context.imageCount && context.imageCount > 0
+      ? /* Below the brief and above the rules, which is where a specification
+           belongs: it is more specific than anything in the blueprint and less
+           specific than the sentence somebody typed. */
+        `\n${referenceBrief(context.imageCount)}\n\n────────────────────────────────────────\n`
+      : ""
+  }
 ${BAR}
 
 ${BASE}${context.treeInstructions ? `\n\n${BAR}\n\n${context.treeInstructions}` : ""}`;

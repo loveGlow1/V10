@@ -33,6 +33,8 @@
  * repaired through the edit path like anything else.
  */
 
+import { ensureFramingStyles, pictures, readFraming, writeFraming } from "@/lib/builder/framing";
+
 export type Fix = {
   /** The QA rule this pre-empts, so a report can say what stopped being wrong. */
   rule: string;
@@ -270,6 +272,63 @@ export function autofix(html: string): FixResult {
       applied.push({
         rule: "responsive/box-sizing",
         what: "made padding count inside an element's width rather than on top of it",
+        count: 1,
+      });
+    }
+  }
+
+  /* ── Framing, compiled ──────────────────────────────────────────────────
+   *
+   * The generator declares where the subject of a picture sits — `data-fit`,
+   * `data-focal`, `data-zoom` — and a browser has never heard of any of them.
+   * This turns the declaration into the CSS that acts on it, which is the same
+   * arrangement as `data-shot`: the model writes the intent, the pipeline turns
+   * it into the thing that works.
+   *
+   * It cannot make a right page different. A tag with no framing attributes is
+   * not touched at all, and a tag whose attributes already agree with its own
+   * declarations is rewritten to exactly what it already said — writeFraming is
+   * idempotent, which is what lets this run on every build and on every edit
+   * without the document drifting a character each time.
+   *
+   * Not a substitution over the whole document: each tag is replaced where it
+   * stands, because two products can legitimately carry identical markup and a
+   * global replace would frame them off the first one's attributes. */
+  {
+    let count = 0;
+    let cursor = 0;
+
+    for (const picture of pictures(out)) {
+      if (!/\bdata-(?:focal|fit|zoom)\s*=/i.test(picture.tag)) continue;
+
+      const framed = writeFraming(picture.tag, readFraming(picture.tag));
+      if (framed === picture.tag) continue;
+
+      const at = out.indexOf(picture.tag, cursor);
+      if (at === -1) continue;
+
+      out = out.slice(0, at) + framed + out.slice(at + picture.tag.length);
+      cursor = at + framed.length;
+      count += 1;
+    }
+
+    if (count > 0) {
+      applied.push({
+        rule: "composition/uncompiled-focal",
+        what: "turned the declared focal points into object-fit and object-position",
+        count,
+      });
+    }
+
+    /* And the one rule that cannot live on the tag: a picture framed closer in
+       than its box has to be clipped by its parent. Appended only when the
+       document has one. */
+    const framed = ensureFramingStyles(out);
+    if (framed !== out) {
+      out = framed;
+      applied.push({
+        rule: "composition/subject-cropped",
+        what: "clipped the frames of pictures that are zoomed in, so they cannot spill over the section below",
         count: 1,
       });
     }

@@ -120,7 +120,15 @@ PHOTOGRAPHS — do not draw them, declare them:
 - data-ratio is the crop the layout needs: 16/9, 4/3, 1/1, 4/5, 3/4.
 - data-weight is hero, feature or thumb — how much of the page's picture budget it may take. One or two heroes at most.
 - alt is real alt text describing the photograph, not the file.
-- Style every slot so it holds its shape before anything loads: give it width, aspect-ratio and object-fit: cover, and a background tone. A page whose pictures have not arrived must still be laid out correctly.
+- Style every slot so it holds its shape before anything loads: give it width, aspect-ratio and object-fit, and a background tone. A page whose pictures have not arrived must still be laid out correctly.
+
+FRAMING — where the SUBJECT sits inside the picture, which is a second decision:
+- A photograph has a thing in it, and that thing has a top and a bottom. The layout sizes the box; you decide which part of the picture the box keeps. Declare it on the slot and it is compiled into CSS after you finish: data-fit="cover" data-focal="50% 38%".
+- data-fit is \`cover\` when the frame is a different shape and the subject survives a crop, \`contain\` when all of it must be visible and the box may have space in it.
+- data-focal pins that point of the PICTURE to the same point of the BOX, exactly as object-position does — so it runs backwards from how it is spoken: a SMALLER second number shows more of the top and puts the subject LOWER in the frame.
+- Never centre it by reflex. Centre crops equally off all four sides, which suits a texture and takes the tip off a cone. The subject stays whole: if the frame's shape means it cannot be, change the frame's aspect-ratio or use contain.
+- NOTHING IMPORTANT GOES UNDER THE HEADER. Where the header is fixed or overlays the hero, the subject sits low enough that the header passes over empty picture — never a face, a product or the headline.
+- Frame again for each width: a 16/9 hero becomes 4/5 on a phone and the subject has to be re-placed inside the new shape, which is a different object-position in a media query.
 
 STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of these:
 - Charts and graphs. A chart is data, and a photograph of one is unreadable.
@@ -134,6 +142,7 @@ Never send one of these through a photo slot, and never send a photograph throug
 
 THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - Lay it out for 320px first and let it grow. It is checked at 320, 375, 480, 768, 1280 and 1440 and has to be right at all six, not merely uncut.
+- Each width is its own composition with the same intent, not the desktop one scaled down: recalculate the image scale, the focal point, the text measure, the header height, the hero height and the margins for it. A page the same height on a phone as on a laptop has been shrunk rather than laid out.
 - ZERO horizontal scrolling at any width. What causes it, every time: a fixed px width, an unmeetable min-width, \`width: 100vw\` (that includes the scrollbar — use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width. Never hide it with \`overflow-x: hidden\` — that leaves the content cut off where nobody can reach it.
 - Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type that scales, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
 - The navigation needs a layout for a narrow screen — stacked, wrapped, or behind a button opening a panel already in the markup. A horizontal nav that never becomes anything else lands on top of itself.

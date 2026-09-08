@@ -243,6 +243,46 @@ photograph as SVG, which is the defect that made pages look generated.
 `npm run check:images` exercises the whole path against a stub provider: no key,
 no network, no cost.
 
+### Where the subject sits
+
+Filling a slot with a photograph is half the job. The other half is which part
+of that photograph the box keeps — and a page that never decides gets
+`object-fit: cover; object-position: center`, which crops equally off all four
+sides. That suits a texture and takes the tip off an ice cream cone, hides a
+face behind a fixed header, and produces the single most common follow-up in
+the workspace: *move it down, no, smaller, the top is cut off*, five times, one
+credit each.
+
+So the framing is declared beside the art direction and compiled afterwards:
+
+```html
+<img data-shot="single scoop cone against a pale wall, soft daylight"
+     data-ratio="16/9" data-weight="hero"
+     data-fit="cover" data-focal="50% 38%" alt="A single scoop cone">
+```
+
+`data-ratio` is the shape of the **box**; `data-focal` is which part of the
+**picture** that box keeps. `src/lib/builder/framing.ts` turns them into
+`object-fit` and `object-position` on every build and every edit, and it is
+idempotent, so a page can go round the loop as many times as it likes without
+drifting.
+
+One thing in that file is worth reading before changing anything near it.
+`object-position` moves the picture behind a window rather than the subject in
+front of one, so it runs backwards from how people speak: **moving the subject
+down means the second number gets smaller.** It is written once, with a test on
+it, because a rule that inverts is a rule that gets written the wrong way round
+about half the time.
+
+That is also what makes "bring the cake down a bit" free. `/api/build` reads the
+request before it spends anything, and where it is unambiguously about framing —
+and where the thing being moved is a picture rather than a section somebody
+named — it applies the change arithmetically, stores the version, and charges
+nothing, because no model ran. It declines readily: a subject that names
+something on the page which is not a picture, a page with no pictures, or a
+framing that is already what was asked for all fall through to the ordinary
+model edit. `npm run check:framing` exercises every case, in both directions.
+
 ### Judging what came back
 
 ```bash
@@ -263,6 +303,23 @@ tool".
 
 Whether the copy is any good is still a judgement someone makes by looking.
 These are the rules a person stops checking after the third build.
+
+Beside it sit the QA gates in `src/lib/builder/qa`, which run on every build
+inside the save route and again — with a real browser — through `npm run qa
+path/to/page.html`. Six of the seven ask whether the page works. The seventh,
+`composition`, asks whether anybody placed it: whether a frame is throwing most
+of a photograph away, whether a fixed header is sitting on the headline, whether
+the space between two sections is a decision or a hole, whether things that were
+meant to line up are three pixels out. Every one of those passes the other six
+gates and every one of them is what somebody sees first. Its two errors —
+a subject cropped away and a header over the content — each repair to a change
+on one element, which is the point: a cropped hero has been answered by
+rebuilding the hero, by adding margin to the section, and by shortening the
+header, and none of those is what is wrong with it.
+
+A gate that could not be exercised reports `ran: false` and the run comes back
+`incomplete` rather than `passed`. There is no browser in a serverless function,
+so the pipeline never claims to have checked a layout it did not look at.
 
 ### What a build makes
 

@@ -26,10 +26,12 @@ import type { ArchitectureManifest } from "@/lib/builder/architecture";
 import type { DesignDNA } from "@/lib/builder/design";
 import type { FileTree } from "@/lib/builder/tree";
 import { type Evidence, contentGate, evidenceFrom } from "./evidence";
+import { renderedCompositionGate, staticCompositionGate } from "./composition";
 import { type Renderer, gatesFrom, measureAll } from "./render";
 import { type Repair, repairInstruction, repairsFor } from "./repair";
 import { accessibilityGate, designGate, functionalGate, staticVisualGate } from "./static";
 import {
+  GATES,
   type Gate,
   type GateResult,
   type Issue,
@@ -43,11 +45,14 @@ export * from "./types";
 export {
   VIEWPORTS,
   isPhoneViewport,
+  type Composition,
   type Measurement,
   type Renderer,
   type Viewport,
   MEASURE_SCRIPT,
+  NO_COMPOSITION,
 } from "./render";
+export { renderedCompositionGate, staticCompositionGate } from "./composition";
 export { type Evidence, contentGate, evidenceFrom, supplied } from "./evidence";
 export { autofix, describeFixes, type Fix, type FixResult } from "./autofix";
 export { type Repair, repairInstruction, repairsFor } from "./repair";
@@ -92,6 +97,7 @@ export async function runQa(input: QaInput): Promise<QaResult> {
   const gates: Record<Gate, GateResult> = {
     visual: emptyGate(false),
     responsive: emptyGate(false),
+    composition: emptyGate(false),
     functional: emptyGate(false),
     accessibility: emptyGate(false),
     design: emptyGate(false),
@@ -100,6 +106,12 @@ export async function runQa(input: QaInput): Promise<QaResult> {
 
   try {
     gates.visual = staticVisualGate(input.html);
+    /* Runs on every build, browser or not. What it can answer without one is
+       whether a framing DECISION was taken and whether it was compiled into
+       something a browser acts on; what it cannot answer — how much of the
+       picture the frame is throwing away — is merged in below where there is a
+       renderer to measure it. */
+    gates.composition = staticCompositionGate(input.html);
     gates.accessibility = accessibilityGate(input.html, input.design);
     gates.design = designGate(input.html, input.design);
     gates.functional = functionalGate(input.html, tree, input.manifest);
@@ -121,6 +133,7 @@ export async function runQa(input: QaInput): Promise<QaResult> {
       const rendered = gatesFrom(measurements);
       gates.visual = merge(gates.visual, rendered.visual);
       gates.responsive = merge(gates.responsive, rendered.responsive);
+      gates.composition = merge(gates.composition, renderedCompositionGate(measurements));
     } catch {
       /* Same: the rendered gates simply do not report. */
     }
@@ -140,7 +153,7 @@ export async function runQa(input: QaInput): Promise<QaResult> {
    * everything the static gates found; what it does not do is claim a
    * verification nobody performed. "passed" is then a word that means
    * something, which is the only reason to have it. */
-  const required: Gate[] = ["visual", "accessibility", "responsive"];
+  const required: Gate[] = ["visual", "accessibility", "responsive", "composition"];
   if (input.manifest) required.push("functional");
   if (input.design) required.push("design");
   /* Only where there was something to judge against. A run given no evidence
@@ -240,9 +253,7 @@ export function reportFailure(outcome: QaLoopOutcome): string {
   const lines: string[] = [];
 
   if (result.status === "incomplete") {
-    const skipped = (["visual", "responsive", "functional", "accessibility", "design"] as Gate[]).filter(
-      (gate) => !result[gate].ran,
-    );
+    const skipped = GATES.filter((gate) => !result[gate].ran);
     lines.push(
       `Checked what could be checked here. ${skipped.join(", ")} ${skipped.length === 1 ? "was" : "were"} not exercised, so this is not a clean pass — it is an unfinished one.`,
     );
