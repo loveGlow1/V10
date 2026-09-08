@@ -26,7 +26,7 @@ import {
   signedImageUrls,
 } from "@/lib/builder/attachments";
 import { readPage, regressions } from "@/lib/builder/brain";
-import { carryBrief, conversational, countWords, priorTurns } from "@/lib/builder/brief";
+import { carryBrief, conversational, countWords, isContinuation, priorTurns } from "@/lib/builder/brief";
 import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
@@ -45,8 +45,23 @@ import { decompose, describeDecomposition } from "@/lib/context/decompose";
 import { describeExpansion, expandContext } from "@/lib/context/expand";
 import { describePlan } from "@/lib/context/fit";
 import { fitEdit } from "@/lib/context/requests";
+import {
+  advance,
+  currentStage,
+  describeProgress,
+  isFinished,
+  pathForStage,
+  planFrom,
+  stageInstruction,
+  stagePlanBrief,
+} from "@/lib/context/stages";
 import { describeState, readCache, writeCache } from "@/lib/context/state";
-import { readContext, readProjectIndex, saveContext } from "@/lib/context/store";
+import {
+  readContext,
+  readProjectIndex,
+  recordCheckpoint,
+  saveContext,
+} from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
@@ -553,6 +568,49 @@ async function handle(
     (architectureRow?.manifest as ArchitectureManifest | undefined) ?? null;
   const knownDesign = systemByName(architectureRow?.design_system);
 
+  /* What is already known about this project — its state, its version, the
+     cached blocks, and the build plan when it is being made in stages.
+     
+     Read once, here, and used by every branch below: the edit path reads the
+     cached architecture block out of it and the build path reads the plan.
+     Beside the architecture row because they answer the same question in two
+     halves, and one read is one round trip. */
+  const projectContextRow = service ? await readContext(service, project.id) : null;
+
+  /* The plan this project is being built against, when there is one that has
+     not finished. */
+  const activePlan =
+    projectContextRow?.state.plan && !isFinished(projectContextRow.state.plan)
+      ? projectContextRow.state.plan
+      : null;
+
+  /* ── "continue", against a plan ──────────────────────────────────────────
+   *
+   * A continuation normally means "the last thing I described, again" — see
+   * carryBrief. On a project midway through a staged build it means something
+   * more specific: the next stage.
+   *
+   * Which PATH that takes matters more than it looks. The first stage has
+   * nothing to extend, so it is a build. Every stage after it is an addition to
+   * a project that already exists — and a build would replace that project,
+   * because a generation returns a whole document and the save route stores
+   * what comes back. So stages after the first are EDITS: the edit path sends
+   * the current page, patches it by search and replace, refuses rather than
+   * guessing, and costs a fraction of a build. Routing them as builds would
+   * mean stage three deleting stages one and two, which is the exact failure
+   * the plan exists to avoid.
+   *
+   * Decided here rather than after classification, for two reasons: the
+   * classifier reads the word "continue" and has no idea a plan exists, and the
+   * model routing below sizes the work from the instruction — a stage is a
+   * paragraph, not a word, and it belongs on the model that can hold it. */
+  const stageAsk = activePlan && isContinuation(prompt) ? currentStage(activePlan) : null;
+
+  /* What the model is actually asked for on a staged turn: the stage, what
+     already exists, and the brief it is all part of. The person's own message
+     stays "continue" everywhere it is stored, shown or priced. */
+  const stageRequest = activePlan && stageAsk ? stageInstruction(activePlan, stageAsk) : null;
+
   /* The same page with its photographs lifted out, which is the only version a
      model can be shown.
    *
@@ -581,7 +639,7 @@ async function handle(
    *
      With no page there is nothing to edit and nothing to ask about, so the
      value is unused; EDIT_MODEL is the harmless default. */
-  const editModel = leanHtml ? editModelFor(prompt, leanHtml) : EDIT_MODEL;
+  const editModel = leanHtml ? editModelFor(stageRequest ?? prompt, leanHtml) : EDIT_MODEL;
 
   steps.mark(
     "page",
@@ -802,8 +860,27 @@ async function handle(
   });
 
   /* Nothing to edit, revert or answer about. Whatever it looked like, the only
-     thing that can happen is a first build. */
-  const intent: Intent = currentHtml ? decision.intent : "new_project";
+     thing that can happen is a first build.
+   *
+     A stage settles it outright: with a project to add to it is an edit, and
+     without one it is the first build of the plan. Nothing the classifier
+     thinks about the word "continue" can be better informed than a plan that
+     says which stage comes next. */
+  const intent: Intent = stageAsk
+    ? pathForStage(Boolean(currentHtml)) === "edit"
+      ? "edit"
+      : "new_project"
+    : currentHtml
+      ? decision.intent
+      : "new_project";
+
+  if (stageAsk && activePlan) {
+    steps.mark(
+      "stage",
+      `Stage ${stageAsk.order} of ${activePlan.steps.length}: ${stageAsk.title}`,
+      stageAsk.outcome,
+    );
+  }
 
   /* How the reading was reached, not just what it was. "heuristic" means the
      free pass settled it and no model was called at all, which is worth being
@@ -1184,7 +1261,7 @@ async function handle(
      * being sent. Empty on a single-page project, which has one file and
      * nothing to retrieve, and empty on any project built before the index
      * existed: the edit then behaves exactly as it did. */
-    const stored = await readContext(service, project.id);
+    const stored = projectContextRow ?? { version: 1, state: {}, cache: {} };
     const cachedState = readCache(stored.cache, "architecture", stored.state, stored.version);
     const projectBlock = cachedState ?? describeState(stored.state);
 
@@ -1198,9 +1275,15 @@ async function handle(
       });
     }
 
+    /* The stage's instruction where there is one, the person's message where
+       there is not. Everything downstream of this — the fit, the plan, the
+       patch — reads this rather than `prompt`, and everything that is stored,
+       shown or priced still reads `prompt`. */
+    const asked = stageRequest ?? prompt;
+
     const indexed = await readProjectIndex(service, project.id);
     const expansion =
-      indexed.length > 0 ? expandContext(indexed, prompt, RETRIEVAL_TOKENS) : null;
+      indexed.length > 0 ? expandContext(indexed, asked, RETRIEVAL_TOKENS) : null;
     const retrievedBlock = expansion ? describeExpansion(expansion) : "";
 
     /* Whether this edit fits, measured rather than guessed — and made to fit
@@ -1223,7 +1306,7 @@ async function handle(
        a change to a specific document, and a model shown a summarised page
        rewrites it from memory. See src/lib/context/requests.ts. */
     const fitted = fitEdit({
-      prompt,
+      prompt: asked,
       pageHtml: leanHtml ?? currentHtml,
       modelId: editModel,
       images: files.blocks.filter((block) => block.type === "image").length,
@@ -1255,8 +1338,8 @@ async function handle(
          is shown, so the person is told what will happen rather than what did
          not — see src/lib/context/decompose.ts. */
       const split = decompose({
-        brief: prompt,
-        requirements: extractRequirements(prompt),
+        brief: asked,
+        requirements: extractRequirements(asked),
         manifest: knownArchitecture,
         force: true,
       });
@@ -1511,7 +1594,46 @@ async function handle(
       .filter(Boolean)
       .join(" ");
 
-    const storedEdit = await deliver(said, { key: "edit" });
+    /* ── A stage of a plan landing ────────────────────────────────────────
+     *
+     * The stage was built as an edit, so this is where it finishes — the save
+     * route never sees it. Advancing here rather than there is the same rule
+     * either way: the place that knows a stage is DONE is the place the done
+     * work arrives at.
+     *
+     * advance() is idempotent on the stage number, so a retried request cannot
+     * skip a stage nobody built. */
+    let stageProgress: string | null = null;
+
+    if (activePlan && stageAsk) {
+      const advanced = advance(activePlan, stageAsk.order);
+      const withPlan = { ...stored.state, plan: advanced };
+
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        state: withPlan,
+        cache: stored.cache,
+      });
+
+      await recordCheckpoint(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        label: `Stage ${stageAsk.order} of ${activePlan.steps.length}: ${stageAsk.title}`,
+        state: withPlan,
+      });
+
+      stageProgress = describeProgress(advanced);
+    }
+
+    /* The plan's progress rides on the reply rather than arriving as a second
+       message: two messages for one action is how a thread becomes a log. */
+    const storedEdit = await deliver(
+      [said, stageProgress].filter(Boolean).join("\n\n"),
+      { key: "edit" },
+    );
 
     /* Charged, not attempted. The edit is already in the page — refusing the
        charge now would not take it back, it would only leave the work unpaid
@@ -1699,7 +1821,18 @@ async function handle(
      So a message that only asks for the last thing again carries the last thing
      with it. A message that describes something is passed through exactly as
      typed, which is every other message. See builder/brief.ts. */
-  const brief = carryBrief(prompt, history);
+  let brief = carryBrief(prompt, history);
+
+  /* A build that is resuming a plan builds the stage rather than the message.
+   *
+   * Only ever the FIRST stage in practice: a project with something in it takes
+   * the edit path (see stageAsk, where that is decided), so a stage reaching a
+   * build means there is nothing yet to add to. The brief is the stage's
+   * instruction either way, which is what makes the two paths produce the same
+   * work from the same plan. */
+  if (stageRequest) {
+    brief = { text: stageRequest, carried: activePlan?.brief ?? null };
+  }
 
   if (brief.carried) {
     steps.mark(
@@ -2074,6 +2207,50 @@ async function handle(
     const imageUrls = await signedImageUrls(intake.reference);
     const attachedText = await attachmentText(attachments);
 
+    /* ── Whether this is one build or the first of several ────────────────
+     *
+     * A brief that names a database, accounts, a checkout, payments, an admin
+     * and analytics is not one page and not one generation: it is six pieces of
+     * work with an order to them, and asking for all of it in a single call
+     * produces the average of six things rather than any of them. decompose.ts
+     * decides the stages; stages.ts runs them.
+     *
+     * Made once per project. A plan already in flight is resumed rather than
+     * re-planned — a plan that changed shape between stage two and stage three
+     * is a plan nobody agreed to — and a project small enough to build in one
+     * pass never gets one at all, which is nearly every project.
+     *
+     * The plan reaches the model as part of the prompt: which stage this is,
+     * what is already built and must not be rebuilt, and what comes later and
+     * must not be built early. See stagePlanBrief. */
+    let plannedStages = activePlan;
+
+    if (!plannedStages && service) {
+      const split = decompose({
+        brief: brief.text,
+        requirements: extractRequirements(brief.text),
+        manifest: architecture.manifest,
+      });
+
+      if (split.needed && split.steps.length > 1) {
+        plannedStages = planFrom(split.steps, brief.text);
+
+        await saveContext(service, {
+          projectId: project.id,
+          userId: user.id,
+          version: projectContextRow?.version ?? 1,
+          state: { ...(projectContextRow?.state ?? {}), plan: plannedStages },
+          cache: projectContextRow?.cache ?? {},
+        });
+
+        steps.mark(
+          "stage",
+          `Building this in ${split.steps.length} stages`,
+          `starting with ${split.steps[0].title.toLowerCase()} — ${split.why}`,
+        );
+      }
+    }
+
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
@@ -2099,6 +2276,9 @@ async function handle(
         needs.stack === "nextjs"
           ? treeBrief(kind.kind, architecture.manifest, dataModel, design.dna)
           : undefined,
+      /* Which stage of the plan this build is, when there is a plan. Empty
+         string when there is not, which is the same as absent. */
+      stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
     });
 
     const request = generationRequest(

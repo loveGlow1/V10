@@ -39,6 +39,7 @@ writeFileSync(
       join(process.cwd(), "src/lib/context/decompose.ts"),
       join(process.cwd(), "src/lib/context/state.ts"),
       join(process.cwd(), "src/lib/context/tool-output.ts"),
+      join(process.cwd(), "src/lib/context/stages.ts"),
     ],
   }),
 );
@@ -85,6 +86,7 @@ try {
   const decompose = await import(join(out, "lib/context/decompose.js"));
   const state = await import(join(out, "lib/context/state.js"));
   const tools = await import(join(out, "lib/context/tool-output.js"));
+  const stages = await import(join(out, "lib/context/stages.js"));
 
   /* ── Every model this app can call knows how much it can hold ───────────
    *
@@ -518,6 +520,105 @@ export async function pay() { await supabase.from("orders").insert({}); }`,
   );
 
   has(state.describeState(v1).includes("ecommerce"), "the state reads as a block for a prompt");
+
+  /* ── Stages: a plan that survives between builds ────────────────────────
+   *
+   * The sequence is state, not control flow: each stage is an ordinary build,
+   * and what makes it a stage is what the plan says about it. Everything here
+   * is about the two ways that goes wrong — a stage rebuilding what an earlier
+   * one made, and a plan advancing past a stage nobody built. */
+  const staged = stages.planFrom(big.steps, "Build a shop with accounts, checkout and payments");
+  is(staged.current, 1, "a new plan starts at its first stage");
+  is(staged.completed.length, 0, "with nothing completed");
+  has(!stages.isFinished(staged), "and is not finished");
+
+  const afterOne = stages.advance(staged, 1);
+  is(afterOne.current, 2, "a landed stage moves the plan on");
+  is(afterOne.completed.length, 1, "and records what landed");
+
+  const afterOneAgain = stages.advance(afterOne, 1);
+  is(afterOneAgain.current, 2, "the same stage landing twice does not skip one");
+  is(afterOneAgain.completed.length, 1, "and is not counted twice");
+
+  const instruction = stages.stageInstruction(afterOne, stages.currentStage(afterOne));
+  has(
+    instruction.includes("already has"),
+    "the next stage is told what already exists",
+    "a stage that does not know what came before rebuilds it",
+  );
+  has(instruction.includes("add only this stage"), "and told to add only its own part");
+  has(instruction.includes("Build a shop"), "and carries the original brief for context");
+
+  const promptBlock = stages.stagePlanBrief(afterOne);
+  has(promptBlock.includes("STAGE 2 OF"), "the prompt says which stage this is");
+  is(
+    (promptBlock.match(/THIS STAGE/g) ?? []).length,
+    1,
+    "exactly one stage is marked as this one",
+  );
+  has(promptBlock.includes("ALREADY BUILT"), "the finished stages are marked as finished");
+  has(promptBlock.includes("a later stage"), "and the later ones as later");
+
+  let finished = staged;
+  for (const step of big.steps) finished = stages.advance(finished, step.order);
+  has(stages.isFinished(finished), "a plan whose stages have all landed is finished");
+  has(
+    stages.currentStage(finished) === null || finished.completed.length === big.steps.length,
+    "and has nothing left to build",
+  );
+  has(
+    stages.describeProgress(finished).includes("last stage"),
+    "which is what it says when the last one lands",
+  );
+  has(
+    stages.describeProgress(afterOne).includes("continue"),
+    "and mid-plan it says how to carry on",
+  );
+
+  /* Two of the steps are the app's own work — deciding the architecture and
+     checking what came back — and a plan that asked somebody to say "continue"
+     (and pay) for those would be charging for work that already happened. */
+  has(
+    big.steps.some((step) => step.performedBy === "system"),
+    "a plan names the parts the system does itself",
+  );
+  const runnable = stages.planFrom(big.steps, "a shop");
+  has(
+    runnable.steps.every((step) => step.performedBy === "build"),
+    "and a runnable plan contains only the stages a generation performs",
+  );
+  has(
+    runnable.steps.length === big.steps.filter((step) => step.performedBy === "build").length,
+    "with none of the others lost",
+  );
+  has(
+    runnable.steps.map((step) => step.order).join(",") ===
+      runnable.steps.map((_, index) => index + 1).join(","),
+    "renumbered 1..N so a stage number means what it says",
+  );
+  has(
+    runnable.steps[0].title !== "Architecture",
+    "the first stage is something a model actually builds",
+    "asking a generation to \"build the architecture\" produces a document about architecture",
+  );
+
+  /* The rule that keeps staging safe. Getting this backwards means stage three
+     returning a document with only stage three in it, and the two before it
+     deleted — which is why it is a named function and not a ternary in a
+     route. */
+  is(stages.pathForStage(false), "build", "the first stage, with nothing to add to, is a build");
+  is(stages.pathForStage(true), "edit", "and every stage after it is an edit against what exists");
+
+  /* A one-stage plan is not a plan: a project small enough to build in one
+     pass must never be told it is being built in stages. */
+  const single = stages.planFrom(
+    onePager.steps.filter((step) => step.performedBy === "build").slice(0, 1),
+    "a one page site",
+  );
+  has(
+    stages.stagePlanBrief(single).includes("STAGE 1 OF 1"),
+    "a single-stage plan still reads correctly",
+  );
 
   if (failed) {
     console.log(`\n${failed} check${failed === 1 ? "" : "s"} failed.`);

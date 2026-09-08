@@ -19,6 +19,12 @@ import { storeTree } from "@/lib/builder/store-tree";
 import { extractRequirements } from "@/lib/context/compress";
 import { absorbToolResult } from "@/lib/context/tool-output";
 import { indexPage, indexTree } from "@/lib/context/project-index";
+import {
+  advance,
+  currentStage,
+  describeProgress,
+  isFinished,
+} from "@/lib/context/stages";
 import { checkpointLabel, nextVersion, type ContextState } from "@/lib/context/state";
 import {
   readContext,
@@ -729,6 +735,25 @@ export async function POST(request: Request) {
     });
 
     const before = await readContext(supabase, project.id);
+
+    /* ── A stage of a plan landing ────────────────────────────────────────
+     *
+     * When this project is being built in stages, this build was one of them.
+     * Marking it here rather than in the route that started it is the whole
+     * reason the sequence survives anything: a build takes minutes and lands
+     * through a webhook, so the only place that knows a stage FINISHED is the
+     * place the finished project arrives.
+     *
+     * advance() is idempotent on the stage number, because this route can run
+     * twice for one build — a retried request, a replayed callback — and a plan
+     * that advanced twice would skip a stage nobody built. */
+    const landedStage = before.state.plan && !isFinished(before.state.plan)
+      ? currentStage(before.state.plan)
+      : null;
+    const plan = before.state.plan && landedStage
+      ? advance(before.state.plan, landedStage.order)
+      : before.state.plan;
+
     const state: ContextState = {
       kind: summaryArchitecture.type,
       manifest: summaryArchitecture as unknown as Record<string, boolean>,
@@ -737,6 +762,7 @@ export async function POST(request: Request) {
       routes: entries.filter((entry) => entry.kind === "route").map((entry) => entry.name),
       decisions: before.state.decisions,
       summary: before.state.summary,
+      plan,
     };
 
     const version = nextVersion(before.state, state, before.version);
@@ -757,9 +783,28 @@ export async function POST(request: Request) {
       projectId: project.id,
       userId: claim.userId,
       version,
-      label: checkpointLabel(state, "built"),
+      /* Named for the stage when there was one. "Checkout implemented" is a
+         point to continue from; "project built" said five times is not. */
+      label: landedStage
+        ? `Stage ${landedStage.order} of ${plan?.steps.length ?? 0}: ${landedStage.title}`
+        : checkpointLabel(state, "built"),
       state,
     });
+
+    /* And what happens next, said in the thread rather than left for somebody
+       to work out. One message per stage, keyed on the stage so a retried save
+       cannot say it twice. */
+    if (plan && landedStage) {
+      await recordMessage(supabase, {
+        projectId: project.id,
+        userId: claim.userId,
+        role: "system",
+        body: describeProgress(plan),
+        tone: "normal",
+        kind: "chat",
+        dedupeKey: `stage:${project.id}:${landedStage.order}`,
+      });
+    }
 
     if (brief) {
       await syncRequirements(supabase, {
