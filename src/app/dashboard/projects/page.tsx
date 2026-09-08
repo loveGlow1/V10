@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Pin, Search } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, ExternalLink, Pin, Search } from "lucide-react";
 
 import PageThumbnail from "../components/PageThumbnail";
 import ProjectLifecycleMenu from "../components/ProjectLifecycleMenu";
@@ -22,6 +22,8 @@ import {
   type ProjectFilter,
   type ProjectListItem,
 } from "@/lib/projects/queries";
+import { isPublishedProject } from "@/lib/project-status";
+import { publishedLabel, publishedShortLabel, publishedUrl } from "@/lib/publish/naming";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 /* Everything, with the filters the dashboard's three rows do not need.
@@ -39,6 +41,11 @@ import { safeHttpUrl } from "@/lib/safe-url";
 
 const FILTERS: { id: ProjectFilter; label: string }[] = [
   { id: "active", label: "Active" },
+  /* Live sits between Active and Archived rather than at the end: it is the
+     one people arrive at this page looking for by name, from Published Apps in
+     the sidebar, and a tab you have to read past three others to find is a tab
+     that gets missed. */
+  { id: "published", label: "Live" },
   { id: "archived", label: "Archived" },
   { id: "all", label: "All" },
 ];
@@ -52,6 +59,11 @@ const UNDO_MS = 10_000;
 
 const EMPTY: Record<ProjectFilter, string> = {
   active: "No active projects.",
+  /* Says what to do rather than what is absent. Somebody who followed
+     "Published Apps" here and found nothing has a question — how do I publish
+     one — and an empty state that only reports the emptiness leaves them with
+     it. */
+  published: "Nothing published yet. Open a project and press Publish to put it online.",
   archived: "Nothing archived.",
   all: "No projects yet.",
 };
@@ -72,7 +84,24 @@ function ProjectsScreen() {
   const router = useRouter();
   const { projects, rename: renameInList } = useProjects();
 
-  const [filter, setFilter] = useState<ProjectFilter>("active");
+  /* Which view this page opened on, from the address.
+   *
+   * So "Published Apps" in the sidebar can be a link to a page rather than a
+   * button that opens a page and then reaches into it. It also makes the view
+   * shareable and survivable: a reload, a back button and a pasted link all
+   * land where they were.
+   *
+   * Read once as the initial state rather than watched. The tab strip below
+   * sets the filter directly, and a param that kept overriding it would fight
+   * every press. */
+  const params = useSearchParams();
+  const requested = params.get("filter");
+  const initial: ProjectFilter =
+    requested === "published" || requested === "archived" || requested === "all"
+      ? requested
+      : "active";
+
+  const [filter, setFilter] = useState<ProjectFilter>(initial);
   const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<ProjectListItem[] | null>(null);
@@ -235,39 +264,88 @@ function ProjectsScreen() {
           rows.map((row) => {
             const project = byId.get(row.id);
             const archived = isArchived(row);
+            /* The same test the dashboard and the workspace use, so a row
+               cannot read as live in one place and not in another. `slug` is
+               separate from it because the badge states a fact and the link
+               needs an address: a published row missing its slug should still
+               say it is live rather than quietly look unpublished. */
+            const live = isPublishedProject(row);
+            const address = live ? row.slug : null;
 
             return (
               <div
                 key={row.id}
-                className="flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03]"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03] sm:gap-4"
               >
                 <button
                   /* The open is recorded by the workspace on arrival, not
                      here — see Workspace.tsx. */
                   onClick={() => router.push(`/dashboard/project/${row.id}?view=preview`)}
-                  className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left sm:gap-4"
                 >
                   <PageThumbnail
                     projectId={row.id}
                     hasPage={Boolean(safeHttpUrl(project?.preview_url ?? null))}
                     name={row.name}
                     stamp={project?.last_build_at ?? null}
+                    /* Smaller than the dashboard's tile below 640px, because
+                       this row carries a control the dashboard's does not and
+                       the 24px comes off the name and the address otherwise.
+                       Same aspect, so the crop is the same page. */
+                    className="h-[54px] w-[86px] rounded-lg sm:h-[70px] sm:w-[110px]"
                   />
                   <span className="min-w-0">
                     <span className="flex items-center gap-2">
                       {row.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted" />}
                       <span className="truncate text-[15px] text-ink">{row.name}</span>
+                      {live && (
+                        <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                          Live
+                        </span>
+                      )}
                       {archived && (
                         <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[11px] font-medium text-muted">
                           Archived
                         </span>
                       )}
                     </span>
+                    {/* Where it went, on the rows that went somewhere.
+                        Somebody who came here from Published Apps is looking
+                        for the address, and "opened 3 days ago" is not it. The
+                        rest of the list keeps the timestamp. */}
                     <span className="mt-1 block truncate text-[13px] text-muted">
-                      {openedAgo(row.last_opened_at)}
+                      {address ? (
+                        <>
+                          {/* The path alone on a phone. The host is the same on
+                              every row, so at this width it is what survives
+                              the truncation while the slug — the only half that
+                              says which site this is — gets cut. */}
+                          <span className="sm:hidden">{publishedShortLabel(address)}</span>
+                          <span className="hidden sm:inline">{publishedLabel(address)}</span>
+                        </>
+                      ) : (
+                        openedAgo(row.last_opened_at)
+                      )}
                     </span>
                   </span>
                 </button>
+
+                {/* A sibling of the row button rather than inside it: an
+                    anchor nested in a button is invalid, and the two go to
+                    different places — the row opens the workspace, this opens
+                    the site itself. 36px square, so it is reachable with a
+                    thumb. */}
+                {address && (
+                  <a
+                    href={publishedUrl(address)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${row.name}, ${publishedLabel(address)}`}
+                    className="flex h-9 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink sm:w-9"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
 
                 <ProjectLifecycleMenu
                   project={{ id: row.id, name: row.name, pinned: row.pinned, archived }}

@@ -66,7 +66,7 @@ const rewrite = (dir) => {
 };
 rewrite(out);
 
-const { addressFor, isApex, normaliseDomain, previewUrl, publishedLabel, publishedUrl, recordName, RESERVED_APP_ROUTES, slugAttempt, slugFrom, slugIsUsable } =
+const { addressFor, isApex, normaliseDomain, previewUrl, publishedLabel, publishedShortLabel, publishedUrl, recordName, RESERVED_APP_ROUTES, slugAttempt, slugFrom, slugIsUsable } =
   await import(join(out, "lib/publish/naming.js"));
 const { isAppPath, routeFor } = await import(join(out, "lib/publish/routing.js"));
 
@@ -216,6 +216,16 @@ for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuris
 has(publishedUrl("shop") === "https://www.quickstark.tech/shop", "a published project is served from a path", publishedUrl("shop"));
 has(!publishedUrl("shop").includes("shop.quickstark"), "and never from a subdomain", publishedUrl("shop"));
 has(publishedLabel("shop") === "www.quickstark.tech/shop", "the label drops the scheme", publishedLabel("shop"));
+
+/* The short label is what a phone-width row shows. It has to keep the half
+   that identifies the site, because dropping the wrong half is the failure it
+   exists to prevent: every row reading "www.quickstark.tec…". */
+has(publishedShortLabel("shop") === "/shop", "the short label keeps the slug and drops the host", publishedShortLabel("shop"));
+has(
+  publishedShortLabel("peckham-sourdough").length < publishedLabel("peckham-sourdough").length,
+  "and is shorter than the full one, which is the only reason it exists",
+  publishedShortLabel("peckham-sourdough"),
+);
 
 /* ── The preview address ──────────────────────────────────────────────────
  *

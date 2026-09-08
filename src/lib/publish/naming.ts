@@ -165,6 +165,26 @@ export function publishedLabel(slug: string): string {
   return publishedUrl(slug).replace(/^https?:\/\//, "");
 }
 
+/* The same address with the half every project shares taken off, for a row
+ * narrow enough that the whole thing does not fit.
+ *
+ * "www.quickstark.tech/peckham-sourdough" is thirty-seven characters and the
+ * first twenty are identical on every project a person owns. In a 130px column
+ * that is exactly backwards: the shared half is what survives the truncation
+ * and the only half that identifies the site is what gets cut, so the row ends
+ * up reading "www.quickstark.tec…" on every line. This drops the shared half
+ * instead and keeps the part that differs.
+ *
+ * Derived from the address rather than written out, so this cannot describe a
+ * shape publishedUrl no longer produces. */
+export function publishedShortLabel(slug: string): string {
+  const label = publishedLabel(slug);
+  const slash = label.indexOf("/");
+  /* An address with no path — a subdomain, were this ever to move to them —
+     has no shared half to drop and is already as short as it gets. */
+  return slash === -1 ? label : label.slice(slash);
+}
+
 /* Where a project is worked on. Owner-only, and never public.
  *
  * Two shapes, and the first is what a project gets as soon as it has a name:
