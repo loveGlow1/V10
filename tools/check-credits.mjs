@@ -148,6 +148,59 @@ try {
     "a refilling free plan is a free product with a rate limit",
   );
 
+  /* ── And nobody arrives with more than the welcome ────────────────────────
+   *
+   * The grant is a number somebody may want to move; the ceiling is the rule
+   * that move has to obey, and a ceiling nothing checks is a comment. Every
+   * first-timer gets SIGNUP_CREDITS and no first-timer gets more than
+   * MAX_SIGNUP_CREDITS — in the app, in the database, and in the copy the plan
+   * card prints, which reads the same constant. */
+  has(
+    credits.SIGNUP_CREDITS <= credits.MAX_SIGNUP_CREDITS,
+    `a new account is granted ${credits.SIGNUP_CREDITS}, at most ${credits.MAX_SIGNUP_CREDITS}`,
+    `the signup grant is ${credits.SIGNUP_CREDITS} against a ceiling of ${credits.MAX_SIGNUP_CREDITS} — first-timers are being credited above the limit`,
+  );
+
+  /* The copy that actually runs at signup lives in Postgres, not here, and the
+     two have only ever been held together by a comment asking somebody to
+     remember. A new account credited 4 by the database while every screen
+     promises 5 is a support ticket nothing in the build would have caught. */
+  const schema = readFileSync(join(process.cwd(), "supabase/schema.sql"), "utf8");
+  const sqlConstant = (name) => {
+    const body = new RegExp(
+      `create or replace function public\\.${name}\\(\\)[\\s\\S]*?as \\$\\$([\\s\\S]*?)\\$\\$;`,
+    ).exec(schema);
+    if (!body) return null;
+    const number = /-?\d+(?:\.\d+)?/.exec(body[1]);
+    return number ? Number(number[0]) : null;
+  };
+
+  is(sqlConstant("signup_bonus_credits"), credits.SIGNUP_CREDITS, "the database grants what SIGNUP_CREDITS says");
+  is(
+    sqlConstant("max_signup_bonus_credits"),
+    credits.MAX_SIGNUP_CREDITS,
+    "and caps it where MAX_SIGNUP_CREDITS says",
+  );
+
+  /* The clamp itself, not just the numbers: handle_new_user is the statement
+     that moves credit into a brand-new account, and it has to hold the ceiling
+     whatever the grant function is later edited to say. */
+  const signupTrigger = /create or replace function public\.handle_new_user\(\)[\s\S]*?\$\$;/.exec(schema);
+  has(
+    signupTrigger !== null && signupTrigger[0].includes("max_signup_bonus_credits()"),
+    "the signup trigger clamps the welcome to the ceiling on its way into the balance",
+    "handle_new_user() writes the grant function's answer straight into the balance, so raising that function alone credits a first-timer above the limit",
+  );
+
+  /* A build on the default model has to stay out of reach on the welcome
+     alone. That is what makes the free tier a look at the workspace rather
+     than a free build, and it is the reason the grant is small. */
+  has(
+    credits.SIGNUP_CREDITS < credits.CREDIT_ACTIONS.generate.max,
+    `the welcome (${credits.SIGNUP_CREDITS}) does not open a full build on the default model (${credits.CREDIT_ACTIONS.generate.max})`,
+    "a new account can start a full build for free, which is a free product rather than a free tier",
+  );
+
   // ── Redeploying stays nominal next to going live ────────────────────────
   has(
     credits.REDEPLOY_COST < credits.PUBLISH_COST,
