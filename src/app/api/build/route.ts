@@ -40,8 +40,13 @@ import {
   type OnProgress,
 } from "@/lib/builder/edit";
 import { estimateTokens } from "@/lib/context/budget";
+import { extractRequirements } from "@/lib/context/compress";
+import { decompose, describeDecomposition } from "@/lib/context/decompose";
+import { describeExpansion, expandContext } from "@/lib/context/expand";
 import { describePlan } from "@/lib/context/fit";
 import { fitEdit } from "@/lib/context/requests";
+import { describeState, readCache, writeCache } from "@/lib/context/state";
+import { readContext, readProjectIndex, saveContext } from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
@@ -230,6 +235,20 @@ const INTENT_WORDS: Record<string, string> = {
  * for a caller that cannot be asked — an API integration, a scheduled build —
  * and the wrong one for a person sitting in front of the builder. */
 const ASK_WHEN_UNSURE = true;
+
+/* What retrieval may spend on an edit.
+ *
+ * Four thousand tokens is a handful of small files or a dozen one-line
+ * summaries — enough for the dependency chain behind one component, and nowhere
+ * near enough to turn "retrieve what this reaches" into "send the project".
+ * The point of a retrieval budget is that it is much smaller than the window;
+ * a generous one is just a slower way of sending everything. */
+const RETRIEVAL_TOKENS = 4_000;
+
+/* What this app's edit system prompt costs, measured once here rather than
+   guessed inside the fit. See fitEdit, which uses the same figure when a caller
+   cannot supply one. */
+const EDIT_SYSTEM_TOKENS = 4_000;
 
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
@@ -1146,6 +1165,44 @@ async function handle(
       );
     }
 
+    /* ── What else this change reaches ──────────────────────────────────
+     *
+     * Two blocks, both cheap, both assembled before the fit so their cost is
+     * budgeted rather than added afterwards.
+     *
+     * The first is what the project IS — kind, layers, design system, routes,
+     * and the decisions already taken. Read from the cache when the project has
+     * not structurally changed since it was written, which is nearly always:
+     * the same bytes on every message is what makes a provider-side prompt
+     * cache hit rather than miss, and rebuilding it each time was spending
+     * tokens to produce an identical paragraph.
+     *
+     * The second is retrieval. Given the index the build wrote, this finds the
+     * files the request names and then follows their imports — retrieve,
+     * discover a dependency, retrieve again — bounded by a budget, so a change
+     * to a checkout button learns about the payment client without the project
+     * being sent. Empty on a single-page project, which has one file and
+     * nothing to retrieve, and empty on any project built before the index
+     * existed: the edit then behaves exactly as it did. */
+    const stored = await readContext(service, project.id);
+    const cachedState = readCache(stored.cache, "architecture", stored.state, stored.version);
+    const projectBlock = cachedState ?? describeState(stored.state);
+
+    if (!cachedState && projectBlock) {
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        state: stored.state,
+        cache: writeCache(stored.cache, "architecture", projectBlock, stored.state, stored.version),
+      });
+    }
+
+    const indexed = await readProjectIndex(service, project.id);
+    const expansion =
+      indexed.length > 0 ? expandContext(indexed, prompt, RETRIEVAL_TOKENS) : null;
+    const retrievedBlock = expansion ? describeExpansion(expansion) : "";
+
     /* Whether this edit fits, measured rather than guessed — and made to fit
        where it can be.
      *
@@ -1174,6 +1231,12 @@ async function handle(
         (total, turn) => total + estimateTokens(String(turn.content)),
         0,
       ),
+      /* The retrieved context is part of the system half of this call, so it is
+         declared here rather than discovered afterwards. Adding text to a
+         prompt AFTER measuring whether the prompt fits is how a budget becomes
+         decoration. */
+      systemTokens:
+        EDIT_SYSTEM_TOKENS + estimateTokens(projectBlock) + estimateTokens(retrievedBlock),
     });
 
     /* Written on every edit, not only on the ones that were tight: a call that
@@ -1188,9 +1251,23 @@ async function handle(
        Said as what to do about it, and about the PAGE rather than about what
        they wrote — the length of their message is not the problem here. */
     if (fitted.mustDecompose) {
-      const said =
-        `This page has grown past what I can read and rewrite in one go, so I've not changed anything. ` +
-        `Ask for one section at a time — name the section in the words that appear on it — and each change will land.`;
+      /* Not a refusal with a limit in it. The work is split here and the split
+         is shown, so the person is told what will happen rather than what did
+         not — see src/lib/context/decompose.ts. */
+      const split = decompose({
+        brief: prompt,
+        requirements: extractRequirements(prompt),
+        manifest: knownArchitecture,
+        force: true,
+      });
+
+      const said = [
+        `This page has grown past what I can read and rewrite in one go, so I've not changed anything.`,
+        describeDecomposition(split),
+        `Ask for one of those at a time — name the section in the words that appear on it — and each change will land.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       const stored = await deliver(said, { tone: "error", key: "edit-page-too-large" });
       return NextResponse.json(
         { error: said, intent: "edit", code: "edit_page_too_large", stored },
@@ -1235,8 +1312,18 @@ async function handle(
         narrate("edit", "Making the change"),
         /* What already exists, what this reaches, and what it must leave
            alone. Empty when nothing was ever recorded about the project, and
-           the edit is then exactly what it was before. */
-        editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+           the edit is then exactly what it was before.
+         *
+           The project's own state and whatever retrieval found are appended to
+           it: same channel, same budget, and both were counted in the fit
+           above. */
+        [
+          editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          projectBlock,
+          retrievedBlock,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       );
 
       /* The photographs that were lifted out so the page could be read, put

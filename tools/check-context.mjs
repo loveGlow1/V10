@@ -34,6 +34,11 @@ writeFileSync(
       join(process.cwd(), "src/lib/context/compress.ts"),
       join(process.cwd(), "src/lib/context/fit.ts"),
       join(process.cwd(), "src/lib/context/requests.ts"),
+      join(process.cwd(), "src/lib/context/project-index.ts"),
+      join(process.cwd(), "src/lib/context/expand.ts"),
+      join(process.cwd(), "src/lib/context/decompose.ts"),
+      join(process.cwd(), "src/lib/context/state.ts"),
+      join(process.cwd(), "src/lib/context/tool-output.ts"),
     ],
   }),
 );
@@ -75,6 +80,11 @@ try {
   const compress = await import(join(out, "lib/context/compress.js"));
   const fit = await import(join(out, "lib/context/fit.js"));
   const requests = await import(join(out, "lib/context/requests.js"));
+  const index = await import(join(out, "lib/context/project-index.js"));
+  const expand = await import(join(out, "lib/context/expand.js"));
+  const decompose = await import(join(out, "lib/context/decompose.js"));
+  const state = await import(join(out, "lib/context/state.js"));
+  const tools = await import(join(out, "lib/context/tool-output.js"));
 
   /* ── Every model this app can call knows how much it can hold ───────────
    *
@@ -329,6 +339,185 @@ try {
      because a build reserves its whole output ceiling. */
   const built = requests.fitBrief({ brief: huge, modelId: "claude-haiku-4-5" });
   has(built.requirements.length > 0, "a build brief keeps its requirements", `${built.requirements.length}`);
+
+  /* ── The index: what a project contains ────────────────────────────────
+   *
+   * Retrieval is only as good as what was written down. These are the entries
+   * an edit actually asks for by name. */
+  const TREE = [
+    {
+      path: "app/checkout/page.tsx",
+      content: `import { CheckoutButton } from "@/components/CheckoutButton";
+export default function CheckoutPage() { return <CheckoutButton />; }`,
+    },
+    {
+      path: "components/CheckoutButton.tsx",
+      content: `import { pay } from "@/lib/payments/client";
+export function CheckoutButton() { return <button onClick={pay}>Pay</button>; }`,
+    },
+    {
+      path: "lib/payments/client.ts",
+      content: `import { supabase } from "@/lib/db";
+export async function pay() { await supabase.from("orders").insert({}); }`,
+    },
+    {
+      path: "app/about/page.tsx",
+      content: `export default function AboutPage() { return <main>About the bakery</main>; }`,
+    },
+  ];
+
+  const entries = index.indexTree(TREE);
+  const kinds = new Set(entries.map((entry) => entry.kind));
+  has(kinds.has("file") && kinds.has("route") && kinds.has("component"), "a tree indexes files, routes and components");
+  has(
+    entries.some((entry) => entry.kind === "route" && entry.name === "/checkout"),
+    "a page file is indexed by the route it answers on",
+  );
+  has(
+    entries.some((entry) => entry.kind === "table" && entry.name === "orders"),
+    "and a table reached through the client is indexed too",
+    "\"which files touch the orders table\" is a question edits ask constantly",
+  );
+
+  const hits = index.retrieve(entries, "change the checkout button colour", 5);
+  has(hits.length > 0, "retrieval finds something for a named request");
+  has(
+    (hits[0].entry.path ?? hits[0].entry.name).includes("Checkout"),
+    "and the thing it names comes first",
+    `got ${hits[0].entry.path ?? hits[0].entry.name}`,
+  );
+  has(
+    !hits.some((hit) => hit.entry.path === "app/about/page.tsx"),
+    "an unrelated page is not retrieved at all",
+    "sending an irrelevant file is worse than sending none: it is noise labelled as context",
+  );
+  has(index.retrieve(entries, "zzzz nothing matches this", 5).length === 0, "and nothing matches nothing");
+  has(index.termsOf("CheckoutButton").includes("checkout"), "a camel-case name is found by its parts");
+
+  const sections = index.indexPage('<section id="pricing"><h2>Our pricing</h2></section>');
+  has(
+    sections.some((entry) => entry.name === "pricing"),
+    "a single page is indexed by its sections",
+  );
+
+  /* ── Expansion: retrieve, discover, retrieve ────────────────────────────*/
+  const walked = expand.expandContext(entries, "change the checkout button", 100_000);
+  const walkedPaths = walked.entries.map((entry) => entry.path);
+  has(walkedPaths.includes("components/CheckoutButton.tsx"), "expansion starts from what the request named");
+  has(
+    walkedPaths.includes("lib/payments/client.ts"),
+    "and follows the import to what that file needs",
+    "this is the dependency an edit breaks when it cannot see it",
+  );
+  has(
+    !walked.entries.some((entry) => entry.path === "app/about/page.tsx"),
+    "without dragging in the rest of the project",
+  );
+  const squeezedWalk = expand.expandContext(entries, "change the checkout button", 30);
+  has(squeezedWalk.tokens <= 30, "expansion never spends more than its budget", `${squeezedWalk.tokens}`);
+  has(squeezedWalk.truncated, "and says so when it stopped early");
+  has(
+    Object.values(walked.why).every(Boolean),
+    "every entry records why it was pulled in",
+  );
+
+  /* ── Decomposition: a plan, not a refusal ───────────────────────────────*/
+  const big = decompose.decompose({
+    brief: "Build a shop with accounts, a checkout, card payments, an admin dashboard and analytics",
+    requirements: compress.extractRequirements(
+      "Checkout must require sign-in. Payments must use cards. The admin must show orders. Analytics must report weekly. Products must have images. Stock must never go negative.",
+    ),
+    manifest: { database: true, authentication: true, admin: true, payments: true, backend: true },
+  });
+  has(big.needed, "a large build is planned in stages");
+  const titles = big.steps.map((step) => step.title);
+  has(titles[0] === "Architecture", "architecture first");
+  has(titles[titles.length - 1] === "Check it works", "and the check last");
+  has(
+    titles.indexOf("Database") < titles.indexOf("Pages"),
+    "data before the pages that read it",
+  );
+  has(
+    titles.indexOf("Accounts and sign-in") < titles.indexOf("Checkout"),
+    "and sign-in before the thing it protects",
+  );
+  has(
+    big.steps.some((step) => step.requirements.length > 0),
+    "requirements are attached to the stage that owns them",
+  );
+
+  const onePager = decompose.decompose({ brief: "a one page site for my cat", manifest: {} });
+  has(!onePager.needed, "a small build is not split");
+  has(
+    !onePager.steps.some((step) => step.title === "Payments"),
+    "and a plan never lists a stage the project has no use for",
+  );
+  has(
+    decompose.describeDecomposition(big).includes("1."),
+    "the plan reads as numbered stages",
+  );
+
+  /* ── Tool output: bounded, with the names kept exact ────────────────────*/
+  const findings = Array.from({ length: 40 }, (_, i) => ({
+    rule: "overflow",
+    message: `Element overflows its container on mobile`,
+    selector: `#section-${i}`,
+  }));
+  const absorbed = tools.absorbToolResult({ tool: "qa", raw: findings });
+  has(absorbed.tokens <= 450, "a large tool result is bounded", `${absorbed.tokens} tokens`);
+  has(absorbed.summary.includes("stored and available on request"), "and says where the rest went");
+  has(absorbed.identifiers.length > 0, "the identifiers are pulled out");
+  has(
+    absorbed.identifiers.every((id) => findings.some((finding) => finding.selector === id)),
+    "and every one of them is exact",
+    "a paraphrased selector is not a selector",
+  );
+  has(
+    absorbed.summary.split("\n").every((line) => line.trim().length > 0),
+    "nothing is cut mid-line",
+  );
+  has(tools.absorbToolResult({ tool: "qa", raw: findings.slice(0, 2) }).summary.includes("#section-1"),
+    "a small result is passed through whole");
+
+  /* ── State: version, cache, invalidation ────────────────────────────────*/
+  const v1 = { kind: "ecommerce", manifest: { database: true }, designSystem: "luxury", routes: ["/"] };
+  const cached = state.writeCache({}, "architecture", "ARCH BLOCK", v1, 1);
+  is(state.readCache(cached, "architecture", v1, 1), "ARCH BLOCK", "a cached block is read back");
+  has(state.readCache(cached, "architecture", v1, 2) === null, "and is not read back under a new version");
+  has(
+    state.readCache(cached, "architecture", { ...v1, designSystem: "brutal" }, 1) === "ARCH BLOCK",
+    "a change it does not depend on leaves it valid",
+    "an over-eager cache is a cache that never hits",
+  );
+  has(
+    state.readCache(cached, "architecture", { ...v1, manifest: { database: false } }, 1) === null,
+    "and a change it does depend on invalidates it",
+  );
+
+  const both = state.writeCache(cached, "design", "DESIGN BLOCK", v1, 1);
+  const afterSchema = state.invalidate(both, "schema");
+  has(afterSchema.design !== undefined, "a schema change keeps the design summary");
+  has(afterSchema.architecture === undefined, "and drops the architecture block");
+  has(state.invalidatedBy("content").length === 0, "changing words on a page invalidates nothing");
+
+  has(
+    state.isStructuralChange(v1, { ...v1, manifest: { database: false } }),
+    "turning a layer off is structural",
+  );
+  has(
+    !state.isStructuralChange(v1, { ...v1, summary: "a shop for hats" }),
+    "and rewording the summary is not",
+  );
+  is(state.nextVersion(v1, { ...v1, routes: ["/", "/shop"] }, 3), 4, "a new route moves the version");
+  is(state.nextVersion(v1, { ...v1, summary: "x" }, 3), 3, "and prose does not");
+
+  is(
+    state.digest("Checkout must require sign-in."),
+    state.digest("  checkout   MUST require sign-in.  "),
+    "the same requirement said twice digests the same",
+  );
+
+  has(state.describeState(v1).includes("ecommerce"), "the state reads as a block for a prompt");
 
   if (failed) {
     console.log(`\n${failed} check${failed === 1 ? "" : "s"} failed.`);

@@ -16,6 +16,18 @@ import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { storeTree } from "@/lib/builder/store-tree";
+import { extractRequirements } from "@/lib/context/compress";
+import { absorbToolResult } from "@/lib/context/tool-output";
+import { indexPage, indexTree } from "@/lib/context/project-index";
+import { checkpointLabel, nextVersion, type ContextState } from "@/lib/context/state";
+import {
+  readContext,
+  recordCheckpoint,
+  saveContext,
+  storeToolResult,
+  syncRequirements,
+  writeProjectIndex,
+} from "@/lib/context/store";
 import { projectSummary } from "@/lib/builder/project-summary";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
@@ -612,18 +624,43 @@ export async function POST(request: Request) {
   const qaErrors = qa.status === "failed" ? allIssues(qa).filter((issue) => issue.severity === "error") : [];
 
   if (qaErrors.length > 0) {
+    /* The findings, absorbed rather than appended.
+     *
+     * This used to take the first five and say "…and 4 more", and those four
+     * were then gone: nothing stored them, so neither the person nor the next
+     * edit could ever get at them. A tool result is two different things to two
+     * different readers — the findings and the exact names for whoever acts on
+     * them, and the whole result for whoever has to explain it later — so it is
+     * now split that way. The summary is bounded by tokens rather than by a
+     * count of items, and the raw result is kept under an id.
+     *
+     * See src/lib/context/tool-output.ts. */
+    const absorbed = absorbToolResult({
+      tool: "qa",
+      raw: qaErrors.map((issue) => ({
+        rule: issue.rule,
+        message: issue.message,
+        viewport: issue.viewport ?? null,
+        selector: (issue as { selector?: string }).selector ?? null,
+      })),
+    });
+
+    await storeToolResult(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      result: absorbed,
+    });
+
     await recordMessage(supabase, {
       projectId: project.id,
       userId: claim.userId,
       role: "system",
       body: `The build finished, and a check of it found ${qaErrors.length} ${
         qaErrors.length === 1 ? "thing" : "things"
-      } worth fixing:\n\n${qaErrors
-        .slice(0, 5)
-        .map((issue) => `• ${issue.message}`)
-        .join("\n")}${
-        qaErrors.length > 5 ? `\n\n…and ${qaErrors.length - 5} more.` : ""
-      }\n\nAsk me to fix ${qaErrors.length === 1 ? "it" : "them"} and I will.`,
+      } worth fixing:\n\n${absorbed.summary
+        .split("\n")
+        .map((line) => (line.startsWith("(") ? line : `• ${line}`))
+        .join("\n")}\n\nAsk me to fix ${qaErrors.length === 1 ? "it" : "them"} and I will.`,
       tone: "normal",
       kind: "build_qa",
       /* Keyed on the build, so a retried save does not say it twice. */
@@ -663,6 +700,80 @@ export async function POST(request: Request) {
         console.error("save: the architecture was not recorded:", error.message);
       }
     });
+
+  /* ── And what is IN it, so the next message can retrieve rather than guess ──
+   *
+   * The architecture row above says what the project is. This says what it
+   * contains: a row per file, route, component and table, each carrying the
+   * identifiers it defines and reaches. Nothing sends those rows to a model —
+   * they are what makes it possible to ask which parts of a project a request
+   * touches, instead of sending all of it or guessing at one file.
+   *
+   * Written here because this is the only moment the whole project is in one
+   * place. Best effort, like the architecture: a build whose index fails to
+   * write is a build whose next edit retrieves nothing and falls back to
+   * exactly what it did before this existed.
+   *
+   * Alongside it: the context state and its version (a structural change means
+   * anything assembled from the old reading is unsafe), a checkpoint to
+   * continue from, and the requirements this brief asked for, kept verbatim
+   * with stable refs. See src/lib/context/. */
+  try {
+    const brief = typeof body.prompt === "string" ? body.prompt : "";
+    const entries = tree.length > 0 ? indexTree(tree) : indexPage(html);
+
+    await writeProjectIndex(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      entries,
+    });
+
+    const before = await readContext(supabase, project.id);
+    const state: ContextState = {
+      kind: summaryArchitecture.type,
+      manifest: summaryArchitecture as unknown as Record<string, boolean>,
+      designSystem: typeof body.designSystem === "string" ? body.designSystem : undefined,
+      stack: tree.length > 0 ? "nextjs" : "standalone-html",
+      routes: entries.filter((entry) => entry.kind === "route").map((entry) => entry.name),
+      decisions: before.state.decisions,
+      summary: before.state.summary,
+    };
+
+    const version = nextVersion(before.state, state, before.version);
+
+    /* The cache is carried forward only while the version holds. A structural
+       change moves the version, every fingerprint stops matching, and the next
+       message rebuilds the blocks it needs — which is the cache being right
+       rather than the cache being fast. */
+    await saveContext(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      version,
+      state,
+      cache: version === before.version ? before.cache : {},
+    });
+
+    await recordCheckpoint(supabase, {
+      projectId: project.id,
+      userId: claim.userId,
+      version,
+      label: checkpointLabel(state, "built"),
+      state,
+    });
+
+    if (brief) {
+      await syncRequirements(supabase, {
+        projectId: project.id,
+        userId: claim.userId,
+        requirements: extractRequirements(brief),
+      });
+    }
+  } catch (error) {
+    /* One catch around the lot, deliberately: none of it is worth failing a
+       build for, and each function inside already logs its own failure. */
+    // eslint-disable-next-line no-console
+    console.error("save: the project context was not recorded:", error);
+  }
 
   const previewUrl = `${SITE_URL}/preview/${project.id}`;
 
