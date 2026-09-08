@@ -13,8 +13,8 @@ module.exports = {
   theme: {
     extend: {
       // Registering the brand palette here is what lets Tailwind generate the composed
-      // variants the markup already uses — `bg-brandAccent/10`, `border-brandAccent/40`,
-      // `focus:ring-brandAccent/40`, `hover:bg-brandSurfaceAccent`. Tailwind only emits a
+      // variants the markup already uses — `bg-brandGreen/10`, `border-brandGreen/40`,
+      // `focus:ring-brandGreen/40`, `hover:bg-brandSurfaceAccent`. Tailwind only emits a
       // class it can see in the theme, so while these colours existed solely as
       // hand-written CSS rules every one of those variants compiled to nothing and the
       // markup referencing them rendered untinted. The `<alpha-value>` placeholder is
@@ -24,7 +24,7 @@ module.exports = {
         brandBg: 'rgb(var(--brandBg-rgb) / <alpha-value>)',
         brandSurface: 'rgb(var(--brandSurface-rgb) / <alpha-value>)',
         brandSurfaceAccent: 'rgb(var(--brandSurfaceAccent-rgb) / <alpha-value>)',
-        brandAccent: 'rgb(var(--brandAccent-rgb) / <alpha-value>)',
+        brandGreen: 'rgb(var(--brandGreen-rgb) / <alpha-value>)',
         brandTextSec: 'rgb(var(--brandTextSec-rgb) / <alpha-value>)',
         // Bakes in its own alpha, so it takes no opacity modifier.
         brandBorder: 'var(--brandBorder)',
@@ -53,17 +53,6 @@ module.exports = {
         // Brand colours that have to be re-picked for a light ground: mint on white
         // is unreadable, and so is coral.
         accent: 'rgb(var(--accent) / <alpha-value>)',
-        /* The two shades either side of it. Bright is a hover and a highlight;
-           dark is the same violet where it has to sit on something light — a
-           filled button's ground, or the light theme's text. Registered here
-           rather than written as literals so both themes can re-pick them
-           without a class in the markup changing. */
-        accentBright: 'rgb(var(--accent-bright) / <alpha-value>)',
-        accentDark: 'rgb(var(--accent-dark) / <alpha-value>)',
-        /* Green means one thing here — something worked — and it is never an
-           accent. Keeping it a named role is what stops it drifting back into
-           being a second brand colour. */
-        success: 'rgb(var(--success) / <alpha-value>)',
         danger: 'rgb(var(--danger) / <alpha-value>)',
         // Gold as *text*. The gold fills keep their literal gradients: they carry
         // dark text on them and read on either ground.

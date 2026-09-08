@@ -1154,7 +1154,7 @@ export default function DashboardPage() {
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted">
                       Select MCP Tools
                     </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent text-onSolid">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4D96B] text-black">
                       New
                     </span>
                   </div>

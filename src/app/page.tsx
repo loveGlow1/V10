@@ -72,21 +72,6 @@ function ParticleCanvas() {
     const ctx: CanvasRenderingContext2D = context;
     let animationId = 0;
 
-    /* The accent, as the three channels a canvas can use.
-     *
-     * Read from the stylesheet rather than written here, so the particles
-     * belong to the same palette as everything else and a re-picked accent
-     * reaches them. The token is "184 160 255"; canvas wants "184, 160, 255".
-     * Falls back to the violet it is today if the variable is ever missing —
-     * a field of invisible particles would be a strange way to discover a
-     * typo in a variable name. */
-    const accentChannels =
-      getComputedStyle(document.documentElement)
-        .getPropertyValue("--brandAccent-rgb")
-        .trim()
-        .split(/\s+/)
-        .join(", ") || "184, 160, 255";
-
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -118,10 +103,7 @@ function ParticleCanvas() {
         if (this.y < 0) this.reset();
       }
       draw() {
-        /* The brand accent, read from the token rather than written twice:
-           a canvas cannot use var(), so the channels are pulled once at
-           setup and interpolated here. */
-        ctx.fillStyle = `rgba(${accentChannels}, ${this.opacity})`;
+        ctx.fillStyle = `rgba(142, 240, 138, ${this.opacity})`;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
@@ -481,7 +463,7 @@ const HERO_APPS = [
 ] as const;
 
 const HERO_SECONDARY_ACTION_BUTTON_CLASS =
-  "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandAccent/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-brandAccent/40";
+  "inline-flex items-center justify-center gap-2 sm:whitespace-nowrap py-4 px-4 sm:px-5 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-semibold transition-all duration-300 hover:scale-[1.01] hover:border-brandGreen/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-brandGreen/40";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -734,7 +716,7 @@ export default function LandingPage() {
     /* theme-dark-scope: this page is one composition on a dark ground and does
        not have a lighter key (see globals.css). The theme applies to the app
        behind the sign-in, which is also the only place its switch appears. */
-    <div className="theme-dark-scope bg-brandBg text-ink antialiased font-sans overflow-x-hidden selection:bg-brandAccent selection:text-onSolid min-h-[100dvh] relative">
+    <div className="theme-dark-scope bg-brandBg text-ink antialiased font-sans overflow-x-hidden selection:bg-brandGreen selection:text-onSolid min-h-[100dvh] relative">
       <div className="noise-bg" />
       <div className="radial-vignette" />
       <div className="ambient-glow-1" />
@@ -750,7 +732,7 @@ export default function LandingPage() {
               the CTA are, and the always-present third column reserves the CTA's space so
               the nav does not jump sideways when the button mounts on scroll. */}
           <div className="page-shell h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40 rounded-full px-2" aria-label="QuickStark.Ai Homepage">
+            <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStark.Ai Homepage">
               <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
               <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStark</span><span className="wordmark-ai">.Ai</span></span>
             </a>
@@ -762,7 +744,7 @@ export default function LandingPage() {
             </nav>
             <div className="justify-self-end">
               {showGetStartedButton && (
-                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-solid text-onSolid px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandAccent transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40 shadow-sm">Get Started</button>
+                <button onClick={() => openAuthModal()} className="inline-flex items-center justify-center whitespace-nowrap bg-solid text-onSolid px-6 py-2.5 rounded-pill text-sm font-semibold hover:bg-brandGreen transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 shadow-sm">Get Started</button>
               )}
             </div>
           </div>
@@ -868,7 +850,7 @@ export default function LandingPage() {
                 <span>Continue with Google</span>
               </ProviderButton>
               <div className="grid grid-cols-3 gap-3">
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandAccent`} /><span>GitHub</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
                 <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><Apple className={`${PROVIDER_ICON_CLASS} text-ink`} /><span>Apple</span></ProviderButton>
                 <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
               </div>
@@ -888,7 +870,7 @@ export default function LandingPage() {
         <section id="features" className="px-6 py-24">
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandAccent">What is QuickStark.Ai</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">What is QuickStark.Ai</p>
               <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                 What can QuickStark.Ai do for you?
               </h2>
@@ -913,16 +895,16 @@ export default function LandingPage() {
                         key={feature.title}
                         className={!isActive && index < FEATURES.length - 1 ? "border-b border-brandBorder" : ""}
                       >
-                        <div className={isActive ? "rounded-premium border border-brandAccent/40 bg-brandSurface p-5 sm:p-6" : ""}>
+                        <div className={isActive ? "rounded-premium border border-brandGreen/40 bg-brandSurface p-5 sm:p-6" : ""}>
                           <button
                             type="button"
                             onClick={() => setActiveFeature(index)}
                             aria-expanded={isActive}
                             aria-controls={panelId}
-                            className={`flex w-full items-center gap-3 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent ${isActive ? "" : "py-5 hover:text-ink"}`}
+                            className={`flex w-full items-center gap-3 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen ${isActive ? "" : "py-5 hover:text-ink"}`}
                           >
-                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-brandAccent" : "text-ink/60"}`} />
-                            <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isActive ? "text-brandAccent" : "text-ink/85"}`}>
+                            <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-brandGreen" : "text-ink/60"}`} />
+                            <span className={`text-lg font-semibold tracking-tight sm:text-xl ${isActive ? "text-brandGreen" : "text-ink/85"}`}>
                               {feature.title}
                             </span>
                           </button>
@@ -965,7 +947,7 @@ export default function LandingPage() {
           <div className="page-shell space-y-10">
             <Reveal className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
-                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandAccent">Pricing</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">Pricing</p>
                 <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                   Choose the plan that fits your build velocity.
                 </h2>
@@ -977,7 +959,7 @@ export default function LandingPage() {
               {/* Replaces the old section-wide "Annual Soon" placeholder: the switch now lives on
                   each paid card, so this line only has to say what those switches do. */}
               <p className="inline-flex shrink-0 items-center gap-2 self-start rounded-pill border border-brandBorder bg-brandSurface px-4 py-2 text-sm font-semibold text-brandTextSec lg:self-auto">
-                <span className="text-brandAccent">Save {ANNUAL_DISCOUNT_PCT}%</span>
+                <span className="text-brandGreen">Save {ANNUAL_DISCOUNT_PCT}%</span>
                 <span className="whitespace-nowrap">with annual billing</span>
               </p>
             </Reveal>
@@ -994,14 +976,14 @@ export default function LandingPage() {
                 return (
                   <Reveal key={tier.name} className="h-full min-w-0">
                     <article
-                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandAccent/40 shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
+                      className={`glass-card rounded-premium relative flex h-full flex-col p-6 sm:p-8 ${tier.highlight ? "pro-glow-border border border-brandGreen/40 shadow-[0_25px_80px_-40px_rgba(142,240,138,0.55)] lg:-translate-y-3" : ""}`}
                     >
                       {/* The badge row is rendered for every tier (hidden, not omitted, on the
                           non-highlighted ones) so plan names, prices, feature lists and CTAs
                           share a baseline across the row. */}
                       <span
                         aria-hidden={!tier.highlight}
-                        className={`mb-6 inline-flex w-fit rounded-pill border px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${tier.highlight ? "border-brandAccent/30 bg-brandAccent/10 text-brandAccent" : "invisible border-transparent"}`}
+                        className={`mb-6 inline-flex w-fit rounded-pill border px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${tier.highlight ? "border-brandGreen/30 bg-brandGreen/10 text-brandGreen" : "invisible border-transparent"}`}
                       >
                         Most Popular
                       </span>
@@ -1014,7 +996,7 @@ export default function LandingPage() {
                       <div className="flex min-h-[2.75rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 lg:flex-col lg:items-start lg:gap-3 xl:flex-row xl:items-center">
                         <div className="flex min-w-0 items-center gap-2.5">
                           <h3 className="text-2xl font-semibold text-ink">{tier.name}</h3>
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brandBorder bg-brandSurface text-brandAccent">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brandBorder bg-brandSurface text-brandGreen">
                             <Icon className="h-4 w-4" />
                           </span>
                         </div>
@@ -1032,15 +1014,15 @@ export default function LandingPage() {
                           onClick={() => toggleAnnualTier(tier.name)}
                           /* -my-2.5/py-2.5 grows the touch target to ~40px tall while the row
                              keeps measuring the switch at its drawn height. */
-                          className={`group -my-2.5 inline-flex shrink-0 items-center gap-2 rounded-pill py-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40 ${canBillAnnually ? "" : "invisible"}`}
+                          className={`group -my-2.5 inline-flex shrink-0 items-center gap-2 rounded-pill py-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${canBillAnnually ? "" : "invisible"}`}
                         >
                           <span
-                            className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandAccent" : "text-brandTextSec group-hover:text-ink/80"}`}
+                            className={`text-sm font-semibold transition-colors duration-200 ${isAnnual ? "text-brandGreen" : "text-brandTextSec group-hover:text-ink/80"}`}
                           >
                             Annual
                           </span>
                           <span
-                            className={`relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-200 ${isAnnual ? "bg-brandAccent" : "bg-layer/15"}`}
+                            className={`relative h-5 w-9 shrink-0 rounded-pill transition-colors duration-200 ${isAnnual ? "bg-brandGreen" : "bg-layer/15"}`}
                           >
                             <span
                               className={`absolute top-0.5 h-4 w-4 rounded-full bg-solid shadow-sm transition-all duration-200 ${isAnnual ? "left-[1.125rem]" : "left-0.5"}`}
@@ -1058,7 +1040,7 @@ export default function LandingPage() {
                       <div className="mt-8">
                         <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
                           <span className="text-5xl font-bold tracking-tight text-ink">{formatPrice(perMonthPrice)}</span>
-                          <span className="pb-1 text-sm font-medium text-brandAccent">/ month</span>
+                          <span className="pb-1 text-sm font-medium text-brandGreen">/ month</span>
                           {isAnnual ? (
                             <span className="pb-1 text-sm font-medium text-ink/40 line-through">{formatPrice(tier.monthlyPrice)}</span>
                           ) : null}
@@ -1079,7 +1061,7 @@ export default function LandingPage() {
                           {/* Placeholder pricing features only — replace these with final tier details once confirmed. */}
                           {tier.features.map((feature) => (
                             <li key={feature} className="flex items-start gap-3">
-                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brandAccent/10 text-brandAccent">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brandGreen/10 text-brandGreen">
                                 <Check className="h-3.5 w-3.5" />
                               </span>
                               <span className="leading-relaxed">{feature}</span>
@@ -1091,7 +1073,7 @@ export default function LandingPage() {
                       <button
                         type="button"
                         onClick={() => openAuthModal()}
-                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40 ${tier.highlight ? "bg-brandAccent text-onSolid hover:bg-solid" : "border border-brandBorder bg-brandSurface text-ink hover:border-brandAccent/40 hover:bg-brandSurfaceAccent"}`}
+                        className={`mt-8 inline-flex w-full items-center justify-center rounded-pill px-5 py-3.5 text-sm font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 ${tier.highlight ? "bg-brandGreen text-onSolid hover:bg-solid" : "border border-brandBorder bg-brandSurface text-ink hover:border-brandGreen/40 hover:bg-brandSurfaceAccent"}`}
                       >
                         {tier.ctaLabel}
                       </button>
@@ -1106,7 +1088,7 @@ export default function LandingPage() {
         <section id="faq" className="font-display px-6 py-24">
           <div className="page-shell space-y-12">
             <Reveal className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandAccent">FAQ</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brandGreen">FAQ</p>
               <h2 className="mt-4 text-2xl md:text-3xl 2xl:text-4xl 3xl:text-5xl font-bold tracking-tight text-ink">
                 Questions people ask before they build.
               </h2>
@@ -1133,13 +1115,13 @@ export default function LandingPage() {
                           onClick={() => setOpenFaq(isOpen ? null : index)}
                           aria-expanded={isOpen}
                           aria-controls={panelId}
-                          className="flex w-full items-center justify-between gap-8 py-7 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent sm:py-8"
+                          className="flex w-full items-center justify-between gap-8 py-7 text-left transition-colors duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen sm:py-8"
                         >
-                          <span className={`text-lg font-medium tracking-normal sm:text-xl ${isOpen ? "text-brandAccent" : "text-ink"}`}>
+                          <span className={`text-lg font-medium tracking-normal sm:text-xl ${isOpen ? "text-brandGreen" : "text-ink"}`}>
                             {faq.question}
                           </span>
                           <ChevronDown
-                            className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandAccent" : "text-ink/60"}`}
+                            className={`h-5 w-5 shrink-0 transition-transform duration-300 ${isOpen ? "rotate-180 text-brandGreen" : "text-ink/60"}`}
                           />
                         </button>
                       </h3>
@@ -1195,7 +1177,7 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
         <div className="page-shell flex flex-col gap-x-8 gap-y-12 xl:flex-row xl:items-start xl:justify-between">
           <Reveal className="max-w-sm xl:max-w-xs">
-            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandAccent/40" aria-label="QuickStark.Ai Homepage">
+            <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40" aria-label="QuickStark.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
                 <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" />
               </div>
@@ -1204,7 +1186,7 @@ export default function LandingPage() {
               </span>
             </a>
             <p className="mt-5 text-sm leading-relaxed text-brandTextSec">
-              Build Full-Stack <span className="text-brandAccent">Web &amp; Mobile Apps in Minutes</span> with one cohesive platform for product generation, infrastructure, and launch-ready workflows.
+              Build Full-Stack <span className="text-brandGreen">Web &amp; Mobile Apps in Minutes</span> with one cohesive platform for product generation, infrastructure, and launch-ready workflows.
             </p>
           </Reveal>
 
@@ -1216,7 +1198,7 @@ export default function LandingPage() {
                   <ul className="mt-4 space-y-3">
                     {column.links.map((link) => (
                       <li key={link.label}>
-                        <a href={link.href} className="text-sm text-brandTextSec transition-colors duration-200 hover:text-brandAccent">
+                        <a href={link.href} className="text-sm text-brandTextSec transition-colors duration-200 hover:text-brandGreen">
                           {link.label}
                         </a>
                       </li>
@@ -1243,7 +1225,7 @@ export default function LandingPage() {
                         key={social.label}
                         href="#"
                         aria-label={social.label}
-                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-ink/70 transition-all duration-300 hover:border-brandAccent/40 hover:text-brandAccent"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brandBorder bg-brandSurface text-ink/70 transition-all duration-300 hover:border-brandGreen/40 hover:text-brandGreen"
                       >
                         <Icon className="h-4 w-4" />
                       </a>
@@ -1271,7 +1253,7 @@ export default function LandingPage() {
         .noise-bg { position: fixed; top: -50%; left: -50%; right: -50%; bottom: -50%; width: 200%; height: 200%; opacity: 0.8; pointer-events: none; z-index: 999; animation: noise-anim 0.2s infinite; }
         @keyframes noise-anim { 0% { transform: translate(0,0) } 10% { transform: translate(-1%,-1%) } 20% { transform: translate(-2%,1%) } 30% { transform: translate(1%,-2%) } 40% { transform: translate(-1%,3%) } 50% { transform: translate(-1%,1%) } 60% { transform: translate(3%,-1%) } 70% { transform: translate(2%,1%) } 80% { transform: translate(-2%,-1%) } 90% { transform: translate(1%,3%) } 100% { transform: translate(1%,-2%) } }
         .radial-vignette { position: fixed; inset: 0; background: radial-gradient(circle at center, transparent 30%, rgba(9, 9, 9, 0.9) 100%); pointer-events: none; z-index: 10; }
-        .ambient-glow-1 { position: absolute; top: 15%; left: 20%; width: 45vw; height: 45vw; background: radial-gradient(circle, rgb(var(--brandAccent-rgb) / 0.03) 0%, transparent 70%); pointer-events: none; filter: blur(80px); z-index: 1; animation: slow-drift-1 25s infinite alternate ease-in-out; }
+        .ambient-glow-1 { position: absolute; top: 15%; left: 20%; width: 45vw; height: 45vw; background: radial-gradient(circle, rgba(142, 240, 138, 0.03) 0%, transparent 70%); pointer-events: none; filter: blur(80px); z-index: 1; animation: slow-drift-1 25s infinite alternate ease-in-out; }
         .ambient-glow-2 { position: absolute; bottom: 20%; right: 15%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(255, 255, 255, 0.02) 0%, transparent 75%); pointer-events: none; filter: blur(100px); z-index: 1; animation: slow-drift-2 30s infinite alternate ease-in-out; }
         @keyframes slow-drift-1 { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(50px, -40px) scale(1.1); } }
         @keyframes slow-drift-2 { 0% { transform: translate(0, 0) scale(1.1); } 100% { transform: translate(-60px, 50px) scale(0.9); } }

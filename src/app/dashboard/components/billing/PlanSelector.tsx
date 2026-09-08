@@ -28,7 +28,7 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
             aria-pressed={isSelected}
             animate={
               isSelected
-                ? { boxShadow: "0 0 0 2px rgb(184 160 255), 0 0 20px rgb(184 160 255 / 0.2)" }
+                ? { boxShadow: "0 0 0 2px #22C55E, 0 0 20px rgba(34,197,94,0.2)" }
                 : { boxShadow: "0 0 0 1px rgba(255,255,255,0.08)" }
             }
             transition={{ duration: 0.25 }}
@@ -36,15 +36,15 @@ export default function PlanSelector({ selected, onSelect }: PlanSelectorProps) 
           >
             <span
               className={`mb-2 flex h-4 w-4 items-center justify-center rounded-full border-2 ${
-                isSelected ? "border-accent" : "border-line/30"
+                isSelected ? "border-[#22C55E]" : "border-line/30"
               }`}
             >
-              {isSelected && <span className="h-2 w-2 rounded-full bg-accent" />}
+              {isSelected && <span className="h-2 w-2 rounded-full bg-[#22C55E]" />}
             </span>
 
             <p className="mb-1 text-[15px] font-bold leading-tight text-ink">{plan.name}</p>
             {/* The plan's own price, not a promotional one. */}
-            <p className="text-sm font-bold text-accent">${plan.monthlyPriceUsd}</p>
+            <p className="text-sm font-bold text-[#22C55E]">${plan.monthlyPriceUsd}</p>
           </motion.button>
         );
       })}

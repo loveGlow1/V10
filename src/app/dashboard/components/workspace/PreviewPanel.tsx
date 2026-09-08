@@ -640,7 +640,7 @@ export default function PreviewPanel({
                   aria-label={`Open the published site, ${publishedLabel(liveSlug)}`}
                   className="flex items-center gap-1.5 pl-3 pr-2 text-[12px] font-semibold text-ink transition-opacity active:opacity-70"
                 >
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
                   {/* The word, not the address.
                    *
                    * The address was tried here first and it does not fit: at
@@ -670,7 +670,7 @@ export default function PreviewPanel({
               <button
                 onClick={() => setPublishOpen(true)}
                 aria-expanded={publishOpen}
-                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-accentBright to-accent px-3 text-[12px] font-semibold text-onSolid shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(184,160,255,0.14)] transition-all active:scale-[0.98]"
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
               >
                 <Rocket className="h-3.5 w-3.5" />
                 Publish
