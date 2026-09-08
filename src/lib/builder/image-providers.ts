@@ -203,6 +203,11 @@ function asSlot(spec: VisualSpec): ImageSlot {
     alt: spec.subject,
     ratio: spec.aspectRatio.replace(":", "/"),
     weight: spec.type === "hero" ? "hero" : spec.type === "product" ? "thumb" : "feature",
+    /* No framing decision, because there is no page yet. A spec describes the
+       picture to make; where the subject sits inside whatever box eventually
+       holds it is the document's question, and asSlot has no document. */
+    focal: "",
+    fit: "cover",
   };
 }
 

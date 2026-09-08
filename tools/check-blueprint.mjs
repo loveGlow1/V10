@@ -389,13 +389,21 @@ try {
        three things the build has to be told and could not be told inside the
        old number.
 
+       And from 4400 a second time, for the framing contract — where the subject
+       of a photograph sits inside its own frame. The argument is the same shape
+       as the first one and the evidence is better: the alternative to those two
+       hundred and fifty words was five follow-up messages per build, each one a
+       credit, all of them saying "move it down" in different phrasings. A rule
+       that removes five round trips has earned its paragraph.
+
        What the ceiling is actually protecting is attention, not context: six
        thousand tokens of input is nothing to the model, but a rule buried in
        its fortieth paragraph is a rule that gets half-followed. So it stays a
-       hard number and moving it stays an edit somebody has to argue for — this
-       is that argument, and the blueprint half above is untouched, because an
-       individual kind doubling by accident is the failure this really catches. */
-    else if (words > 4400) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
+       hard number and moving it stays an edit somebody has to argue for — the
+       two paragraphs above are those arguments, and the blueprint half is
+       untouched by both, because an individual kind doubling by accident is the
+       failure this really catches. */
+    else if (words > 4600) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
     else
       console.log(
         `ok   ${kind.padEnd(10)} ${String(own).padStart(4)} own + ${String(words - own).padStart(4)} shared · ${
@@ -470,6 +478,39 @@ try {
     fail("adding a stage plan changed more of the prompt than the stage plan");
   } else {
     console.log("ok   stages     the stage reaches the prompt, and only when there is one");
+  }
+
+  /* ── A reference reaches the prompt as a specification ───────────────────
+   *
+   * The instruction this replaced was one sentence — "direction for the design
+   * or content to reproduce, whichever the brief implies" — about the single
+   * most specific thing anybody ever gives a builder. It is now a section, and
+   * the two things worth holding are that it appears when a picture was
+   * attached and that it is entirely absent when one was not: nearly every
+   * build has no attachment, and a stray paragraph in all of them would be a
+   * change to every product this makes.
+   */
+  const noReference = composeBuildPrompt("landing", "a shop for handmade ice cream");
+  const oneReference = composeBuildPrompt("landing", "a shop for handmade ice cream", { imageCount: 1 });
+  const twoReferences = composeBuildPrompt("landing", "a shop for handmade ice cream", { imageCount: 2 });
+
+  if (/read it as a specification/i.test(noReference)) {
+    fail("a build with no attachment carries the reference contract anyway");
+  } else if (!/read it as a specification/i.test(oneReference)) {
+    fail("a build with an attached picture does not carry the reference contract");
+  } else if (!/2 images were/.test(twoReferences)) {
+    fail("the reference contract does not count what was actually attached");
+  } else if (oneReference.indexOf("THE ATTACHED IMAGE") < oneReference.indexOf("THE BRIEF —")) {
+    fail("the reference contract sits above the brief, where it outranks what somebody typed");
+  } else {
+    /* What it has to name. These are the measurements a reference is read for,
+       and a version of this section that quietly lost half of them would still
+       read perfectly well — which is exactly why they are asserted. */
+    const missing = ["container", "grid", "focal", "header", "type scale", "object-position"].filter(
+      (word) => !oneReference.toLowerCase().includes(word.toLowerCase()),
+    );
+    if (missing.length > 0) fail(`the reference contract no longer names: ${missing.join(", ")}`);
+    else console.log("ok   reference  a picture arrives as a specification, and only when one arrives");
   }
 
   if (editCarried !== 2000) {

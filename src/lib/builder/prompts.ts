@@ -46,6 +46,14 @@ PICTURES ALREADY IN THE PAGE — src="stashed-image-0", src="stashed-image-1":
 - It is not a broken link and not a placeholder to fill in. Do not "fix" it, do not swap it for a URL, a path or a data: URI, and do not drop the src while editing the rest of the tag. A tag that comes back without its token is a picture deleted, and "make the logo bigger" is not a request to delete the logo.
 - Removing the whole <img> element is different and is allowed: if the request is for the picture to go, take the element and its token with it.
 
+FRAMING A PICTURE — "move the cake down", "show the whole cone", "make the image smaller":
+- These are about where the SUBJECT sits inside its own frame. They are not about the section, the hero's height, the header, the page's margins or the layout, and changing any of those is the wrong edit however good it looks.
+- The whole change is on the <img>: its \`object-fit\`, its \`object-position\`, and — where the picture is scaled — its \`transform\`. Where the tag carries \`data-fit\`, \`data-focal\` or \`data-zoom\`, change those to match; they are the record of the decision and they are compiled back into the declarations.
+- object-position moves the PICTURE behind a window, not the subject in front of one, so it runs backwards from what was asked. Moving the subject DOWN in the frame means a SMALLER second value — \`50% 40%\` becomes \`50% 25%\`. Moving it up means a larger one. Left means a larger first value; right, a smaller one.
+- "Show the whole thing", "it's cut off", "the bottom is missing" mean nothing may be cropped: \`object-fit: contain\`, and the box is allowed to have space in it.
+- "Hidden behind the header" means the subject comes down out of the header — lower the second value, or give the hero content top padding equal to the header's height. Never shorten the header and never move the page.
+- Keep the hero's height, the section's structure and everything around it exactly as they are. One tag changes. Do not rebuild the section, and do not restyle anything to compensate.
+
 AFTER THE LAST BLOCK you may add one line, and only one:
 
 NEXT: <a single concrete next step you would actually take on this page>

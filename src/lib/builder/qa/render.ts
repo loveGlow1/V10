@@ -82,8 +82,45 @@ export type Measurement = {
   formProblems: { selector: string; problem: string }[];
   /** Sections holding a screenful of nothing. */
   emptySections: { selector: string; height: number }[];
+  /* How the page is COMPOSED, as opposed to whether it fits — see
+     composition.ts, which turns this into findings. Optional because a renderer
+     older than this field is still a renderer, and a missing measurement must
+     mean "not looked at" rather than a thrown TypeError. */
+  composition?: Composition;
   /** Whether anything was actually laid out — a blank render is a failed one. */
   bodyHeight: number;
+};
+
+/* What was measured about the composition.
+ *
+ * Every one of these answers a question the markup cannot: how much of a
+ * photograph its frame is throwing away, whether a fixed header is sitting on
+ * the thing the page is about, how big the hole between two sections is. They
+ * are separated from the measurements above because they are a different
+ * question — those ask whether the page FITS, these ask whether it was
+ * COMPOSED — and because a renderer can be missing this block entirely. */
+export type Composition = {
+  /** Pictures whose frame is throwing most of the picture away. */
+  crops: { selector: string; fit: string; kept: number; boxRatio: number; sourceRatio: number }[];
+  /** Things a fixed header is sitting on top of. */
+  headerOver: { selector: string; what: string; covered: number; headerHeight: number }[];
+  /** Text with no gutter between it and the edge of the screen. */
+  edgeContact: { selector: string; gap: number }[];
+  /** Vertical holes between one section and the next. */
+  gaps: { after: string; height: number }[];
+  /** Things that were meant to line up and are a few pixels out. */
+  misaligned: { a: string; b: string; by: number }[];
+  /** Headings and paragraphs that wrap badly. */
+  typography: { selector: string; problem: string }[];
+};
+
+export const NO_COMPOSITION: Composition = {
+  crops: [],
+  headerOver: [],
+  edgeContact: [],
+  gaps: [],
+  misaligned: [],
+  typography: [],
 };
 
 /**
@@ -234,6 +271,192 @@ export const MEASURE_SCRIPT = `(() => {
     if (emptySections.length >= 4) break;
   }
 
+  /* ── How the page is COMPOSED ────────────────────────────────────────────
+     Everything above asks whether the page fits. This asks whether anybody
+     placed it: what a frame is doing to the picture inside it, what a fixed
+     header is sitting on, where the holes are. See composition.ts. */
+
+  const composition = { crops: [], headerOver: [], edgeContact: [], gaps: [], misaligned: [], typography: [] };
+
+  /* Where the subject of a picture lands on the screen.
+     object-position pins the point at N% of the SOURCE to the point at N% of
+     the BOX, so the focal point's y in the box is the focal point's y in the
+     picture. That identity is what makes "is the subject behind the header" a
+     measurement rather than a guess. */
+  const focalOf = (el) => {
+    const declared = el.getAttribute("data-focal") || getComputedStyle(el).objectPosition || "50% 50%";
+    const parts = String(declared).trim().split(/\s+/);
+    const asPercent = (text, fallback) => {
+      const word = String(text || "").toLowerCase();
+      if (word === "left" || word === "top") return 0;
+      if (word === "center" || word === "centre") return 50;
+      if (word === "right" || word === "bottom") return 100;
+      const number = parseFloat(word);
+      return isFinite(number) && word.indexOf("%") !== -1 ? number : fallback;
+    };
+    return { x: asPercent(parts[0], 50), y: asPercent(parts[1], 50) };
+  };
+
+  /* A frame throwing the picture away. \`cover\` on a box whose shape is nothing
+     like the picture's crops most of it off, and which part it keeps is
+     whatever object-position happened to say. */
+  for (const img of Array.from(document.images)) {
+    if (composition.crops.length >= 4) break;
+    const box = img.getBoundingClientRect();
+    if (box.width < 80 || box.height < 80) continue;
+    if (!img.naturalWidth || !img.naturalHeight) continue;
+
+    const fit = getComputedStyle(img).objectFit || "fill";
+    const boxRatio = box.width / box.height;
+    const sourceRatio = img.naturalWidth / img.naturalHeight;
+    const agreement = Math.min(boxRatio, sourceRatio) / Math.max(boxRatio, sourceRatio);
+
+    const tooTight = fit === "cover" && agreement < 0.55;
+    const stretched = (fit === "fill" || fit === "none") && agreement < 0.85;
+    if (!tooTight && !stretched) continue;
+
+    composition.crops.push({
+      selector: selectorFor(img),
+      fit: fit,
+      kept: Math.round(agreement * 100),
+      boxRatio: Math.round(boxRatio * 100) / 100,
+      sourceRatio: Math.round(sourceRatio * 100) / 100,
+    });
+  }
+
+  /* A fixed header sitting on the page rather than above it. Only the first
+     one, and only when it is actually at the top: a sticky footer is not this. */
+  const bar = Array.from(document.querySelectorAll("header, nav, [role=banner], .header, .navbar, .nav")).filter((el) => {
+    const style = getComputedStyle(el);
+    if (style.position !== "fixed" && style.position !== "sticky") return false;
+    const box = el.getBoundingClientRect();
+    return box.height > 8 && box.top <= 8;
+  })[0];
+
+  if (bar) {
+    const barBox = bar.getBoundingClientRect();
+    for (const el of Array.from(document.querySelectorAll("h1, h2, p, img"))) {
+      if (composition.headerOver.length >= 4) break;
+      if (bar.contains(el) || el.contains(bar)) continue;
+
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      const overlap = Math.min(barBox.bottom, box.bottom) - Math.max(barBox.top, box.top);
+      if (overlap <= 4) continue;
+
+      if (el.tagName === "IMG") {
+        /* A hero running under a transparent header is a design. A hero whose
+           SUBJECT is under it is the defect, and the focal point says which. */
+        const subjectY = box.top + (box.height * focalOf(el).y) / 100;
+        if (subjectY > barBox.bottom) continue;
+        composition.headerOver.push({
+          selector: selectorFor(el),
+          what: "the subject of a picture",
+          covered: Math.round(barBox.bottom - box.top),
+          headerHeight: Math.round(barBox.height),
+        });
+      } else {
+        if ((el.textContent || "").trim().length < 3) continue;
+        composition.headerOver.push({
+          selector: selectorFor(el),
+          what: "text",
+          covered: Math.round(overlap),
+          headerHeight: Math.round(barBox.height),
+        });
+      }
+    }
+  }
+
+  /* Text with nothing between it and the side of the screen. Only above the
+     phone widths: at 320px a small gutter is a decision, at 1280 it is a
+     container nobody gave a max-width to. */
+  if (docWidth >= 768) {
+    for (const el of Array.from(document.querySelectorAll("h1, h2, h3, p, li"))) {
+      if (composition.edgeContact.length >= 4) break;
+      if ((el.textContent || "").trim().length < 8) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      const gap = Math.min(box.left, docWidth - box.right);
+      if (gap < 8) composition.edgeContact.push({ selector: selectorFor(el), gap: Math.round(gap) });
+    }
+  }
+
+  /* A hole. Distinct from an empty section — that is a section with nothing in
+     it, this is the space BETWEEN two sections that both have something. */
+  const flow = Array.from((document.querySelector("main") || document.body).children).filter((el) => {
+    const style = getComputedStyle(el);
+    if (style.position === "fixed" || style.position === "absolute") return false;
+    const box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
+  for (let i = 1; i < flow.length && composition.gaps.length < 3; i += 1) {
+    const previous = flow[i - 1].getBoundingClientRect();
+    const gap = flow[i].getBoundingClientRect().top - previous.bottom;
+    if (gap > window.innerHeight * 0.4) {
+      composition.gaps.push({ after: selectorFor(flow[i - 1]), height: Math.round(gap) });
+    }
+  }
+
+  /* Two pixels out. A near miss is the tell: things a long way apart were put
+     there, things two pixels apart were meant to line up and do not. */
+  for (const parent of Array.from(document.querySelectorAll("body *")).slice(0, 400)) {
+    if (composition.misaligned.length >= 3) break;
+    const kids = Array.from(parent.children).filter((el) => {
+      const style = getComputedStyle(el);
+      if (style.position === "absolute" || style.position === "fixed") return false;
+      const box = el.getBoundingClientRect();
+      return box.width > 40 && box.height > 8;
+    });
+    for (let i = 1; i < kids.length; i += 1) {
+      const a = kids[i - 1].getBoundingClientRect();
+      const b = kids[i].getBoundingClientRect();
+      /* Stacked, not side by side: two things in a row have nothing to say
+         about each other's left edge. */
+      if (b.top < a.bottom - 2) continue;
+      const off = Math.abs(a.left - b.left);
+      if (off >= 2 && off <= 8) {
+        composition.misaligned.push({ a: selectorFor(kids[i - 1]), b: selectorFor(kids[i]), by: Math.round(off) });
+        break;
+      }
+    }
+  }
+
+  /* How the type wraps, which is only knowable once it has. */
+  const lineBoxes = (el) => {
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+    } catch (error) {
+      return [];
+    }
+  };
+
+  for (const el of Array.from(document.querySelectorAll("h1, h2, h3"))) {
+    if (composition.typography.length >= 3) break;
+    if ((el.textContent || "").trim().length < 12) continue;
+    const rects = lineBoxes(el);
+    if (rects.length < 2) continue;
+    const widths = rects.map((rect) => rect.width);
+    const widest = Math.max.apply(null, widths);
+    if (widest > 0 && widths[widths.length - 1] / widest < 0.18) {
+      composition.typography.push({ selector: selectorFor(el), problem: "wraps to leave one stranded word on its last line" });
+    }
+  }
+
+  for (const el of Array.from(document.querySelectorAll("p"))) {
+    if (composition.typography.length >= 6) break;
+    if ((el.textContent || "").trim().length < 200) continue;
+    const box = el.getBoundingClientRect();
+    if (box.width === 0) continue;
+    /* Half the font size per character is the usual approximation for a
+       proportional face, and it is close enough to tell 70 from 120. */
+    const characters = Math.round(box.width / ((parseFloat(getComputedStyle(el).fontSize) || 16) * 0.5));
+    if (characters > 100) {
+      composition.typography.push({ selector: selectorFor(el), problem: "is set to about " + characters + " characters a line" });
+    }
+  }
+
   return {
     scrollWidth: Math.round(document.documentElement.scrollWidth),
     clientWidth: Math.round(docWidth),
@@ -245,6 +468,7 @@ export const MEASURE_SCRIPT = `(() => {
     collisions,
     formProblems,
     emptySections,
+    composition,
     bodyHeight: Math.round(document.body ? document.body.scrollHeight : 0),
   };
 })()`;

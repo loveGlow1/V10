@@ -161,6 +161,55 @@ Do not replace them with different numbers, do not soften them into "hundreds of
         verifiable: true,
       };
 
+    /* ── Framing ────────────────────────────────────────────────────────
+     *
+     * These are the ones §EDIT INTELLIGENCE is about, and each instruction
+     * names the ONE declaration to change and forbids everything else — a
+     * cropped hero has been answered by rebuilding the hero, by adding margin
+     * to the section and by shrinking the header, and none of those is what is
+     * wrong with it. */
+    case "composition/subject-cropped":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message}
+
+Change the framing of that one picture and nothing else. Do NOT change the height of the hero, the layout of the section, the header, or any other element. The whole fix is on the <img>: its object-fit, its object-position, or the aspect-ratio of its own box.`,
+        verifiable: true,
+      };
+
+    case "composition/stretched":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message}
+
+Change only that image's object-fit — to \`cover\` with an object-position that keeps the subject, or to \`contain\`. Never leave a photograph on \`fill\`. Change nothing else on the page.`,
+        verifiable: true,
+      };
+
+    case "composition/header-collision":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message}
+
+The smallest fix, in this order: give the element under the header enough top padding to clear it, or — if it is a picture — move its subject down by lowering its object-position's second value. Keep the header exactly as it is, keep the hero's height exactly as it is, and do not add margin to the page or the section.`,
+        verifiable: true,
+      };
+
+    case "composition/uncompiled-focal":
+      return {
+        rule: issue.rule,
+        instruction:
+          "Some images declare a framing in data-focal or data-fit that never became CSS, so it does nothing. Give each of those <img> tags the matching declarations in its own style attribute — `object-fit` from data-fit and `object-position` from data-focal, the same values — and change nothing else about them.",
+        verifiable: true,
+      };
+
+    case "composition/edge-contact":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message} Add the gutter on the container that holds the text, not on the text itself, and leave the rest of the layout alone.`,
+        verifiable: true,
+      };
+
     case "visual/table-overflow":
       return {
         rule: issue.rule,

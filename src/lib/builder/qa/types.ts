@@ -8,16 +8,23 @@
  * empty issue lists and must never be reported identically.
  */
 
-/* Six, and the sixth is not like the others.
+/* Seven, and two of them are not like the others.
  *
  * visual, responsive, functional, accessibility and design all ask whether the
  * page works. `content` asks whether it is TRUE — whether the figures on it
  * were supplied by the person whose name is on the site, or chosen by a model
  * because a stat block looked empty. A page can pass every other gate and still
- * be publishing invented revenue. See evidence.ts. */
+ * be publishing invented revenue. See evidence.ts.
+ *
+ * `composition` asks whether anybody PLACED it. Not whether the page fits —
+ * that is `responsive` — but whether the subject of the hero is whole, whether
+ * the header is sitting on the headline, whether the space between two sections
+ * is a decision or a hole. Every one of those passes the other six gates, and
+ * every one of them is what somebody sees first. See composition.ts. */
 export const GATES = [
   "visual",
   "responsive",
+  "composition",
   "functional",
   "accessibility",
   "design",
@@ -58,6 +65,7 @@ export type QaResult = {
   status: "passed" | "failed" | "incomplete";
   visual: GateResult;
   responsive: GateResult;
+  composition: GateResult;
   functional: GateResult;
   accessibility: GateResult;
   design: GateResult;
@@ -97,6 +105,7 @@ export function summarise(
     status: failed ? "failed" : missing.length > 0 ? "incomplete" : "passed",
     visual: gates.visual,
     responsive: gates.responsive,
+    composition: gates.composition,
     functional: gates.functional,
     accessibility: gates.accessibility,
     design: gates.design,

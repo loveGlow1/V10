@@ -41,6 +41,7 @@ import { KIND_LABEL } from "./kinds";
    interface and the rules about who may do what. */
 export const EDIT_KINDS = [
   "visual",
+  "framing",
   "content",
   "component",
   "page",
@@ -61,6 +62,7 @@ export type EditKind = (typeof EDIT_KINDS)[number];
 
 export const EDIT_LABEL: Record<EditKind, string> = {
   visual: "a look",
+  framing: "how a picture is framed",
   content: "some words",
   component: "a component",
   page: "a page",
@@ -105,6 +107,20 @@ const ASPECTS: { kind: EditKind; match: RegExp }[] = [
   {
     kind: "responsive",
     match: /\b(mobile|phone|tablet|responsive|small screen|breakpoint|on my phone|doesn't fit|overflow)\b/i,
+  },
+  /* Where the SUBJECT of a picture sits, which is not the same request as
+     "make it smaller" and was being read as one.
+   *
+     Held above design_system and below responsive so that a message about both
+     a picture and the whole site's palette is read as the palette. The pattern
+     is deliberately narrow: it has to name a picture, or use vocabulary that is
+     only ever about one — a message that merely contains "down" is somebody
+     moving a section. Everything it declines still reaches the ordinary visual
+     path, which is where it went before this existed. */
+  {
+    kind: "framing",
+    match:
+      /\b(?:crop(?:ped|ping|s)?|uncrop|focal point|object[- ]position|framing|framed|zoom(?:ed)?[ -](?:in|out))\b|\b(?:image|images|photo|photos|photograph|picture|pictures|hero image|hero photo|banner|thumbnail)\b[^.]{0,48}\b(?:down|up|lower|higher|left|right|bigger|smaller|position|reposition|moved?|moving|scaled?|cut ?off|chopped|clipped)\b|\b(?:move|bring|shift|nudge|push|pull|drop|raise|lift|reposition|cut ?off|chopped|clipped)\b[^.]{0,48}\b(?:image|photo|photograph|picture|banner|hero|logo)\b/i,
   },
   {
     kind: "design_system",
@@ -404,6 +420,23 @@ export function editPlanBrief(
       "",
       `DO NOT TOUCH: ${plan.protect.join(", ")}.`,
       "These already work. Nothing in this request is about them, and changing them to answer it would break something nobody asked you to change.",
+    );
+  }
+
+  /* The one kind whose smallest change is smaller than "the smallest change".
+   *
+   * A framing request has exactly one correct target — the <img> — and every
+   * plausible-looking alternative is wrong: adding margin to the section moves
+   * the whole page, shrinking the hero changes the layout, and shortening the
+   * header breaks the navigation. Each of those has been shipped as an answer
+   * to "bring the cake down". */
+  if (plan.kind === "framing") {
+    lines.push(
+      "",
+      "THIS IS A FRAMING CHANGE, so the whole edit is on one <img>:",
+      "- Change its object-fit, its object-position, or its transform — and its data-fit / data-focal / data-zoom attributes to match, where it has them.",
+      "- object-position moves the picture behind a window rather than the subject in front of one, so it runs backwards: the subject moves DOWN when the second value gets SMALLER.",
+      "- Do not change the hero's height, the section's padding, the header, or anything else on the page to compensate.",
     );
   }
 

@@ -584,6 +584,239 @@ console.log("\nThe mechanical repairs");
   else pass("width: 100vw becomes 100%");
 }
 
+/* ── Composition ──────────────────────────────────────────────────────────
+ *
+ * The gate that asks whether anybody PLACED the page, rather than whether it
+ * fits. Its static half is exercised here in full; its rendered half is driven
+ * through a stub renderer, because what it measures is arithmetic over two
+ * aspect ratios and a header's rectangle rather than Chromium's opinion — so it
+ * can and should be checked offline like everything else.
+ */
+
+console.log("\nComposition — where the subject sits");
+
+/* A hero declared the way the build prompt asks for one. */
+const FRAMED =
+  '<img data-shot="single scoop cone against a pale wall" data-ratio="16/9" data-weight="hero" ' +
+  'data-fit="cover" data-focal="50% 38%" alt="A single scoop cone" ' +
+  'style="width:100%;aspect-ratio:16/9;object-fit:cover;object-position:50% 38%">';
+
+const COMPOSITION_RULES = [
+  {
+    rule: "composition/uncompiled-focal",
+    /* Declared and never compiled: the attribute is there, the declaration is
+       not, and the framing therefore does nothing at all. */
+    bad: CLEAN.replace(
+      "<h1>A title</h1>",
+      '<h1>A title</h1><img data-shot="a cone" data-weight="hero" data-focal="50% 30%" alt="A cone" style="width:100%;aspect-ratio:16/9">',
+    ),
+    good: CLEAN.replace("<h1>A title</h1>", `<h1>A title</h1>${FRAMED}`),
+  },
+  {
+    rule: "composition/unframed-hero",
+    bad: CLEAN.replace(
+      "<h1>A title</h1>",
+      '<h1>A title</h1><img data-shot="a cone" data-ratio="16/9" data-weight="hero" alt="A cone" style="width:100%;aspect-ratio:16/9;object-fit:cover">',
+    ),
+    good: CLEAN.replace("<h1>A title</h1>", `<h1>A title</h1>${FRAMED}`),
+  },
+  {
+    rule: "composition/no-frame-shape",
+    bad: CLEAN.replace(
+      "<h1>A title</h1>",
+      '<h1>A title</h1><img data-shot="a cone" data-weight="thumb" alt="A cone" style="width:100%">',
+    ),
+    good: CLEAN.replace("<h1>A title</h1>", `<h1>A title</h1>${FRAMED}`),
+  },
+];
+
+for (const entry of COMPOSITION_RULES) {
+  const onBad = await qa.runQa({ html: entry.bad, manifest: manifest(), design: CRAFT });
+  const onGood = await qa.runQa({ html: entry.good, manifest: manifest(), design: CRAFT });
+
+  const firedOnBad = qa.allIssues(onBad).some((issue) => issue.rule === entry.rule);
+  const firedOnGood = qa.allIssues(onGood).some((issue) => issue.rule === entry.rule);
+
+  if (!firedOnBad) fail(entry.rule, "did not fire on a page that has the defect");
+  else if (firedOnGood) fail(entry.rule, "fired on a page that does not have the defect");
+  else pass(entry.rule);
+}
+
+{
+  /* The static half must run everywhere, browser or not. It is the only gate
+     of the four rendered-adjacent ones that can, and if it silently reported
+     itself not run the whole gate would be decoration in the pipeline. */
+  const anywhere = await qa.runQa({ html: CLEAN, manifest: manifest(), design: CRAFT });
+  if (!anywhere.composition.ran) fail("composition", "did not run without a browser, where its static half can");
+  else pass("the composition gate runs on every build, browser or not");
+
+  /* And the mechanical compile: a declared focal point becomes a declaration
+     before anything judges the page, so the error above never reaches a
+     customer. */
+  const declared = CLEAN.replace(
+    "<h1>A title</h1>",
+    '<h1>A title</h1><img data-shot="a cone" data-weight="hero" data-fit="cover" data-focal="50% 30%" alt="A cone" style="width:100%;aspect-ratio:16/9">',
+  );
+  const compiled = qa.autofix(declared);
+  if (!/object-position:\s*50% 30%/.test(compiled.html)) {
+    fail("autofix", "did not compile a declared focal point into object-position");
+  } else if (!/object-fit:\s*cover/.test(compiled.html)) {
+    fail("autofix", "did not compile a declared fit into object-fit");
+  } else {
+    const after = await qa.runQa({ html: compiled.html, manifest: manifest(), design: CRAFT });
+    const left = qa.allIssues(after).filter((issue) => issue.rule === "composition/uncompiled-focal");
+    if (left.length > 0) fail("autofix", "the compiled page still reports an uncompiled focal point");
+    else pass("a declared focal point is compiled into CSS before anything judges the page");
+  }
+
+  /* Twice is once. The framing compile runs on every build and on every edit,
+     so a step that rewrote the tag differently each time would churn the
+     document forever. */
+  const again = qa.autofix(compiled.html);
+  if (again.html !== compiled.html) fail("autofix", "compiling the framing twice changed the page again");
+  else pass("compiling the framing twice changes nothing");
+
+  /* And a page with no framing attributes anywhere must come out of it byte
+     for byte the same apart from the guards — the rule the whole file obeys. */
+  const untouched = qa.autofix(CLEAN);
+  if (/data-focal|object-position/.test(untouched.html)) {
+    fail("autofix", "invented a framing for a page that had never declared one");
+  } else pass("a page that declared no framing is given none");
+}
+
+console.log("\nComposition — what the render measures");
+
+/* A renderer that reports exactly what it is told to. The rendered gates are
+   driven from measurements rather than from a browser here, for the same
+   reason the responsive ones are: what is being checked is this repository's
+   arithmetic, not Chromium's layout engine. */
+const measuring = (composition) => async (html, viewport) => ({
+  viewport: viewport.name,
+  scrollWidth: viewport.width,
+  clientWidth: viewport.width,
+  overflowing: [],
+  brokenImages: [],
+  clipped: [],
+  smallTargets: [],
+  imageOverflow: [],
+  collisions: [],
+  formProblems: [],
+  emptySections: [],
+  bodyHeight: 2400,
+  composition: { ...qa.NO_COMPOSITION, ...composition },
+});
+
+const MEASURED = [
+  {
+    rule: "composition/subject-cropped",
+    severity: "error",
+    composition: { crops: [{ selector: "img.hero", fit: "cover", kept: 42, boxRatio: 1.78, sourceRatio: 0.75 }] },
+  },
+  {
+    rule: "composition/stretched",
+    severity: "error",
+    composition: { crops: [{ selector: "img.hero", fit: "fill", kept: 60, boxRatio: 1.78, sourceRatio: 0.75 }] },
+  },
+  {
+    rule: "composition/header-collision",
+    severity: "error",
+    composition: { headerOver: [{ selector: "h1", what: "text", covered: 22, headerHeight: 72 }] },
+  },
+  {
+    rule: "composition/edge-contact",
+    severity: "warning",
+    composition: { edgeContact: [{ selector: "p.lead", gap: 2 }] },
+  },
+  {
+    rule: "composition/whitespace",
+    severity: "warning",
+    composition: { gaps: [{ after: "section.hero", height: 640 }] },
+  },
+  {
+    rule: "composition/misaligned",
+    severity: "warning",
+    composition: { misaligned: [{ a: "div.card", b: "div.card", by: 3 }] },
+  },
+  {
+    rule: "composition/type-wrapping",
+    severity: "warning",
+    composition: { typography: [{ selector: "h1", problem: "wraps to leave one stranded word on its last line" }] },
+  },
+];
+
+for (const entry of MEASURED) {
+  const measured = await qa.runQa({
+    html: CLEAN,
+    manifest: manifest(),
+    design: CRAFT,
+    render: measuring(entry.composition),
+  });
+
+  const found = qa.allIssues(measured).filter((issue) => issue.rule === entry.rule);
+  if (found.length === 0) {
+    fail(entry.rule, "was measured and produced no finding");
+    continue;
+  }
+  if (found[0].severity !== entry.severity) {
+    fail(entry.rule, `reported ${found[0].severity} where it should be ${entry.severity}`);
+    continue;
+  }
+  /* Six viewports, one defect. A finding repeated per viewport buries the five
+     other things wrong with the page. */
+  if (found.length !== 1) {
+    fail(entry.rule, `one defect produced ${found.length} findings, one per viewport`);
+    continue;
+  }
+  pass(`${entry.rule} (${entry.severity}, reported once across six viewports)`);
+}
+
+{
+  /* And a clean composition produces nothing at all, which is the half that
+     decides whether anybody keeps the gate switched on. */
+  const clean = await qa.runQa({
+    html: CLEAN.replace("<h1>A title</h1>", `<h1>A title</h1>${FRAMED}`),
+    manifest: manifest(),
+    design: CRAFT,
+    render: measuring({}),
+  });
+  const noise = clean.composition.issues.filter((issue) => issue.severity === "error");
+  if (noise.length > 0) fail("composition", `fired on a well-composed page: ${noise.map((i) => i.rule).join(", ")}`);
+  else pass("a well-composed page produces no composition errors");
+
+  /* A renderer that measures nothing about the composition — an older one, or
+     one from another repository — must leave the rendered half unreported
+     rather than crashing the gate or reporting an empty pass. */
+  const old = async (html, viewport) => ({
+    viewport: viewport.name,
+    scrollWidth: viewport.width,
+    clientWidth: viewport.width,
+    overflowing: [],
+    brokenImages: [],
+    clipped: [],
+    smallTargets: [],
+    imageOverflow: [],
+    collisions: [],
+    formProblems: [],
+    emptySections: [],
+    bodyHeight: 2400,
+  });
+  const legacy = await qa.runQa({ html: CLEAN, manifest: manifest(), design: CRAFT, render: old });
+  if (!legacy.composition.ran) fail("composition", "a renderer with no composition block took the whole gate down");
+  else pass("a renderer that measures no composition leaves the static half reporting on its own");
+
+  /* Each of the two errors has a repair, and each repair says what not to
+     touch — a cropped hero answered by rebuilding the hero is the failure this
+     whole area exists to stop. */
+  const repairs = qa.repairsFor([
+    { gate: "composition", severity: "error", rule: "composition/subject-cropped", message: "cropped", where: "img.hero" },
+    { gate: "composition", severity: "error", rule: "composition/header-collision", message: "covered", where: "h1" },
+  ]);
+  if (repairs.length !== 2) fail("repairs", `the two composition errors produced ${repairs.length} repairs`);
+  else if (!repairs.every((repair) => /do not|nothing else|keep the/i.test(repair.instruction))) {
+    fail("repairs", "a composition repair does not bound what it may change");
+  } else pass("both composition errors repair to a bounded, single-element change");
+}
+
 /* ── Contrast is one implementation (§7) ──────────────────────────────────*/
 
 console.log("\nContrast");
@@ -600,9 +833,15 @@ console.log("\nContrast");
      checker — the same numbers have to come out of both, which is the point of
      there being one implementation. */
   const bad = SYSTEMS.filter((system) => {
-    const result = qa.allIssues(
-      { accessibility: { issues: [] }, visual: { issues: [] }, responsive: { issues: [] }, functional: { issues: [] }, design: { issues: [] }, content: { issues: [] } },
-    );
+    const result = qa.allIssues({
+      accessibility: { issues: [] },
+      visual: { issues: [] },
+      responsive: { issues: [] },
+      composition: { issues: [] },
+      functional: { issues: [] },
+      design: { issues: [] },
+      content: { issues: [] },
+    });
     return result.length > 0;
   });
   if (bad.length > 0) fail("palettes", "a shipped system fails its own contrast gate");
