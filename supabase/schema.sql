@@ -914,6 +914,13 @@ $$;
 -- no reason for any browser role to hold it.
 revoke all on function public.spend_credits_for(uuid, text, numeric, text, uuid, integer, integer)
   from public, anon, authenticated;
+-- Granted back to the one role that calls it. The revoke above takes away the
+-- EXECUTE that PUBLIC holds on every new function by default, and service_role
+-- has no privileges of its own to fall back on — without this line the server's
+-- own charge is refused, which is the same shape of bug as leaving it open,
+-- pointing the other way. charge_credits above is granted the same way.
+grant execute on function public.spend_credits_for(uuid, text, numeric, text, uuid, integer, integer)
+  to service_role;
 
 -- The session-scoped wrapper. No grant is made here, deliberately: this file is
 -- run on deployments whose application may still be charging through it, and a
