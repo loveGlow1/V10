@@ -383,9 +383,11 @@ that is gated on every enabled node having a credential attached.
      verified to hold `projects` with all six build columns, and the credit
      RPCs the app calls: `charge_credits` for work already delivered (the build
      charge in `/api/builder/webapp/save`, and edits and questions in
-     `/api/build`), `spend_credits_for` for a charge that must be refused when
-     the pool cannot cover it (`/api/credits/spend`, which is how publishing is
-     paid for), and `ensure_credit_balance` behind both.
+     `/api/build`), and `ensure_credit_balance` behind it. Publishing is charged
+     the same way, in `/api/publish` — not through `/api/credits/spend`, which
+     this file used to claim and which has no caller at all. `spend_credits_for`
+     exists for a charge that must be refused when the pool cannot cover it, and
+     nothing routes through it today.
 
      None of those three is called from this workflow, and none is reachable
      with this credential by accident: they are named here only so that the one
