@@ -837,11 +837,32 @@ export async function POST(request: Request) {
      when the workflow did not send a request id. */
   const landedAt = new Date().toISOString();
 
+  /* What kind of thing this is — and NOT "webapp", which is what was written
+     here for every build regardless of what had been asked for.
+     
+     The kind is decided in /api/build, written to this row before the
+     orchestrator is called, and written again by the workflow's Sync Project
+     Row. Both were correct. This line then overwrote them the moment a build
+     succeeded, so every finished landing page, store and blog was labelled a
+     web app while every FAILED build kept its real kind — the failures never
+     reach this route. All seventeen Built rows on the live instance say
+     "webapp"; not one of them was necessarily one.
+     
+     It is read from the architecture manifest, which carries the kind the
+     prompt was actually composed from and is validated by isBuildKind on the
+     way in. When the manifest is absent — an older build, mid-deploy — the
+     column is left alone rather than filled with architectureFor's "webapp"
+     default, because that default is a scaffolding choice and not a statement
+     about what somebody asked for. A value already written twice, correctly,
+     does not need a third guess on top of it. */
+  const sentArchitectureType = (body.architecture as { type?: unknown } | undefined)?.type;
+  const builtKind = isBuildKind(sentArchitectureType) ? sentArchitectureType : null;
+
   const { error: updateError } = await supabase
     .from("projects")
     .update({
       status: "Built",
-      intent: "webapp",
+      ...(builtKind ? { intent: builtKind } : {}),
       preview_url: previewUrl,
       last_build_at: landedAt,
     })
