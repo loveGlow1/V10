@@ -109,9 +109,17 @@ const COMMERCE_PLATFORM = /\b(stripe|shopify|woo ?commerce|paypal|square|gumroad
    people mean by "a WordPress site" is, nine times in ten, a content site with
    posts and categories, and the blueprint for one says so in WordPress's own
    vocabulary. A WooCommerce brief is caught by COMMERCE_FUNCTION above and
-   goes where it belongs, which is the store. */
+   goes where it belongs, which is the store.
+
+   "editorial" is NOT here on its own, and that is the whole of a bug this once
+   caused. It is design vocabulary at least as often as publishing vocabulary —
+   "premium editorial photography", "an editorial layout", "editorial spacing"
+   all describe how a page LOOKS. A bakery brief asking for cinematic lighting
+   and "premium editorial photography" scored blog 4, landing 0, and was built
+   from the publishing blueprint: posts, categories, an archive, for a bakery.
+   Only the phrases that can mean nothing else are matched. */
 const PUBLISHING =
-  /\b(blog|wordpress|word ?press|wp|cms|content site|magazine|publication|newsletter site|news site|editorial|journal|articles?|posts?|essays?|writing site|substack|ghost|medium[- ]style|zine)\b/i;
+  /\b(blog|wordpress|word ?press|wp|cms|content site|magazine|publication|newsletter site|news site|editorial (calendar|team|board|staff|schedule|workflow)|journal|articles?|posts?|essays?|writing site|substack|ghost|medium[- ]style|zine)\b/i;
 
 /* A NEWS publication rather than a blog, which PUBLISHING alone cannot tell
    apart — "news site" and "magazine" are in there, and both match a personal
