@@ -117,7 +117,15 @@ type Message = ThreadMessage & {
 /* How long the "your preview is ready" pill stays up after a build lands. */
 const PREVIEW_READY_MS = 6_000;
 
-type ComposerMode = "auto" | "edit" | "new_project" | "question";
+/* What the next message is taken to mean, when somebody says outright.
+   
+   "new_project" is deliberately NOT one of these. Replacing the page in a
+   project is still a thing that happens — the classifier reads "actually build
+   me a shop instead" and asks before doing it — but it is not something a chip
+   arms in advance, because a chip labelled "New project" that silently means
+   "overwrite this one" is the label lying about the action. Starting a new
+   project is a button that goes to Home. */
+type ComposerMode = "auto" | "edit" | "question";
 
 export default function ChatPanel({
   project,
@@ -1255,12 +1263,6 @@ export default function ChatPanel({
                 title: "Change this page. The next message is read as an edit.",
               },
               {
-                id: "new_project" as const,
-                label: "New project",
-                icon: Plus,
-                title: "Build something new. You are asked before this page goes.",
-              },
-              {
                 id: "question" as const,
                 label: "Ask a question",
                 icon: HelpCircle,
@@ -1287,6 +1289,35 @@ export default function ChatPanel({
                 </button>
               );
             })}
+
+            {/* A different app entirely, started from nothing.
+                
+                This used to be a MODE, and it meant the opposite of what it
+                said: pressing it armed the next message to REPLACE this page,
+                in this project, in this conversation. Someone who wanted to
+                build a second thing pressed "New project", described the second
+                thing, and watched the first one be overwritten — with a
+                confirmation in the way, but a confirmation about a thing they
+                had not asked for and would not have expected to be asked about.
+                
+                It is an action now, and it goes to Home: an empty composer, no
+                project, no thread, nothing carried over. The project row is
+                created when they send, not when they press this, so a change of
+                mind leaves nothing behind — which matters, because half the
+                rows in the projects table are drafts nobody ever built.
+                
+                Nothing is lost by leaving. This workspace stays in the tab
+                strip, which is session-backed, so the app being worked on is one
+                press away for as long as the sitting lasts. */}
+            <button
+              type="button"
+              title="Start something new, from an empty page."
+              onClick={() => router.push("/dashboard")}
+              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0 text-muted" />
+              New project
+            </button>
 
             {/* Another app in this session — the list of them is a page now, so
                 this goes there rather than growing a second switcher in here. */}
@@ -1339,11 +1370,9 @@ export default function ChatPanel({
             than the row is to the composer, because it belongs to the row. */}
         {hasPage && !pendingConfirm && mode !== "auto" && (
           <p className="mt-2 px-1 text-[11.5px] text-muted">
-            {mode === "new_project"
-              ? "The next message replaces this page."
-              : mode === "question"
-                ? "The next message is a question, not a change."
-                : "The next message edits this page."}
+            {mode === "question"
+              ? "The next message is a question, not a change."
+              : "The next message edits this page."}
           </p>
         )}
         </div>
