@@ -32,13 +32,16 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
 
   return (
     <section className="relative w-full overflow-hidden px-4 pb-20 pt-16 text-center md:px-6 md:pb-28 md:pt-24">
-      {/* The pool on the floor: what the band is standing in, cast from just
-          under the button and fading out well before the edges of the section.
-          Wide and shallow, because a light source above a floor makes an
-          ellipse rather than a circle. */}
+      {/* The floor, in two layers, because a reflection and a glow are not the
+          same thing and one gradient cannot be both.
+       *
+          THE SPILL is the light that fills the room: wide, shallow, dim, and
+          low enough that it surrounds what is below rather than washing over
+          it. On its own it reads as fog — which is what this band had, and why
+          nothing in it looked like a reflection. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-1/2 h-[300px] w-[min(820px,120vw)] -translate-x-1/2 translate-y-[30%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.34),rgba(52,245,160,0.10)_38%,transparent_68%)] blur-[10px]"
+        className="pointer-events-none absolute bottom-0 left-1/2 h-[320px] w-[min(980px,130vw)] -translate-x-1/2 translate-y-[34%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.26),rgba(52,245,160,0.09)_42%,transparent_70%)] blur-[16px]"
       />
 
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
@@ -109,6 +112,21 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
             Keep Building
             <ArrowRight className="h-[18px] w-[18px] shrink-0 transition-transform group-hover:translate-x-0.5" />
           </button>
+
+          {/* THE REFLECTION: the button's own rim, bounced off the floor.
+           *
+              Narrow, wider than the button, brightest at its centre and gone by
+              its ends — and separated from the button by a band of dark. That
+              gap is the whole effect: light touching the thing that casts it is
+              a glow, and light with room between them is a reflection. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-full h-[22px] w-[460px] -translate-x-1/2 translate-y-[40px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(140,255,215,0.62),rgba(52,245,160,0.30)_45%,transparent_72%)] blur-[8px]"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-full h-[6px] w-[230px] -translate-x-1/2 translate-y-[48px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.8),transparent)] blur-[4px]"
+          />
         </div>
       </div>
     </section>
