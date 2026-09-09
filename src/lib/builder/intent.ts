@@ -222,10 +222,129 @@ export function bestGuess(message: string, hasPage: boolean): Intent {
   return leader;
 }
 
-/** The cheap deterministic pass. Null when genuinely ambiguous. */
-export function heuristicIntent(message: string, hasPage: boolean): IntentResult | null {
+/* What a person asked for BESIDES the undo.
+ *
+ * "undo that and make the header taller" is classified as a revert, and that is
+ * the right call: the undo has to happen first, and applying the edit to the
+ * version being thrown away would be exactly wrong. But the second half of
+ * their sentence then disappears without a word, which is the part that is not
+ * right — they watch the page come back, the header stays as it was, and
+ * nothing ever said why.
+ *
+ * So it is read back out and handed to them. Not performed: doing both in one
+ * turn would charge for a change somebody may well not want once they see the
+ * old page again, and the whole reason revert wins is that it is the only order
+ * that cannot be wrong.
+ *
+ * Null when the message was only an undo, which is most of them. Deliberately
+ * conservative — a missed remainder costs a sentence that would have been
+ * helpful, and a false one puts words in somebody's mouth. */
+/* What joins the undo to the instruction after it, one link at a time.
+ *
+ * Stripped in a loop rather than by one match, because people stack them:
+ * "roll back AND ALSO can you…", "revert that, THEN…". A single pass leaves
+ * the second word in place and hands back "then add a contact form", which
+ * reads back as though the joining word were part of what they asked for. */
+const REVERT_JOIN = /^\s*(?:and|then|also|plus|next|after that|,)\s*/i;
+
+/* Politeness, which is not the instruction. Stripped after the joins, since it
+   is what usually sits between them and the verb. */
+const REVERT_PLEASE = /^\s*(?:can you|could you|would you|will you|please)\s+/i;
+
+/* Words that stand in for the instruction instead of being one. "undo that and
+   do it" ends here: two words, both pro-forms, nothing anybody could act on —
+   and reading it back would be this system saying "you also asked to do it". */
+const PRO_FORMS = new Set(["do", "it", "that", "this", "them", "again", "too", "please"]);
+
+/* What a person asked for BESIDES the undo.
+ *
+ * "undo that and make the header taller" is classified as a revert, and that is
+ * the right call: the undo has to happen first, and applying the edit to the
+ * version being thrown away would be exactly wrong. But the second half of
+ * their sentence then disappears without a word, which is the part that is not
+ * right — they watch the page come back, the header stays as it was, and
+ * nothing ever said why.
+ *
+ * So it is read back out and handed to them. Not performed: doing both in one
+ * turn would charge for a change somebody may well not want once they see the
+ * old page again, and the whole reason revert wins is that it is the only order
+ * that cannot be wrong.
+ *
+ * Null when the message was only an undo, which is most of them. Deliberately
+ * conservative in both directions, and the false positive is the worse one: a
+ * missed remainder costs a sentence that would have helped, while an invented
+ * one puts words in somebody's mouth and reads as a misunderstanding. */
+export function remainderAfterRevert(message: string): string | null {
   const m = message.trim();
-  if (!m) return null;
+
+  /* Only where the undo OPENS the message. "I undid it earlier, now make the
+     header taller" is not an undo carrying an instruction — it is an edit with
+     a story attached, and the classifier reads it that way too. */
+  const lead = m.match(REVERT_LEADS);
+  if (!lead) return null;
+
+  let rest = m.slice(lead[0].length);
+
+  /* The object of the undo, where it named one: "undo THAT and…", "revert THE
+     LAST CHANGE and…". Dropped so what is left is the new instruction rather
+     than the tail of the old one. */
+  rest = rest.replace(
+    /^\s*(that|it|this|the last (change|thing|edit|one)|the previous (change|edit|version))\b/i,
+    "",
+  );
+
+  /* At least one join, then as many more as they stacked. Requiring the first
+     is what keeps this conservative: without it, the leftovers of any sentence
+     starting with "undo" would be read as a fresh instruction. */
+  if (!REVERT_JOIN.test(rest)) return null;
+  while (REVERT_JOIN.test(rest)) rest = rest.replace(REVERT_JOIN, "");
+
+  const remainder = rest.replace(REVERT_PLEASE, "").trim().replace(/[.!?\s]+$/, "");
+  const words = remainder.split(/\s+/).filter(Boolean);
+
+  /* Two words at minimum, and at least one of them has to carry meaning. */
+  if (words.length < 2) return null;
+  if (words.every((word) => PRO_FORMS.has(word.toLowerCase()))) return null;
+
+  return remainder;
+}
+
+/** The cheap deterministic pass. Null when genuinely ambiguous. */
+export function heuristicIntent(
+  message: string,
+  hasPage: boolean,
+  /* Whether a file came with the message. It is a routing signal in its own
+     right and used to be invisible here — see the block below. */
+  hasAttachment = false,
+): IntentResult | null {
+  const m = message.trim();
+
+  /* A file arrived. That is an instruction on its own.
+   *
+   * Attaching something is deliberate in a way typing is not: nobody picks a
+   * photograph off their phone by accident. So a message that comes with one is
+   * a message about doing something with it, and against a page that already
+   * exists there is one thing that means — put it in, or change the page to
+   * match it. Both are edits.
+   *
+   * This is decided before the words are weighed, because the words are the
+   * part that goes missing. "use this", "this one", "here" and an empty box
+   * with a picture in it are all ordinary ways to send a file, and every one of
+   * them scores nothing: the message went to the model to be puzzled over, came
+   * back "clarify", and somebody who had just handed over exactly what they
+   * wanted was asked which section they meant.
+   *
+   * A question keeps its own path — "does this look right?" with a screenshot
+   * attached is still a question — and with nothing built yet a file is part of
+   * the opening brief, which the rule below already answers. */
+  if (hasAttachment && hasPage && m.length > 0) {
+    const asking = ENDS_QUESTION.test(m) || WH_LEADS.test(m) || ASK_LEADS.test(m);
+    if (!asking) return { intent: "edit", confidence: 0.85, source: "heuristic" };
+  }
+
+  /* An empty message with a file attached is the shortest way to say "use
+     this", and it is the one shape where there is nothing at all to read. */
+  if (!m) return hasAttachment && hasPage ? { intent: "edit", confidence: 0.8, source: "heuristic" } : null;
 
   /* Nothing built yet, so there is nothing to edit and nothing to lose:
      anything actionable is the first build. Asked before the weighing, because
@@ -285,12 +404,14 @@ export async function classifyIntent(opts: {
   hasPage: boolean;
   history: { from: string; text: string }[];
   override?: Intent | null;
+  /** Whether a file was attached to this message. See heuristicIntent. */
+  hasAttachment?: boolean;
 }): Promise<IntentResult> {
   if (opts.override) {
     return { intent: opts.override, confidence: 1, source: "override" };
   }
 
-  const quick = heuristicIntent(opts.message, opts.hasPage);
+  const quick = heuristicIntent(opts.message, opts.hasPage, opts.hasAttachment);
   if (quick) return quick;
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -311,6 +432,12 @@ export async function classifyIntent(opts: {
           role: "user",
           content: `Recent conversation:\n${
             opts.history.map((h) => `${h.from}: ${h.text}`).join("\n") || "(none)"
+          }${
+            /* Said to the model as well as decided before it. The rules above
+               catch the plain shapes; this is for the ones that reach here, and
+               it is the difference between "does this work?" with a screenshot
+               attached and the same words with nothing behind them. */
+            opts.hasAttachment ? "\n\n(A file is attached to this message.)" : ""
           }\n\nMessage: ${opts.message}`,
         },
       ],

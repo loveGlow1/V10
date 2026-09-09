@@ -8,12 +8,10 @@ import {
   Check,
   ChevronDown,
   Clock,
-  Download,
   Eye,
   ExternalLink,
   GitFork,
   Github,
-  HelpCircle,
   MicOff,
   Paperclip,
   Plus,
@@ -24,9 +22,22 @@ import {
   X,
 } from "lucide-react";
 
-import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "../../models";
+import { modelAllowedOnPlan, planRequiredFor } from "../../credits";
+import {
+  DEFAULT_MODEL,
+  UNAVAILABLE_LABEL,
+  groupedModels,
+  isModelAvailable,
+  modelById,
+  shortModelName,
+  providerOf,
+} from "../../models";
+import { useCredits } from "../../useCredits";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
+/* The same naming Home uses when a sentence becomes an app, so an app started
+   from in here is named the way an app started out there is. */
+import { nameFromPrompt } from "../../projectName";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
@@ -117,15 +128,7 @@ type Message = ThreadMessage & {
 /* How long the "your preview is ready" pill stays up after a build lands. */
 const PREVIEW_READY_MS = 6_000;
 
-/* What the next message is taken to mean, when somebody says outright.
-   
-   "new_project" is deliberately NOT one of these. Replacing the page in a
-   project is still a thing that happens — the classifier reads "actually build
-   me a shop instead" and asks before doing it — but it is not something a chip
-   arms in advance, because a chip labelled "New project" that silently means
-   "overwrite this one" is the label lying about the action. Starting a new
-   project is a button that goes to Home. */
-type ComposerMode = "auto" | "edit" | "question";
+type ComposerMode = "auto" | "edit" | "new_project";
 
 export default function ChatPanel({
   project,
@@ -190,6 +193,18 @@ export default function ChatPanel({
   const [pendingKind, setPendingKind] = useState<
     { text: string; options: { kind: BuildKind; label: string; blurb: string }[] } | null
   >(null);
+  /* And the same question one level up: a site people look at, or software
+     they sign into. Asked only when the brief did not say, because the two are
+     different artefacts rather than two settings — getting it wrong is a build
+     spent on a scaffold nobody asked for, and it is only discoverable by
+     looking at what came back. See lib/builder/stack.ts. */
+  const [pendingStack, setPendingStack] = useState<
+    {
+      text: string;
+      kind?: BuildKind;
+      options: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+    } | null
+  >(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -197,10 +212,28 @@ export default function ChatPanel({
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
+
+  /* The reply as it is being written.
+   *
+   * Held here rather than pushed into the thread a piece at a time, because a
+   * message in the thread is a record of something that was said and this is
+   * not finished being said yet. It is cleared the moment the real message
+   * lands, and the two never coexist — the stored one is the authority, and
+   * what was watched arriving is a preview of it.
+   *
+   * A run that fails partway leaves text here that never became a message;
+   * clearing on every run start rather than only on success is what stops the
+   * previous attempt's half-answer appearing under the next one. */
+  const [streamed, setStreamed] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
   const [building, setBuilding] = useState(false);
+  /* The run in flight, so the send button can end it.
+   *
+   * A ref rather than state: it is written and read inside the same handler,
+   * and a stop that arrives a tick after the press is a stop that misses. */
+  const running = useRef<AbortController | null>(null);
   /* Whether the builder is taking work, and what to say if not.
      
      Asked rather than assumed, and asked of the server rather than baked in at
@@ -524,6 +557,26 @@ export default function ChatPanel({
     };
   }
 
+  /* Why a build failed, in the words of whatever failed it.
+   *
+   * /api/builder/webapp/save writes a build_failed message as it refuses a
+   * document — unfinished, too large, unstorable — and that message is the only
+   * account of the reason anywhere: the project row holds a status and nothing
+   * more. Read back rather than polled for, once, at the moment the wait ends.
+   *
+   * Bounded to this run, with a minute of slack: the timestamp comes from the
+   * database's clock and the start from this machine's, and a failure from last
+   * week's build is not an explanation of this one.
+   */
+  async function storedFailure(projectId: string, runStarted: number): Promise<string | null> {
+    const thread = await loadThread(projectId);
+    for (let index = thread.length - 1; index >= 0; index -= 1) {
+      const message = thread[index];
+      if (message.kind === "build_failed" && message.at >= runStarted - 60_000) return message.text;
+    }
+    return null;
+  }
+
   /* The wait for a page that is being generated somewhere else.
    *
    * Shared by the two ways of arriving at one: sending a message, and opening a
@@ -535,14 +588,52 @@ export default function ChatPanel({
    * `since` is the build to wait past: the row stamps last_build_at when the
    * page lands, so anything at or before this belongs to a previous build.
    */
-  async function awaitPage(runStarted: number, since: number, detail: string) {
+  async function awaitPage(runStarted: number, since: number, detail: string, signal?: AbortSignal) {
     if (!project) return;
 
     /* Set rather than queued. The pace exists to spread a burst; this is one
        row, and the next thing that happens to it is minutes away. */
     phases.set({ id: "generate", label: "Generating the page", detail, state: "running" });
 
-    const finished = await watchBuild(project.id, since);
+    /* Said again on every poll, so a long wait reads as something happening
+       rather than as one frozen line. Both halves are real: the elapsed time is
+       measured, and the status is whatever the orchestrator last wrote to the
+       row. Nothing is invented — a checklist advancing on a timer would claim
+       work nobody can see happening, which is the fake this replaced. */
+    const finished = await watchBuild(project.id, since, (row, elapsedMs) => {
+      const seconds = Math.round(elapsedMs / 1000);
+      const clock = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+
+      phases.set({
+        id: "generate",
+        label: "Generating the page",
+        detail:
+          row?.status === "Building"
+            ? `the builder is working on it — ${clock} so far…`
+            : `waiting for the page — ${clock} so far…`,
+        state: "running",
+      });
+    }, signal);
+
+    /* Stopped by hand. The build is still running — nothing here reaches the
+       orchestrator — so this says exactly that and says nothing about how it
+       will turn out. The preview arrives on its own; the panel refetches on the
+       build stamp. */
+    if (signal?.aborted) {
+      phases.set({ id: "generate", label: "Still building", state: "running" });
+      say(
+        {
+          from: "system",
+          text: "Stopped waiting. The build carries on without this screen — the preview appears here when it lands.",
+        },
+        undefined,
+        /* True of this wait, not of this build: keeping it would leave a
+           conversation saying somebody gave up, next to the page it delivered. */
+        "session",
+      );
+      return;
+    }
+
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
@@ -595,28 +686,51 @@ export default function ChatPanel({
       phases.set({ id: "generate", label: "The build did not finish", state: "done" });
       /* The build came back and said so. Generation happens after the reply,
          so a failure there cannot travel in the response — it is written to
-         the row instead, which is the same row this was waiting on. */
-      say({
-        from: "system",
-        text: "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
-        tone: "error",
-      });
+         the row instead, which is the same row this was waiting on.
+
+         The row carries a status and nothing else, so the sentence below is a
+         guess at why, worded to cover the likeliest reason. Where the save step
+         knew the actual reason it wrote it into the thread as it failed — that
+         one is read back and said instead, because "the page came out longer
+         than one build allows" is something a person can act on and "it didn't
+         finish" is not. */
+      const reason = await storedFailure(project.id, runStarted);
+      say(
+        {
+          from: "system",
+          text:
+            reason ??
+            "The build didn't finish, so the page is unchanged. Worth trying again — or describing a smaller page, since a very large one can run past what a single build allows.",
+          tone: "error",
+        },
+        undefined,
+        /* Already in the table when it came from there; saying it again would
+           put it in the thread twice. */
+        reason ? "server" : "panel",
+      );
     } else {
       /* Left running rather than ticked: the wait gave up, the build did
          not. Marking it done would say this panel knows an outcome it does
          not have. */
       phases.set({
         id: "generate",
-        label: "Still generating when the wait gave up",
+        label: "Still building",
         state: "running",
       });
       say(
         {
           from: "system",
-          /* Not "it failed": nothing here knows that. The build may still
-             land, and the workspace will show it when it does — so it is not
-             marked as a problem either. */
-          text: "This one is taking longer than usual. I've stopped waiting on it, but it may still finish — the preview appears here if it does.",
+          /* Not "it failed", because nothing here knows that — and not "I've
+             stopped waiting on it" either, which was the old wording and the
+             worst sentence in the product: it told somebody who had waited
+             twenty-five minutes that the thing they were waiting for was now
+             their own problem to go and check.
+           *
+             What is actually true is that the build is still going and the
+             preview arrives on its own. Since the panel now refetches on the
+             build stamp rather than on the URL, that is a promise this can
+             keep. */
+          text: "This one's taking a while — still building. You don't need to wait here or reload; the preview appears the moment it lands.",
         },
         undefined,
         /* True of this wait, not of this build. Keeping it would leave a
@@ -654,6 +768,55 @@ export default function ChatPanel({
     }
   }
 
+  /* Somewhere else to build, rather than over the top of this.
+   *
+   * "New project" used to mean this project, with its page replaced and the
+   * conversation carrying on underneath — a new app in an old chat, next to the
+   * messages about the app it had just written over. There was a confirmation
+   * in front of it because it destroyed something, which is the tell: the only
+   * reason to ask was that the answer could not be undone.
+   *
+   * A new project is a new conversation. It gets its own row, its own thread and
+   * its own address, the current page is left exactly where it is, and there is
+   * nothing to confirm because nothing is lost. The prompt rides in the URL the
+   * way it does from Home, so the new workspace opens and sends it — see
+   * initialPrompt.
+   */
+  const startingProject = useRef(false);
+
+  async function startNewProject(text: string) {
+    if (!text.trim() || startingProject.current) return;
+    startingProject.current = true;
+
+    /* Attachments belong to the project they were uploaded against — the server
+       matches both ids before it reads a byte — so they cannot follow the
+       message into a different one. Said plainly rather than dropped: a
+       screenshot that quietly did not arrive is a build that ignored it for no
+       reason anybody can see. */
+    if (attached.length > 0) {
+      say({
+        from: "system",
+        text: `Starting a new app. ${attached.length === 1 ? "The file you attached stays" : "The files you attached stay"} with this one — attach ${attached.length === 1 ? "it" : "them"} again over there.`,
+      }, undefined, "session");
+    }
+
+    const created = await create(nameFromPrompt(text));
+    if (!created) {
+      startingProject.current = false;
+      say({
+        from: "system",
+        text: "I couldn't open a new app just now. Nothing here has changed — try again in a moment.",
+        tone: "error",
+      });
+      return;
+    }
+
+    /* Deliberately still held: the push takes this panel off screen, and
+       releasing the guard in the gap before it lands is the window a second
+       press slips through. */
+    router.push(`/dashboard/project/${created.id}?prompt=${encodeURIComponent(text)}`);
+  }
+
   async function send(
     prompt?: string,
     options: {
@@ -661,16 +824,46 @@ export default function ChatPanel({
       confirmNewProject?: boolean;
       silent?: boolean;
       buildKind?: BuildKind | null;
+      /* The answer to "a site, or software" — see pendingStack. */
+      stack?: "standalone-html" | "nextjs";
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
-    if (!text || !project || building) return;
+    /* A file with nothing typed is a message: dragging in a logo and pressing
+       send is how people hand something over, and the words they leave out are
+       supplied by the route. Everything else still needs words. */
+    if ((!text && attached.length === 0) || !project || building) return;
     /* Belt as well as braces. The send button is already disabled and the
        banner is already up; this is here so a keyboard shortcut, a stale tab or
        a resend behind a confirmation cannot slip past them into a spinner. The
        server refuses it too — this only saves the round trip. */
     if (paused) return;
+
+    /* Asked for outright, by the chip. It never reaches the server as a message
+       about THIS project, because it is not one — see startNewProject. */
+    if ((options.intentOverride ?? mode) === "new_project" && !options.silent) {
+      /* A file on its own can start a change here, and cannot start an app
+         elsewhere: the attachment belongs to this project and does not follow
+         the message out of it. So this is the one send that still needs words,
+         and it says so instead of quietly doing nothing. */
+      if (!text) {
+        say({
+          from: "system",
+          text: "Say what the new app should be. A file on its own can't start one — it stays with this app.",
+        }, undefined, "session");
+        return;
+      }
+      if (prompt === undefined) setDraft("");
+      await startNewProject(text);
+      return;
+    }
+
     sentHere.current = true;
+
+    /* One controller for the whole run — the request and the wait that follows
+       it are the same press of the button as far as anybody is concerned. */
+    const run = new AbortController();
+    running.current = run;
 
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
@@ -728,12 +921,17 @@ export default function ChatPanel({
          as this machine measured it, which is the one number here the server
          could not have told us. */
       let picked = false;
+      setStreamed("");
 
       const reply = await build(project.id, text, {
         intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
+        /* The answer to which of the two things to build, when one was given.
+           Absent means the server reads it from the brief — see stack.ts — and
+           asks if the brief did not say. */
+        stack: options.stack ?? null,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -743,12 +941,23 @@ export default function ChatPanel({
            completing it, and setPhase merges by id — so a row that says
            "Changing the page" becomes the same row saying how many changes
            landed and what it took, rather than a second line below it. */
+        /* Appended, never replaced: the server sends what was written since
+           the last line, so the cost over the wire is the length of the answer
+           rather than the square of it. */
+        signal: run.signal,
+        onText: (delta) => setStreamed((current) => current + delta),
         onStep: (step) => {
           if (!picked) {
             picked = true;
             phases.show({
               id: "send",
-              label: "Sent your message",
+              /* Received, not sent. "Sent" is this app's own point of view —
+                 a request leaving for somewhere — and it invites the question
+                 of where, which nobody using this needs to think about. There
+                 is an orchestrator behind the wall and it is not the reader's
+                 business. What they want to know is that the message arrived
+                 and something is working on it. */
+              label: "Message received",
               state: "done",
               ms: Date.now() - runStarted,
             });
@@ -798,6 +1007,15 @@ export default function ChatPanel({
       if (reply.needsKind && reply.kindOptions) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingKind({ text, options: reply.kindOptions });
+        setAttached(sent);
+        return;
+      }
+
+      /* Nothing has run and nothing has been charged — this is asked before
+         the asset resolver, which is the first thing here that costs money. */
+      if (reply.needsStack && reply.stackOptions) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingStack({ text, kind: reply.buildKind, options: reply.stackOptions });
         setAttached(sent);
         return;
       }
@@ -889,15 +1107,48 @@ export default function ChatPanel({
          message said the preview link updates as it finishes, and this is what
          makes that true without a reload. */
       if (outcome.status === "Building") {
-        await awaitPage(runStarted, startedAt, "This runs in the orchestrator and takes as long as it takes…");
+        await awaitPage(
+          runStarted,
+          startedAt,
+          "This runs in the orchestrator and takes as long as it takes…",
+          run.signal,
+        );
       }
     } catch (error) {
-      say({ from: "system", text: (error as Error).message, tone: "error" });
-      /* The text comes from wherever it was thrown, so the wording lives with
-         the throw — see src/lib/builder/edit.ts and the route. */
+      /* Stopped by hand, which is not a failure and must not be dressed as one.
+         An aborted fetch throws like anything else, and the browser's word for
+         it — "Load failed", "The user aborted a request" — is the last thing
+         somebody who just pressed stop needs to read.
+       *
+         Said as what it is, and honestly: the request left, and whatever it
+         started is running where this screen cannot reach it. An edit finishes
+         inside the route; a build finishes in the orchestrator. Neither hears a
+         browser hang up. */
+      if (run.signal.aborted) {
+        say(
+          {
+            from: "system",
+            text: "Stopped. Anything already sent carries on — if it lands, it appears here.",
+          },
+          undefined,
+          "session",
+        );
+      } else {
+        say({ from: "system", text: (error as Error).message, tone: "error" });
+        /* The text comes from wherever it was thrown, so the wording lives with
+           the throw — see src/lib/builder/edit.ts and the route. */
+      }
     } finally {
+      /* Only if this run is still the one in flight: a stop that starts a new
+         message must not have its spinner cleared by the old run finishing. */
+      if (running.current === run) running.current = null;
       setBuilding(false);
       setRunStartedAt(null);
+      /* Cleared in the same batch that ends the run, so the preview and the
+         stored message swap in one commit rather than one frame apart. Two
+         setStates in the same handler are batched by React; separating them
+         would show the answer twice for a frame, or neither. */
+      setStreamed("");
       phases.reset();
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
@@ -966,6 +1217,9 @@ export default function ChatPanel({
     }
   }
 
+  /* The plan, for the picker: it greys what this account cannot reach and
+     names the tier that includes it. */
+  const { planId } = useCredits();
   const chosen = modelById(model);
 
   const control =
@@ -973,19 +1227,39 @@ export default function ChatPanel({
   const chip =
     "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
 
-  /* The action row's pill. The composer's own chip, squared off a little and
-     brought down a size: these sit in a block of six above the box rather than
-     one at a time inside it, and at full round with the composer's type they
-     read as six buttons shouting.
-
-     Each is the width of its own label — shrink-0 against the wrapping row, so
-     a pill keeps its natural size and the row breaks around it. A grid would
-     have made every pill as wide as the longest, which pads "Download" out to
-     the width of "Undo last change" and turns six labels into six identical
-     slabs. Ragged is the point: different words are different lengths, and the
-     eye finds a name faster in a line that admits it. */
+  /* The action row's pill.
+   *
+   * Built to sit under the composer rather than beside the toolbar chips, so it
+   * borrows the composer's language instead of the chip's: a soft-cornered
+   * surface, a hairline that is barely a line until you touch it, and the same
+   * unhurried 200ms everything else in this panel moves at. 14px against the
+   * composer's 26px — the same family of corner, a size down, which is what
+   * makes the two read as one object stacked rather than two components that
+   * happened to land together.
+   *
+   * 40px tall. 36 was a control; 40 is somewhere to put a thumb, and the four
+   * pills carry the whole of what can be done from here.
+   *
+   * The states are carried by fill and border rather than by brightness. An
+   * off chip is a surface at 3.5%, hover lifts it to 7% and adds the only
+   * shadow in the row, and a chosen one goes to the accent — which is the one
+   * moment in this panel worth spending the brand colour on, because "the next
+   * message will be read as an edit" is a mode somebody needs to see they are
+   * in from across the room.
+   *
+   * Each fills its half of the row, because the row is a two-column grid — see
+   * the block itself for why. min-w-0 and the truncate on the label are what
+   * keep that safe: a grid column can be narrower than the words in it, and
+   * without these the longest label would run out of its own pill in a narrow
+   * panel rather than shortening inside it. */
   const action_chip =
-    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12.5px] transition-all active:scale-[0.98]";
+    "group flex h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border px-3 text-[13px] font-medium transition-all duration-200 active:scale-[0.97] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30";
+
+  /* Untouched, and the state everything else is measured against: present
+     enough to read as a button, quiet enough that four of them are not the
+     loudest thing above the box you are meant to be typing in. */
+  const action_chip_rest =
+    "border-line/[0.06] bg-layer/[0.035] text-soft hover:-translate-y-px hover:border-line/[0.12] hover:bg-layer/[0.07] hover:text-ink hover:shadow-[0_4px_14px_rgba(0,0,0,0.28)]";
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
@@ -1129,8 +1403,34 @@ export default function ChatPanel({
                 QuickStark<span className="wordmark-ai">.Ai</span>
               </p>
             </div>
+            {/* The answer, as it is written.
+             *
+             * Above the tracker rather than below it: this is the thing that
+             * was asked for, and the operations that produced it are the
+             * footnote. Once it is finished the stored message takes its place
+             * in the thread and this disappears — they never both show, so
+             * nothing is read twice.
+             *
+             * The caret is a real cursor rather than a decoration: it marks
+             * where the next character goes, so a pause in the stream reads as
+             * a pause in the writing instead of as the connection dying. */}
+            {streamed && (
+              <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                {streamed}
+                <span
+                  aria-hidden
+                  className="ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.18em] bg-accent/70 motion-safe:animate-[qs-caret_1.1s_steps(1)_infinite]"
+                />
+              </p>
+            )}
+
             <div className="mt-2.5">
-              <BuildActivity running startedAt={runStartedAt} steps={phases.steps} />
+              <BuildActivity
+                running
+                startedAt={runStartedAt}
+                steps={phases.steps}
+                provider={providerOf(model)}
+              />
             </div>
           </div>
         )}
@@ -1213,21 +1513,48 @@ export default function ChatPanel({
         {/* What can be done from here, rather than one chip naming what is
             already happening.
 
-            Six actions in two groups. The first three set what the next message
-            means — they are a choice between each other, so pressing one lights
-            it and pressing it again hands the reading back to the classifier.
-            The last three happen on the press: they are not about the message
-            in the box at all.
+            Four actions in two groups. The first two set what the next
+            message means — they are a choice between each other, so pressing
+            one lights it and pressing it again hands the reading back to the
+            classifier. The last two happen on the press: they are not about the
+            message in the box at all.
+
+            Asking a question used to be a third override and is gone: the
+            classifier already reads a question as a question, so the chip only
+            ever restated what typing one said. The intent itself is untouched —
+            src/lib/builder/intent.ts still returns it, and the tracker still
+            names it.
+
+            Downloading used to be a sixth, and was removed as a duplicate: the
+            preview header carries the permanent one and the finished-build card
+            carries the shortcut, both pointing at the same
+            /preview/[projectId]?download=1. A third copy sitting here for the
+            life of the project bought nothing.
 
             Only once a page exists. Before that every message is the first
-            build, there is nothing to undo, download, or replace, and a row of
-            actions that mostly do not apply is worse than no row. It also
+            build, there is nothing to undo or replace, and a row of actions
+            that mostly do not apply is worse than no row. It also
             stands down entirely while the replace-or-edit question is up: that
             question is the one thing on this bar worth reading.
 
-            They wrap rather than sit in a grid: the row fills, breaks and fills
-            again, which puts as many as fit on each line whatever the screen is
-            and needs no column count guessed per breakpoint. */}
+            Two columns, and they are the two groups. Wrapping put them there
+            anyway at every width this panel is ever given — the four labels
+            come to 570px and the chat column is nowhere near that — but it put
+            them there by accident, and an accident is not a layout: the two
+            lines ended 111px and 51px short of the edge, at different points,
+            which is a block of four buttons with a torn right side and a
+            hundred pixels of nothing beside it.
+
+            So it is stated instead. Each pill fills its half, the pairs line
+            up, and the break falls where the meaning already breaks: the two
+            that set what the next message means on top, the two that happen on
+            the press underneath. The columns are what carry that grouping —
+            the same reason the labels are centred, since a centred label is
+            read as filling its cell and a left-aligned one as having run
+            short.
+
+            One column below 360px, where two would be narrower than the
+            longest label. */}
         {/* Said once, above the composer, before anybody writes anything.
             
             Not a toast and not a modal: a toast is gone by the time somebody
@@ -1254,7 +1581,7 @@ export default function ChatPanel({
            above it, and on a phone close enough to catch with the thumb on the
            way to typing. */
         <div className="mb-4">
-          <div className="flex flex-wrap gap-1.5 px-1">
+          <div className="grid grid-cols-1 gap-2 px-1 min-[360px]:grid-cols-2">
             {[
               {
                 id: "edit" as const,
@@ -1263,10 +1590,12 @@ export default function ChatPanel({
                 title: "Change this page. The next message is read as an edit.",
               },
               {
-                id: "question" as const,
-                label: "Ask a question",
-                icon: HelpCircle,
-                title: "Ask about this app without changing it.",
+                id: "new_project" as const,
+                label: "New project",
+                icon: Plus,
+                /* No "you are asked before this page goes", because it does
+                   not go. This opens a new workspace and leaves this one alone. */
+                title: "Build something new. It opens in its own workspace and leaves this app alone.",
               },
             ].map((action) => {
               const Icon = action.icon;
@@ -1280,44 +1609,19 @@ export default function ChatPanel({
                   onClick={() => setMode(on ? "auto" : action.id)}
                   className={`${action_chip} ${
                     on
-                      ? "border-line/[0.18] bg-layer/[0.09] text-ink"
-                      : "border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink"
+                      ? "border-accent/[0.38] bg-accent/[0.10] text-ink shadow-[0_4px_16px_rgba(0,0,0,0.30)]"
+                      : action_chip_rest
                   }`}
                 >
-                  <Icon className={`h-3.5 w-3.5 shrink-0 ${on ? "text-ink" : "text-muted"}`} />
-                  {action.label}
+                  <Icon
+                    className={`h-4 w-4 shrink-0 transition-colors ${
+                      on ? "text-accent" : "text-muted group-hover:text-soft"
+                    }`}
+                  />
+                  <span className="truncate">{action.label}</span>
                 </button>
               );
             })}
-
-            {/* A different app entirely, started from nothing.
-                
-                This used to be a MODE, and it meant the opposite of what it
-                said: pressing it armed the next message to REPLACE this page,
-                in this project, in this conversation. Someone who wanted to
-                build a second thing pressed "New project", described the second
-                thing, and watched the first one be overwritten — with a
-                confirmation in the way, but a confirmation about a thing they
-                had not asked for and would not have expected to be asked about.
-                
-                It is an action now, and it goes to Home: an empty composer, no
-                project, no thread, nothing carried over. The project row is
-                created when they send, not when they press this, so a change of
-                mind leaves nothing behind — which matters, because half the
-                rows in the projects table are drafts nobody ever built.
-                
-                Nothing is lost by leaving. This workspace stays in the tab
-                strip, which is session-backed, so the app being worked on is one
-                press away for as long as the sitting lasts. */}
-            <button
-              type="button"
-              title="Start something new, from an empty page."
-              onClick={() => router.push("/dashboard")}
-              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0 text-muted" />
-              New project
-            </button>
 
             {/* Another app in this session — the list of them is a page now, so
                 this goes there rather than growing a second switcher in here. */}
@@ -1325,10 +1629,10 @@ export default function ChatPanel({
               type="button"
               title="Open another one of your apps."
               onClick={() => router.push("/dashboard/projects")}
-              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
+              className={`${action_chip} ${action_chip_rest}`}
             >
-              <Repeat2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              Replace this app
+              <Repeat2 className="h-4 w-4 shrink-0 text-muted transition-colors group-hover:text-soft" />
+              <span className="truncate">Replace this app</span>
             </button>
 
             {/* Sent as a message rather than done behind the scenes, so the
@@ -1340,29 +1644,11 @@ export default function ChatPanel({
               title="Undo the last change to this page."
               disabled={building}
               onClick={() => void send("Undo the last change.", { intentOverride: "revert" })}
-              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink disabled:pointer-events-none disabled:opacity-40`}
+              className={`${action_chip} ${action_chip_rest} disabled:pointer-events-none disabled:opacity-40`}
             >
-              <Undo2 className="h-3.5 w-3.5 shrink-0 text-muted" />
-              Undo last change
+              <Undo2 className="h-4 w-4 shrink-0 text-muted transition-colors group-hover:text-soft" />
+              <span className="truncate">Undo last change</span>
             </button>
-
-            {/* An anchor, not a button: the route answers with a
-                Content-Disposition, so the browser saves the file and this
-                conversation never navigates.
-
-                It points at the same /preview/[projectId]?download=1 the
-                preview header and the build card use, which is what keeps the
-                three of them honest — one route, one ownership check, one
-                compile-to-standalone on the way out. */}
-            <a
-              href={`/preview/${project?.id}?download=1`}
-              download
-              title="Save this page as a file."
-              className={`${action_chip} border-line/[0.07] bg-layer/[0.03] text-soft hover:border-line/[0.13] hover:bg-layer/[0.06] hover:text-ink`}
-            >
-              <Download className="h-3.5 w-3.5 shrink-0 text-muted" />
-              Download
-            </a>
           </div>
 
         {/* Said once, under the row, rather than on the chip that caused it —
@@ -1370,8 +1656,14 @@ export default function ChatPanel({
             than the row is to the composer, because it belongs to the row. */}
         {hasPage && !pendingConfirm && mode !== "auto" && (
           <p className="mt-2 px-1 text-[11.5px] text-muted">
-            {mode === "question"
-              ? "The next message is a question, not a change."
+            {mode === "new_project"
+              /* What actually happens, which is not what this said for a while.
+                 startNewProject() creates a SEPARATE project and opens it with
+                 this brief — this page is not touched, not replaced, and is
+                 still in the tab strip afterwards. The old wording described
+                 the behaviour this chip had before it was fixed, and a warning
+                 about losing work that cannot be lost is its own small harm. */
+              ? "The next message starts a new app, in its own workspace."
               : "The next message edits this page."}
           </p>
         )}
@@ -1410,9 +1702,46 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* The one question worth interrupting for. Nothing has happened yet,
-            and neither button is the quiet default: replacing a page someone
-            paid for is not something to fall into by pressing return. */}
+        {/* A site, or software. Two artefacts rather than two settings, which
+            is why this is a question and not a default: a scaffold is not a
+            landing page with the wrong colours, and the build that produced it
+            is already paid for by the time anybody can tell. */}
+        {pendingStack && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            {pendingStack.options.map((option) => (
+              <button
+                key={option.stack}
+                type="button"
+                title={option.blurb}
+                onClick={() => {
+                  const { text, kind } = pendingStack;
+                  setPendingStack(null);
+                  setMode("auto");
+                  void send(text, { stack: option.stack, buildKind: kind, silent: true });
+                }}
+                className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPendingStack(null)}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Which app this message is about — not what to destroy.
+         *
+            This used to offer "Replace this page", in the danger colour,
+            because that is what it did. Now the first answer opens a new app
+            and leaves this one alone, so nothing here is irreversible and
+            neither button needs a warning on it. The question survives because
+            it is still a real fork: the same sentence can mean "change this" or
+            "build me a different thing", and only the person knows which. */}
         {pendingConfirm && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
             <button
@@ -1421,11 +1750,11 @@ export default function ChatPanel({
                 const { text } = pendingConfirm;
                 setPendingConfirm(null);
                 setMode("auto");
-                void send(text, { confirmNewProject: true, intentOverride: "new_project", silent: true });
+                void startNewProject(text);
               }}
-              className="rounded-md border border-danger/40 px-2 py-1 text-danger transition-colors hover:bg-danger/10"
+              className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
             >
-              Replace this page
+              Build it as a new app
             </button>
             <button
               type="button"
@@ -1508,7 +1837,7 @@ export default function ChatPanel({
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  aria-label="Add photos or files"
+                  aria-label="Attach a screenshot"
                   className={control}
                 >
                   <Paperclip className="h-4 w-4 -rotate-45" />
@@ -1569,19 +1898,41 @@ export default function ChatPanel({
                 </button>
 
                 {/* Send sits in the bar's own material rather than shouting over
-                    it, and only lifts once there is something to send. */}
+                    it, and only lifts once there is something to send.
+                 *
+                    While a message is in flight it is the same button, turned
+                    into stop. The alternative — greying it out for the two to
+                    ten minutes a build takes — is the only control on the screen
+                    going dead at the one moment somebody most wants to change
+                    their mind, and it is what made people close the tab.
+                 *
+                    It stops the WAITING, not the work: see the abort handling in
+                    send(). Anything already sent finishes where it is running,
+                    and the panel says so rather than claiming a cancellation it
+                    cannot perform. */}
                 <button
-                  onClick={() => void send()}
-                  disabled={!draft.trim() || building || paused !== null}
-                  aria-label="Send"
+                  onClick={() => (building ? running.current?.abort() : void send())}
+                  disabled={building ? false : (!draft.trim() && attached.length === 0) || paused !== null}
+                  aria-label={building ? "Stop waiting" : "Send"}
                   className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
-                    draft.trim() && !building && !paused
+                    building
                       ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                      : "border-transparent bg-layer/[0.07] text-ink/30"
+                      : (draft.trim() || attached.length > 0) && !paused
+                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                        : "border-transparent bg-layer/[0.07] text-ink/30"
                   }`}
                 >
-                  <SendArrow className="h-4 w-4 md:hidden" />
-                  <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                  {building ? (
+                    /* A filled square, which is what every chat has trained
+                       people to read as "stop" — drawn rather than imported so
+                       it sits on the same optical centre as the arrows. */
+                    <span className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+                  ) : (
+                    <>
+                      <SendArrow className="h-4 w-4 md:hidden" />
+                      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -1642,17 +1993,37 @@ export default function ChatPanel({
                           )}
                           {group.models.map((option) => {
                             const selected = model === option.id;
+                            /* Shown either way, and for the same reason in
+                               both cases: a model that is greyed with a reason
+                               is information, and an absent one is not. One
+                               says "check back soon", the other names the plan
+                               that includes it — which is the only place in
+                               the product a person meets the difference
+                               between the tiers while actually wanting it. */
+                            const available = isModelAvailable(option);
+                            const needsPlan = modelAllowedOnPlan(option, planId)
+                              ? null
+                              : planRequiredFor(option);
+                            const ready = available && !needsPlan;
                             return (
                               <button
                                 key={option.id}
                                 role="menuitem"
+                                disabled={!ready}
+                                title={
+                                  needsPlan
+                                    ? `Included with the ${needsPlan.name} plan`
+                                    : available
+                                      ? undefined
+                                      : UNAVAILABLE_LABEL
+                                }
                                 onClick={() => {
                                   setModel(option.id);
                                   setModelOpen(false);
                                 }}
-                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
-                                  selected ? "bg-layer/[0.06]" : ""
-                                }`}
+                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
+                                  ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
+                                } ${selected ? "bg-layer/[0.06]" : ""}`}
                               >
                                 <span className="mt-0.5 shrink-0">
                                   <ProviderMark provider={option.provider} />
@@ -1667,9 +2038,19 @@ export default function ChatPanel({
                                     >
                                       {option.name}
                                     </span>
-                                    {option.badge && (
+                                    {option.badge && ready && (
                                       <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
                                         {option.badge}
+                                      </span>
+                                    )}
+                                    {!available && (
+                                      <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
+                                        {UNAVAILABLE_LABEL}
+                                      </span>
+                                    )}
+                                    {available && needsPlan && (
+                                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                                        {needsPlan.name}
                                       </span>
                                     )}
                                   </span>

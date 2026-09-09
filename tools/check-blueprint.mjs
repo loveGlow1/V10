@@ -84,9 +84,14 @@ try {
       const prefix = depth === 0 ? "./" : "../".repeat(depth);
       writeFileSync(
         path,
-        readFileSync(path, "utf8").replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) =>
-          `${quote}${prefix}${rest}.js${quote}`,
-        ),
+        readFileSync(path, "utf8")
+          .replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) => `${quote}${prefix}${rest}.js${quote}`)
+          /* Relative specifiers need the extension too. design.ts imports
+             ./qa/contrast for real — one contrast implementation, not two — and
+             node's ESM loader will not resolve it without the .js. */
+          .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (whole, before, specifier, after) =>
+            specifier.endsWith(".js") ? whole : `${before}${specifier}.js${after}`,
+          ),
       );
     }
   };
@@ -224,6 +229,10 @@ try {
     landing: ["cart", "checkout", "sign-in wall", "blog index", "admin dashboard"],
     ecommerce: ["sign-in wall", "admin dashboard", "inventory back office", "blog"],
     blog: ["pricing table", "pricing tiers", "cart", "checkout", "marketing hero"],
+    /* The one that matters for news is the first: a publication where every
+       story is the same size has not been edited, and that is the whole
+       distinction from a blog. The others are the usual bleed. */
+    news: ["equal cards", "marketing hero", "pricing", "cart", "dashboard"],
     webapp: ["marketing hero", "storefront", "fake dashboard"],
   };
 
@@ -375,7 +384,26 @@ try {
 
     if (own < 350) fail(`${kind}: the blueprint is ${own} words, which is too thin to be one`);
     else if (own > 1800) fail(`${kind}: the blueprint is ${own} words, which is more than one kind needs`);
-    else if (words > 4000) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
+    /* Raised from 4000 once, deliberately, when the responsive contract, the
+       evidence rule and the craft standard went into the shared tail. Those are
+       three things the build has to be told and could not be told inside the
+       old number.
+
+       And from 4400 a second time, for the framing contract — where the subject
+       of a photograph sits inside its own frame. The argument is the same shape
+       as the first one and the evidence is better: the alternative to those two
+       hundred and fifty words was five follow-up messages per build, each one a
+       credit, all of them saying "move it down" in different phrasings. A rule
+       that removes five round trips has earned its paragraph.
+
+       What the ceiling is actually protecting is attention, not context: six
+       thousand tokens of input is nothing to the model, but a rule buried in
+       its fortieth paragraph is a rule that gets half-followed. So it stays a
+       hard number and moving it stays an edit somebody has to argue for — the
+       two paragraphs above are those arguments, and the blueprint half is
+       untouched by both, because an individual kind doubling by accident is the
+       failure this really catches. */
+    else if (words > 4600) fail(`${kind}: the whole prompt is ${words} words, which crowds out the build`);
     else
       console.log(
         `ok   ${kind.padEnd(10)} ${String(own).padStart(4)} own + ${String(words - own).padStart(4)} shared · ${
@@ -384,6 +412,117 @@ try {
           blueprint.exclusions.length
         } excluded · min ${blueprint.depth.minimumSections}`,
       );
+  }
+
+  /* ── How much of the conversation travels with a message ─────────────────
+   *
+   * This used to assert that both ways in trimmed an over-long message to
+   * exactly the same 1,000 words: 700 characters per earlier turn for an edit
+   * and 400 of the carried description for a brand new page had been set months
+   * apart, and the person typing cannot see which path their sentence took, so
+   * from where they sat the builder remembered different amounts on different
+   * days.
+   *
+   * The edit side no longer trims by word count at all. What an edit carries is
+   * a TOKEN budget against the model's real window (see priorTurns and
+   * src/lib/context/budget.ts), which is the same promise made in the unit the
+   * model actually measures — a rule in words cannot be right for both a
+   * 200K-window model and a 1M one. So what is asserted here is the promise
+   * rather than the number: an ordinary long message is carried WHOLE, and one
+   * too big for the budget is reduced rather than dropped.
+   *
+   * The new-page side still trims the carried description to MAX_CONTEXT_WORDS,
+   * because that line sits inside a composed system prompt and is priced on the
+   * same figure (see carriedContextWords), and it is still measured rather than
+   * assumed: cutting a thousand words on a word boundary is real work, and an
+   * off-by-one there is a sentence ending mid-.
+   */
+  const { priorTurns, MAX_CONTEXT_WORDS, countWords } = await import(
+    join(out, "lib/builder/brief.js")
+  );
+  /* A word that cannot be confused with the quotes around it, repeated well
+     past the old ceiling. */
+  const LONG = Array(2000).fill("word").join(" ");
+
+  const edit = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }]);
+  const editCarried = countWords(String(edit[0]?.content ?? ""));
+
+  /* The same message against a budget far too small for it. It must come back
+     shorter and it must come back — silently dropping the only thing somebody
+     said is the failure the budget exists to prevent. */
+  const squeezed = priorTurns([{ from: "you", text: LONG }, { from: "system", text: "ok" }], 600);
+  const squeezedCarried = countWords(String(squeezed[0]?.content ?? ""));
+
+  const newPage = composeBuildPrompt("landing", "rebuild it", { carriedFrom: LONG });
+  const carriedLine = newPage
+    .split("\n")
+    .find((row) => row.includes("This continues an earlier description"));
+  const buildCarried = carriedLine ? countWords(carriedLine.match(/"((?:word ?)+)"/)?.[1] ?? "") : 0;
+
+  /* ── A staged build tells the model which stage it is ────────────────────
+   *
+   * The plan is decided in src/lib/context/decompose.ts and run by stages.ts,
+   * and neither of those can do anything unless the stage reaches the prompt.
+   * A build with no plan must be byte-identical to what it was before staging
+   * existed — nearly every build has no plan, and a stray line in all of them
+   * would be a change to every product this thing makes. */
+  const STAGE_BLOCK = "THIS BUILD IS STAGE 2 OF 5.";
+  const plain = composeBuildPrompt("ecommerce", "a shop for hats");
+  const staged = composeBuildPrompt("ecommerce", "a shop for hats", { stagePlan: STAGE_BLOCK });
+
+  if (plain.includes("STAGE")) {
+    fail("a build with no plan mentions stages anyway");
+  } else if (!staged.includes(STAGE_BLOCK)) {
+    fail("a staged build does not carry its stage into the prompt");
+  } else if (staged.replace(STAGE_BLOCK, "").replace(/─+\n\n\n/g, "").length < plain.length - 40) {
+    fail("adding a stage plan changed more of the prompt than the stage plan");
+  } else {
+    console.log("ok   stages     the stage reaches the prompt, and only when there is one");
+  }
+
+  /* ── A reference reaches the prompt as a specification ───────────────────
+   *
+   * The instruction this replaced was one sentence — "direction for the design
+   * or content to reproduce, whichever the brief implies" — about the single
+   * most specific thing anybody ever gives a builder. It is now a section, and
+   * the two things worth holding are that it appears when a picture was
+   * attached and that it is entirely absent when one was not: nearly every
+   * build has no attachment, and a stray paragraph in all of them would be a
+   * change to every product this makes.
+   */
+  const noReference = composeBuildPrompt("landing", "a shop for handmade ice cream");
+  const oneReference = composeBuildPrompt("landing", "a shop for handmade ice cream", { imageCount: 1 });
+  const twoReferences = composeBuildPrompt("landing", "a shop for handmade ice cream", { imageCount: 2 });
+
+  if (/read it as a specification/i.test(noReference)) {
+    fail("a build with no attachment carries the reference contract anyway");
+  } else if (!/read it as a specification/i.test(oneReference)) {
+    fail("a build with an attached picture does not carry the reference contract");
+  } else if (!/2 images were/.test(twoReferences)) {
+    fail("the reference contract does not count what was actually attached");
+  } else if (oneReference.indexOf("THE ATTACHED IMAGE") < oneReference.indexOf("THE BRIEF —")) {
+    fail("the reference contract sits above the brief, where it outranks what somebody typed");
+  } else {
+    /* What it has to name. These are the measurements a reference is read for,
+       and a version of this section that quietly lost half of them would still
+       read perfectly well — which is exactly why they are asserted. */
+    const missing = ["container", "grid", "focal", "header", "type scale", "object-position"].filter(
+      (word) => !oneReference.toLowerCase().includes(word.toLowerCase()),
+    );
+    if (missing.length > 0) fail(`the reference contract no longer names: ${missing.join(", ")}`);
+    else console.log("ok   reference  a picture arrives as a specification, and only when one arrives");
+  }
+
+  if (editCarried !== 2000) {
+    fail(`an edit carries ${editCarried} words of a 2000-word message, not all of it`);
+  } else if (squeezedCarried === 0 || squeezedCarried >= 2000) {
+    fail(`a message too big for the budget came back as ${squeezedCarried} words — it must be reduced, not dropped`);
+  } else if (buildCarried !== MAX_CONTEXT_WORDS) {
+    fail(`a new page carries ${buildCarried} words of context, not ${MAX_CONTEXT_WORDS}`);
+  } else {
+    console.log(
+      `ok   context    an edit carries all 2000 words on budget and ${squeezedCarried} when squeezed; a new page carries ${MAX_CONTEXT_WORDS}`,
+    );
   }
 
   if (failed > 0) {

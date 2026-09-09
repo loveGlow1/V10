@@ -44,6 +44,14 @@ export type ImageSlot = {
   /** "4/5", "16/9" — how it is cropped. */
   ratio: string;
   weight: SlotWeight;
+  /* Where the subject sits inside the frame, as the generator declared it —
+     "50% 32%", and empty where no decision was taken. The ratio above is the
+     shape of the BOX; this is which part of the picture that box keeps, and the
+     two are different questions that were being answered by one attribute. See
+     src/lib/builder/framing.ts, which compiles it into object-position. */
+  focal: string;
+  /** "cover" or "contain" — whether the subject may be cropped at all. */
+  fit: string;
 };
 
 /** What a provider gives back for one slot. */
@@ -56,8 +64,9 @@ export type Shot = {
 
 export type ImageProvider = {
   name: string;
-  /** Real pixels for one slot at roughly this width, or null if none was found. */
-  shotFor(slot: ImageSlot, width: number): Promise<Shot | null>;
+  /** Real pixels for one slot at roughly this width, or null if none was found.
+   *  `context` describes what was actually built — see fillImages. */
+  shotFor(slot: ImageSlot, width: number, context?: string): Promise<Shot | null>;
 };
 
 /* How wide a picture is asked for, by where it sits.
@@ -92,12 +101,15 @@ export function readSlots(html: string): ImageSlot[] {
       tag.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i"))?.[1] ?? "";
 
     const weight = attribute("data-weight").toLowerCase();
+    const fit = attribute("data-fit").trim().toLowerCase();
     slots.push({
       tag,
       shot: attribute("data-shot").trim(),
       alt: attribute("alt").trim(),
       ratio: attribute("data-ratio").trim() || "4/3",
       weight: weight === "hero" || weight === "feature" ? weight : "thumb",
+      focal: attribute("data-focal").trim(),
+      fit: fit === "contain" ? "contain" : "cover",
     });
   }
 
@@ -158,7 +170,7 @@ export type FillResult = {
 export async function fillImages(
   html: string,
   provider: ImageProvider | null,
-  options: { budget?: number; timeoutMs?: number } = {},
+  options: { budget?: number; timeoutMs?: number; context?: string } = {},
 ): Promise<FillResult> {
   const slots = readSlots(html);
   const credits: FillResult["credits"] = [];
@@ -191,7 +203,10 @@ export async function fillImages(
 
     let shot: Shot | null = null;
     try {
-      shot = await withTimeout(provider!.shotFor(slot, WIDTH[slot.weight]), timeoutMs);
+      shot = await withTimeout(
+        provider!.shotFor(slot, WIDTH[slot.weight], options.context),
+        timeoutMs,
+      );
     } catch {
       shot = null;
     }
@@ -242,4 +257,46 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
     work,
     new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
   ]);
+}
+
+/* A few words describing what was built, for the picture search.
+ *
+ * A brief is written to a model — "Build me an online shop for Adire wax print
+ * fabric in Lagos, I want it to feel modern" — and a stock search wants a noun
+ * phrase. So the instructions to the builder come out and what is left is the
+ * subject: who this is for and what they sell.
+ *
+ * Kept to a handful of words on purpose. Stock search degrades quickly as a
+ * query lengthens, and this is only ever APPENDED to a slot that was too
+ * generic on its own — so its job is to add the one distinguishing fact, not to
+ * restate the brief.
+ */
+const INSTRUCTION = new RegExp(
+  "\\b(" +
+    [
+      /* Told to the builder, not about the subject. */
+      "build|make|create|design|generate|want|need|please|can you|help",
+      /* The artefact, which is the category rather than the thing. */
+      "website|web ?site|site|page|app|application|online|store|shop|ecom+erce|blog|landing|platform|portal|news",
+      /* Grammar. Left in, a brief yields "for gym" — and "for" is in every
+         photograph ever taken. */
+      "with|that|which|and|the|an?|my|our|its?|for|in|on|at|of|to|from|about|me|us",
+      /* How it should feel, which is art direction rather than subject. */
+      "feel|feels|looks?|like|modern|clean|simple|nice|beautiful|professional|minimal|elegant|premium|fun",
+    ].join("|") +
+    ")\\b",
+  "gi",
+);
+
+export function searchContext(brief: string, words = 4): string {
+  const kept = brief
+    .replace(INSTRUCTION, " ")
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2);
+
+  /* First words rather than most frequent: a brief opens with what it is about
+     and trails off into how it should feel, and the opening is the half worth
+     searching for. */
+  return kept.slice(0, words).join(" ");
 }

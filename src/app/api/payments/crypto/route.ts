@@ -1,4 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
+
+import { createBtcPayInvoice, isBtcPayConfigured } from "@/lib/btcpay";
+import { RECONCILE_SERVICE, readHeartbeat } from "@/lib/heartbeat";
 
 import {
   CRYPTO_CURRENCIES,
@@ -171,10 +176,90 @@ export async function POST(request: Request) {
     CRYPTO_CURRENCIES[currency].decimals,
   );
 
-  const address = lightning ? wallet.lightningAddress! : wallet.address;
   const expiresAt = new Date(Date.now() + RATE_LOCK_MINUTES * 60_000).toISOString();
 
+  /* Generated here rather than by the database, because BTCPay has to be told
+     the order id while the invoice is being created and the row does not exist
+     yet. The insert below supplies it explicitly. */
+  const paymentId = randomUUID();
+
+  /* ── Where this order is actually paid ────────────────────────────────────
+
+     With BTCPay configured, the invoice owns the address AND the amount. Both
+     come back from it and are stored as given: asking someone for an amount
+     BTCPay is not watching for is a payment that arrives and never settles, so
+     there is exactly one authority on the figure and it is whoever is doing the
+     watching.
+
+     For any coin but on-chain BTC, and on any deployment with no BTCPay at
+     all, nothing changes: the static address, our own rate, and the
+     amount-nudging that makes a shared address workable. That fallback is the
+     reason this can ship before the BTCPay instance exists.
+
+     BTCPay being configured and failing is the interesting case, and the rule
+     is not "refuse" or "fall back" — it is whether ANYTHING IS WATCHING.
+
+     The danger was never the static address itself. It was writing an order
+     against an address nothing would notice a payment to: the invoice was the
+     only sensor, so losing it meant money arriving, settle_crypto_payment never
+     being called, and the order sitting open until a person happened to look.
+     Refusing was right while that was true.
+
+     It is not true any more. The reconciliation sweep reads the chain directly
+     and settles from it, needing no processor at all — so with the sweep alive,
+     the static address is watched and the fallback is safe. With the sweep dead
+     or never run, nothing is watching and refusing is right again.
+
+     So the heartbeat decides. That is the honest question and it is the only
+     one that matters: a customer who cannot pay for two minutes comes back; a
+     customer who pays and receives nothing does not. */
+  const wantsInvoice = currency === "btc" && !lightning && isBtcPayConfigured();
+
+  const invoice = wantsInvoice
+    ? await createBtcPayInvoice({
+        orderId: paymentId,
+        amountUsd,
+        expiryMinutes: RATE_LOCK_MINUTES,
+        receiptEmail,
+      })
+    : null;
+
+  if (wantsInvoice && !invoice) {
+    const sweep = await readHeartbeat(service, RECONCILE_SERVICE);
+
+    if (sweep.stale) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "crypto payments: BTCPay issued no invoice and the sweep is not running; refusing the order",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Bitcoin checkout is briefly unavailable. Try again in a few minutes, or pay in another currency.",
+          code: "invoicing_unavailable",
+        },
+        { status: 503 },
+      );
+    }
+
+    /* Watched by the sweep instead. Logged rather than passed over in silence:
+       the order is about to be taken on the older, slower path, and somebody
+       should be able to see from the logs that BTCPay was down when it was. */
+    // eslint-disable-next-line no-console
+    console.warn(
+      `crypto payments: BTCPay issued no invoice; falling back to the static address, `
+        + `watched by a sweep that last ran ${sweep.minutesAgo} minutes ago`,
+    );
+  }
+
+  const address = invoice
+    ? invoice.address
+    : lightning
+      ? wallet.lightningAddress!
+      : wallet.address;
+
   const row = {
+    id: paymentId,
     user_id: user.id,
     status: "awaiting_payment",
     purchase_kind: purchase.kind,
@@ -188,7 +273,11 @@ export async function POST(request: Request) {
     /* Only carried on chains that need one, and only from configuration —
        a payment sent to a tagged address without its tag is not credited. */
     destination_tag: lightning ? null : wallet.destinationTag,
-    rate_usd: rateUsd,
+    /* Which way the reconciler must read the chain for this order. An invoice
+       derives an address for this order alone; everything else lands on the
+       static address that every other order shares. See shared_address. */
+    shared_address: !invoice,
+    rate_usd: invoice && invoice.rateUsd > 0 ? invoice.rateUsd : rateUsd,
     receipt_email: receiptEmail,
     expires_at: expiresAt,
   };
@@ -203,8 +292,15 @@ export async function POST(request: Request) {
      A Lightning invoice needs none of this: it is issued per payment and
      carries its own identity. The loop still runs, finds no collision on the
      first attempt, and costs nothing. */
-  for (let attempt = 0; attempt < UNIQUE_AMOUNT_ATTEMPTS; attempt += 1) {
-    const attemptAmount = nudgeAmount(cryptoAmount, currency, attempt);
+  /* An invoice has its own address, so its amount is already unique — and must
+     not be touched, because BTCPay is watching for the exact figure it quoted.
+     Nudging is only for the shared-address case it replaces. */
+  const attempts = invoice ? 1 : UNIQUE_AMOUNT_ATTEMPTS;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const attemptAmount = invoice
+      ? invoice.cryptoAmount
+      : nudgeAmount(cryptoAmount, currency, attempt);
 
     const { data, error } = await service
       .from("crypto_payments")

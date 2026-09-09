@@ -92,6 +92,33 @@ export const webapp: Blueprint = {
         "the back end designed and written down: the SQL schema (tables, columns, types, primary and foreign keys, indexes, and row-level security policies in Postgres/Supabase form) in an HTML comment at the end of the document, alongside the endpoints",
     },
     {
+      /* The bridge, and the reason this blueprint can promise a back end at all.
+       *
+       * Everything above is a back end DESIGNED — declared tables, an api layer
+       * over them, the schema and endpoints written out. That is honest for
+       * anything the browser can actually do: reading, writing, filtering and
+       * validating against seeded data all genuinely work in one file.
+       *
+       * Some things cannot be done in one file by anybody. Taking a card
+       * payment, sending an email, calling somebody else's API with a secret,
+       * keeping data that is still there on another device tomorrow — these
+       * need a server, and no amount of client-side cleverness substitutes.
+       *
+       * The old failure was to draw them anyway: a Pay button that opens a
+       * success modal, an invite form that congratulates you on sending
+       * nothing. That is the "fake primary action" the whole product is
+       * supposed to be above, and a person only discovers it after trusting it.
+       *
+       * So the socket is built and left visibly unplugged. The control exists,
+       * in its right place, wired to the api layer, carrying exactly what it
+       * would send — and it answers, plainly, that this part connects to a
+       * back end that is not attached yet. That is a true statement about a
+       * real design, and it is the only kind of promise this can keep. */
+      when: "a workflow needs something a browser genuinely cannot do on its own — taking a payment, sending mail, calling a third-party API with a secret, or persisting data beyond this device",
+      require:
+        "the control built and placed where it belongs, wired into the api layer with the exact request it would make — and instead of a fake success, a plainly worded 'not connected yet' state naming what it is waiting for: 'Payments connect to a back end that isn't attached yet.' Every such point declares itself in a `backend` object at the top of the script — one entry per capability, saying what it needs, which endpoint stands in for it, and that it is pending — and those entries are listed in the endpoint comment at the end marked PENDING. Never a confirmation for something that did not happen",
+    },
+    {
       when: "the product is a calculator, converter, generator, editor, single-purpose AI tool or other lightweight utility",
       require:
         "NONE of the four requirements above. No sign-in, no tables, no api layer, no schema. Build the tool itself properly instead: the input, the work, the result, the history of what has been done in this session, and the states around all of it. Forcing a CRM's architecture onto a utility is the failure this rule exists to prevent",
@@ -107,6 +134,7 @@ export const webapp: Blueprint = {
   ],
 
   exclusions: [
+    "No fake success. A control that cannot really do its job says so; it never shows a confirmation for work that did not happen. A payment that 'succeeded' without a server is the one failure a person only finds out about after trusting it.",
     "No marketing hero, no feature grid, no testimonials, no pricing section inside the application. The first screen is the product (or its sign-in, when it has one).",
     "No storefront mechanics — cart, checkout, product grid — unless the brief explicitly asked for them.",
     "No fake dashboard widgets. A tile, chart or counter that does not read from something real in the page is worse than no tile.",

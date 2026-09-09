@@ -86,6 +86,16 @@ export async function recordAsset(asset: Asset): Promise<boolean> {
     tags: asset.tags ?? null,
     parent_asset_id: asset.parentAssetId ?? null,
     generation_version: asset.generationVersion ?? null,
+    /* The registry: what this picture is for, what it is of, how it was shot,
+       where it sits, and what picture it IS. See asset-registry.ts — without
+       these the table records that a project has eleven images and nothing
+       about whether they are its own. */
+    slot: asset.slot ?? null,
+    purpose: asset.purpose ?? null,
+    subject: asset.subject ?? null,
+    style: asset.style ?? null,
+    placement: asset.placement ?? null,
+    content_key: asset.contentKey ?? null,
     created_at: asset.createdAt,
   });
 
@@ -97,6 +107,36 @@ export async function recordAsset(asset: Asset): Promise<boolean> {
   return true;
 }
 
+/**
+ * Whether another project already holds this exact picture.
+ *
+ * One indexed lookup, asked only where the answer changes what happens: a
+ * generated image is made for one brief, paid for by one customer, and serving
+ * it to a second is serving somebody a competitor's photograph. Library and
+ * stock pictures are licensed to be used widely and are never asked about.
+ *
+ * False when there is no service client, which is the same answer as "nobody
+ * else has it" and is the right degradation: a deployment with no key builds
+ * pages, and a uniqueness check that cannot run must not block one.
+ */
+export async function claimedByAnotherProject(
+  contentKey: string,
+  projectId: string,
+): Promise<boolean> {
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) return false;
+
+  const { data, error } = await supabase
+    .from("project_assets")
+    .select("project_id")
+    .eq("content_key", contentKey)
+    .neq("project_id", projectId)
+    .limit(1);
+
+  if (error || !data) return false;
+  return data.length > 0;
+}
+
 /** Everything this project holds. The library reads reuse out of this. */
 export async function loadAssets(projectId: string): Promise<Asset[]> {
   const supabase = createSupabaseServiceClient();
@@ -105,7 +145,7 @@ export async function loadAssets(projectId: string): Promise<Asset[]> {
   const { data, error } = await supabase
     .from("project_assets")
     .select(
-      "id, project_id, type, source, status, url, thumbnail_url, width, height, format, quality, prompt, provider, alt_text, tags, parent_asset_id, generation_version, created_at",
+      "id, project_id, type, source, status, url, thumbnail_url, width, height, format, quality, prompt, provider, alt_text, tags, parent_asset_id, generation_version, slot, purpose, subject, style, placement, content_key, created_at",
     )
     .eq("project_id", projectId);
 
@@ -129,6 +169,12 @@ export async function loadAssets(projectId: string): Promise<Asset[]> {
     tags: (row.tags as string[]) ?? undefined,
     parentAssetId: (row.parent_asset_id as string) ?? undefined,
     generationVersion: (row.generation_version as number) ?? undefined,
+    slot: (row.slot as string) ?? undefined,
+    purpose: (row.purpose as string) ?? undefined,
+    subject: (row.subject as string) ?? undefined,
+    style: (row.style as string) ?? undefined,
+    placement: (row.placement as string) ?? undefined,
+    contentKey: (row.content_key as string) ?? undefined,
     createdAt: row.created_at as string,
   }));
 }

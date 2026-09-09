@@ -47,7 +47,7 @@ try {
     { stdio: ["ignore", "ignore", "inherit"] },
   );
 
-  const { heuristicIntent } = await import(join(out, "intent.js"));
+  const { heuristicIntent, remainderAfterRevert } = await import(join(out, "intent.js"));
 
   let failed = 0;
   let totalDeferred = 0;
@@ -91,6 +91,103 @@ try {
   console.log(
     `\n${totalCases} messages · ${failed} wrong · ${totalDeferred} handed to the router (${deferralRate}%)`,
   );
+
+  /* What a revert hands back.
+   *
+   * An undo carrying a second instruction is classified as a revert, and the
+   * second instruction is not performed — the undo has to happen first, and
+   * applying an edit to the version being discarded would be exactly wrong. So
+   * it is read back out and returned to the person instead of vanishing.
+   *
+   * Both directions matter and the false positive is the worse one: a missed
+   * remainder costs a sentence that would have helped, while an invented one
+   * puts words in somebody's mouth and reads as a misunderstanding. */
+  const REMAINDERS = [
+    ["undo that", null],
+    ["undo the last change", null],
+    ["revert", null],
+    ["put it back", null],
+    ["go back to the previous version", null],
+    ["undo that and make the header taller", "make the header taller"],
+    ["undo the last change and use a lighter blue", "use a lighter blue"],
+    ["revert that, then add a contact form", "add a contact form"],
+    ["roll back and also can you centre the logo", "centre the logo"],
+    /* Too short to act on. Repeating "do it" back would read as a misreading. */
+    ["undo that and do it", null],
+    /* Not an opening undo, so not this function's business — the classifier
+       reads it as an edit with a story attached. */
+    ["I undid it earlier, now make the header taller", null],
+  ];
+
+  let remainderWrong = 0;
+  for (const [message, want] of REMAINDERS) {
+    const got = remainderAfterRevert(message) ?? null;
+    if (got === want) continue;
+    remainderWrong += 1;
+    console.log(`FAIL  "${message}"\n        expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
+  }
+
+  console.log(
+    remainderWrong === 0
+      ? `${REMAINDERS.length} reverts hand back the right leftover instruction`
+      : `${remainderWrong} of ${REMAINDERS.length} remainders wrong`,
+  );
+
+  if (remainderWrong > 0) failed += remainderWrong;
+
+  /* ── A file is part of the message ───────────────────────────────────────
+   *
+   * Attaching something is deliberate — nobody picks a photograph off their
+   * phone by accident — so against a page that exists it means one thing: put
+   * this in, or make the page match it. Both are edits.
+   *
+   * The words are the part that goes missing. "use this", "this one", "here",
+   * and an empty box with a picture in it are all ordinary ways to send a file,
+   * and every one of them scores nothing on the rules above: they went to the
+   * router to be puzzled over and came back "clarify", so somebody who had just
+   * handed over exactly what they wanted was asked which section they meant.
+   *
+   * A question keeps its own path. "does this look right?" with a screenshot
+   * attached is still a question, and answering it with an edit would change a
+   * page nobody asked to change.
+   */
+  const ATTACHED = [
+    /* [message, expected intent with a file attached] */
+    ["use this", "edit"],
+    ["this one", "edit"],
+    ["here", "edit"],
+    ["", "edit"],
+    ["use this image", "edit"],
+    ["add this to the hero", "edit"],
+    ["our logo", "edit"],
+    ["match this", "edit"],
+    /* Still questions, file or no file. */
+    ["does this look right?", "question"],
+    ["what font is this?", "question"],
+  ];
+
+  let attachedWrong = 0;
+  for (const [message, want] of ATTACHED) {
+    const got = heuristicIntent(message, true, true)?.intent ?? null;
+    if (got === want) continue;
+    attachedWrong += 1;
+    console.log(`FAIL  with a file: ${JSON.stringify(message)}\n        expected ${want}, got ${got ?? "(handed to the router)"}`);
+  }
+
+  /* And the same words WITHOUT a file must not be dragged into an edit by this
+     rule — "here" on its own still means nothing. */
+  const bare = heuristicIntent("here", true, false)?.intent ?? null;
+  if (bare === "edit") {
+    attachedWrong += 1;
+    console.log('FAIL  "here" with no file attached is being read as an edit');
+  }
+
+  console.log(
+    attachedWrong === 0
+      ? `${ATTACHED.length} messages with a file attached route without asking what was meant`
+      : `${attachedWrong} of ${ATTACHED.length} attachment cases wrong`,
+  );
+  if (attachedWrong > 0) failed += attachedWrong;
 
   if (failed > 0) {
     console.log("\nA wrong answer means the rules changed meaning, not just coverage.");

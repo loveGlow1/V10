@@ -160,6 +160,21 @@ export type Asset = {
   /** Set when this asset is a variant or a regeneration of another. */
   parentAssetId?: string;
   generationVersion?: number;
+
+  /* ── The registry (§1) ──────────────────────────────────────────────────
+   * What this picture is for, what it is of, how it was shot and where it
+   * sits — recorded against the project, so "is this project's imagery its
+   * own" is a question with an answer. See asset-registry.ts.
+   *
+   * Optional because a row written before the registry existed has none of
+   * it, and an older row is not a broken one. */
+  slot?: string;
+  purpose?: string;
+  subject?: string;
+  style?: string;
+  placement?: string;
+  /** The identity of the PICTURE, stable across projects. */
+  contentKey?: string;
 };
 
 /** What the code generator is given, and all it is given. */

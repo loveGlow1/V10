@@ -58,8 +58,39 @@ create table if not exists public.project_assets (
   parent_asset_id uuid references public.project_assets(id) on delete set null,
   generation_version integer default 1,
 
+  /* ── The registry ──────────────────────────────────────────────────────
+
+     What this picture is FOR, what it is OF, how it was shot and where it
+     sits. Without these the table records that a project has eleven images
+     and nothing about whether they are its own — which is the question that
+     matters, because two customers who ask for a bakery are handed the same
+     brief, the same query and, until this existed, the same photograph.
+
+     content_key is the identity of the PICTURE rather than of the row: a
+     library path, a stock provider's photo id, the fingerprint of a generation
+     spec. Two rows with one content_key are the same photograph in two places,
+     and that is a fact worth being able to ask about across projects.
+
+     See src/lib/builder/assets/asset-registry.ts. */
+  slot text,
+  purpose text,
+  subject text,
+  style text,
+  placement text,
+  content_key text,
+
   created_at timestamptz not null default now()
 );
+
+/* Added after the table shipped, so they are added again here for any database
+   created before the registry existed. Idempotent, like everything else in this
+   file. */
+alter table public.project_assets add column if not exists slot text;
+alter table public.project_assets add column if not exists purpose text;
+alter table public.project_assets add column if not exists subject text;
+alter table public.project_assets add column if not exists style text;
+alter table public.project_assets add column if not exists placement text;
+alter table public.project_assets add column if not exists content_key text;
 
 /* Read paths, in the order they are actually used: everything for one project,
    then the reuse lookup, which is a fingerprint within a project. */
@@ -69,6 +100,16 @@ create index if not exists project_assets_project_idx
 create index if not exists project_assets_reuse_idx
   on public.project_assets (project_id, prompt, status)
   where prompt is not null;
+
+/* The uniqueness question, asked across projects rather than within one: does
+   anybody else already hold this exact picture? Only generated imagery is ever
+   refused on the answer — a stock photograph is licensed to be used widely and
+   a catalogue of two dozen images cannot give a thousand projects an exclusive
+   hero — but the index serves the lookup for all of them, and an admin view
+   that wants to know how often one picture is in use reads the same column. */
+create index if not exists project_assets_content_key_idx
+  on public.project_assets (content_key)
+  where content_key is not null;
 
 alter table public.project_assets enable row level security;
 

@@ -4,7 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
-import { isPublishedStatus } from "@/lib/project-status";
+import { isPublishedProject } from "@/lib/project-status";
 import type { BuildKind } from "@/lib/builder/kinds";
 import type { BuildStep } from "@/lib/builder/steps";
 
@@ -21,6 +21,13 @@ export type Project = {
   repo_url: string | null;
   admin_url: string | null;
   last_build_at: string | null;
+  /* The address this project answers on once it is live. Null until the first
+     publish reserves one, and kept from then on — a published URL is something
+     people have linked to, so renaming the project must not move it. */
+  slug: string | null;
+  /* When it last went live. Null means nothing of this project is public,
+     whatever its status column happens to say. */
+  published_at: string | null;
 };
 
 /* The orchestrator's answer to one build, as /api/build passes it on. */
@@ -50,6 +57,12 @@ export type BuildReply = {
      message with the kind attached. */
   needsKind?: boolean;
   kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
+  /* One page, or a project of files — asked when the brief did not say. See
+     lib/builder/stack.ts. buildKind rides along so the answer is applied to
+     the same reading of the brief that produced the question. */
+  needsStack?: boolean;
+  stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  buildKind?: BuildKind;
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
   error?: string;
@@ -68,6 +81,12 @@ type BuildPayload = {
   needsConfirmation?: boolean;
   needsKind?: boolean;
   kindOptions?: { kind: BuildKind; label: string; blurb: string }[];
+  /* One page, or a project of files — asked when the brief did not say. See
+     lib/builder/stack.ts. buildKind rides along so the answer is applied to
+     the same reading of the brief that produced the question. */
+  needsStack?: boolean;
+  stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  buildKind?: BuildKind;
   build?: BuildOutcome;
   project?: Project | null;
   error?: string;
@@ -98,6 +117,16 @@ export type BuildOptions = {
    */
   buildKind?: BuildKind | null;
   /**
+   * One page, or a Next.js project — when the person has been asked and has
+   * answered.
+   *
+   * Left off, the server reads it from the brief and asks only if the brief did
+   * not say. Set, it is taken as the answer and nothing is asked again: the
+   * person has already decided, and asking twice about the same message is how
+   * a question stops being worth reading. See lib/builder/stack.ts.
+   */
+  stack?: "standalone-html" | "nextjs" | null;
+  /**
    * Which model to build with, as the composer's picker has it.
    *
    * "auto" is a real value to send rather than an absence: the server resolves
@@ -114,19 +143,70 @@ export type BuildOptions = {
    * it just sees them all at the end, the way everything did before.
    */
   onStep?: (step: BuildStep) => void;
+  /**
+   * The reply, a piece at a time, as the model writes it.
+   *
+   * Deltas — append them. Only sent where the text is the answer itself, which
+   * is a question or a clarification; an edit writes search/replace blocks and
+   * never streams here.
+   *
+   * The complete text still arrives in the final reply and remains the
+   * authority. A caller that ignores this loses nothing but the watching.
+   */
+  onText?: (delta: string) => void;
+  /**
+   * Stops this session waiting, when somebody presses stop in the composer.
+   *
+   * It aborts the request and the poll that follows it — and that is the whole
+   * of what it can honestly do. The work is already elsewhere: an edit is
+   * running inside the route, a build is running in the orchestrator, and
+   * neither hears a browser hang up. So this ends the WAIT, never the work, and
+   * the panel says so in those words rather than "cancelled".
+   */
+  signal?: AbortSignal;
 };
 
-/* How the workspace waits for a page. Generation is not bounded by an HTTP
-   request any more, so these are patience, not timeouts: three seconds between
-   polls is often enough to feel immediate, and eight minutes is longer than any
-   page has taken. */
+/* How the workspace waits for a page.
+ *
+ * Generation is not bounded by an HTTP request, so these are patience rather
+ * than timeouts — nothing is cancelled when they run out, and the page lands
+ * whether anybody is still looking.
+ *
+ * Three seconds while it is plausibly about to finish, then slower. A build
+ * that has been going twelve minutes is not going to land in the next three
+ * seconds, and polling it at the same rate is a row of identical queries for
+ * the benefit of nobody.
+ *
+ * Twenty-five minutes of patience rather than eight. Eight was chosen as
+ * "longer than any page has taken", which stopped being true — and the message
+ * it produced was the worst thing the chat said all day: "I've stopped waiting
+ * on it", to somebody who has been waiting eight minutes and now has to reload
+ * the page themselves to find out. */
 const BUILD_POLL_MS = 3_000;
-const BUILD_WATCH_MS = 8 * 60 * 1000;
+const BUILD_SLOW_POLL_MS = 8_000;
+const BUILD_SLOW_AFTER_MS = 2 * 60 * 1000;
+const BUILD_WATCH_MS = 25 * 60 * 1000;
+
+/* How long a failed row is given to turn out to be a finished one.
+ *
+ * "Failed" used to end the wait on the spot, which is right when it is true and
+ * indefensible when it is not — and the orchestrator has a way of writing it
+ * when it is not. `Save Page` gives the save route two minutes to answer, and
+ * `Flag Build Failure` sits on that node's error output. A save that runs long
+ * — a large document, a dozen photographs being fetched into it — is abandoned
+ * by the node and marked Failed while the app is still storing the page, which
+ * it then finishes doing. The row goes Failed, then Built, seconds apart.
+ *
+ * So a failure has to survive a few polls to be believed. Twenty seconds is
+ * several polls' worth of room, and it costs a genuine failure a short pause at
+ * the end of a wait already measured in minutes — against telling somebody
+ * their build died while their page is being written to the table. */
+const BUILD_FAILED_GRACE_MS = 20_000;
 
 /* Every read asks for the same columns. Written once so a column added to the
    type cannot be missed in one of the two queries below. */
 const COLUMNS =
-  "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at";
+  "id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at";
 
 /* The projects table is the only place a project exists, so one loader serves
    the switcher and the list below it — otherwise creating a project in one
@@ -144,7 +224,13 @@ type ProjectsValue = {
   /** Sends one message for a project and folds any result back into the list. */
   build: (id: string, prompt: string, options?: BuildOptions) => Promise<BuildReply>;
   /** Waits for a started build to land its page. See {@link watchBuild}. */
-  watchBuild: (id: string, since: number) => Promise<Project | null>;
+  watchBuild: (
+    id: string,
+    since: number,
+    onPoll?: (row: Project | null, elapsedMs: number) => void,
+    /* Stops the waiting, not the build. See `signal` on BuildOptions. */
+    signal?: AbortSignal,
+  ) => Promise<Project | null>;
 };
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
@@ -168,7 +254,10 @@ function describe(error: { code?: string; message: string }) {
 export { PUBLISHED_STATUSES } from "@/lib/project-status";
 
 export function isPublished(project: Project) {
-  return isPublishedStatus(project.status);
+  /* Not the status — see isPublishedProject. Every build overwrites status,
+     so a published project that has since been edited reads as unpublished
+     while its site is still live. */
+  return isPublishedProject(project);
 }
 
 export function ProjectsProvider({ children }: { children: React.ReactNode }) {
@@ -295,6 +384,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
       const response = await fetch("/api/build", {
         method: "POST",
+        signal: options.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId: id,
@@ -333,7 +423,13 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            let parsed: { type?: string; step?: BuildStep; status?: number; body?: unknown };
+            let parsed: {
+              type?: string;
+              step?: BuildStep;
+              delta?: string;
+              status?: number;
+              body?: unknown;
+            };
             try {
               parsed = JSON.parse(line);
             } catch {
@@ -345,6 +441,8 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
             if (parsed.type === "step" && parsed.step) {
               options.onStep?.(parsed.step);
+            } else if (parsed.type === "text" && typeof parsed.delta === "string") {
+              options.onText?.(parsed.delta);
             } else if (parsed.type === "result") {
               status = parsed.status ?? status;
               if (parsed.body) results.push(parsed.body as BuildPayload);
@@ -392,6 +490,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         needsConfirmation: payload.needsConfirmation === true,
         needsKind: payload.needsKind === true,
         kindOptions: payload.kindOptions,
+        needsStack: payload.needsStack === true,
+        stackOptions: payload.stackOptions,
+        buildKind: payload.buildKind,
         outcome: payload.build,
         stored: payload.stored === true,
         messageLinks: payload.messageLinks,
@@ -411,34 +512,108 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      than the one that started, then fold it into the list, which is what turns
      the spinner in the chat into a preview.
 
-     `last_build_at` is the signal because it is written once, by the step that
-     stores the page — the earlier "Building" update deliberately leaves it
-     alone, or the very first poll would report a build that has not happened. */
-  const watchBuild = useCallback(async (id: string, since: number): Promise<Project | null> => {
-    if (!isSupabaseConfigured) return null;
-    const supabase = createSupabaseBrowserClient();
-    const deadline = Date.now() + BUILD_WATCH_MS;
+     `last_build_at` is HALF the signal, and believing it was the whole of it is
+     how this came to end three seconds into every build.
 
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, BUILD_POLL_MS));
+     The sentence that used to be here said the stamp is written once, by the
+     step that stores the page, because the app's own "Building" update
+     deliberately leaves it alone — and then named the exact consequence of
+     being wrong about that: "the very first poll would report a build that has
+     not happened". The app does leave it alone. The orchestrator does not. Its
+     `Sync Project Row` node writes `last_build_at` from `completedAt`, and
+     `completedAt` is stamped in `Assemble Build Result`, which runs when the
+     CHAT is answered — before a single token of the page has been generated.
+     See n8n/build-orchestrator.workflow.ts.
 
-      const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
-      const row = data as unknown as Project | null;
-      if (!row) continue;
+     So on every build the row grew a stamp newer than `since` about three
+     seconds after send, this returned it, and the panel — finding no preview on
+     a row that was still Building — said "this one's taking a while" and
+     stopped watching. The page then landed minutes later with nothing left
+     waiting to notice, so it took a reload to appear. The build was honoured;
+     the watching of it was not.
 
-      const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
-      if (landed > since) {
-        setProjects((current) =>
-          current.map((project) => (project.id === id ? { ...project, ...row } : project)),
-        );
-        return row;
+     The status is the other half, and it is the half that cannot be stamped
+     early: "Building" is what both writers say WHILE it runs, and only the save
+     step moves it off. A new stamp on a row that still says Building is the
+     orchestrator saying hello, not a page. */
+  const watchBuild = useCallback(
+    async (
+      id: string,
+      since: number,
+      /* Told on every poll, so the caller can say something true about a wait
+         instead of showing one frozen line for eight minutes. It gets the row
+         as it stands — the orchestrator writes `status` to it as the build
+         moves — and how long this has been going. Nothing is invented here: a
+         checklist ticking itself off on a timer would claim work nobody can see
+         happening, and the clock and the status are the two things that are
+         actually known. */
+      onPoll?: (row: Project | null, elapsedMs: number) => void,
+      signal?: AbortSignal,
+    ): Promise<Project | null> => {
+      if (!isSupabaseConfigured) return null;
+      const supabase = createSupabaseBrowserClient();
+      const startedAt = Date.now();
+      const deadline = startedAt + BUILD_WATCH_MS;
+      /* When this run first looked failed. Null again if it stops looking that
+         way, which a row can: Building → Failed → Built is exactly the sequence
+         the grace period exists for. */
+      let firstFailedAt: number | null = null;
+
+      while (Date.now() < deadline) {
+        /* Somebody pressed stop. Returning null is the same answer as running
+           out of patience, which is the truthful one: the build carries on and
+           the caller says so. */
+        if (signal?.aborted) return null;
+
+        const elapsed = Date.now() - startedAt;
+        const wait = elapsed < BUILD_SLOW_AFTER_MS ? BUILD_POLL_MS : BUILD_SLOW_POLL_MS;
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        if (signal?.aborted) return null;
+
+        const { data } = await supabase.from("projects").select(COLUMNS).eq("id", id).maybeSingle();
+        const row = data as unknown as Project | null;
+
+        onPoll?.(row, Date.now() - startedAt);
+
+        if (!row) continue;
+
+        const landed = row.last_build_at ? Date.parse(row.last_build_at) : 0;
+        /* Failed is written by whatever failed it — the orchestrator's error
+           branch, or the save step, which also writes the reason into the
+           thread. */
+        const failed = row.status === "Failed";
+        /* And this is the run still running. Both writers say Building while
+           the page is being generated, so a fresh stamp under it is the
+           orchestrator's early `completedAt` rather than a finished page. */
+        const running = row.status === "Building";
+
+        if (landed > since && !running && !failed) {
+          setProjects((current) =>
+            current.map((project) => (project.id === id ? { ...project, ...row } : project)),
+          );
+          return row;
+        }
+
+        /* A failure, held for a moment before it is believed. See
+           BUILD_FAILED_GRACE_MS: a page refused by one call and stored by the
+           next arrives seconds after the row says Failed, and reporting the
+           first of those two is how a finished build came to be announced as a
+           dead one. Kept as the moment it was FIRST seen, so the wait is bounded
+           by the failure rather than by however many polls confirm it. */
+        if (failed) {
+          firstFailedAt ??= Date.now();
+          if (Date.now() - firstFailedAt >= BUILD_FAILED_GRACE_MS) return row;
+          continue;
+        }
+        firstFailedAt = null;
       }
-    }
 
-    /* Out of patience rather than out of hope: the build may still land, and
-       the row will show it on the next load. The caller says so. */
-    return null;
-  }, []);
+      /* Out of patience rather than out of hope: the build may still land, and
+         the row will show it on the next load. The caller says so. */
+      return null;
+    },
+    [],
+  );
 
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab

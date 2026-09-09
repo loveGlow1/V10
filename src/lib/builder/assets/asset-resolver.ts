@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import { fingerprint, type Library } from "@/lib/builder/assets/asset-library";
 import { thumbnail } from "@/lib/builder/assets/asset-optimizer";
-import { storeAsset } from "@/lib/builder/assets/asset-storage";
+import {
+  belongsToAnotherProject,
+  contentKeyFor,
+  entryFor,
+  type RegistryEntry,
+} from "@/lib/builder/assets/asset-registry";
+import { claimedByAnotherProject, storeAsset } from "@/lib/builder/assets/asset-storage";
 import type { AssetProvider, ProviderId } from "@/lib/builder/assets/providers/types";
 import {
   isPhoto,
@@ -31,6 +37,9 @@ export type ResolveResult = {
   manifest: AssetManifest;
   /** Everything created along the way, for recording against the project. */
   created: Asset[];
+  /* What this project's pictures are, written down — purpose, subject, style,
+     placement and the identity of each picture. See asset-registry.ts. */
+  registry: RegistryEntry[];
   /** Which source answered how often — for logs and an admin view, never a user. */
   bySource: Partial<Record<ProviderId, number>>;
   unresolved: number;
@@ -57,9 +66,20 @@ export async function resolveAssets(opts: {
   const unresolvedSlots: string[] = [];
   const drawnSlots: string[] = [];
   const created: Asset[] = [];
+  const registry: RegistryEntry[] = [];
   const bySource: Partial<Record<ProviderId, number>> = {};
 
   const deadline = Date.now() + (opts.deadlineMs ?? 20_000);
+
+  /* Every photograph this build has already taken, shared across every slot and
+     every source.
+   *
+     Without it a storefront was one photograph repeated. Eight product slots
+     carry the same subject, so they make the same query and get the same
+     ranking, and the top result wins all eight — silently, because nothing
+     about that is an error. A source adds an id here as it claims one, and the
+     next slot ranks the same results with that one excluded. */
+  const taken = new Set<string>();
 
   for (const request of plan.requests) {
     alt[request.slot] = request.alt;
@@ -89,6 +109,10 @@ export async function resolveAssets(opts: {
         supply = await provider.supply(request, {
           projectId,
           direction: plan.direction,
+          /* What is being built, not just which slot — the same subject wants a
+             different photograph in a storefront than in a newsroom. */
+          kind: plan.kind,
+          taken,
         });
       } catch {
         /* A source that throws is a source that is skipped. Its own health call
@@ -97,8 +121,46 @@ export async function resolveAssets(opts: {
       }
       if (!supply) continue;
 
+      /* ── Whose picture this is (§1) ──────────────────────────────────────
+       *
+       * Two checks, and they answer different questions.
+       *
+       * The first is about address: a URL under another project's asset prefix
+       * is another project's stored file, whatever produced it, and serving it
+       * here would put one customer's image inside another customer's site.
+       * That is refused outright and cheaply, with no lookup.
+       *
+       * The second is about the picture itself, and is asked only of generated
+       * imagery. A photograph from a library is licensed to be used widely and
+       * asking whether somebody else has it would mean refusing to use a stock
+       * catalogue at all. A GENERATED image is different in kind: it was made
+       * from one customer's brief, they paid for it, and it is theirs. */
+      const contentKey = contentKeyFor(supply, request);
+
+      if (supply.url && belongsToAnotherProject(supply.url, projectId)) continue;
+
+      if (supply.provider === "ai" && (await claimedByAnotherProject(contentKey, projectId))) {
+        /* Somebody else's. Down the chain rather than out: the next source is
+           a library, and a library picture is a better outcome than a hole. */
+        continue;
+      }
+
       const asset = await materialise(projectId, request, supply, opts.store === true);
       if (!asset) continue;
+
+      asset.contentKey = contentKey;
+      asset.slot = request.slot;
+      asset.purpose = request.purpose;
+      asset.subject = request.spec?.subject ?? request.alt;
+      asset.style = [plan.direction.register, plan.direction.lighting, plan.direction.mood]
+        .filter(Boolean)
+        .join(", ");
+      asset.placement = `${request.slot} · ${request.type} · ${request.aspectRatio}`;
+
+      registry.push(entryFor({ asset, request, direction: plan.direction, contentKey }));
+      /* Claimed for the rest of this build as well as against every other
+         project: a content key in `taken` is one no later slot can pick up. */
+      taken.add(contentKey);
 
       assets[request.slot] = asset.url;
       /* Only what we newly acquired is reported as created — a reuse from the
@@ -136,6 +198,7 @@ export async function resolveAssets(opts: {
       drawn: drawnSlots,
     },
     created,
+    registry,
     bySource,
     unresolved: unresolvedSlots.length,
   };

@@ -34,6 +34,39 @@ export type BuildRequest = {
   userId: string;
   /** The row this build belongs to. Created before the build starts. */
   projectId: string;
+  /* Which of the two things to build: one self-contained page, or a Next.js
+     project of files. The workflow branches on it and the save route reads it
+     back. Absent means the page, which is what every build before this was. */
+  stack?: "standalone-html" | "nextjs";
+  /** Whether the project gets a database client written into it. */
+  backend?: boolean;
+  /* Which layers this project is made of — see src/lib/builder/architecture.ts.
+   *
+   * Passed through the workflow untouched and read back by the save route,
+   * which scaffolds against it. The workflow does not branch on it and must not
+   * modify it: it is the record of what the prompt was written against and what
+   * the schema was created from, and a manifest that changed in transit is a
+   * project scaffolded for tables that were never made.
+   *
+   * Supersedes `stack` and `backend` above, which stay because every build in
+   * flight when this shipped is still sending them and nothing else. */
+  /* Which of the six design systems this project is built to — see
+     src/lib/builder/design.ts. The NAME rather than the system: every value in
+     one is a constant this app already holds, so sending the whole thing would
+     push a palette down a wire to arrive at something already on the other end,
+     and give every hop a chance to alter a colour. Carried through untouched
+     and read back by the save route, which writes the tokens. */
+  designSystem?: string;
+  architecture?: {
+    type: BuildKind;
+    frontend: true;
+    backend: boolean;
+    database: boolean;
+    authentication: boolean;
+    admin: boolean;
+    storage: boolean;
+    payments: boolean;
+  };
   /** Ties a reply to the message that asked for it. */
   requestId: string;
   /* Signed addresses for any images attached to the message. URLs rather than

@@ -162,36 +162,62 @@ nobody can credit themselves. The exposure is the price of a charge, not the
 creation of one.
 
 This contradicts what `/api/credits/spend` says about itself: that the browser
-says what happened and never what it costs. Today it is latent rather than
-exploitable for value, because the only client-priced actions are chat (which
-tops out at one credit) and publish (which nothing implements yet). It stops
-being latent the moment publishing ships at `PUBLISH_COST`, because charging
-yourself zero for it would then be worth doing.
+says what happened and never what it costs. It was latent while chat, which
+tops out at one credit, was the only client-priced action that worked. It is
+not latent any more — publishing ships at `PUBLISH_COST`, and charging yourself
+zero for it is worth doing.
 
-Closing it properly means the server calling the function as `service_role`
-rather than as the user, which needs three things together:
+Closing it means the server calling the function as `service_role` rather than
+as the user. The parts are now written, and they are deliberately three steps
+rather than one, because a migration and a deployment cannot land in the same
+instant and charging must keep working across the gap:
 
-1. `spend_credits` taking the user id as an argument — under `service_role`
-   there is no `auth.uid()` for it to read.
-2. A service-role Supabase client for `/api/credits/spend` and `/api/build`,
-   which needs `SUPABASE_SERVICE_ROLE_KEY` set in the deployment.
-3. `revoke execute on function public.spend_credits(...) from authenticated;`
+1. **Run `supabase/schema.sql`.** It adds `spend_credits_for(p_user_id, …)`,
+   which is told whose account to charge and is executable by the service role
+   alone, and turns `spend_credits` into a wrapper over it so the two cannot
+   drift. Nothing changes for the running app — the wrapper keeps whatever
+   grant it already had, since `create or replace function` preserves
+   privileges.
+2. **Deploy.** `/api/credits/spend` charges through `spend_credits_for` with
+   the service key, having settled who the caller is under their own session
+   first. Until step 1 has run it falls back to the session-scoped wrapper and
+   logs an error naming the migration, so the order of 1 and 2 cannot break
+   charging.
+3. **Run `supabase/close-spend-credits.sql`.** One `revoke`, plus a query that
+   proves it. This is the step that actually closes the hole, and running it
+   before step 2 breaks every charge the app makes.
 
-All three have to land together: revoking first breaks every charge the app
-makes, since it currently calls the function under the caller's own session.
+The fallback in step 2 needs no cleanup: after step 3 `authenticated` no longer
+holds `EXECUTE` on the wrapper, so that path fails on its own. Removing the
+dead branch afterwards is tidying, not a fix.
 
-### Nothing ever marks a project published
+`SUPABASE_SERVICE_ROLE_KEY` must be set in the deployment for any of this —
+without it the route stays on the fallback and says so in the log.
 
-`PUBLISHED_STATUSES` is `["Live", "Published"]`, and no writer produces either.
-The column defaults to `Draft`; `/api/build` writes `Building` and `Failed`; the
-orchestrator writes `Building`, `Failed` or `Needs Clarification`. The live table
-holds only `Draft` and `Failed`.
+### Publication does not live in `projects.status`
 
-So `isPublished()` is false for every row, which makes the dashboard's
-"Published" filter permanently empty, the Manage pane's Published row always
-"Not yet", and `REDEPLOY_COST` unreachable — a publish would always price at
-`PUBLISH_COST`. All of that resolves when the publish step exists and writes one
-of these two statuses; there is no separate bug to fix.
+It used to be planned that way, and this section used to say so. Doing it would
+have been a bug, and it is worth writing down why so nobody puts it back.
+
+`status` is the BUILD lifecycle: `Draft`, `Building`, `Built`, `Failed`. It is
+written by `/api/build` in nine places and by the n8n orchestrator in two more —
+and the orchestrator is not this codebase, so those writes cannot simply be
+removed. A project published on Monday and edited on Tuesday would therefore
+have `status` back at `Built` while its published snapshot was still being
+served: the site live, the row denying it. Everything reading status would then
+quote the first-publish price to somebody already live — 50 credits instead of
+1 — show "Published: Not yet" beside a working URL, and drop the project out of
+the Published filter.
+
+So the authority is **`projects.published_version_id`** (and `published_at`),
+written only by `/api/publish` and touched by nothing else. `isPublishedProject`
+in `src/lib/project-status.ts` reads those, falling back to the status only for
+rows selected without them. A publish still sets `status = 'Published'` because
+it is a useful label on a fresh row — but nothing decides on it, and any code
+that starts to is reintroducing this.
+
+`PUBLISHED_STATUSES` and `isPublishedStatus` remain for that label and for rows
+written before publishing existed.
 
 Worth knowing: `projects.status` has no `CHECK` constraint, so a typo in a status
 string is accepted and silently becomes a state nothing recognises.

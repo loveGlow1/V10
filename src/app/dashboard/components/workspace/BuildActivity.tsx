@@ -4,7 +4,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown, ExternalLink } from "lucide-react";
 
+import ProviderSpinner from "./ProviderSpinner";
 import { TerminalMark } from "./panelMarks";
+import type { Provider } from "../../models";
 
 /* One line in the tracker below. A step is something that actually happened, so
    a label is not enough on its own — `state` is what separates a step that has
@@ -64,6 +66,7 @@ export default function BuildActivity({
   note,
   previewHref,
   onOpenPreview,
+  provider,
 }: {
   steps: ActivityStep[];
   running: boolean;
@@ -79,15 +82,35 @@ export default function BuildActivity({
   previewHref?: string | null;
   /** Brings the preview onto the screen, for the half that is not on it. */
   onOpenPreview?: () => void;
+  /* Whose mark turns while this runs. Absent — a stored timeline, a build from
+     before the picker existed — falls back to the terminal mark, which is the
+     honest answer when nobody recorded which model was asked. */
+  provider?: Provider | null;
 }) {
-  /* Open by default and left that way when the build finishes: what it did is
-     the part worth reading, and collapsing it the instant it lands hides the
-     answer at the moment it arrives. Folding it away is the reader's call, and
-     a build that is still running always reopens — a tracker collapsed over a
-     live build would be the panel going quiet while it works. */
-  const [open, setOpen] = useState(true);
+  /* Open while it runs, folded to a summary when it finishes.
+   *
+   * The earlier reading was that a finished list is the part worth reading, so
+   * it stayed open. That was true of the list and wrong about the thread: the
+   * answer is what the person asked for, and leaving eight rows of plumbing
+   * expanded under every reply pushes it up the screen and makes a
+   * conversation read like a build log.
+   *
+   * So it collapses to one line saying what ran, which is enough to know
+   * nothing strange happened and one click away from the whole thing. A run
+   * that is still going always reopens — a tracker folded over live work would
+   * be the panel going quiet while it works — and a failure stays open,
+   * because there the detail IS the answer.
+   *
+   * Held as null until it settles, so "never opened" and "opened, then folded
+   * by the reader" stay distinguishable: an explicit choice survives the run
+   * ending rather than being overwritten by it. */
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const open = choice ?? (running || failed);
+
   useEffect(() => {
-    if (running) setOpen(true);
+    /* A new run clears the previous one's choice: the panel is about this run
+       now, and inheriting a fold from the last one would hide it. */
+    if (running) setChoice(null);
   }, [running]);
 
   /* Which operations have been opened. A step's detail is the concrete result
@@ -128,20 +151,40 @@ export default function BuildActivity({
 
   const elapsed = ((finishedAt ?? (running ? now : startedAt)) - startedAt) / 1000;
 
+  /* What the folded row says. A count rather than "Done", because "Done" tells
+     a reader nothing they did not already know from the answer sitting above
+     it — where a number says how much happened, and is the difference between
+     folding something away and hiding it.
+   *
+   * Counted from the steps that actually ran. A list that arrived empty says
+     so plainly rather than claiming zero operations, which would read as a
+     measurement of nothing rather than as nothing measured. */
+  const ran = steps.filter((step) => step.state === "done").length;
+  const summary =
+    ran === 0 ? "Done" : `Ran ${ran} ${ran === 1 ? "operation" : "operations"}`;
+
   return (
     <div className="overflow-hidden rounded-xl border border-line/[0.07] bg-layer/[0.02]">
       <button
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setChoice(!open)}
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.03]"
       >
-        {/* The mark before the words, because the list under it is a record of
-            operations that ran on a server rather than a description of a wait.
-            It is the shorthand a shell has used for forty years, and it says so
-            before the labels are read. */}
-        <TerminalMark className="h-[15px] w-[15px] shrink-0 text-muted" />
+        {/* While it runs, the maker's own mark, turning. Afterwards the
+            terminal mark: the panel stops being a live thing and becomes a
+            record of operations, and the shorthand a shell has used for forty
+            years says that before the labels are read.
+
+            The switch is the point. A person who chose Fable over Haiku made a
+            decision about cost and quality, and an anonymous spinner tells them
+            nothing about whether it took effect. */}
+        {running && provider ? (
+          <ProviderSpinner provider={provider} className="h-[17px] w-[17px]" />
+        ) : (
+          <TerminalMark className="h-[15px] w-[15px] shrink-0 text-muted" />
+        )}
         <span className="min-w-0 flex-1 truncate text-[13px] text-soft">
-          {running ? "Working on your request…" : failed ? "This build failed" : "Done"}
+          {running ? "Working on it…" : failed ? "This build failed" : summary}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}

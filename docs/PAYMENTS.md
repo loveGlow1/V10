@@ -111,10 +111,200 @@ Nothing else settles an order. There is no button in the app that does this, and
 that is deliberate: the browser can only record that a payer *says* they have
 paid.
 
-If you later move to a processor (BTCPay, Coinbase Commerce, NOWPayments), it
-issues a fresh address per order and calls that same webhook itself — the
-manual step and the distinct-amount nudging both become unnecessary, and
-nothing else about the flow changes.
+## Automatic settlement, with BTCPay
+
+Everything above is the manual path, and it stays. This is how to stop needing
+it.
+
+Set `BTCPAY_URL`, `BTCPAY_STORE_ID`, `BTCPAY_API_KEY` and
+`BTCPAY_WEBHOOK_SECRET` (see `.env.local.example`) and the flow changes at two
+points and nowhere else:
+
+- `/api/payments/crypto` asks BTCPay for an invoice instead of handing out the
+  static address. The invoice owns both the address AND the amount, and both are
+  stored exactly as given — asking someone for a figure BTCPay is not watching
+  for is a payment that arrives and never settles. Amount-nudging is skipped,
+  because a per-invoice address makes the amount stop being the identifier.
+- `/api/payments/crypto/btcpay` receives the callback and calls
+  `settle_crypto_payment`, the same function `npm run settle` reaches.
+
+It is a **separate route** from `/api/payments/crypto/webhook` because the
+signatures differ: this app signs `timestamp.hmac` over `${issuedAt}\n${body}`
+and checks a five-minute window, while BTCPay signs `sha256=<hmac>` over the raw
+body with no timestamp. One verifier accepting both would accept anything valid
+under the weaker scheme.
+
+Because BTCPay's signature carries no timestamp, a captured callback can be
+replayed forever — so the route treats the signature as the door and re-reads
+the invoice from BTCPay for the decision. A replayed body asks the same question
+and gets the same answer, which `settle_crypto_payment` then ignores as a
+duplicate.
+
+**BTCPay never holds the money.** Configure the store watch-only from an account
+xpub/zpub and payments go straight into that wallet; BTCPay only observes. Use a
+wallet created for this, not a personal one — an xpub reveals every address and
+every balance it will ever derive.
+
+With BTCPay unset, and for any coin but on-chain BTC, the static address and
+the nudging are used exactly as before. Check which state a deployment is in
+with `/api/health`: `btcpayInvoicing`, `btcpaySettlement`, and
+`btcpayReachable` — which asks the instance rather than reading the variables,
+because four variables being set says a deployment intends to invoice, not that
+it can.
+
+**Configured and failing asks a different question: is anything watching?**
+
+The danger was never the static address. It was writing an order against an
+address nothing would notice a payment to — with the invoice as the only sensor,
+losing it meant money arriving, `settle_crypto_payment` never being called, and
+the order sitting open until a person happened to look.
+
+The sweep changed that. It reads the chain directly and needs no processor, so
+the static address is watched whenever the sweep is alive. `/api/payments/crypto`
+therefore reads the reconcile heartbeat when BTCPay issues no invoice: alive, and
+the order falls back to the static address and the amount-nudging as before;
+stale or never run, and the order is refused, because then nothing really is
+watching. A customer who cannot pay for two minutes comes back; a customer who
+pays and receives nothing does not.
+
+Coinbase Commerce and NOWPayments would each need their own adapter route for
+the same reason BTCPay does — the shape of the callback and the signature are
+per-processor. The half that grants credits is already written and shared.
+
+## The sweep, which depends on nobody
+
+Both paths above wait to be told: BTCPay calls back, or a person runs
+`npm run settle`. Both can stop happening without anything saying so, and the
+money still arrives — a payment sits confirmed on a public ledger while the
+order sits `awaiting_payment` and the account holds nothing.
+
+`/api/cron/reconcile` asks instead of waiting. It reads the open on-chain BTC
+orders, reads the chain through a public Esplora host (mempool.space, falling
+back to blockstream.info — no key, no account), and calls
+`settle_crypto_payment` for the ones that were paid in full and confirmed.
+
+This is a floor, not a replacement. With BTCPay healthy its callback still
+settles within a confirmation and the sweep finds nothing to do. With BTCPay
+gone, wiped, or never correctly wired, the sweep pays the customers anyway —
+late, which is survivable, rather than never, which is not.
+
+Safe to run every minute: `settle_crypto_payment` is idempotent, so a sweep
+racing the webhook still ends in one payout.
+
+Every uncertainty resolves towards leaving the order alone and telling a person:
+
+| What the chain says | What happens |
+| --- | --- |
+| No host answered | Nothing. Unknown is not zero — reading it as zero expires paid orders |
+| Confirmed ≥ the amount | Settles, with the txid recorded |
+| Unconfirmed coin, order live | Marked `submitted` — a payment on its way is not a payment missing |
+| Nothing, past expiry | Expired. The ordinary end of an order |
+| Coin present, past expiry | **Stranded** — alerted, never guessed at |
+
+A short payment is never resolved automatically. What it is worth in credits is
+a judgement, and guessing either shorts the customer or pays out more than
+arrived. `decideOrder` in `src/lib/reconcile-decision.ts` holds these rules as a
+pure function; `npm run check:reconcile` asserts them.
+
+### Shared addresses are read differently, and it is not optional
+
+An order on a **dedicated** address — one BTCPay derived for that invoice alone
+— can be judged by what the address has received in total. Nothing else will
+ever pay it, so "received at least what was asked" is the whole question.
+
+An order on the **shared** static address cannot. That address's total is every
+order that ever used it added together, so judging one order against it settles
+that order the moment anybody has ever paid the address — including orders
+nobody paid, and including every future order the instant one real payment
+lands. On a shared address the AMOUNT is the identifier. That is what the create
+route's nudging exists for, and it means nothing unless the chain is read
+payment by payment rather than in total.
+
+`crypto_payments.shared_address` records which kind an order used, written at
+creation from whether an invoice was issued. It defaults to true, because exact
+matching can only fail to settle while total matching can settle something that
+was never paid.
+
+Matched transactions are recorded in `tx_reference` and excluded from later
+matching. Amounts are unique among *open* orders, not across history — without
+that exclusion, the payment that settled a $25 order last month would settle the
+next order nudged to the same figure.
+
+**Scheduling it.** `CRON_SECRET` is required or the endpoint refuses every
+caller — a cron endpoint that opens whenever a variable is missing is a public
+one. Schedule it from anywhere that can send a header: n8n does it every thirty
+minutes here, and a laptop's cron or `curl` works identically.
+
+There is deliberately no `vercel.json` cron. Vercel's scheduler is the obvious
+choice and was the first thing tried, but its cron rules are plan-dependent in a
+way the code is not — an interval the plan disallows is a configuration error
+that fails the whole deployment, taking the app down over a schedule. Keeping
+the schedule outside the deployment means the sweep's cadence can never break
+the thing it is sweeping.
+
+### The person watching does not wait for the sweep
+
+Half an hour is a long time to look at an unchanged screen having just sent
+money, so `/api/payments/crypto/[paymentId]` — which the checkout screen already
+polls every few seconds — asks the chain about that one order on the poll that
+is happening anyway. Mempool detection and settlement both land within seconds
+for whoever is sitting there; the batch sweep stays as the backstop for whoever
+closed the tab.
+
+Both callers go through `reconcileOrder` in `src/lib/reconcile-order.ts`. They
+must not drift: if the batch and the poll ever disagreed about what counts as
+paid, which answer a customer got would depend on whether they kept the tab
+open.
+
+Throttled by `chain_checked_at` to one chain read per 20 seconds per order —
+ten requests a minute per open tab, against a free public API, for an answer
+that cannot change faster than a block, is not a reasonable thing to do.
+
+That endpoint used to expire an order on the clock alone, which quietly buried
+late payments: the sweep reads only OPEN orders, so an order expired by a stale
+tab would never be looked at again, and coin already on its address would sit
+uncredited with nothing reporting it. It reconciles first now — settling what
+was paid, stranding what arrived but does not match — and only expires when the
+chain says there is nothing there.
+
+**Knowing it still runs.** Every completed sweep writes to
+`service_heartbeats`, and `/api/health` reports `reconcileStale`,
+`reconcileLastRunAt` and `reconcileScheduled`. This is the one number on that
+page worth alerting on: a job that has stopped and a job with nothing to do are
+silent in identical ways, and settlement quietly not happening costs a customer
+rather than a feature. `reconcileScheduled` separates "never wired up" from
+"wired up and stopped".
+
+**Stranded orders** are reported in the sweep's own JSON response and in the
+log, and emailed if `RESEND_API_KEY` and `ALERT_EMAIL` are set — at most once a
+day per order, tracked in `crypto_payments.alerted_at`. Detection never depends
+on delivery: an alert that cannot be sent must not stop a sweep from finding the
+next problem.
+
+### Two clocks, and what notices when one stops
+
+`/api/cron/reconcile` is called by **pg_cron every 15 minutes** and **n8n every
+30**. Not to double the work — most sweeps find nothing — but because the app
+refuses Bitcoin when no sweep has run in two hours, so a single scheduler
+stopping is an outage. Two independent clocks give eight chances to refresh the
+heartbeat before that window closes, and the endpoint is idempotent, so both
+firing at once still produces one payout.
+
+pg_cron reads its bearer token from Vault rather than from the schedule, because
+`cron.job` is a readable table. `public.sweep_crypto_payments()` is the only
+thing that decrypts it.
+
+Redundancy hides the failure it protects against: when one clock dies the other
+covers, and nothing looks wrong. So the surviving clock reports it — the sweep
+reads the gap since the previous run before overwriting the heartbeat, and a gap
+past 45 minutes means a scheduler has stopped. It also alerts when its own
+writes fail, which used to be reported only into a response the caller
+discarded. Both are throttled to once a day, tracked as `alert:` rows in
+`service_heartbeats`.
+
+**None of it reaches you until `RESEND_API_KEY` and `ALERT_EMAIL` are set.**
+Until then it goes to the log, which is the same "nothing tells you" problem in
+a different place.
 
 ## Environment variables
 

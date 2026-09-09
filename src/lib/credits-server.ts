@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { PLAN_ORDER, type PlanId } from "@/app/dashboard/credits";
+
 /* Taking payment for work that has already happened.
  *
  * There are two ways to charge, and the difference is whether the thing being
@@ -40,6 +42,18 @@ export type ChargeInput = {
   projectId?: string | null;
   outputTokens?: number | null;
   filesTouched?: number | null;
+  /* Names this charge, so the same request arriving twice costs once.
+   *
+   * A request can reach the server more than once — a double tap, a browser
+   * retrying after a dropped connection, a platform replaying one it believes
+   * failed. The message such a request writes has always been protected (it
+   * carries the same id as project_messages.dedupe_key); the charge was not, so
+   * two arrivals of one build took the credits twice for work delivered once.
+   *
+   * Pass the request id that already exists rather than inventing one here: a
+   * key generated at the moment of charging is unique per attempt, which is
+   * precisely the property that makes it useless. */
+  dedupeKey?: string | null;
 };
 
 /**
@@ -61,6 +75,7 @@ export async function chargeCredits(
     p_project_id: input.projectId ?? null,
     p_output_tokens: input.outputTokens ?? null,
     p_files_touched: input.filesTouched ?? null,
+    p_dedupe_key: input.dedupeKey ?? null,
   });
 
   if (error) {
@@ -95,7 +110,16 @@ export async function chargeCredits(
 export async function currentBalance(
   service: SupabaseClient,
   userId: string,
-): Promise<{ daily: number; rollover: number; monthly: number; topUp: number } | null> {
+): Promise<{
+  daily: number;
+  rollover: number;
+  monthly: number;
+  topUp: number;
+  /* Which plan the account is on. Carried alongside the buckets because the
+     row already holds it and the caller that needs a balance is usually the
+     caller that needs to know what the account is entitled to. */
+  planId: PlanId;
+} | null> {
   const { data, error } = await service.rpc("ensure_credit_balance", { p_user_id: userId });
 
   if (error) {
@@ -105,16 +129,21 @@ export async function currentBalance(
   }
 
   const row = (Array.isArray(data) ? data[0] : data) as
-    | { daily?: unknown; rollover?: unknown; monthly?: unknown; top_up?: unknown }
+    | { daily?: unknown; rollover?: unknown; monthly?: unknown; top_up?: unknown; plan_id?: unknown }
     | null
     | undefined;
 
   if (!row) return null;
+
+  /* Anything unrecognised reads as free — the safe direction, since the plan is
+     what unlocks the expensive models. */
+  const planId = PLAN_ORDER.find((id) => id === row.plan_id) ?? "free";
 
   return {
     daily: Number(row.daily ?? 0),
     rollover: Number(row.rollover ?? 0),
     monthly: Number(row.monthly ?? 0),
     topUp: Number(row.top_up ?? 0),
+    planId,
   };
 }

@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-/* Checks the line the tracker shows while Claude is thinking.
+/* Checks the decisions edit.ts makes without calling a model.
  *
  *   npm run check:narration
+ *
+ * Two of them, and they share a file because they share a compile — edit.ts
+ * imports the Anthropic SDK, so nothing in it can be read as source. The name
+ * is the older of the two subjects.
+ *
+ * FIRST: the line the tracker shows while Claude is thinking.
  *
  * The reasoning arrives as a stream of deltas, so at any instant the text in
  * hand ends mid-word about as often as it ends on a full stop. lastSentence is
@@ -15,7 +21,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -26,23 +32,80 @@ import { join } from "node:path";
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-narration");
 mkdirSync(out, { recursive: true });
 
-execFileSync(
-  "npx",
-  [
-    "tsc", "src/lib/builder/edit.ts",
-    "--outDir", out,
-    /* CommonJS, unlike check-intent.mjs: edit.ts imports its neighbours by
-       relative path, and tsc emits those without the ".js" an ESM loader
-       insists on. require() resolves them the way tsc wrote them. */
-    "--module", "commonjs",
-    "--target", "es2022",
-    "--moduleResolution", "node",
-    "--skipLibCheck",
-  ],
-  { stdio: ["ignore", "ignore", "inherit"] },
+/* A tsconfig rather than command-line flags, which is what broke this.
+ *
+ * edit.ts imports @/app/dashboard/models, and `tsc file.ts` with flags cannot
+ * see that: --paths is not a command-line option, so the alias resolves against
+ * nothing and the compile fails on an import that has nothing to do with the
+ * one function being checked. The same shape as check-credits.mjs and
+ * check-reconcile.mjs, which reach across the same boundary. */
+const config = join(out, "tsconfig.json");
+writeFileSync(
+  config,
+  JSON.stringify({
+    compilerOptions: {
+      outDir: ".",
+      rootDir: join(process.cwd(), "src"),
+      /* CommonJS, unlike check-intent.mjs: edit.ts imports its neighbours by
+         relative path, and tsc emits those without the ".js" an ESM loader
+         insists on. require() resolves them the way tsc wrote them. */
+      module: "commonjs",
+      target: "es2022",
+      moduleResolution: "node",
+      skipLibCheck: true,
+      /* The imports pulled in along the way are typed for the DOM and for
+         React; none of that is exercised here, and asking a bare tsc to prove
+         it would fail on JSX rather than on anything this checks. */
+      noEmitOnError: false,
+      jsx: "react-jsx",
+      types: ["node"],
+      baseUrl: process.cwd(),
+      paths: { "@/*": ["src/*"] },
+    },
+    files: [join(process.cwd(), "src/lib/builder/edit.ts")],
+  }),
 );
 
-const { lastSentence } = createRequire(import.meta.url)(join(out, "edit.js"));
+/* Errors are reported and the emit is used anyway. The @/ import resolves for
+   TYPES here but the emitted require() still says "@/app/dashboard/models",
+   which node cannot resolve — the rewrite below is what fixes that, and it can
+   only run on files that exist. A type error somewhere in the graph must not
+   stop a pure string function from being checked. */
+try {
+  execFileSync("npx", ["tsc", "-p", config], { stdio: ["ignore", "ignore", "inherit"] });
+} catch {
+  /* Reported above by tsc itself. */
+}
+
+/* @/x → the relative path to x, in whatever the emit put on disk. tsc rewrites
+   nothing about a specifier it resolved through paths, so this is the step that
+   makes the compiled output actually runnable. */
+const rewrite = (dir) => {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      rewrite(path);
+      continue;
+    }
+    if (!path.endsWith(".js")) continue;
+
+    const depth = path.slice(out.length + 1).split("/").length - 1;
+    const prefix = depth === 0 ? "./" : "../".repeat(depth);
+
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) => {
+        const asFile = join(out, `${rest}.js`);
+        const target = existsSync(asFile) ? rest : `${rest}/index`;
+        return `${quote}${prefix}${target}${quote}`;
+      }),
+    );
+  }
+};
+rewrite(out);
+
+const { lastSentence, editModelFor, EDIT_MODEL, EDIT_MODEL_STRONG } =
+  createRequire(import.meta.url)(join(out, "lib/builder/edit.js"));
 
 const CASES = [
   ["", null, "nothing yet"],
@@ -93,9 +156,69 @@ for (const [input, want, why] of CASES) {
   }
 }
 
+/* ── Which model makes the change ─────────────────────────────────────────
+ *
+ * The rule is "Haiku only for the genuinely simple", and simple has two
+ * conditions rather than one: a short instruction AND a page small enough that
+ * sending the whole of it still leaves Haiku room to work. Either one alone
+ * going unchecked is a real failure — a one-line change to a huge page is the
+ * case that reads as simple and is not.
+ *
+ * The size ceilings that used to live beside this — maxEditPromptChars, in
+ * characters, used to refuse the person — are gone: what an edit may spend is
+ * measured in tokens against the chosen model's real window by
+ * src/lib/context/budget.ts and enforced by check:context. What is still
+ * asserted here is the ROUTING, which decides which window is the relevant one
+ * in the first place. */
+const word = (n) => Array.from({ length: n }, () => "change").join(" ");
+const page = (n) => "x".repeat(n);
+
+const ROUTING = [
+  [word(3), page(2_000), EDIT_MODEL, "a short ask at a small page stays on Haiku"],
+  [word(300), page(2_000), EDIT_MODEL, "300 words is still simple"],
+  [word(301), page(2_000), EDIT_MODEL_STRONG, "301 words is not"],
+  [word(3), page(400_000), EDIT_MODEL, "a big page, just inside"],
+  [word(3), page(400_001), EDIT_MODEL_STRONG, "past that the page decides, not the ask"],
+  ["", page(2_000), EDIT_MODEL, "an empty ask counts as no words, not as many"],
+  ["  make\n\n the header   darker  ", page(2_000), EDIT_MODEL, "whitespace is not words"],
+  [word(3), page(900_000), EDIT_MODEL_STRONG, "a page past Haiku's window entirely"],
+];
+
+for (const [prompt, html, want, why] of ROUTING) {
+  const got = editModelFor(prompt, html);
+  if (got === want) {
+    console.log(`  ok   ${why}`);
+  } else {
+    failed++;
+    console.log(`  FAIL ${why}`);
+    console.log(`         want: ${want}`);
+    console.log(`         got:  ${got}`);
+  }
+}
+
+/* A long brief is routed by its length before any window is consulted, which is
+   what makes the token budget downstream a budget for the right model. 11,430
+   words is the old Haiku character ceiling in words — the case that used to be
+   refused, and which must now simply be Sonnet's. */
+const CEILINGS = [
+  [editModelFor(word(11_430), page(2_000)) === EDIT_MODEL_STRONG, "a brief of thousands of words is Sonnet's"],
+  [editModelFor(word(3), page(2_000)) === EDIT_MODEL, "and a short one is still Haiku's"],
+];
+
+for (const [passed, why] of CEILINGS) {
+  if (passed) {
+    console.log(`  ok   ${why}`);
+  } else {
+    failed++;
+    console.log(`  FAIL ${why}`);
+  }
+}
+
+const total = CASES.length + ROUTING.length + CEILINGS.length;
+
 console.log("");
 if (failed > 0) {
-  console.log(`${failed} of ${CASES.length} failed.`);
+  console.log(`${failed} of ${total} failed.`);
   process.exit(1);
 }
-console.log(`All ${CASES.length} passed.`);
+console.log(`All ${total} passed.`);

@@ -8,9 +8,9 @@ import {
   Check,
   ChevronLeft,
   CreditCard,
+  Database,
   Download,
   ExternalLink,
-  LifeBuoy,
   Link2,
   RotateCw,
   Rocket,
@@ -24,13 +24,16 @@ import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
 import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import { SITE_URL } from "@/lib/site";
+import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
+import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
-import { ManageMark, PreviewMark } from "./panelMarks";
+import BackendPanel from "./BackendPanel";
+import { ManageMark, PreviewMark, SupportMark } from "./panelMarks";
 import Popover from "./Popover";
 
-type ManageSection = "settings" | "integrations" | "payments";
+type ManageSection = "settings" | "database" | "integrations" | "payments";
 
 /* A request from the other half of the workspace to show a particular drawer.
    The counter is what makes a second, identical request register: pressing the
@@ -40,17 +43,6 @@ export type ManageRequest = {
   category: IntegrationCategory;
   n: number;
 };
-
-/* The address a published project would answer on. Derived from the name so it
-   is the same string the Manage tab shows and the publish panel promises. */
-function subdomainFor(project: Project | null) {
-  const slug = (project?.name ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return `${slug || "your-app"}${PUBLISH_SUBDOMAIN}`;
-}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -107,7 +99,17 @@ export default function PreviewPanel({
      are checked before they reach an href or an iframe src — see
      src/lib/safe-url.ts. Null means "do not render a link", never "render a
      broken one". */
-  const previewUrl = safeHttpUrl(project?.preview_url);
+  /* Derived from the project, not read from preview_url.
+   *
+   * The stored column is written when a build finishes, so it lags: a project
+   * that had an address reserved after its last build still held the old long
+   * form, and the panel showed it. Deriving means the address shown is always
+   * the address the project has now — and it upgrades from /preview/<id> to
+   * /<slug>/preview the moment a slug exists, with no rebuild and no backfill.
+   *
+   * safeHttpUrl still guards the result: it is built from SITE_URL, but a
+   * misconfigured environment should not put a broken href on the page. */
+  const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
   const repoUrl = safeHttpUrl(project?.repo_url);
 
   /* The page is fetched here and handed to the frame as srcdoc, rather than
@@ -126,6 +128,10 @@ export default function PreviewPanel({
      nothing. The link below still uses the stored address, because opening it
      in a tab is a real navigation and should land on the real site. */
   const previewPath = project?.id ? `/preview/${project.id}` : null;
+
+  /* When the page behind that path last changed. Watched rather than the path
+     itself, which is the same string for every build this project ever has. */
+  const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
   const [pageFailed, setPageFailed] = useState(false);
 
@@ -155,8 +161,16 @@ export default function PreviewPanel({
       cancelled = true;
     };
     /* `reloads` is a dependency on purpose: the refresh button rebuilds the
-       page rather than only remounting a frame around the same copy. */
-  }, [previewUrl, previewPath, reloads]);
+       page rather than only remounting a frame around the same copy.
+
+       `lastBuiltAt` is here for the reason that matters more. A rebuild of the
+       same project produces the SAME preview_url and the same path — the id
+       never changes — so neither of those moves when a new page lands, and this
+       frame went on showing the previous version until somebody reloaded the
+       browser. The build stamp is the only thing in the row that says "this is
+       a different page now", which makes it the only honest dependency for
+       "fetch it again". */
+  }, [previewUrl, previewPath, reloads, lastBuiltAt]);
 
   useEffect(() => {
     if (!publishRequest) return;
@@ -249,41 +263,49 @@ export default function PreviewPanel({
 
   const sections: { id: ManageSection; label: string; icon: typeof Blocks }[] = [
     { id: "settings", label: "App settings", icon: SlidersHorizontal },
+    /* Between the app's own settings and the services it can be wired to,
+       which is where it belongs: the database is not an integration to go
+       shopping for, it is the one every generated app already has. */
+    { id: "database", label: "Database", icon: Database },
     { id: "integrations", label: "Integrations", icon: Blocks },
     { id: "payments", label: "Payments", icon: CreditCard },
   ];
 
-  const publishBody = (
-    <>
-      <p className="hidden text-[13px] font-medium text-ink md:block">Publish this app</p>
-      <p className="break-all rounded-lg border border-line/[0.06] bg-layer/[0.03] px-2.5 py-2 text-[12px] text-soft md:mt-1.5">
-        {subdomainFor(project)}
-      </p>
-      {/* Honest rather than convincing: there is no build to put on that address
-          yet, so the button says why instead of failing. */}
-      <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
-        Goes live once your first build finishes.
-      </p>
-      {/* The price belongs next to the button, not only on the pricing page: a
-          first publish is the largest single charge on the platform, and it is
-          the one action nobody should discover the cost of after taking it.
+  /* The publish flow, which is a real one now: it calls /api/publish, reports
+     what came back, and only says an app is live when the server said so. See
+     PublishPanel — the button used to be disabled with a note promising it
+     would work once a build finished. */
+  /* ── Whether this app is live, and where ───────────────────────────────
+   *
+   * Both headers below showed the same "Publish" button whether a project had
+   * been live for a month or had never been deployed, and the address was two
+   * clicks away inside a popover. So the one thing somebody wants after
+   * publishing — to look at the thing they published — was the one thing the
+   * button did not offer.
+   *
+   * Read from the project row rather than from publish state held in the panel:
+   * the panel is unmounted until its popover opens, so a header that waited for
+   * it would show "Publish" on a live app until somebody clicked to find out.
+   *
+   * isPublished rather than the status, deliberately. Every build overwrites
+   * status, so a published app that has since been edited reads as unpublished
+   * while its site is still up — see lib/project-status.ts. */
+  const liveSlug = project && isPublished(project) ? project.slug : null;
 
-          Which of the two prices applies is read from the project itself, so a
-          live app quotes the redeploy price rather than the provisioning one. */}
-      <p className="mt-1 text-[12px] leading-relaxed text-muted">
-        {project && isPublished(project)
+  const publishBody = (
+    <PublishPanel
+      projectId={project?.id ?? null}
+      hasBuild={Boolean(project?.last_build_at)}
+      slug={project?.slug ?? null}
+      publishedAt={project?.published_at ?? null}
+      priceNote={
+        project && isPublished(project)
           ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`
           : `Going live costs ${formatCredits(creditCostOf("publish"))} credits, then ${formatCredits(
               creditCostOf("publish", { alreadyPublished: true }),
-            )} per deploy after that.`}
-      </p>
-      <button
-        disabled
-        className="mt-3 h-10 w-full rounded-xl bg-layer/[0.08] text-[13px] font-medium text-muted md:h-8 md:rounded-lg"
-      >
-        Publish app
-      </button>
-    </>
+            )} per deploy after that.`
+      }
+    />
   );
 
   /* Once a build has somewhere to look, this is where it is looked at. The
@@ -297,18 +319,23 @@ export default function PreviewPanel({
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       {previewUrl ? (
         <div className="flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/[0.06] px-2.5">
-            <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
-              {previewUrl}
-            </span>
-            {/* A phone's header has no room for these two, so they ride on the
-                frame's own chrome instead — where the address they act on is.
-                From md up the header above carries them and this pair stands
-                down rather than saying the same thing twice. */}
+          {/* Nothing is written across the top of the frame. What used to sit
+              here was a private preview URL — nothing to click, nothing to do
+              with it, and on every screenshot and screen-share of somebody's
+              own build; the project's name in its place said no more, in a
+              panel that is already inside that project. The browser shows an
+              address when the preview is opened in a tab, which is where an
+              address belongs.
+
+              So the strip exists only for the two controls a phone has no
+              header room for. From md up the header above carries both and the
+              whole strip stands down rather than reserving nine pixels of
+              border for nothing. */}
+          <div className="flex h-9 shrink-0 items-center justify-end gap-2 border-b border-line/[0.06] px-2.5 md:hidden">
             <button
               onClick={() => setReloads((count) => count + 1)}
               aria-label="Reload the preview"
-              className="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
+              className="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06]"
             >
               <RotateCw className="h-3.5 w-3.5" />
             </button>
@@ -316,7 +343,7 @@ export default function PreviewPanel({
               href={previewUrl}
               target="_blank"
               rel="noreferrer"
-              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06] md:hidden"
+              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
             >
               Open
             </a>
@@ -423,7 +450,23 @@ export default function PreviewPanel({
             <div className="mt-5">
               <Row label="Status">{project ? project.status : "—"}</Row>
               <Row label="Address">
-                <span className="break-all text-soft">{subdomainFor(project)}</span>
+                {/* The real one, or nothing. This used to derive an address
+                    from the project's name and show it whether or not anything
+                    was live — so a project that had never been published
+                    displayed a confident URL that resolved to nothing, and
+                    renaming it appeared to move a site that did not exist. */}
+                {project?.slug ? (
+                  <a
+                    href={publishedUrl(project.slug)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all text-accent hover:underline"
+                  >
+                    {publishedLabel(project.slug)}
+                  </a>
+                ) : (
+                  <span className="text-soft">Gets one when you publish</span>
+                )}
               </Row>
               <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
               <Row label="Build type">{project?.intent ?? "—"}</Row>
@@ -496,6 +539,8 @@ export default function PreviewPanel({
             </div>
           </div>
         )}
+
+        {section === "database" && <BackendPanel projectId={project?.id ?? null} />}
 
         {section === "integrations" && (
           // Keyed on the category so arriving from Payments opens on that drawer
@@ -576,14 +621,69 @@ export default function PreviewPanel({
             <ManageMark className="h-4 w-4" />
           </button>
           <div className="relative" ref={publishRef}>
-            <button
-              onClick={() => setPublishOpen(true)}
-              aria-expanded={publishOpen}
-              className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Publish
-            </button>
+            {/* Live: the pill IS the published site.
+             *
+             * The phone is where this matters most. On a laptop the address is
+             * a click away in the panel and there is a browser around it; on a
+             * phone the workspace is the whole screen, and "it published" and
+             * "here it is" were the same two-step nobody completed. So the left
+             * half is a real anchor carrying the address — one tap and you are
+             * looking at the thing you published.
+             *
+             * Split rather than replaced, because publishing again and
+             * connecting a domain still have to be reachable here: the right
+             * half keeps the panel. The halves are about 62px and 36px at
+             * 390px, both comfortably past the 24px a finger needs, and the
+             * pair is no wider than the Publish button it stands in for — so
+             * the project name beside it keeps the room it had.
+             *
+             * One shell rather than two pills: they are one object about one
+             * thing, and the rounded ends belong to the pair. */}
+            {liveSlug ? (
+              <div className="flex h-[30px] shrink-0 items-stretch overflow-hidden rounded-full border border-line/[0.14] bg-layer/[0.10]">
+                <a
+                  href={publishedUrl(liveSlug)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open the published site, ${publishedLabel(liveSlug)}`}
+                  className="flex items-center gap-1.5 pl-3 pr-2 text-[12px] font-semibold text-ink transition-opacity active:opacity-70"
+                >
+                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" />
+                  {/* The word, not the address.
+                   *
+                   * The address was tried here first and it does not fit: at
+                   * 390px a legible slug leaves the project name as "Pe…", and
+                   * a slug cut to fit — "peckham-sou…" — is worse than not
+                   * showing one, because a truncated address tells you nothing
+                   * and still costs the room. The word says the state, the
+                   * arrow says it leaves, and the tap does the rest. The full
+                   * address is in the panel and in the label below, where
+                   * there is room for it to be read. */}
+                  <span>Live</span>
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+                </a>
+
+                <span aria-hidden className="my-1 w-px shrink-0 bg-line/[0.16]" />
+
+                <button
+                  onClick={() => setPublishOpen(true)}
+                  aria-expanded={publishOpen}
+                  aria-label="Publish again, or connect a domain"
+                  className="flex items-center px-2.5 text-soft transition-opacity active:opacity-70"
+                >
+                  <Rocket className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                Publish
+              </button>
+            )}
             <Popover
               open={publishOpen}
               onClose={() => setPublishOpen(false)}
@@ -663,7 +763,7 @@ export default function PreviewPanel({
             title="Need help?"
             className={`hidden ${action} lg:flex`}
           >
-            <LifeBuoy className="h-4 w-4 shrink-0" />
+            <SupportMark className="h-4 w-4 shrink-0" />
             <span className="hidden 2xl:inline">Need help?</span>
           </button>
 

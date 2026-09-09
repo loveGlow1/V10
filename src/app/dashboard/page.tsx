@@ -7,7 +7,15 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import { AGENTS } from "./agents";
-import { DEFAULT_MODEL, groupedModels, modelById, shortModelName } from "./models";
+import { modelAllowedOnPlan, planRequiredFor } from "./credits";
+import {
+  DEFAULT_MODEL,
+  UNAVAILABLE_LABEL,
+  groupedModels,
+  isModelAvailable,
+  modelById,
+  shortModelName,
+} from "./models";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import WorkspaceTabs from "./components/WorkspaceTabs";
@@ -25,6 +33,7 @@ import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
+import { ACCEPT } from "@/lib/project-attachments";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock,
@@ -48,6 +57,7 @@ import {
   Github,
   ChevronRight,
   Shuffle,
+  Newspaper,
   Image as ImageIcon,
   Camera,
   FolderOpen,
@@ -99,6 +109,7 @@ const PROMPTS = [
   "Build me an e-commerce platform with...",
   "Build me a SaaS app for...",
   "Build me a CRM system with...",
+  "Build me a news site for...",
   "Build me a dashboard for...",
 ];
 
@@ -128,7 +139,27 @@ const projectTypes = [
   { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
   { id: "ecommerce", label: "Store", icon: ShoppingBag, phoneIcon: ShoppingBag },
   { id: "blog", label: "Blog", icon: FileText, phoneIcon: FileText },
+  { id: "news", label: "News", icon: Newspaper, phoneIcon: Newspaper },
 ] satisfies { id: BuildKind; label: string; icon: LucideIcon; phoneIcon: LucideIcon }[];
+
+/* Every build kind has a chip, checked at compile time.
+ *
+ * `satisfies` above proves each ENTRY is a valid kind. It cannot prove the list
+ * is complete, and that difference shipped: `news` was added to BUILD_KINDS,
+ * given a blueprint, taught to the classifier and covered by its own briefs —
+ * and the row above still showed four, because nothing required it to change.
+ *
+ * This is the missing half. The mapped type is exhaustive over BuildKind, so a
+ * sixth kind fails the build here rather than quietly never appearing. */
+type ChipKind = (typeof projectTypes)[number]["id"];
+type KindWithoutAChip = Exclude<BuildKind, ChipKind>;
+
+/* Reads as `true` only while nothing is missing. Add a kind without a chip and
+   this line stops compiling, naming the kind in the error. */
+const _everyKindHasAChip: [KindWithoutAChip] extends [never]
+  ? true
+  : ["no chip for build kind:", KindWithoutAChip] = true;
+void _everyKindHasAChip;
 
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
@@ -206,7 +237,7 @@ export default function DashboardPage() {
   /* The account's own balance rather than a constant. useCredits reads
      credit_balances directly, so it does not need the projects provider this
      page renders below it. */
-  const { label: credits } = useCredits();
+  const { label: credits, planId } = useCredits();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   /* The send button, reachable from the box above it. Home renders the provider
      the button reads from, so it cannot start a build itself — Enter goes
@@ -457,7 +488,7 @@ export default function DashboardPage() {
                     }}
                     className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
-                    <span className="font-medium">Take Photo or Video</span>
+                    <span className="font-medium">Take Photo</span>
                     <Camera className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
@@ -467,7 +498,7 @@ export default function DashboardPage() {
                     }}
                     className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
                   >
-                    <span className="font-medium">Choose Files</span>
+                    <span className="font-medium">Choose Images</span>
                     <FolderOpen className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
                   </button>
                   <button
@@ -562,6 +593,10 @@ export default function DashboardPage() {
                     type="file"
                     ref={chooseFilesInputRef}
                     multiple
+                    /* Pictures only, here as everywhere: a build reads a
+                       screenshot, and a document picked here would be refused
+                       on upload anyway. */
+                    accept={ACCEPT}
                     className="sr-only"
                     onChange={(e) => {
                       console.log(e.target.files);
@@ -571,7 +606,7 @@ export default function DashboardPage() {
                   {/* Attachment Clip Button */}
                   <button
                     onClick={() => chooseFilesInputRef.current?.click()}
-                    aria-label="Add photos or files"
+                    aria-label="Attach a screenshot"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all active:scale-[0.98] md:hidden"
                   >
                     <Paperclip className="h-4 w-4 -rotate-45" />
@@ -583,7 +618,7 @@ export default function DashboardPage() {
                       setIsUploadPopoverOpen(!isUploadPopoverOpen);
                       setIsModelPopoverOpen(false);
                     }}
-                    aria-label="Add photos or files"
+                    aria-label="Attach a screenshot"
                     aria-expanded={isUploadPopoverOpen}
                     className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
                       isUploadPopoverOpen
@@ -741,17 +776,34 @@ export default function DashboardPage() {
                     )}
                     {group.models.map((option) => {
                       const selected = model === option.id;
+                      /* Shown either way, and for the same reason in both
+                         cases: a model greyed with a reason is information, an
+                         absent one is not. One says "check back soon", the
+                         other names the plan that includes it. */
+                      const available = isModelAvailable(option);
+                      const needsPlan = modelAllowedOnPlan(option, planId)
+                        ? null
+                        : planRequiredFor(option);
+                      const ready = available && !needsPlan;
                       return (
                         <button
                           key={option.id}
                           role="menuitem"
+                          disabled={!ready}
+                          title={
+                            needsPlan
+                              ? `Included with the ${needsPlan.name} plan`
+                              : available
+                                ? undefined
+                                : UNAVAILABLE_LABEL
+                          }
                           onClick={() => {
                             setModel(option.id);
                             setIsModelPopoverOpen(false);
                           }}
-                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-layer/[0.05] ${
-                            selected ? "bg-layer/[0.06]" : ""
-                          }`}
+                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
+                            ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
+                          } ${selected ? "bg-layer/[0.06]" : ""}`}
                         >
                           <span className="mt-0.5 shrink-0">
                             <ProviderMark provider={option.provider} />
@@ -766,9 +818,19 @@ export default function DashboardPage() {
                               >
                                 {option.name}
                               </span>
-                              {option.badge && (
+                              {option.badge && ready && (
                                 <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
                                   {option.badge}
+                                </span>
+                              )}
+                              {!available && (
+                                <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
+                                  {UNAVAILABLE_LABEL}
+                                </span>
+                              )}
+                              {available && needsPlan && (
+                                <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                                  {needsPlan.name}
                                 </span>
                               )}
                             </span>

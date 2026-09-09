@@ -9,9 +9,20 @@ export type ProjectListItem = {
   pinned: boolean;
   last_opened_at: string;
   archived_at: string | null;
+  /* Where a published project lives, and when it went up.
+   *
+   * Selected for every filter rather than only the published one, so a row can
+   * say it is live wherever it appears. A list that shows a project as ordinary
+   * in one view and live in another is describing two different things. */
+  slug: string | null;
+  published_at: string | null;
 };
 
-export type ProjectFilter = "active" | "archived" | "all";
+/* "published" is a view of the same table rather than a state a project is in.
+   A published project is also active, and asking for it is asking a different
+   question — where can I find the things that are live — not a fourth mutually
+   exclusive bucket beside active and archived. */
+export type ProjectFilter = "active" | "archived" | "all" | "published";
 
 const INACTIVE_DAYS = 30;
 
@@ -44,7 +55,7 @@ export async function listProjects(opts: {
 
   let q = client(opts.accessToken)
     .from("projects")
-    .select("id, name, pinned, last_opened_at, archived_at")
+    .select("id, name, pinned, last_opened_at, archived_at, slug, published_at")
     .is("deleted_at", null);
 
   if (opts.search?.trim()) {
@@ -60,11 +71,24 @@ export async function listProjects(opts: {
     q = q.eq("pinned", false).or(
       `archived_at.not.is.null,last_opened_at.lt.${cutoffIso()}`
     );
+  } else if (filter === "published") {
+    /* Live means it has an address and a moment it went up. Both, not either:
+       published_at is stamped and cleared together with published_version_id
+       (see /api/publish), and a row with one and not the other is a project
+       mid-flight rather than one somebody can visit. */
+    q = q.not("published_at", "is", null).not("slug", "is", null);
   }
 
-  q = q
-    .order("pinned", { ascending: false })
-    .order("last_opened_at", { ascending: false });
+  /* Published sorts by when it went live rather than by when it was last
+     opened. The question being asked is "what have I put out", and the answer
+     to that is chronological — a project published in March does not become
+     less published by being opened yesterday. */
+  q =
+    filter === "published"
+      ? q.order("published_at", { ascending: false })
+      : q
+          .order("pinned", { ascending: false })
+          .order("last_opened_at", { ascending: false });
 
   if (opts.limit) q = q.limit(opts.limit);
 

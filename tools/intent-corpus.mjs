@@ -157,4 +157,42 @@ export const FINAL = [
   ["is this responsive, and if not can you fix it?", true, "edit"],
 ];
 
-export const SETS = { corpus: CORPUS, holdout: HOLDOUT, blind: BLIND, final: FINAL };
+/* Undoing, which had no cases at all until somebody asked whether a revert
+ * charges — 127 messages and not one of them exercised the path that reverses
+ * a person's page. The gap is worth more than the cases: a rule with no test is
+ * a rule nobody notices breaking.
+ *
+ * The compound ones are the interesting half. "undo that and make the header
+ * taller" is deliberately a revert rather than an edit: the undo has to happen
+ * first, and what remains can be asked for again on the restored page. Doing
+ * the edit against the version being thrown away would be exactly wrong, and
+ * doing both in one turn would charge for a change somebody might not want once
+ * they see the old page come back.
+ *
+ * Every one of these must be decided by the rules. A revert that reaches the
+ * router costs a model call to answer a question a regex already settled — and
+ * it is the one intent where being slow is least forgivable, because the
+ * person is undoing something they did not want. */
+export const REVERTS = [
+  ["undo that", true, "revert"],
+  ["undo the last change", true, "revert"],
+  ["revert", true, "revert"],
+  ["roll back the last thing you did", true, "revert"],
+  ["put it back", true, "revert"],
+  ["go back to the previous version", true, "revert"],
+  ["go back to how it was", true, "revert"],
+  ["put the old footer back", true, "revert"],
+
+  /* Compound: an undo carrying a follow-up instruction. Revert wins, and the
+     rest is the person's to ask for again. */
+  ["undo that and make the header taller", true, "revert"],
+  ["revert the last change and use a lighter blue", true, "revert"],
+  ["roll back and then add a contact form", true, "revert"],
+
+  /* Not reverts, and the distinction is the whole reason REVERT_NAMED is
+     written the way it is. "Put the logo back on the left" is a move. */
+  ["put the logo back on the left", true, "edit"],
+  ["restore the original spacing on the hero", true, "revert"],
+];
+
+export const SETS = { corpus: CORPUS, holdout: HOLDOUT, blind: BLIND, final: FINAL, reverts: REVERTS };

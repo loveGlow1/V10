@@ -1,3 +1,4 @@
+import { loadTree } from "@/lib/builder/store-tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -88,7 +89,14 @@ export async function GET(
   context: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await context.params;
-  const asDownload = new URL(request.url).searchParams.get("download") === "1";
+  const params = new URL(request.url).searchParams;
+  const asDownload = params.get("download") === "1";
+  /* A project built as a file tree has more than one thing to serve. `?files=1`
+     lists what it contains and `?file=app/page.tsx` returns one of them, so the
+     workspace can show a project as a project. Neither is reachable on a
+     single-page build, which has one file and it is the page. */
+  const wantsListing = params.get("files") === "1";
+  const wantsFile = params.get("file");
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return notFound("Previews are unavailable — Supabase is not configured.");
@@ -97,7 +105,7 @@ export async function GET(
      rather than a check written here that could be forgotten. */
   const { data: build } = await supabase
     .from("project_builds")
-    .select("html")
+    .select("id, html")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -105,6 +113,42 @@ export async function GET(
 
   if (!build?.html) {
     return notFound("There is nothing to preview here yet. Send a message to build this app.");
+  }
+
+  /* The project's files, when it has any. Read under the caller's session like
+     everything else here, so RLS decides rather than a check written here. */
+  if (wantsListing || wantsFile !== null) {
+    const tree = await loadTree(supabase, build.id as string);
+
+    if (tree.length === 0) {
+      return Response.json(
+        { error: "This project was built as a single page — it has no file tree." },
+        { status: 404 },
+      );
+    }
+
+    if (wantsListing) {
+      return Response.json({
+        files: tree.map((file) => ({ path: file.path, lines: file.content.split("\n").length })),
+      });
+    }
+
+    const file = tree.find((entry) => entry.path === wantsFile);
+    if (!file) {
+      return Response.json({ error: `This project has no ${wantsFile}.` }, { status: 404 });
+    }
+
+    /* text/plain whatever the extension is, deliberately. These are for
+       reading, and a .html served as html from this origin would run — see
+       the sandbox note on the preview response below, which is the whole
+       reason this route is careful. */
+    return new Response(file.content, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `inline; filename="${file.path.split("/").pop()}"`,
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
   }
 
   if (asDownload) {

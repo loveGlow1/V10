@@ -36,22 +36,19 @@ export const metadata: Metadata = {
     "build web and mobile apps",
     "AI agents",
   ],
-  /* Explicit rather than left to file-convention discovery alone: the .ico
-     covers older browsers and the /favicon.ico path crawlers still probe, the
-     192px PNG is what Chrome and Google's search results prefer (Google asks for
-     a square that is a multiple of 48), and the Apple icon is what iOS uses when
-     the site is added to a home screen. */
-  icons: {
-    /* favicon.ico is not listed here: src/app/favicon.ico is a file convention
-       and Next emits its own link for it, so declaring it again only duplicates
-       the tag. */
-    icon: [
-      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
-    ],
-    apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
-    shortcut: ["/favicon.ico"],
-  },
+  /* NO `icons` BLOCK, and that absence is the point.
+   *
+   * Declaring metadata.icons REPLACES Next's file conventions rather than
+   * adding to them. This block listed /icon-192.png, /icon-512.png,
+   * /apple-icon.png and /favicon.ico from public/, so icon.tsx and
+   * apple-icon.tsx were generated on every build, served at their own routes,
+   * and linked by nothing — the tab kept showing the old logo and there was no
+   * error anywhere to explain it. Two of those paths had by then been deleted,
+   * so the browser was also asking for files that were not there.
+   *
+   * Left off, Next finds icon.tsx and apple-icon.tsx itself and emits the link
+   * tags for every size they declare. One drawing, one source, no list here to
+   * fall out of step with it. */
   manifest: "/manifest.webmanifest",
   openGraph: {
     type: "website",

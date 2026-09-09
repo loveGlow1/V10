@@ -1,25 +1,92 @@
 import { NextResponse } from "next/server";
 
-import { CREDIT_ACTIONS, canAfford, creditCostOf, formatCredits } from "@/app/dashboard/credits";
-import { attachmentBlocks, attachmentText, loadAttachments, signedImageUrls } from "@/lib/builder/attachments";
-import { carryBrief, priorTurns } from "@/lib/builder/brief";
+import {
+  CREDIT_ACTIONS,
+  PLANS,
+  affordableModels,
+  buildDoorFor,
+  canAfford,
+  cannotAffordBuildMessage,
+  contextSurcharge,
+  creditCostOf,
+  roundCredits,
+  downgradedModelMessage,
+  formatCredits,
+  modelAllowedOnPlan,
+  modelsForPlan,
+  planRequiredFor,
+  resolveBuildModel,
+} from "@/app/dashboard/credits";
+import {
+  attachmentBlocks,
+  attachmentText,
+  imagePlacements,
+  loadAttachments,
+  placeAttachments,
+  signedImageUrls,
+} from "@/lib/builder/attachments";
+import { readPage, regressions } from "@/lib/builder/brain";
+import { carryBrief, conversational, countWords, isContinuation, priorTurns } from "@/lib/builder/brief";
+import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
+import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
 import {
   EDIT_MODEL,
   EditError,
   answerQuestion,
   askClarifying,
+  editModelFor,
   editPage,
   type OnProgress,
 } from "@/lib/builder/edit";
+import { estimateTokens } from "@/lib/context/budget";
+import { extractRequirements } from "@/lib/context/compress";
+import { decompose, describeDecomposition } from "@/lib/context/decompose";
+import { describeExpansion, expandContext } from "@/lib/context/expand";
+import { describePlan } from "@/lib/context/fit";
+import { fitEdit } from "@/lib/context/requests";
+import {
+  advance,
+  currentStage,
+  describeProgress,
+  isFinished,
+  pathForStage,
+  planFrom,
+  stageInstruction,
+  stagePlanBrief,
+} from "@/lib/context/stages";
+import { describeState, readCache, writeCache } from "@/lib/context/state";
+import {
+  readContext,
+  readProjectIndex,
+  recordCheckpoint,
+  saveContext,
+} from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
+import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
 import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
+import {
+  type ArchitectureManifest,
+  decideArchitecture,
+  describeArchitecture,
+} from "@/lib/builder/architecture";
+import { decideDesign, systemByName } from "@/lib/builder/design";
+import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
+import { reframe } from "@/lib/builder/framing";
+import { referenceEditBrief } from "@/lib/builder/reference";
+import { resolveBackend } from "@/lib/builder/backend/connection";
+import { describeProvision, provision } from "@/lib/builder/backend/provision";
+import { treeBrief } from "@/lib/builder/scaffold";
+import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
+import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
-import { classifyIntent, type Intent } from "@/lib/builder/intent";
+import { classifyIntent, type Intent,
+  remainderAfterRevert,
+} from "@/lib/builder/intent";
 import {
   bestKindGuess,
   BUILD_KINDS,
@@ -30,11 +97,18 @@ import {
   type KindResult,
 } from "@/lib/builder/kinds";
 import { builderAvailability } from "@/lib/builder/availability";
-import { detectMarket, isMarket, MARKET_LABEL } from "@/lib/builder/market";
-import { DEFAULT_MODEL, PROVIDER_LABEL, resolveModel } from "@/app/dashboard/models";
+import { detectMarket, isMarket } from "@/lib/builder/market";
+import {
+  DEFAULT_MODEL,
+  PROVIDER_LABEL,
+  creditMultiplierFor,
+  resolveModel,
+} from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
+import { restoreImages, stashImages } from "@/lib/page-html";
+import { validatePage } from "@/lib/builder/validate";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -79,6 +153,11 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Which of the two things to build, when the person was asked and answered.
+     Sent back with the next request the same way buildKind is — see the
+     needsStack branch, and stack.ts for when the question is worth asking at
+     all. Anything else here is ignored and the brief decides. */
+  stack?: unknown;
   /* Which blueprint to build from — landing, ecommerce, blog or webapp. Sent
      only when something in the interface already knows (a starter chip, a
      project whose kind is settled); otherwise the brief is classified. As with
@@ -105,9 +184,27 @@ function editUsage(applied: number): { filesTouched: number } {
   return { filesTouched: Math.max(1, applied) };
 }
 
-/* Long enough for a real description, short enough that the prompt cannot be
-   used to push a large payload through to the orchestrator. */
-const MAX_PROMPT = 4000;
+/* How long a brief may be.
+ *
+ * This was 4,000 characters, then 1,000 words. Both were a paragraph or two,
+ * and real briefs are not paragraphs. Somebody specifying a product writes
+ * pages: the sections, the copy, the brand, the rules that matter. A ceiling
+ * there turns a specification into a summary before any model sees it, and the
+ * person doing the summarising is the customer.
+ *
+ * Six hundred thousand characters is about a hundred and fifty thousand tokens.
+ * Every model the picker offers for a BUILD carries a million-token context, so
+ * a brief that size arrives whole with room for the page it produces. It is
+ * still a backstop against a large payload being pushed through to the
+ * orchestrator on the other side of the webhook; it is no longer a limit
+ * anybody writing in good faith will meet.
+ *
+ * And it is priced rather than merely permitted: every message gets three
+ * hundred free words and the rest carries a surcharge — see contextSurcharge,
+ * which prices this brief and the conversation carried with it on the same
+ * terms. The ceiling that used to do this job did it by refusing, which is the
+ * crudest form of pricing and the one that also refuses the legitimate case. */
+const MAX_PROMPT = 600_000;
 
 /* A ceiling on builds per account per hour. Not a billing control — the credit
    balance is that — but a brake on a loop or a stolen session draining an
@@ -156,6 +253,20 @@ const INTENT_WORDS: Record<string, string> = {
  * and the wrong one for a person sitting in front of the builder. */
 const ASK_WHEN_UNSURE = true;
 
+/* What retrieval may spend on an edit.
+ *
+ * Four thousand tokens is a handful of small files or a dozen one-line
+ * summaries — enough for the dependency chain behind one component, and nowhere
+ * near enough to turn "retrieve what this reaches" into "send the project".
+ * The point of a retrieval budget is that it is much smaller than the window;
+ * a generous one is just a slower way of sending everything. */
+const RETRIEVAL_TOKENS = 4_000;
+
+/* What this app's edit system prompt costs, measured once here rather than
+   guessed inside the fit. See fitEdit, which uses the same figure when a caller
+   cannot supply one. */
+const EDIT_SYSTEM_TOKENS = 4_000;
+
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
 
@@ -173,6 +284,18 @@ const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
  * unwraps it, so the statuses are written where they were always written. */
 type StreamLine =
   | { type: "step"; step: BuildStep }
+  /* The reply itself, arriving a piece at a time.
+   *
+   * Only ever sent where the text IS the answer — a question, a clarification.
+   * An edit's output is a stream of search/replace blocks and never reaches
+   * here; see `streamAnswer` in builder/edit.ts.
+   *
+   * Deltas rather than the whole answer each time: the reader appends, so what
+   * crosses the wire is proportional to what was written rather than to the
+   * square of it. The final `result` still carries the complete text, and it is
+   * the authority — this is a preview of an answer that is also being written
+   * down properly. */
+  | { type: "text"; delta: string }
   | { type: "result"; status: number; body: unknown };
 
 /**
@@ -206,7 +329,11 @@ export async function POST(request: Request) {
 
       let response: NextResponse;
       try {
-        response = await handle(request, (step) => write({ type: "step", step }));
+        response = await handle(
+          request,
+          (step) => write({ type: "step", step }),
+          (delta) => write({ type: "text", delta }),
+        );
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error("build: the request failed outright:", error);
@@ -237,7 +364,16 @@ export async function POST(request: Request) {
   });
 }
 
-async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
+/* Where an answer's text goes as it is written. Separate from the step sink
+   because they are different kinds of thing on different clocks: a step is one
+   measured operation, and this is prose appearing. */
+type TextSink = (delta: string) => void;
+
+async function handle(
+  request: Request,
+  emit: StepSink,
+  emitText: TextSink,
+): Promise<NextResponse> {
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
@@ -277,6 +413,15 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * Re-announcing the same id is what makes it a live line rather than a new
    * row: the panel merges by id, so each of these replaces the last. */
   const narrate = (id: string, label: string): OnProgress => (progress) => {
+    /* The reply goes out on its own channel rather than into the step's detail
+       line. A step detail is one line describing an operation; an answer is
+       prose the person is reading, and squeezing it into the tracker would put
+       the thing they asked for inside a collapsible panel about plumbing. */
+    if (progress.kind === "answer") {
+      emitText(progress.delta);
+      return;
+    }
+
     steps.begin(
       id,
       label,
@@ -293,15 +438,39 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     return NextResponse.json({ error: "That message didn't arrive in a form I could read. Try sending it again." }, { status: 400 });
   }
 
-  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const typed = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
+  /* A file on its own is a message.
+   *
+   * Dragging a photograph in and pressing send, with nothing typed, is how
+   * people hand something over — and it used to be answered with "tell me what
+   * you'd like and I'll get started", which is a strange thing to say to
+   * somebody who has just given you their logo. The words they left out are the
+   * same every time, so they are supplied rather than demanded. */
+  const attached = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id) => typeof id === "string").length
+    : 0;
+  const prompt = typed || (attached > 0 ? "Use the attached file in this page." : "");
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
     return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
   }
+  /* Counted whatever happens, because the number is wanted twice: once in the
+     sentence below if the brief is past the ceiling, and once by
+     contextSurcharge, which prices everything over three hundred words. */
+  const promptWords = countWords(prompt);
   if (prompt.length > MAX_PROMPT) {
     return NextResponse.json(
-      { error: `That's longer than I can take in one message — keep it under ${MAX_PROMPT} characters and send it again.` },
+      {
+        /* Said in both units. The ceiling is counted in characters because that
+           is what the payload is, but words are what the person has — so the
+           sentence leads with the number they can go and look at. */
+        error:
+          `That brief is ${promptWords.toLocaleString("en-US")} words (${prompt.length.toLocaleString("en-US")} characters), ` +
+          `which is past what I can take in one message. Keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters ` +
+          `and send it again — or build it in parts and add the rest as changes.`,
+      },
       { status: 400 },
     );
   }
@@ -315,7 +484,9 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   steps.begin("open", "Opening your app", "checking it's yours to open…");
   const { data: project, error: lookupError } = await supabase
     .from("projects")
-    .select("id, name")
+    /* slug included so the address does not have to be re-read: it is what
+       both the preview URL and the published URL are made from. */
+    .select("id, name, slug")
     .eq("id", projectId)
     .maybeSingle();
 
@@ -378,6 +549,100 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
 
   const currentHtml = (lastBuild?.html as string | undefined) ?? null;
 
+  /* ── What this project is, as the last build recorded it ────────────────
+   *
+   * Read next to the page rather than derived from it, and that is the whole
+   * of §19: a document cannot tell you whether the project behind it has a
+   * database, an admin area or a design system, so an edit that only reads the
+   * page can only ever change markup. This row is written by the save route —
+   * see project_architecture.
+   *
+   * Absent for every project built before it existed, and the edit then behaves
+   * exactly as it did: a plan with no manifest protects nothing and asserts
+   * nothing, which is the honest answer when nothing is known. */
+  const { data: architectureRow } = await supabase
+    .from("project_architecture")
+    .select("manifest, design_system, stack")
+    .eq("project_id", project.id)
+    .maybeSingle();
+
+  const knownArchitecture =
+    (architectureRow?.manifest as ArchitectureManifest | undefined) ?? null;
+  const knownDesign = systemByName(architectureRow?.design_system);
+
+  /* What is already known about this project — its state, its version, the
+     cached blocks, and the build plan when it is being made in stages.
+     
+     Read once, here, and used by every branch below: the edit path reads the
+     cached architecture block out of it and the build path reads the plan.
+     Beside the architecture row because they answer the same question in two
+     halves, and one read is one round trip. */
+  const projectContextRow = service ? await readContext(service, project.id) : null;
+
+  /* The plan this project is being built against, when there is one that has
+     not finished. */
+  const activePlan =
+    projectContextRow?.state.plan && !isFinished(projectContextRow.state.plan)
+      ? projectContextRow.state.plan
+      : null;
+
+  /* ── "continue", against a plan ──────────────────────────────────────────
+   *
+   * A continuation normally means "the last thing I described, again" — see
+   * carryBrief. On a project midway through a staged build it means something
+   * more specific: the next stage.
+   *
+   * Which PATH that takes matters more than it looks. The first stage has
+   * nothing to extend, so it is a build. Every stage after it is an addition to
+   * a project that already exists — and a build would replace that project,
+   * because a generation returns a whole document and the save route stores
+   * what comes back. So stages after the first are EDITS: the edit path sends
+   * the current page, patches it by search and replace, refuses rather than
+   * guessing, and costs a fraction of a build. Routing them as builds would
+   * mean stage three deleting stages one and two, which is the exact failure
+   * the plan exists to avoid.
+   *
+   * Decided here rather than after classification, for two reasons: the
+   * classifier reads the word "continue" and has no idea a plan exists, and the
+   * model routing below sizes the work from the instruction — a stage is a
+   * paragraph, not a word, and it belongs on the model that can hold it. */
+  const stageAsk = activePlan && isContinuation(prompt) ? currentStage(activePlan) : null;
+
+  /* What the model is actually asked for on a staged turn: the stage, what
+     already exists, and the brief it is all part of. The person's own message
+     stays "continue" everywhere it is stored, shown or priced. */
+  const stageRequest = activePlan && stageAsk ? stageInstruction(activePlan, stageAsk) : null;
+
+  /* The same page with its photographs lifted out, which is the only version a
+     model can be shown.
+   *
+     A stored page carries its pictures inside it as base64, and on a real one
+     that was 416,000 of its 463,000 characters — roughly 370,000 tokens against
+     the 200,000 a model will take. Every edit posted the whole document and was
+     refused before it began, so a page became permanently uneditable the moment
+     it got its images. The pictures go back in after the change applies. See
+     stashImages in lib/page-html.ts. */
+  const stashed = currentHtml ? stashImages(currentHtml) : null;
+  const leanHtml = stashed?.lean ?? null;
+
+  /* Which model handles this message, decided once and used everywhere: the
+     step lines, the prompt ceiling and the charge. Deciding it in each of those
+     places separately is how a step line comes to name a model that did not do
+     the work, or a charge comes to be at the wrong rate. editPage may still
+     escalate past this — a picture in the message, or an attempt that placed
+     nothing — and reports which model finished, which is what the charge
+     actually follows.
+   *
+     Measured on leanHtml rather than currentHtml, and the difference is not
+     small: the page above is 463,000 characters stored and 47,000 once its
+     photographs are lifted out. Routing on the stored size would send every
+     page with images to the strong model on the strength of base64 the model is
+     never going to see.
+   *
+     With no page there is nothing to edit and nothing to ask about, so the
+     value is unused; EDIT_MODEL is the harmless default. */
+  const editModel = leanHtml ? editModelFor(stageRequest ?? prompt, leanHtml) : EDIT_MODEL;
+
   steps.mark(
     "page",
     currentHtml ? "Read the current page" : "There is no page yet",
@@ -404,22 +669,45 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      history. */
   const { data: recent } = await supabase
     .from("project_messages")
-    .select("role, body")
+    .select("role, body, tone, kind")
+    /* tone and kind travel with the text now, and they are not decoration: they
+       are how a model call tells what the builder SAID from what the app
+       REPORTED. See conversational() in builder/brief.ts, and the loop it was
+       written for. */
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const history = ((recent ?? []) as { role: string; body: string }[])
+  const history = ((recent ?? []) as { role: string; body: string; tone: string | null; kind: string | null }[])
     .reverse()
-    .map((row) => ({ from: row.role, text: row.body }));
+    .map((row) => ({ from: row.role, text: row.body, tone: row.tone, kind: row.kind }));
 
-  /* The classifier keeps the slice it was tuned and tested against. Widening
-     what it sees is a change to how every message is read, and this is not the
-     change that should make it. */
-  const classifierHistory = history.slice(-6);
+  /* The classifier keeps the slice it was tuned and tested against — six turns
+     — but not the status lines and the faults. Those were never conversation,
+     and a window half full of "I couldn't place that change" is six turns of
+     which three say nothing about what this message means. */
+  const classifierHistory = history.filter(conversational).slice(-6);
 
   /* The same conversation in the shape a model call takes. */
   const prior = priorTurns(history);
+
+  /* What the words on this turn cost, on top of the work they ask for: the
+   * message somebody sent, and the conversation carried with it.
+   *
+   * The message itself is in the count because that is what somebody pastes —
+   * a thousand-word brief is the case this was asked for. The rest is measured
+   * off `prior` rather than off `history`, because this must be the price of
+   * what was actually SENT: priorTurns trims each message to MAX_CONTEXT_WORDS
+   * and joins consecutive ones from the same side. Charging off the untrimmed
+   * thread would bill somebody for a paragraph the builder never read.
+   *
+   * Zero on a short message and a short thread, which is most of them: the
+   * first 300 words of each are part of the price of the turn. See
+   * contextSurcharge. */
+  const contextCost = contextSurcharge([
+    promptWords,
+    ...prior.map((turn) => countWords(String(turn.content))),
+  ]);
 
   /* Whatever was attached to this message, resolved to rows the server can
      read. Restricted to this project and this owner: the ids came from the
@@ -429,10 +717,20 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     : [];
   if (attachmentIds.length > 0) steps.begin("attachments", "Reading what you attached", "opening the files from Storage…");
   const attachments = await loadAttachments(attachmentIds, project.id, user.id);
+
+  /* Read once, here, and reused by whichever path this message takes. It used
+     to be read again inside each of the three model calls below, which meant
+     the same files were downloaded and encoded up to three times — and, worse,
+     that nothing above could see what had happened to them. */
+  const files = await attachmentBlocks(attachments);
+
   if (attachments.length > 0) {
+    const usable = attachments.length - files.skipped.length;
     steps.mark(
       "attachments",
-      `Read ${attachments.length} ${attachments.length === 1 ? "attachment" : "attachments"}`,
+      usable === attachments.length
+        ? `Read ${usable} ${usable === 1 ? "attachment" : "attachments"}`
+        : `Read ${usable} of ${attachments.length} attachments`,
       attachments.map((row) => row.name).join(", "),
     );
   }
@@ -443,6 +741,23 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      the same message once. */
   const requestId =
     typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID();
+
+  /* A file the model cannot read is said out loud, before anything is built on
+     the assumption it arrived.
+   *
+     This is what "HTTP 400" was. One photograph the API could not decode — a
+     HEIC off a phone, wearing a .jpeg name — and the whole request was refused,
+     so an edit that had nothing to do with the picture died with a number in
+     it. The file is left out now, and the reason is a sentence about that file
+     rather than a status code about the request. */
+  if (files.skipped.length > 0) {
+    await deliver(
+      files.skipped
+        .map((file) => `I couldn't use ${file.name} — ${file.reason}.`)
+        .join(" "),
+      { tone: "error", key: `skipped:${requestId}` },
+    );
+  }
 
   /* ── The message goes into the thread before anything is done with it ────
      The browser used to be the only thing that wrote a thread: it rendered a
@@ -538,11 +853,36 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     hasPage: Boolean(currentHtml),
     history: classifierHistory,
     override,
+    /* Read before the words are. Somebody who attaches a file has said
+       something the sentence often leaves out — "use this" and an empty box
+       with a photograph in it are the same request — and routing that to a
+       question about which section they meant is the product failing to notice
+       what it was handed. See heuristicIntent. */
+    hasAttachment: attachments.length > 0,
   });
 
   /* Nothing to edit, revert or answer about. Whatever it looked like, the only
-     thing that can happen is a first build. */
-  const intent: Intent = currentHtml ? decision.intent : "new_project";
+     thing that can happen is a first build.
+   *
+     A stage settles it outright: with a project to add to it is an edit, and
+     without one it is the first build of the plan. Nothing the classifier
+     thinks about the word "continue" can be better informed than a plan that
+     says which stage comes next. */
+  const intent: Intent = stageAsk
+    ? pathForStage(Boolean(currentHtml)) === "edit"
+      ? "edit"
+      : "new_project"
+    : currentHtml
+      ? decision.intent
+      : "new_project";
+
+  if (stageAsk && activePlan) {
+    steps.mark(
+      "stage",
+      `Stage ${stageAsk.order} of ${activePlan.steps.length}: ${stageAsk.title}`,
+      stageAsk.outcome,
+    );
+  }
 
   /* How the reading was reached, not just what it was. "heuristic" means the
      free pass settled it and no model was called at all, which is worth being
@@ -559,7 +899,32 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         : `claude-haiku-4-5, confidence ${decision.confidence.toFixed(2)}`,
   );
 
-  const previewUrl = `${SITE_URL}/preview/${project.id}`;
+  /* The project's own name, reserved on the first build rather than at publish.
+   *
+   * It is what BOTH addresses are made from — /quickstark-app/preview while it
+   * is being built, /quickstark-app once it is live — so the URL somebody
+   * learns while working on a page is the URL their site keeps. A preview
+   * addressed by project id was 36 characters of hex that told nobody anything.
+   *
+   * Never fatal. A project whose name yields no usable address still builds and
+   * still previews, at /preview/<id>, which is what every link already written
+   * points at anyway. */
+  let addressed: { id: string; name: string; slug: string | null } = {
+    id: project.id,
+    name: project.name as string,
+    slug: (project as { slug?: string | null }).slug ?? null,
+  };
+
+  if (service && !addressed.slug) {
+    const reserved = await reserveSlug(service, addressed, user.id);
+    if ("slug" in reserved) addressed = { ...addressed, slug: reserved.slug };
+    else {
+      // eslint-disable-next-line no-console
+      console.error(`build: ${project.id} could not reserve an address (${reserved.problem})`);
+    }
+  }
+
+  const previewUrl = publishPreviewUrl(addressed);
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   if (intent === "revert") {
@@ -617,11 +982,21 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
 
     steps.mark("restore", "Put the previous version back on top");
 
-    const storedRevert = await deliver("Put the previous version back.", { key: "revert" });
+    /* What else they asked for in the same breath, handed back rather than
+       dropped. The undo had to happen first — applying an edit to the version
+       being thrown away would be exactly wrong — but their second instruction
+       vanishing without a word is how somebody comes to believe the whole
+       message failed. */
+    const remainder = remainderAfterRevert(prompt);
+    const revertMessage = remainder
+      ? `Put the previous version back. You also asked to ${remainder} — send that again and I'll make the change on this version.`
+      : "Put the previous version back.";
+
+    const storedRevert = await deliver(revertMessage, { key: "revert" });
 
     const { data: reverted } = await supabase
       .from("projects")
-      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
       .eq("id", project.id)
       .maybeSingle();
 
@@ -638,7 +1013,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         links: { preview: previewUrl, repo: "", admin: "" },
         configKeys: {},
         artifacts: {},
-        message: "Put the previous version back.",
+        message: revertMessage,
       },
       project: reverted ?? null,
     });
@@ -698,18 +1073,19 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      fall through into one that edits. */
   if (intent === "clarify" && currentHtml) {
     try {
-      steps.begin("clarify", "Working out what to ask you", `${EDIT_MODEL} is reading the page…`);
+      steps.begin("clarify", "Working out what to ask you", `${editModel} is reading the page…`);
       const question = await askClarifying(
         prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("clarify", "Working out what to ask you"),
+        editModel,
       );
       steps.mark(
         "clarify",
         "Wrote one question back",
-        `${EDIT_MODEL}, ${question.outputTokens} output tokens`,
+        `${editModel}, ${question.outputTokens} output tokens`,
       );
 
       /* Stored before it is billed. A question that never reached anyone is
@@ -723,10 +1099,15 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
+          /* Namespaced by what the charge is FOR, not just which request it
+             came from: one request takes one of these paths, but a bare request
+             id would make the three indistinguishable if that ever stopped
+             being true. */
+          dedupeKey: `clarify:${requestId}`,
         });
       }
 
@@ -758,18 +1139,19 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   // ── QUESTION ─────────────────────────────────────────────────────────────
   if (intent === "question" && currentHtml) {
     try {
-      steps.begin("answer", "Looking through the page for your answer", `${EDIT_MODEL} is reading it now…`);
+      steps.begin("answer", "Looking through the page for your answer", `${editModel} is reading it now…`);
       const answer = await answerQuestion(
         prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("answer", "Looking through the page for your answer"),
+        editModel,
       );
       steps.mark(
         "answer",
         "Answered from the page",
-        `${EDIT_MODEL}, ${answer.outputTokens} output tokens`,
+        `${editModel}, ${answer.outputTokens} output tokens`,
       );
 
       const delivered = await deliver(answer.text, { key: "answer" });
@@ -779,13 +1161,24 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
          at zero and reaches one credit only at a full page of answer, which is
          what keeps troubleshooting from feeling metered. */
       if (service && delivered) {
+        /* Plus the conversation it was answered against, on the same terms as
+           an edit: a question read with six messages behind it is a question
+           that cost more to answer than one read on its own. Not charged on the
+           clarify path above — that one is the builder asking for help, and
+           billing somebody extra for the classifier's caution is charging them
+           for our own uncertainty. */
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel });
         await chargeCredits(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: answer.outputTokens }),
-          description: `Question: ${project.name}`,
+          cost: roundCredits(askCost + contextCost),
+          description:
+            contextCost > 0
+              ? `Question: ${project.name} — ${formatCredits(askCost)} + ${formatCredits(contextCost)} context`
+              : `Question: ${project.name}`,
           projectId: project.id,
           outputTokens: answer.outputTokens,
+          dedupeKey: `question:${requestId}`,
         });
       }
 
@@ -851,25 +1244,326 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       );
     }
 
+    /* ── What else this change reaches ──────────────────────────────────
+     *
+     * Two blocks, both cheap, both assembled before the fit so their cost is
+     * budgeted rather than added afterwards.
+     *
+     * The first is what the project IS — kind, layers, design system, routes,
+     * and the decisions already taken. Read from the cache when the project has
+     * not structurally changed since it was written, which is nearly always:
+     * the same bytes on every message is what makes a provider-side prompt
+     * cache hit rather than miss, and rebuilding it each time was spending
+     * tokens to produce an identical paragraph.
+     *
+     * The second is retrieval. Given the index the build wrote, this finds the
+     * files the request names and then follows their imports — retrieve,
+     * discover a dependency, retrieve again — bounded by a budget, so a change
+     * to a checkout button learns about the payment client without the project
+     * being sent. Empty on a single-page project, which has one file and
+     * nothing to retrieve, and empty on any project built before the index
+     * existed: the edit then behaves exactly as it did. */
+    const stored = projectContextRow ?? { version: 1, state: {}, cache: {} };
+    const cachedState = readCache(stored.cache, "architecture", stored.state, stored.version);
+    const projectBlock = cachedState ?? describeState(stored.state);
+
+    if (!cachedState && projectBlock) {
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        state: stored.state,
+        cache: writeCache(stored.cache, "architecture", projectBlock, stored.state, stored.version),
+      });
+    }
+
+    /* The stage's instruction where there is one, the person's message where
+       there is not. Everything downstream of this — the fit, the plan, the
+       patch — reads this rather than `prompt`, and everything that is stored,
+       shown or priced still reads `prompt`. */
+    const asked = stageRequest ?? prompt;
+
+    /* ── The change that needs no model ────────────────────────────────────
+     *
+     * "Bring the cake down a bit." "The cone is cut off." "Move the photo up."
+     *
+     * Every one of those has exactly one correct implementation — two
+     * attributes on one <img> — and every one of them was costing a credit, a
+     * minute of somebody's attention, and about half the time a wrong answer:
+     * a margin added to the section, the hero's height changed, the header
+     * shortened. Then the same request again, phrased differently, for another
+     * credit. Five prompts to move a photograph fifteen per cent down its own
+     * frame is the single loudest complaint this builder has.
+     *
+     * So it is done here, arithmetically, before anything is spent. reframe
+     * reads the request, finds the picture it is about, and returns null the
+     * moment it is not certain — the subject names something on the page that
+     * is not a picture, the page has no pictures, the framing is already what
+     * was asked for. Anything it declines falls through to the model edit
+     * below, which is what used to happen every time.
+     *
+     * Not charged, and that is the point rather than an oversight: this
+     * consumed no model, and an account that pays for arithmetic is an account
+     * that learns to describe framing changes as something else.
+     *
+     * Read from `prompt` rather than from `asked`, and skipped entirely while a
+     * plan is driving: `asked` is then the stage's own instruction rather than
+     * something somebody typed, and a stage that finished here would skip the
+     * advance below and leave the plan stuck on it. Skipped with an attachment
+     * too — a picture in the message is something to look at, and this looks at
+     * nothing. */
+    const reframed =
+      attachments.length === 0 && !stageAsk ? reframe(currentHtml, prompt) : null;
+
+    if (reframed) {
+      steps.mark("plan", "Reframing a picture", "no rebuild needed — this is one attribute on one image");
+
+      /* Checked exactly as a model's edit is. A rewrite this small cannot
+         unbalance a document, and "cannot" is not a thing to assert about
+         markup somebody else generated. */
+      const verdict = validatePage(currentHtml, reframed.html);
+      if (verdict.ok) {
+        steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
+        await service.from("project_builds").insert({
+          project_id: project.id,
+          user_id: user.id,
+          request_id: requestId,
+          prompt,
+          html: reframed.html,
+          /* Named for what did it. A row saying "claude-haiku" over a change no
+             model made is how a ledger stops being evidence. */
+          model: "framing (no model)",
+          files_touched: 1,
+        });
+        steps.mark("version", "Saved a new version of the page");
+
+        await service
+          .from("projects")
+          .update({
+            prompt,
+            status: "Built",
+            intent: "webapp",
+            preview_url: previewUrl,
+            last_build_at: new Date().toISOString(),
+          })
+          .eq("id", project.id)
+          .eq("user_id", user.id);
+
+        const said = `${reframed.said} That one was free — it is a framing change, so nothing had to be rebuilt.`;
+        const storedReframe = await deliver(said, { key: "edit" });
+
+        /* Re-read exactly as the model path re-reads it: the row now carries a
+           new last_build_at and the workspace shows it without a refresh. */
+        const { data: afterReframe } = await supabase
+          .from("projects")
+          .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+          .eq("id", project.id)
+          .maybeSingle();
+
+        return NextResponse.json({
+          stored: storedReframe,
+          steps: steps.list(),
+          intent: "edit",
+          build: {
+            ok: true,
+            requestId: "",
+            projectId: project.id,
+            intent: "webapp",
+            status: "Built",
+            links: { preview: previewUrl, repo: "", admin: "" },
+            configKeys: {},
+            artifacts: { applied: 1 },
+            message: said,
+          },
+          project: afterReframe ?? null,
+        });
+      }
+
+      /* It did not hold together, which should not be possible for a one-tag
+         rewrite and is exactly why it was checked. Nothing is stored and the
+         request carries on to the model path below as though this had never
+         run. */
+      // eslint-disable-next-line no-console
+      console.error(`reframe ${requestId}: refused after applying — ${verdict.problem}`);
+    }
+
+    const indexed = await readProjectIndex(service, project.id);
+    const expansion =
+      indexed.length > 0 ? expandContext(indexed, asked, RETRIEVAL_TOKENS) : null;
+    const retrievedBlock = expansion ? describeExpansion(expansion) : "";
+
+    /* Whether this edit fits, measured rather than guessed — and made to fit
+       where it can be.
+     *
+       This was a character count: 80,000 for Haiku, 600,000 for Sonnet, and a
+       sentence telling the person to send their message again in pieces when
+       they went past it. Three things were wrong with that, and the third is
+       the one that matters. It counted characters against a limit the model
+       states in tokens. It counted only the message, while the page, the
+       carried conversation and every attached screenshot went into the same
+       window uncounted — a screenshot is about 1,600 tokens and was treated as
+       zero. And it asked the user to do the system's job.
+
+       fitEdit measures all of it against the chosen model's real window, holds
+       back room for the reply, and when the total is over it restructures the
+       INSTRUCTION rather than cutting it: every sentence that constrains the
+       outcome is carried word for word as a numbered requirement and only the
+       prose between them is reduced. The page is never summarised — an edit is
+       a change to a specific document, and a model shown a summarised page
+       rewrites it from memory. See src/lib/context/requests.ts. */
+    const fitted = fitEdit({
+      prompt: asked,
+      pageHtml: leanHtml ?? currentHtml,
+      modelId: editModel,
+      images: files.blocks.filter((block) => block.type === "image").length,
+      priorTokens: prior.reduce(
+        (total, turn) => total + estimateTokens(String(turn.content)),
+        0,
+      ),
+      /* The retrieved context is part of the system half of this call, so it is
+         declared here rather than discovered afterwards. Adding text to a
+         prompt AFTER measuring whether the prompt fits is how a budget becomes
+         decoration. */
+      systemTokens:
+        EDIT_SYSTEM_TOKENS + estimateTokens(projectBlock) + estimateTokens(retrievedBlock),
+    });
+
+    /* Written on every edit, not only on the ones that were tight: a call that
+       fitted comfortably is the baseline that makes the one that did not
+       legible. This is the only place the internal pressure states appear —
+       never on a screen. */
+    // eslint-disable-next-line no-console
+    console.log(describePlan(fitted.plan));
+
+    /* The one case that still cannot be done in a single call: the page alone
+       fills the window, so there is no room left for any instruction at all.
+       Said as what to do about it, and about the PAGE rather than about what
+       they wrote — the length of their message is not the problem here. */
+    if (fitted.mustDecompose) {
+      /* Not a refusal with a limit in it. The work is split here and the split
+         is shown, so the person is told what will happen rather than what did
+         not — see src/lib/context/decompose.ts. */
+      const split = decompose({
+        brief: asked,
+        requirements: extractRequirements(asked),
+        manifest: knownArchitecture,
+        force: true,
+      });
+
+      const said = [
+        `This page has grown past what I can read and rewrite in one go, so I've not changed anything.`,
+        describeDecomposition(split),
+        `Ask for one of those at a time — name the section in the words that appear on it — and each change will land.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const stored = await deliver(said, { tone: "error", key: "edit-page-too-large" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_page_too_large", stored },
+        { status: 400 },
+      );
+    }
+
+    /* What the model is asked, which is the person's message unless it had to
+       be restructured to fit. Their own message is stored and shown exactly as
+       they typed it either way — this is the model's copy, not theirs. */
+    const editPrompt = fitted.prompt;
+
     let edited;
     try {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
          at all. A full build still goes to the orchestrator below. */
-      steps.begin("edit", "Making the change", `${EDIT_MODEL} is reading the page…`);
+      /* editPage decides for itself and can escalate past this — a picture in
+         the message, or an attempt that placed nothing — so this opening line
+         is the likely model rather than the settled one. steps.mark below
+         reports what actually did the work. */
+      /* ── What this change is, before it is made ────────────────────────
+       *
+       * Classified against what the project actually is rather than against
+       * the message alone: "add a wishlist" is a button on a landing page and
+       * a table, a policy and an account page on a store, and the difference
+       * is the manifest. See src/lib/builder/edit-plan.ts.
+       *
+       * The half that changes behaviour most is `protect`. A model told which
+       * layers already work and are not part of this request does not touch
+       * them; a model told nothing has no reason not to, which is how a
+       * question about one section comes back having restyled the site. */
+      const plan = planEdit(editPrompt, knownArchitecture);
+      steps.mark("plan", describeEdit(plan), plan.why[0]);
+
+      steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
-        prompt,
-        currentHtml,
-        await attachmentBlocks(attachments),
+        editPrompt,
+        leanHtml ?? currentHtml,
+        files.blocks,
         prior,
         narrate("edit", "Making the change"),
+        /* What already exists, what this reaches, and what it must leave
+           alone. Empty when nothing was ever recorded about the project, and
+           the edit is then exactly what it was before.
+         *
+           The project's own state and whatever retrieval found are appended to
+           it: same channel, same budget, and both were counted in the fit
+           above. */
+        [
+          editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* What the attached pictures are FOR, when any came with the message.
+             The system prompt already says a screenshot is direction and a
+             photograph is content; this is the composition half — that a
+             reference is a set of measurements rather than a mood, and which
+             measurements. Empty when nothing was attached, which is most
+             messages. See src/lib/builder/reference.ts. */
+          referenceEditBrief(files.blocks.filter((block) => block.type === "image").length),
+          projectBlock,
+          retrievedBlock,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       );
+
+      /* The photographs that were lifted out so the page could be read, put
+         back into the page that is about to be stored. First, because
+         everything below measures or saves the real document — and a page
+         stored with `stashed-image-0` where a picture belongs is a page whose
+         images have been deleted by a tool that was only supposed to hide them
+         from a model. */
+      if (stashed && stashed.images.length > 0) {
+        edited = { ...edited, html: restoreImages(edited.html, stashed.images) };
+      }
+
+      /* The tokens the model wrote, swapped for the pictures they stand for.
+         Done here rather than in editPage because it belongs to the page being
+         stored, not to the model call: the blocks came back, they applied, and
+         what is about to be written to the table is a document that should
+         carry its images inside it. See imagePlacements. */
+      const placements = await imagePlacements(attachments);
+      if (placements.length > 0) {
+        const placed = placeAttachments(edited.html, placements);
+        if (placed !== edited.html) {
+          steps.mark(
+            "attachments",
+            `Placed ${placements.length} ${placements.length === 1 ? "image" : "images"} in the page`,
+            placements.map((file) => file.name).join(", "),
+          );
+        }
+        edited = { ...edited, html: placed };
+      }
       steps.mark(
         "edit",
-        edited.failures.length > 0
-          ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
-          : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
-        `${EDIT_MODEL}, ${edited.outputTokens} output tokens${edited.retried ? ", retried once" : ""}`,
+        edited.ranOutOfTime
+          ? `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}, then ran out of time`
+          : edited.failures.length > 0
+            ? `Applied ${edited.applied} of ${edited.applied + edited.failures.length} changes`
+            : `Applied ${edited.applied} ${edited.applied === 1 ? "change" : "changes"}`,
+        /* The model that actually did it, not the one that usually does — an
+           edit escalates, and a line that names EDIT_MODEL whatever happened is
+           a label rather than a report. And the route, because "by line number"
+           means quoting the page had already failed twice, which is the first
+           thing worth knowing if the change landed somewhere odd. */
+        `${edited.model}, ${edited.outputTokens} output tokens${
+          edited.route === "lines" ? ", placed by line number" : edited.retried ? ", retried once" : ""
+        }${edited.ranOutOfTime ? ", stopped at the time limit" : ""}`,
       );
     } catch (error) {
       if (error instanceof EditError) {
@@ -884,13 +1578,88 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       throw error;
     }
 
+    /* ── The gate the working version sits behind ──────────────────────────
+     *
+     * Everything above decides WHAT changes. This decides whether the result is
+     * allowed to become the page — and it is the last point at which the answer
+     * can still be no.
+     *
+     * A patch can apply perfectly and still wreck the layout: a deletion that
+     * takes an opening <div> and leaves its </div> closes a section early and
+     * folds the rest of the page into it. Every stage before this reports
+     * success, because every stage before this was successful. The page was
+     * stored anyway, and the person found out by looking at their own site.
+     *
+     * Checked on the finished document — pictures restored, tokens resolved —
+     * because that is what would be written. See validatePage, and note what it
+     * deliberately does not check: this refuses what an edit BROKE, never what
+     * it merely left imperfect. */
+    steps.begin("check", "Checking the change", "making sure the page still holds together…");
+    const verdict = validatePage(currentHtml, edited.html);
+
+    /* And the second question, which the first one cannot answer.
+     *
+     * validatePage asks whether the document still HOLDS TOGETHER — tags
+     * balanced, nothing catastrophically removed. This asks whether it still
+     * WORKS, and the failures are the ones that pass every other check in the
+     * pipeline: a nav link pointing at a section the edit deleted, a script
+     * reaching for an id that is gone, the viewport tag lost so the page stops
+     * laying out on a phone. Each of those renders. Each of those diffs
+     * cleanly. Each of those is found by the person whose site it is.
+     *
+     * Reported rather than refused, and that distinction is the whole design.
+     * A broken anchor is not a reason to throw away an edit somebody asked for
+     * — the edit is probably right and the nav is probably a line behind it. So
+     * the change is kept and the consequence is said out loud, in the reply,
+     * with enough in it to ask for the follow-up in one sentence. Refusing
+     * would be the failure this codebase has had twice: a rule that is right in
+     * principle and wrong about the documents it meets. */
+    const broke = verdict.ok ? regressions(readPage(currentHtml), readPage(edited.html)) : [];
+
+    if (!verdict.ok) {
+      /* Discarded, not stored. The previous version is still the working
+         version and was never touched — the edit only ever existed in memory,
+         which is what makes this safe to refuse this late.
+       *
+         Logged with the request id beside it, because a page that fails this is
+         a bug in the patching upstream and the failure is the only trace of
+         it. */
+      // eslint-disable-next-line no-console
+      console.error(
+        `edit ${requestId}: refused after applying — ${verdict.problem}`,
+        `(route ${edited.route}, model ${edited.model}, ${edited.applied} applied)`,
+      );
+      steps.mark("check", "Kept the previous version", verdict.problem);
+
+      const message = `That change didn't come out right — ${verdict.problem}. I've kept the page exactly as it was. Naming the section you mean usually gets a cleaner result.`;
+      const stored = await deliver(message, { tone: "error", key: "edit-invalid" });
+      return NextResponse.json(
+        { error: message, intent: "edit", code: "edit_invalid", stored },
+        { status: 422 },
+      );
+    }
+
+    steps.mark(
+      "check",
+      broke.length === 0
+        ? "The page still holds together"
+        : `Applied, but ${broke.length} thing${broke.length === 1 ? "" : "s"} the change knocked loose`,
+      broke.length === 0 ? undefined : broke.join("; "),
+    );
+
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
       user_id: user.id,
+      /* Both of these were being written as null on every edit, which is why
+         working out what had happened to a page meant reading the chat log and
+         guessing. The row now says which request made it and what did the
+         work, so a version that came out wrong can be traced to the attempt
+         that produced it. */
+      request_id: requestId,
       prompt,
       html: edited.html,
-      model: null,
+      model: `${edited.model}${edited.route === "lines" ? " (by line)" : ""}`,
       files_touched: edited.applied,
     });
     steps.mark("version", "Saved a new version of the page");
@@ -911,9 +1680,25 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      edited.failures.length > 0
-        ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-        : "Done.",
+      edited.ranOutOfTime
+        ? /* The change was too big to finish in the time a request has. What
+             landed is real and correct, and saying which part is missing is the
+             difference between a person asking for the rest and a person
+             repeating the whole thing and hitting the same wall. */
+          `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} before running out of time — that's as much as fits in one edit. Ask for the rest and I'll carry on from here.`
+        : edited.failures.length > 0
+          ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
+          : "Done.",
+      /* What the change knocked loose on its way through.
+       *
+       * Said before the model's own suggestion, because it outranks it: a
+       * broken anchor is a fact about the page somebody now owns, and a next
+       * step is an offer. Said at all because nothing else in the pipeline
+       * can — the page renders, the markup balances, and this is the only
+       * point at which anybody notices the menu stopped working. */
+      broke.length > 0
+        ? `One thing to know: ${broke.join("; and ")}. Say the word and I'll tidy that up.`
+        : null,
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
@@ -922,7 +1707,46 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       .filter(Boolean)
       .join(" ");
 
-    const storedEdit = await deliver(said, { key: "edit" });
+    /* ── A stage of a plan landing ────────────────────────────────────────
+     *
+     * The stage was built as an edit, so this is where it finishes — the save
+     * route never sees it. Advancing here rather than there is the same rule
+     * either way: the place that knows a stage is DONE is the place the done
+     * work arrives at.
+     *
+     * advance() is idempotent on the stage number, so a retried request cannot
+     * skip a stage nobody built. */
+    let stageProgress: string | null = null;
+
+    if (activePlan && stageAsk) {
+      const advanced = advance(activePlan, stageAsk.order);
+      const withPlan = { ...stored.state, plan: advanced };
+
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        state: withPlan,
+        cache: stored.cache,
+      });
+
+      await recordCheckpoint(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: stored.version,
+        label: `Stage ${stageAsk.order} of ${activePlan.steps.length}: ${stageAsk.title}`,
+        state: withPlan,
+      });
+
+      stageProgress = describeProgress(advanced);
+    }
+
+    /* The plan's progress rides on the reply rather than arriving as a second
+       message: two messages for one action is how a thread becomes a log. */
+    const storedEdit = await deliver(
+      [said, stageProgress].filter(Boolean).join("\n\n"),
+      { key: "edit" },
+    );
 
     /* Charged, not attempted. The edit is already in the page — refusing the
        charge now would not take it back, it would only leave the work unpaid
@@ -930,13 +1754,26 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
        at 0.50 forever while the edits kept arriving. charge_credits takes what
        is there and reports what it could not, so an account that overdraws
        lands at zero and the gate above turns the next one away. */
+    /* The edit, plus what the conversation behind it cost to carry. Named in
+       the description rather than folded in silently: a line in a ledger that
+       says only "Edit" and charges more than the last identical edit is the
+       kind of thing somebody notices and cannot explain. */
+    /* Priced on the model that did the work, not the one that usually does. An
+       edit escalates when it carries a picture or when the first attempt placed
+       nothing — see EDIT_MODEL_STRONG — and billing the cheap rate for the dear
+       model is the mistake this file has made before. */
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: edited.model });
     const charge = await chargeCredits(service, {
       userId: user.id,
       action: BUILD_ACTION,
-      cost: creditCostOf(BUILD_ACTION, editUsage(edited.applied)),
-      description: `Edit: ${project.name}`,
+      cost: roundCredits(editCost + contextCost),
+      description:
+        contextCost > 0
+          ? `Edit: ${project.name} — ${formatCredits(editCost)} + ${formatCredits(contextCost)} context`
+          : `Edit: ${project.name}`,
       projectId: project.id,
       filesTouched: edited.applied,
+      dedupeKey: `edit:${requestId}`,
     });
 
     if (charge) {
@@ -945,7 +1782,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
 
     const { data: after } = await supabase
       .from("projects")
-      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+      .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
       .eq("id", project.id)
       .maybeSingle();
 
@@ -1006,12 +1843,86 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      edit or another build may have been charged in between. */
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
-  if (beforeBuild && !canAfford(beforeBuild, FULL_BUILD_ENTRY_COST)) {
-    const said = `A full build costs up to ${formatCredits(FULL_BUILD_ENTRY_COST)} credits and you have ${formatCredits(
-      beforeBuild.daily + beforeBuild.rollover + beforeBuild.monthly + beforeBuild.topUp,
-    )}. Ask for a change to the page instead — an edit costs far less — or top up.`;
+  const viewerPlan = beforeBuild?.planId ?? "free";
+
+  /* The model is settled HERE rather than further down, because affordability
+     and model choice are the same decision and pretending otherwise is what
+     produced the refusal this replaces: "a full build on this model costs 8.00
+     and you have 5.25 — pick a cheaper model", to somebody whose plan included
+     a cheaper model that would have run.
+
+     Asking for "auto" now means asking this account's balance what it can
+     have. autoModelFor starts at the default and steps down; an explicitly
+     picked model is honoured exactly as picked, because a person who chose
+     Opus asked for Opus and would rather be refused than quietly downgraded. */
+  const wanted = typeof body.model === "string" && body.model ? body.model : DEFAULT_MODEL;
+  /* resolveModel turns "auto" into AUTO_MODEL and refuses anything this app
+     does not offer or cannot currently call. */
+  const requested = resolveModel(wanted);
+
+  if (!requested) {
+    return NextResponse.json(
+      { error: "That is not a model this app can build with." },
+      { status: 400 },
+    );
+  }
+
+  /* The plan gate runs on what was ASKED FOR, before the balance is consulted.
+     The two refusals are different things and must not be confused: a plan
+     cannot be solved by spending less, so a Free account that picks Fable is
+     told about the plan rather than quietly given Sonnet. Affordability, below,
+     IS solved by spending less, and so it is. */
+  const requiredPlan = planRequiredFor(requested);
+  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(requested, viewerPlan)) {
+    const usable = affordableModels(beforeBuild, viewerPlan).length
+      ? affordableModels(beforeBuild, viewerPlan)
+      : modelsForPlan(viewerPlan);
+    const said = `${requested.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to build with it, or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
+    const stored = await deliver(said, { tone: "error", key: "plan-locked" });
+    return NextResponse.json(
+      { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
+      { status: 402 },
+    );
+  }
+
+  /* Affordability, which steps down rather than refusing. The door is scaled
+     per model — the band describes a turn on the default and every other model
+     multiplies it — so an account holding eight credits cannot open a Fable
+     build that prices at forty. What it CAN do is build on something cheaper. */
+  const choice = resolveBuildModel(requested, beforeBuild, viewerPlan);
+
+  if (!choice) {
+    /* The only refusal left: nothing on this plan fits this balance. The
+       message names the plan above, or the top-up, because there is no cheaper
+       model left to name. */
+    const said = cannotAffordBuildMessage(requested, beforeBuild!, viewerPlan);
     const stored = await deliver(said, { tone: "error", key: "no-credits" });
-    return NextResponse.json({ error: said, code: "insufficient_credits", stored }, { status: 402 });
+    return NextResponse.json(
+      {
+        error: said,
+        code: "insufficient_credits",
+        model: requested.id,
+        needed: buildDoorFor(requested),
+        plan: viewerPlan,
+        stored,
+      },
+      { status: 402 },
+    );
+  }
+
+  const model = choice.model;
+
+  /* Said before the build starts, not after it finishes. A page built on a
+     smaller model than the chip promised, with nothing said, is
+     indistinguishable from a page that came back badly — and that is the
+     conclusion somebody reaches on their own. */
+  if (choice.downgradedFrom && beforeBuild) {
+    await deliver(downgradedModelMessage(choice, beforeBuild), {
+      /* Normal, not error: nothing failed. The build is running, just not on
+         the model that was asked for, and colouring that as a failure would
+         make a working build look broken. */
+      key: "model-downgraded",
+    });
   }
 
   /* ── What is actually being built ────────────────────────────────────────
@@ -1023,7 +1934,18 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      So a message that only asks for the last thing again carries the last thing
      with it. A message that describes something is passed through exactly as
      typed, which is every other message. See builder/brief.ts. */
-  const brief = carryBrief(prompt, history);
+  let brief = carryBrief(prompt, history);
+
+  /* A build that is resuming a plan builds the stage rather than the message.
+   *
+   * Only ever the FIRST stage in practice: a project with something in it takes
+   * the edit path (see stageAsk, where that is decided), so a stage reaching a
+   * build means there is nothing yet to add to. The brief is the stage's
+   * instruction either way, which is what makes the two paths produce the same
+   * work from the same plan. */
+  if (stageRequest) {
+    brief = { text: stageRequest, carried: activePlan?.brief ?? null };
+  }
 
   if (brief.carried) {
     steps.mark(
@@ -1057,13 +1979,6 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
    * whose provider has no key configured is refused for the opposite reason:
    * it is our misconfiguration, not the person's mistake, and it should read
    * as one rather than as a build that failed for no stated cause. */
-  const model = resolveModel(body.model ?? DEFAULT_MODEL);
-  if (!model) {
-    return NextResponse.json(
-      { error: "That is not a model this app can build with." },
-      { status: 400 },
-    );
-  }
   if (!providerConfigured(model.provider)) {
     return NextResponse.json(
       {
@@ -1130,15 +2045,150 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
   );
 
+  /* ── One page, or a project of files ────────────────────────────────────
+   *
+   * Decided here rather than at the generation call, and the position is the
+   * whole point: everything below this line costs money. The asset resolver
+   * makes real requests to a stock provider and stores what it finds, and the
+   * build after it is the most expensive thing in the system. Getting this
+   * wrong is not recoverable by editing — a scaffold is not a landing page
+   * with the wrong colours, it is a different artefact — so the only way to
+   * discover the mistake is to look at what came back and pay again.
+   *
+   * See stack.ts. Where the brief says which it is, it is taken and nothing is
+   * asked. Where the evidence is only the SHAPE of the brief — the word
+   * "dashboard", a kind of "software people sign into" that never mentions
+   * signing in — the question goes back before a penny is spent. */
+  const chosenStack: Stack | null =
+    body.stack === "nextjs" || body.stack === "standalone-html" ? body.stack : null;
+  const needs = chosenStack
+    ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
+    : decideStack(brief.text, kind.kind);
+
+  if (!needs.certain && ASK_WHEN_UNSURE) {
+    const asked = stackQuestion(needs);
+    const stored = await deliver(asked, { key: "which-stack" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsStack: true,
+      /* The lean first, so the likelier answer is under the thumb — read from
+         the same signals that could not settle it outright, which still know
+         which way they were leaning. */
+      stackOptions: stackOptions(needs),
+      /* Sent back so the answer does not re-run the classifier and possibly
+         land somewhere else: the person is answering a question about THIS
+         reading of the brief. */
+      buildKind: kind.kind,
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: kind.kind,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
+
+  steps.mark(
+    "stack",
+    needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
+    needs.why[0],
+  );
+
+  /* ── What this project is actually made of ──────────────────────────────
+   *
+   * The stack answered whether this can be one file. This answers what is in
+   * it: a database, accounts, a back office, storage, a way to take money. See
+   * src/lib/builder/architecture.ts, which is also where the reasons come from.
+   *
+   * It can raise the stack — a store with no database is a picture of a store —
+   * and where that raise is a guess rather than something the brief said, it
+   * comes back uncertain and is put to the person instead of being spent on.
+   * Same guard, same reason, as the stack question above it. */
+  const architecture = decideArchitecture(brief.text, kind.kind, needs);
+
+  if (architecture.promoted) {
+    needs.stack = "nextjs";
+    needs.backend = architecture.manifest.backend;
+    needs.auth = architecture.manifest.authentication;
+  }
+
+  steps.mark(
+    "architecture",
+    describeArchitecture(architecture.manifest),
+    architecture.why[0],
+  );
+
+  /* ── The database, made real before the code that queries it is written ──
+   *
+   * Order matters here for the same reason it does for the imagery: the model
+   * that writes the application is not asked to design its own schema. The
+   * tables are decided from the manifest, created in Postgres, and then handed
+   * to the prompt as a fact — so what comes back queries columns that exist,
+   * against policies that are already enforcing something.
+   *
+   * Where the data lives is the project's own decision. By default it is a
+   * schema of its own on this instance; a project whose owner has linked their
+   * Supabase gets theirs instead, and nothing else in the pipeline changes.
+   * See src/lib/builder/backend/connection.ts.
+   *
+   * Every part of it degrades, deliberately. No connection string, a database
+   * that refuses, a link that has gone stale: the build carries on, the files
+   * are still written, and the step says what is missing. A project whose
+   * schema is pending is worth previewing; a build that dies because a
+   * migration could not run is not. */
+  /* `service` is null when the deployment has no service-role key, which is
+     already a build that cannot write its own rows — so this asks for nothing
+     rather than adding a second way to fail on it. */
+  const backend =
+    service && architecture.manifest.database ? await resolveBackend(service, project.id) : null;
+  const dataModel = dataModelFor(
+    architecture.manifest,
+    backend?.schema ?? schemaNameFor(project.id),
+  );
+
+  if (service && backend && dataModel.tables.length > 0) {
+    steps.begin("database", "Creating the database", `${dataModel.tables.length} tables…`);
+    const provisioned = await provision(service, backend, dataModel, project.id, user.id);
+    steps.mark(
+      "database",
+      provisioned.applied ? "Database created" : "Database not created",
+      describeProvision(provisioned),
+    );
+  }
+
   /* ── And where it is set ────────────────────────────────────────────────
      The blueprint decides what is built; this decides the world it is built
      in — the currency on every price, the shape of an address, how people pay,
      which way round a date goes, and which English it is spelled in. Free, and
      read from the brief rather than assumed: "a storefront with Paystack
      checkout" is Nigerian without anybody typing the word. See
-     src/lib/builder/market.ts. */
+     src/lib/builder/market.ts.
+
+     Not announced in the step list, and that is deliberate.
+
+     This picks which DEFAULT block of locale conventions travels with the
+     prompt, out of the two that are written. It does not decide where the
+     build is set — the brief does, and the blueprint's locale section opens by
+     saying so: a brief naming any country, city or currency wins outright,
+     including one neither block covers. So "Set in the United States" was not
+     a report of a decision, it was a lookup being read out, and for anyone
+     outside the two markets it was read out wrong. A bakery in Nairobi named
+     its city, gets a Kenyan page, and was told the build was American.
+
+     Nothing is lost by the silence. What was actually chosen is visible in the
+     page itself, in the currency on every price and the shape of every
+     address, and a person who names their city can see whether they were
+     listened to without a line of narration claiming otherwise. */
   const market = detectMarket(brief.text, isMarket(body.market) ? body.market : null);
-  steps.mark("market", `Set in the ${MARKET_LABEL[market.market]}`, market.reason);
 
   /* ── The pictures, decided before a line of the page is written ─────────
      The architectural rule, at the point it actually applies: the model that
@@ -1199,11 +2249,39 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
   const sources = Object.entries(pictures.bySource)
     .map(([id, count]) => `${count} from ${id}`)
     .join(", ");
+
+  /* ── Whose pictures these are ──────────────────────────────────────────
+   *
+   * The registry is written by the resolver as each slot is filled: what the
+   * picture is for, what it is of, how it was shot, where it sits, and which
+   * picture it IS. Recording it is what makes "are this project's images its
+   * own" a question with an answer rather than an assurance.
+   *
+   * A duplicate inside one project is worth saying out loud. It is not an
+   * error — a gallery is a legitimate reason for one subject to appear
+   * repeatedly — but one photograph doing a whole catalogue's work is the
+   * clearest tell that nothing on the page is real, and it is invisible unless
+   * something counts. */
+  const duplicated = duplicatesIn(pictures.registry);
+  /* ── And the design system, from the same decision ──────────────────────
+   *
+   * Read off the register the planner just chose rather than derived again
+   * from the brief. That is the whole point of doing it here: one answer to
+   * "what does this look like" produces both halves, so a project cannot end
+   * up with warm documentary photography inside a clinical blue interface.
+   *
+   * Free, deterministic, and one of six systems written by hand — see
+   * src/lib/builder/design.ts. */
+  const design = decideDesign(plan.direction.register, kind.kind, brief.text);
+  steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
+
   steps.mark(
     "assets",
     `Chose the imagery — ${plan.direction.register}`,
     sources
-      ? `${sources}${pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""}`
+      ? `${describeRegistry(pictures.registry)}${
+          pictures.unresolved > 0 ? `, ${pictures.unresolved} left as panels` : ""
+        }${duplicated.length > 0 ? `, ${duplicated.length} used more than once` : ""}`
       : "no image source configured, so the layout holds plain panels",
   );
 
@@ -1242,6 +2320,50 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
     const imageUrls = await signedImageUrls(intake.reference);
     const attachedText = await attachmentText(attachments);
 
+    /* ── Whether this is one build or the first of several ────────────────
+     *
+     * A brief that names a database, accounts, a checkout, payments, an admin
+     * and analytics is not one page and not one generation: it is six pieces of
+     * work with an order to them, and asking for all of it in a single call
+     * produces the average of six things rather than any of them. decompose.ts
+     * decides the stages; stages.ts runs them.
+     *
+     * Made once per project. A plan already in flight is resumed rather than
+     * re-planned — a plan that changed shape between stage two and stage three
+     * is a plan nobody agreed to — and a project small enough to build in one
+     * pass never gets one at all, which is nearly every project.
+     *
+     * The plan reaches the model as part of the prompt: which stage this is,
+     * what is already built and must not be rebuilt, and what comes later and
+     * must not be built early. See stagePlanBrief. */
+    let plannedStages = activePlan;
+
+    if (!plannedStages && service) {
+      const split = decompose({
+        brief: brief.text,
+        requirements: extractRequirements(brief.text),
+        manifest: architecture.manifest,
+      });
+
+      if (split.needed && split.steps.length > 1) {
+        plannedStages = planFrom(split.steps, brief.text);
+
+        await saveContext(service, {
+          projectId: project.id,
+          userId: user.id,
+          version: projectContextRow?.version ?? 1,
+          state: { ...(projectContextRow?.state ?? {}), plan: plannedStages },
+          cache: projectContextRow?.cache ?? {},
+        });
+
+        steps.mark(
+          "stage",
+          `Building this in ${split.steps.length} stages`,
+          `starting with ${split.steps[0].title.toLowerCase()} — ${split.why}`,
+        );
+      }
+    }
+
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
@@ -1253,6 +2375,23 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
       market: market.market,
       /* What the code generator is told about imagery, and all it is told. */
       manifest: pictures.manifest,
+      /* Which layers exist, so the blueprint's admin half is switched on and
+         its frontend-only exclusions are switched off. */
+      architecture: architecture.manifest,
+      /* And what it looks like: one system, named tokens, no invented values. */
+      design: design.dna,
+      /* And, when this is a project rather than a page, what a project has to
+         come back as: the files, the routes, and the plumbing NOT to write
+         because scaffold.ts writes it. Appended to the blueprint rather than
+         replacing it — what to build is the same question either way, and only
+         the shape of the answer changes. */
+      treeInstructions:
+        needs.stack === "nextjs"
+          ? treeBrief(kind.kind, architecture.manifest, dataModel, design.dna)
+          : undefined,
+      /* Which stage of the plan this build is, when there is a plan. Empty
+         string when there is not, which is the same as absent. */
+      stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
     });
 
     const request = generationRequest(
@@ -1277,6 +2416,25 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
          with no diff and no review, and that is how one prompt came to serve
          four different kinds of product. */
       buildKind: kind.kind,
+      /* Which of the two things the orchestrator is building, and whether it
+         gets a database client. The workflow branches on this; the save route
+         reads it back to decide whether to write @/lib/supabase into the tree.
+         Sent explicitly rather than inferred from what comes back, so a
+         generation that ignored its instructions is a failed build rather than
+         a silently different product. */
+      stack: needs.stack,
+      backend: needs.backend,
+      /* And what it is made of, in full. The two booleans above are the old
+         shape of this question and cannot express an admin, a bucket or a
+         checkout; the workflow carries this one through untouched so the save
+         route scaffolds against the same answer the prompt was written
+         against. */
+      architecture: architecture.manifest,
+      /* And what it looks like. The NAME rather than the system: every value in
+         one is a constant this app already holds, so sending the whole thing
+         would push a palette down a wire to arrive at something already on the
+         other end. The save route looks it up — see design.ts, systemByName. */
+      designSystem: design.dna.name,
       /* Which model, and everything needed to call it — the endpoint, the
          wire id, the token ceiling, and the body already shaped for that
          vendor's API. The orchestrator attaches the credential and sends it.
@@ -1365,7 +2523,7 @@ async function handle(request: Request, emit: StepSink): Promise<NextResponse> {
      reply says so too instead of promising a row that was never written. */
   const { data: synced } = await supabase
     .from("projects")
-    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at")
+    .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
     .eq("id", project.id)
     .maybeSingle();
 
