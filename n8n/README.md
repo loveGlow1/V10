@@ -383,15 +383,32 @@ that is gated on every enabled node having a credential attached.
      verified to hold `projects` with all six build columns, and the credit
      RPCs the app calls: `charge_credits` for work already delivered (the build
      charge in `/api/builder/webapp/save`, and edits and questions in
-     `/api/build`), `spend_credits` for a charge that must be refused when the
-     pool cannot cover it (`/api/credits/spend`, which is how publishing is
+     `/api/build`), `spend_credits_for` for a charge that must be refused when
+     the pool cannot cover it (`/api/credits/spend`, which is how publishing is
      paid for), and `ensure_credit_balance` behind both.
+
+     None of those three is called from this workflow, and none is reachable
+     with this credential by accident: they are named here only so that the one
+     credential the workflow does use is not mistaken for the thing that moves
+     credits. Credits move in the app, where the price is decided.
+     `spend_credits_for` takes the account to charge as an argument and is
+     executable by `service_role` alone — it replaced a `spend_credits` that
+     read `auth.uid()` and was callable by any signed-in browser with a price
+     of its own choosing. The old name survives as a session-scoped wrapper for
+     the length of one deployment; see `docs/SUPABASE.md` §7.
 
      It needs the **service_role** key, not the anon key: the node updates a row
      on the user's behalf with no user session, and `projects` is owner-scoped by
      RLS, so an anon key updates nothing and reports success. It updates the row
-     matching the `projectId` the app sent, writing `status, intent,
-     preview_url, repo_url, admin_url, last_build_at`.
+     matching the `projectId` the app sent, writing `status` and `intent` — and
+     on the failure node, `status` and `last_build_at`.
+
+     Only those. `preview_url` and `last_build_at` are written by the app, in
+     `/api/builder/webapp/save` and `/api/build`, because they are known there
+     and not here: the page is stored app-side and the preview address is made
+     from what was stored. Nothing writes `repo_url` or `admin_url` yet. This
+     paragraph used to claim all six were written here, which would have sent
+     anybody debugging a missing preview to the wrong side of the webhook.
 4. **The generation credentials** — one per provider, because a credential is
    bound to a node in n8n and cannot be an expression.
 

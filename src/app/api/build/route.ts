@@ -2157,7 +2157,7 @@ async function handle(
 
   if (service && backend && dataModel.tables.length > 0) {
     steps.begin("database", "Creating the database", `${dataModel.tables.length} tables…`);
-    const provisioned = await provision(service, backend, dataModel, project.id);
+    const provisioned = await provision(service, backend, dataModel, project.id, user.id);
     steps.mark(
       "database",
       provisioned.applied ? "Database created" : "Database not created",

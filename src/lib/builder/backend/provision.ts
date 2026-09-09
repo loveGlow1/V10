@@ -38,7 +38,13 @@ import type { BackendConnection } from "@/lib/builder/backend/connection";
 import { type DataModel, toSql } from "@/lib/builder/schema";
 
 export type ProvisionOutcome =
-  | { ok: true; applied: true; tables: number; ms: number }
+  /* `recorded` is whether project_backends remembers this run, and it is
+     separate from `applied` because the two can genuinely differ: the migration
+     commits over a Postgres connection, and the row is written through
+     PostgREST afterwards. Tables that exist are reported as created even when
+     the bookkeeping failed — the alternative is a step that says the database
+     was not made while the person is looking at it. */
+  | { ok: true; applied: true; recorded: boolean; tables: number; ms: number }
   /* Nothing to do, and that is a success rather than a skip: a landing page has
      no database and a build that reported a failed provisioning step for one
      would be wrong. */
@@ -92,6 +98,13 @@ export async function provision(
   connection: BackendConnection,
   model: DataModel,
   projectId: string,
+  /* The project's owner. project_backends.user_id is not null and has no
+     default — the row cannot be inserted without it — and it is what the
+     table's owner-scoped policies match on, so a row carrying the wrong id
+     would be invisible to the person whose database it describes. It comes
+     from the caller's own session, which is also what proved the project was
+     theirs to build. */
+  userId: string,
 ): Promise<ProvisionOutcome> {
   if (model.tables.length === 0) {
     return { ok: true, applied: false, reason: "no-database" };
@@ -157,11 +170,12 @@ export async function provision(
     await client.query(sql);
     await client.query("commit");
 
-    await service
+    const { error: recordError } = await service
       .from("project_backends")
       .upsert(
         {
           project_id: projectId,
+          user_id: userId,
           kind: connection.kind,
           url: connection.url,
           anon_key: connection.anonKey,
@@ -171,7 +185,25 @@ export async function provision(
         { onConflict: "project_id" },
       );
 
-    return { ok: true, applied: true, tables: model.tables.length, ms: Date.now() - started };
+    /* Logged rather than returned as a failure, and never thrown. The tables
+       are there; what is missing is the note saying so, and the consequence is
+       bounded — the next build reads no applied_at, decides the schema is
+       pending and runs the same migration again, which every statement in it
+       is written to survive. Silence here is what made this worth fixing: the
+       error was discarded, so a row that never landed looked exactly like one
+       that did. */
+    if (recordError) {
+      // eslint-disable-next-line no-console
+      console.error("provision: the schema was applied but not recorded:", recordError);
+    }
+
+    return {
+      ok: true,
+      applied: true,
+      recorded: !recordError,
+      tables: model.tables.length,
+      ms: Date.now() - started,
+    };
   } catch (error) {
     try {
       await client.query("rollback");
@@ -200,7 +232,11 @@ export async function provision(
  */
 export function describeProvision(outcome: ProvisionOutcome): string {
   if (outcome.applied) {
-    return `${outcome.tables} ${outcome.tables === 1 ? "table" : "tables"} created, row-level security on every one`;
+    const made = `${outcome.tables} ${outcome.tables === 1 ? "table" : "tables"} created, row-level security on every one`;
+    /* Worth saying out loud rather than hiding behind a success: the tables are
+       real, and the next build will make them again because nothing wrote down
+       that this one had. */
+    return outcome.recorded ? made : `${made} — but this run could not be recorded, so the next build will apply the schema again`;
   }
   if (outcome.ok) return "no database needed";
   return `the tables are not there yet — ${outcome.reason}`;

@@ -9,6 +9,7 @@ import {
 import { EDIT_MODEL } from "@/lib/builder/edit";
 import { isPublishedProject } from "@/lib/project-status";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Where a charge is actually taken.
  *
@@ -32,7 +33,20 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * and it is fifty times cheaper for a project that is already live — so
  * "alreadyPublished" is a signal a caller has every reason to assert and no
  * right to. It is read from the project's stored status here, under the
- * caller's own session, and whatever arrived in the body is discarded. */
+ * caller's own session, and whatever arrived in the body is discarded.
+ *
+ * ── Why the charge is made with the service key ───────────────────────────
+ *
+ * Everything above is undone if the browser can call the charge itself, and it
+ * could: spend_credits read auth.uid() and `authenticated` held EXECUTE on it,
+ * so a signed-in person could POST /rest/v1/rpc/spend_credits with any p_cost
+ * they liked. Pricing on this server means nothing while the function it
+ * protects is reachable without it.
+ *
+ * So the charge goes through spend_credits_for, which is told whose account to
+ * charge and is executable by the service role alone. The session is still what
+ * settles who the caller is and what they own — that is the one thing a service
+ * key must never decide — and it is settled above, before this runs. */
 
 export const runtime = "nodejs";
 /* Charges must never be served from a cache. */
@@ -157,14 +171,43 @@ export async function POST(request: Request) {
     modelId: EDIT_MODEL,
   });
 
-  const { data, error } = await supabase.rpc("spend_credits", {
+  const arguments_ = {
     p_action: body.action,
     p_cost: cost,
     p_description: typeof body.description === "string" ? body.description.slice(0, 200) : null,
     p_project_id: projectId,
     p_output_tokens: outputTokens ?? null,
     p_files_touched: filesTouched ?? null,
-  });
+  };
+
+  const service = createSupabaseServiceClient();
+
+  let { data, error } = service
+    ? await service.rpc("spend_credits_for", { p_user_id: user.id, ...arguments_ })
+    : { data: null, error: { code: "no-service-key", message: "no service key" } as const };
+
+  /* The bridge, and it is temporary by construction.
+   *
+   * A database migration and a deployment cannot land in the same instant, and
+   * whichever order they land in, charging must keep working: a deployment that
+   * cannot take payment is worse than the hole this closes. So a missing
+   * function — PGRST202 from PostgREST, 42883 from Postgres — falls back to the
+   * session-scoped wrapper, which is what this route called before.
+   *
+   * It stops working on its own, without anybody having to remember it: once
+   * supabase/close-spend-credits.sql has run, `authenticated` no longer holds
+   * EXECUTE on that wrapper and this path fails. By then it is not needed.
+   *
+   * Loud, because it means the deployment is charging through a function a
+   * browser can also call. */
+  if (error && (error.code === "PGRST202" || error.code === "42883" || error.code === "no-service-key")) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "spend: charging through the session — run supabase/schema.sql for spend_credits_for" +
+        (service ? "" : ", and set SUPABASE_SERVICE_ROLE_KEY"),
+    );
+    ({ data, error } = await supabase.rpc("spend_credits", arguments_));
+  }
 
   if (error) {
     /* 53400 is the configuration_limit_exceeded the function raises when the
@@ -178,7 +221,7 @@ export async function POST(request: Request) {
     }
 
     // eslint-disable-next-line no-console
-    console.error("spend_credits failed:", error);
+    console.error("the charge failed:", error);
     return NextResponse.json({ error: "Could not record the charge." }, { status: 500 });
   }
 

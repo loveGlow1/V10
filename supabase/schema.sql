@@ -582,7 +582,7 @@ end;
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- spend_credits — the only way credits leave an account.
+-- spend_credits_for — the only way credits leave an account.
 --
 -- Takes a cost that the application has already priced (see creditCostOf), so
 -- the estimate a user is shown and the charge they receive are the same number.
@@ -591,8 +591,23 @@ $$;
 --
 -- Publishing passes 0 and is recorded at 0. It is the caller's job not to price
 -- a deploy, and creditCostOf returns 0 for one before it reads any signal.
+--
+-- ── Why the account is an argument ──────────────────────────────────────────
+--
+-- It used to read auth.uid() and be executable by `authenticated`, which meant
+-- any signed-in person could POST /rest/v1/rpc/spend_credits from a browser
+-- console and name their own p_cost. The function checks that a cost is not
+-- negative and that the balance covers it; it has no way to check that the
+-- price is the real one, because the price is decided in the application. So
+-- the only fix is for the caller to be the server: it is handed the account to
+-- charge, it is executable only by the service role, and the price a browser
+-- sends is never the price that arrives here.
+--
+-- Supabase's own linter flags the old shape as
+-- authenticated_security_definer_function_executable.
 -- ─────────────────────────────────────────────────────────────────────────────
-create or replace function public.spend_credits(
+create or replace function public.spend_credits_for(
+  p_user_id       uuid,
   p_action        text,
   p_cost          numeric,
   p_description   text default null,
@@ -607,13 +622,13 @@ set search_path = public
 as $$
 declare
   v_balance     public.credit_balances;
-  v_user_id     uuid := auth.uid();
+  v_user_id     uuid := p_user_id;
   v_outstanding numeric(10,2);
   v_taken       numeric(10,2);
 begin
   if v_user_id is null then
-    raise exception 'spend_credits requires an authenticated session'
-      using errcode = '28000';
+    raise exception 'spend_credits_for needs an account'
+      using errcode = '22023';
   end if;
 
   if p_cost < 0 then
@@ -659,6 +674,48 @@ begin
     (v_user_id, p_action, -p_cost, p_description, p_project_id, p_output_tokens, p_files_touched);
 
   return v_balance;
+end;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- spend_credits — the same charge, for a caller that has a session.
+--
+-- Kept because removing it would break every deployment running code older than
+-- the change that moved this charge onto the server, and those two things
+-- cannot land at the same instant. It is a wrapper now, holding no logic of its
+-- own, so the two cannot drift.
+--
+-- It is deliberately NOT granted to `authenticated` below. An existing grant is
+-- left alone rather than revoked here, so that re-running this file cannot take
+-- the charge away from a deployment that still needs it — closing that is a
+-- deliberate step, and it has a file of its own:
+-- supabase/close-spend-credits.sql.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.spend_credits(
+  p_action        text,
+  p_cost          numeric,
+  p_description   text default null,
+  p_project_id    uuid default null,
+  p_output_tokens integer default null,
+  p_files_touched integer default null
+)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if v_user_id is null then
+    raise exception 'spend_credits requires an authenticated session'
+      using errcode = '28000';
+  end if;
+
+  return public.spend_credits_for(
+    v_user_id, p_action, p_cost, p_description,
+    p_project_id, p_output_tokens, p_files_touched
+  );
 end;
 $$;
 
@@ -852,11 +909,27 @@ begin
 end;
 $$;
 
--- A signed-in account may spend its own credits and read its own balance. It
--- may not grant itself any: grant_credits is left executable only by the
--- service role, which is what the payment webhook runs as.
+-- Credits leave an account only where the price is decided: on the server. The
+-- account to charge is an argument, so there is no session for this to read and
+-- no reason for any browser role to hold it.
+revoke all on function public.spend_credits_for(uuid, text, numeric, text, uuid, integer, integer)
+  from public, anon, authenticated;
+-- Granted back to the one role that calls it. The revoke above takes away the
+-- EXECUTE that PUBLIC holds on every new function by default, and service_role
+-- has no privileges of its own to fall back on — without this line the server's
+-- own charge is refused, which is the same shape of bug as leaving it open,
+-- pointing the other way. charge_credits above is granted the same way.
+grant execute on function public.spend_credits_for(uuid, text, numeric, text, uuid, integer, integer)
+  to service_role;
+
+-- The session-scoped wrapper. No grant is made here, deliberately: this file is
+-- run on deployments whose application may still be charging through it, and a
+-- grant that comes and goes with a schema run is a charge that works on Tuesday
+-- and not on Wednesday. An existing grant is therefore left exactly as it is —
+-- `create or replace function` preserves privileges — and taking it away is
+-- supabase/close-spend-credits.sql, which is run once, after the deployment
+-- charges through spend_credits_for.
 revoke all on function public.spend_credits(text, numeric, text, uuid, integer, integer) from public, anon;
-grant execute on function public.spend_credits(text, numeric, text, uuid, integer, integer) to authenticated;
 
 revoke all on function public.ensure_credit_balance(uuid) from public, anon, authenticated;
 revoke all on function public.grant_credits(uuid, numeric, text, text) from public, anon, authenticated;
