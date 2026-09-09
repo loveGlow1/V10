@@ -182,25 +182,50 @@ export function isSupabaseUrl(value: unknown): value is string {
 }
 
 /**
- * Whether a value looks like a Supabase anon key rather than a service key.
+ * Whether a value is a key safe to compile into a public bundle.
  *
- * This one matters more than it looks. Both keys are JWTs and they look
- * identical at a glance, so somebody pasting from the wrong row of the Supabase
- * dashboard is not an unlikely accident — it is the likely one. An anon key
- * pasted as a service key breaks the app; a SERVICE KEY pasted as an anon key
- * gets compiled into a static bundle and served to every visitor, handing each
- * of them full read and write over every table with RLS bypassed.
+ * This one matters more than it looks. The publishable key and the secret key
+ * sit next to each other in the Supabase dashboard, so pasting the wrong one is
+ * not an unlikely accident — it is the likely one. The publishable key in the
+ * wrong field breaks the app; the SECRET key in this field gets compiled into a
+ * static bundle and served to every visitor, handing each of them full read and
+ * write over every table with RLS bypassed. Only one of those two mistakes can
+ * be noticed later, so both are refused here.
  *
- * So the role is read out of the JWT payload and anything that is not `anon` is
- * refused. Not verified — there is no key here to verify against, and that is
- * fine: this is a guard against a mistake, not against an attacker, and an
- * attacker who forges a token to put their own credentials into their own
- * project has achieved nothing.
+ * ── Two formats, because Supabase changed theirs ──────────────────────────
+ *
+ * LEGACY. Both keys were JWTs, distinguishable only by the `role` claim in the
+ * payload: `anon` or `service_role`. So the role is read out and anything that
+ * is not `anon` is refused. Not verified — there is no key here to verify
+ * against, and that is fine: this is a guard against a mistake, not against an
+ * attacker, and an attacker who forges a token to put their own credentials
+ * into their own project has achieved nothing.
+ *
+ * CURRENT. Supabase now issues `sb_publishable_…` and `sb_secret_…`, which are
+ * not JWTs at all — no dots, no payload, nothing to decode. The prefix IS the
+ * role, and it is a better signal than the old one because it cannot be forged
+ * into looking like the other.
+ *
+ * Only the legacy branch was here, and that was a real fault rather than an
+ * omission: every Supabase project created recently issues the new format, so
+ * somebody linking their own database was told their key was not an anon key
+ * while holding a perfectly valid one. The feature was broken for new users and
+ * worked for nobody but the earliest.
  */
 export function isAnonKey(value: unknown): value is string {
   if (typeof value !== "string") return false;
 
-  const parts = value.split(".");
+  const key = value.trim();
+  if (!key) return false;
+
+  /* The current format. Checked first and checked exactly: `sb_secret_` must
+     never pass, and a prefix test loose enough to accept "sb_publishable" as a
+     substring anywhere would be a worse guard than none. */
+  if (key.startsWith("sb_")) {
+    return key.startsWith("sb_publishable_") && key.length > "sb_publishable_".length;
+  }
+
+  const parts = key.split(".");
   if (parts.length !== 3) return false;
 
   try {
