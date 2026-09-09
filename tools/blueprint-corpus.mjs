@@ -54,7 +54,20 @@ export const CORPUS = [
   ["news site for local politics", "news"],
   ["set up a wordpress blog with categories and tags", "blog"],
   ["an editorial site for long form essays", "blog"],
+  /* "editorial" as PUBLISHING vocabulary still routes here — but only in the
+     phrases that can mean nothing else. See the landing cases below for why. */
+  ["we need an editorial calendar and a posts archive", "blog"],
   ["a content site where I post recipes as articles", "blog"],
+
+  /* DESIGN vocabulary, not publishing vocabulary.
+  
+     "editorial" used to sit bare in PUBLISHING and outscored everything else,
+     so a bakery asking for "premium editorial photography" was built from the
+     blog blueprint: posts, categories and an archive, for a bakery. It is a
+     word about how a page LOOKS at least as often as about what it publishes,
+     and these are the briefs that proved it. */
+  ["a landing page with an editorial layout and generous white space", "landing"],
+  ["landing page for a bakery, cinematic lighting and premium editorial photography", "landing"],
 
   // ── webapp ───────────────────────────────────────────────────────────────
   ["build a task manager with team accounts", "webapp"],

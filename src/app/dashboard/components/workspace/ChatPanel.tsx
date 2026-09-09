@@ -1593,7 +1593,9 @@ export default function ChatPanel({
                 id: "new_project" as const,
                 label: "New project",
                 icon: Plus,
-                title: "Build something new. You are asked before this page goes.",
+                /* No "you are asked before this page goes", because it does
+                   not go. This opens a new workspace and leaves this one alone. */
+                title: "Build something new. It opens in its own workspace and leaves this app alone.",
               },
             ].map((action) => {
               const Icon = action.icon;
@@ -1655,7 +1657,13 @@ export default function ChatPanel({
         {hasPage && !pendingConfirm && mode !== "auto" && (
           <p className="mt-2 px-1 text-[11.5px] text-muted">
             {mode === "new_project"
-              ? "The next message replaces this page."
+              /* What actually happens, which is not what this said for a while.
+                 startNewProject() creates a SEPARATE project and opens it with
+                 this brief — this page is not touched, not replaced, and is
+                 still in the tab strip afterwards. The old wording described
+                 the behaviour this chip had before it was fixed, and a warning
+                 about losing work that cannot be lost is its own small harm. */
+              ? "The next message starts a new app, in its own workspace."
               : "The next message edits this page."}
           </p>
         )}
