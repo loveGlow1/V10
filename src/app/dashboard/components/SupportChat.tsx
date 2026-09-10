@@ -119,8 +119,11 @@ export default function SupportChat() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-solid">
-                <ChatMark className="h-[18px] w-[18px] text-onSolid" />
+              {/* The same object as the launcher, in the size a header has room
+                  for: the rim, and none of the light around it — a pool of glow
+                  inside a 380px panel would be a haze rather than a source. */}
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-accent/45 bg-sunken">
+                <ChatMark className="h-[18px] w-[18px] text-ink" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold leading-tight text-ink">
@@ -213,23 +216,54 @@ export default function SupportChat() {
         )}
       </AnimatePresence>
 
-      {/* Launcher */}
-      <button
-        onClick={() => {
-          setOpen((value) => !value);
-          setUnread(0);
-        }}
-        aria-label={open ? "Close support chat" : "Open support chat"}
-        aria-expanded={open}
-        className="fixed bottom-[calc(max(18px,env(safe-area-inset-bottom))+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-solid text-onSolid shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.04] active:scale-[0.97]"
-      >
-        {open ? <ChevronDown className="h-5 w-5" /> : <ChatMark className="h-6 w-6" />}
-        {!open && unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#F45B5B] text-[11px] font-semibold text-white">
-            {unread}
-          </span>
-        )}
-      </button>
+      {/* THE LAUNCHER: a lit rim, not a filled disc.
+       *
+       * It was a solid white circle with a dark mark cut into it — a control
+       * that happened to land in the dark rather than something the dark has a
+       * light in. The shape here is the one the Keep Building button on Home
+       * already uses, and for the same reason: an outlined circle with a pool
+       * of its own light around it reads as the source of the light, and a
+       * filled one reads as a sticker on top of the page.
+       *
+       * Three parts, all of them deliberately under-driven — a launcher is
+       * furniture, and it sits on screen for the whole session:
+       *
+       *   the pool, a wide soft circle behind the button, at 0.16 rather than
+       *   the 0.30 the Home CTA carries, because that one is pressed once and
+       *   this one is looked past a hundred times;
+       *
+       *   the rim, one hairline of accent at 45%, which is the whole outline —
+       *   there is no second brighter ring inside it;
+       *
+       *   the bloom, a single soft shadow of the same colour, wide and weak, so
+       *   the rim looks lit rather than drawn.
+       *
+       * Every colour is `var(--accent)` rather than a literal mint, so the
+       * light theme gets its own deeper emerald instead of a mint haze on a
+       * white page. */}
+      <div className="fixed bottom-[calc(max(18px,env(safe-area-inset-bottom))+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))] z-[60]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[130px] w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,rgb(var(--accent)/0.16),rgb(var(--accent)/0.05)_46%,transparent_72%)] blur-[12px]"
+        />
+
+        <button
+          onClick={() => {
+            setOpen((value) => !value);
+            setUnread(0);
+          }}
+          aria-label={open ? "Close support chat" : "Open support chat"}
+          aria-expanded={open}
+          className="group relative flex h-14 w-14 items-center justify-center rounded-full border border-accent/45 bg-sunken text-ink shadow-[0_0_22px_rgb(var(--accent)/0.16),0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-sm transition-all hover:border-accent/60 hover:scale-[1.04] active:scale-[0.97]"
+        >
+          {open ? <ChevronDown className="h-5 w-5" /> : <ChatMark className="h-6 w-6" />}
+          {!open && unread > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#F45B5B] text-[11px] font-semibold text-white">
+              {unread}
+            </span>
+          )}
+        </button>
+      </div>
     </>
   );
 }
