@@ -1180,6 +1180,71 @@ create policy "Owners read their builds"
   on public.project_builds for select
   using (auth.uid() = user_id);
 
+-- ── The files behind a build ───────────────────────────────────────────────
+--
+-- The generated tree, one row per file, written by src/lib/builder/store-tree
+-- as a build finishes. project_builds.html is the page a preview serves;
+-- this is the source it was assembled from, which is what an edit reads before
+-- it changes anything.
+--
+-- This table was live and in use before it was ever written down here. Builds
+-- had been inserting into it for months while this file did not create it, so
+-- a fresh instance provisioned from this schema came up without it and every
+-- build failed on the first insert. The definition below is transcribed from
+-- the live instance rather than reconstructed, column order included, so the
+-- two can be compared without reading around a reformat.
+create table if not exists public.project_files (
+  id         uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects (id) on delete cascade,
+  path       text not null,
+  content    text not null default '',
+  updated_at timestamptz not null default now(),
+  -- Nullable, both of them, and they are nullable on the live table too: rows
+  -- predate the columns. New writes always carry both.
+  build_id   uuid references public.project_builds (id) on delete cascade,
+  user_id    uuid references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+
+  -- A path is model output, so it is checked here rather than trusted: inside
+  -- the tree, no leading slash, no traversal, no backslashes, no leading or
+  -- trailing whitespace. The last two matter because a path that differs from
+  -- another only by a space is two files to the database and one to a person.
+  constraint project_files_path_shape check (
+    length(path) >= 1 and length(path) <= 200
+    and path !~ '^/'
+    and path !~ '(^|/)[.][.](/|$)'
+    and path !~ '\\'
+    and path !~ '^\s'
+    and path !~ '\s$'
+  ),
+  -- 250KB. A generated source file past that is a runaway, not a file.
+  constraint project_files_size check (length(content) <= 256000)
+);
+
+create index if not exists project_files_project_idx
+  on public.project_files (project_id);
+
+-- One row per path per build, which is what makes re-running a build idempotent
+-- rather than doubling the tree.
+create unique index if not exists project_files_build_path_idx
+  on public.project_files (build_id, path);
+
+alter table public.project_files enable row level security;
+
+-- Read-only to the browser and only your own, through the project rather than
+-- through user_id: the column is nullable here, and a policy that leaned on it
+-- would hand every pre-column row to nobody or to everybody depending on how it
+-- was written. Writes come from the builder under the service_role key.
+drop policy if exists "own project files are readable" on public.project_files;
+create policy "own project files are readable"
+  on public.project_files for select
+  using (
+    exists (
+      select 1 from public.projects p
+      where p.id = project_files.project_id and p.user_id = auth.uid()
+    )
+  );
+
 -- ── Conversations ──────────────────────────────────────────────────────────
 --
 -- The thread in a workspace, kept.
