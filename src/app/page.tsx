@@ -1157,47 +1157,46 @@ export default function LandingPage() {
             wordmark, headline, promise and a painted button are all in the image, so
             nothing is drawn over it.
 
-            ── Whole, not cropped ────────────────────────────────────────────────────
+            ── A band, not a square ──────────────────────────────────────────────────
 
-            The file is 1024 x 1024 and all of it is shown. It was a 16:9 band for a
-            while, cropped to put the type in a wide strip the way the reference this was
-            modelled on does — and that crop took the grass with it. It had to: the grass
-            is the bottom sixth of the picture and the wordmark is the top sixteenth, so
-            any frame wider than about 1.06:1 drops one end or the other. There is no
-            wide crop of this artwork that keeps both, which makes the aspect ratio not a
-            choice: it is square because the picture is.
+            The file is 1024 x 1024 and this shows a slice of it: 16:9 from sm up, full
+            bleed, with the crop anchored at 7% from the top. That lands the visible
+            window on source rows 31 to 607 — wordmark, headline, promise, button, and
+            the top of the mark, with the rest of the mark and the grass below the cut.
+            What the crop costs is the grass, and that is the trade being made knowingly:
+            the grass is the bottom sixth of this picture and the wordmark is the top
+            sixteenth, so no frame wider than about 1.06:1 can hold both ends. Between the
+            two, the words win — a closing call to action that cuts its own headline is
+            broken, and one that cuts its scenery is merely cropped. Every word survives
+            this frame: wordmark, headline, promise and the painted button, with the lower
+            half of the mark and the grass below the cut.
 
-            ── Why it stops at 900 ───────────────────────────────────────────────────
+            810px tall on a 1440px screen, which is the height the 1672 x 941 artwork
+            before it had. The square shown whole was 1425px on the same screen — a
+            closing call to action the height of the viewport.
 
-            Type size in a picture is set entirely by how wide the picture is drawn. This
-            one is painted at 1024, so 1024 is its true size and anything past that is an
-            upscale — 1.33x at 1366, 1.41x at 1440, both of which read as shouting. 900
-            goes the other way and lands at 0.88x, a little under true size, which is
-            where this artwork wants to be: its headline is drawn across 90% of its own
-            canvas, where the reference draws its headline across 46% of the frame. That
-            difference lives in the two pictures and no frame can close it — width scales
-            type and canvas together and cannot change the ratio between them. Making the
-            frame narrower is the whole of the lever here.
-
-            One number if it is still not right: lower 900 to shrink it, raise it toward
-            1024 to grow it. Below 900 the frame is simply the width of the screen, so a
-            laptop, a tablet and a phone see it edge to edge with no gutter.
+            A phone keeps the whole square instead. At 16:9 a 390px screen gives a 219px
+            band, and everything painted in it is drawn at 0.38x, which is unreadable.
+            Square there means no overflow in either axis, so the crop anchor has nothing
+            to act on and the picture arrives whole.
 
             ── The hotspot ───────────────────────────────────────────────────────────
 
             The painted pill is at 356,438 in the file and 314 x 75 in size, measured off
-            the pixels rather than judged by eye. As percentages of a frame that shows the
-            whole picture, those are the four below, and they hold at every width because
-            the frame and the file share a ratio — nothing is cropped, so nothing shifts.
-            Re-measure them if the artwork is replaced. */}
+            the pixels. Left and width are the same in both frames because object-cover
+            scales uniformly and neither frame crops horizontally. Top and height are not:
+            the same pill is 7.32% of a whole square and 13.02% of a band that shows 576
+            of its 1024 rows, so those two carry a breakpoint. Re-derive all of it if the
+            artwork, the ratio or the 7% anchor changes — the three are one calculation,
+            and a tap that misses is the only way any of it reports being wrong. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[900px] overflow-hidden">
+          <div className="relative aspect-square w-full overflow-hidden sm:aspect-[16/9]">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               fill
-              sizes="(min-width: 900px) 900px, 100vw"
-              className="object-cover"
+              sizes="100vw"
+              className="object-cover object-[center_7%]"
               /* eager rather than priority, and never lazy. priority preloads into the
                  <head>, which is right for the first screen and wrong for the last thing
                  on the page. Lazy would leave this blank at the moment somebody arrives
@@ -1207,7 +1206,7 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={() => openAuthModal("email")}
-              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
+              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)] sm:top-[70.60%] sm:h-[13.02%]"
             >
               <span className="sr-only">Get Started</span>
             </button>
