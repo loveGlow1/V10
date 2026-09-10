@@ -922,19 +922,33 @@ export default function LandingPage() {
               </Reveal>
 
               {/* All three panels are rendered and cross-faded rather than swapped, so
-                  selecting a row never shows an empty frame while its image decodes. A plain
-                  <img> keeps all three in the markup at once, which the optimiser's one-image
-                  -per-render model does not express. */}
+                  selecting a row never shows an empty frame while its image decodes.
+
+                  They were plain <img> tags on the belief that the optimiser could not
+                  express three images in one frame. It can — `fill` is exactly that, three
+                  absolutely-positioned children of one relative box — and the cost of the
+                  belief was 1.9MB of full-size JPEG on every first load, unresized and
+                  unconverted, for panels that are about 600px wide on screen. Through the
+                  optimiser they arrive as WebP at the width they are actually drawn at.
+
+                  eager, not lazy, and not priority either. Lazy would leave the panel
+                  blank until it scrolled into view, which is the thing the cross-fade
+                  exists to prevent. priority would preload all three into the <head> and
+                  put 1.9MB in front of the hero, which is what they were effectively doing
+                  before. Eager is the middle: fetched immediately, in document order,
+                  behind the things above them. */}
               <Reveal>
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-premium border border-brandBorder bg-brandSurface">
                   {FEATURES.map((feature, index) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <Image
                       key={feature.title}
                       src={feature.image}
                       alt={feature.alt}
+                      fill
+                      loading="eager"
+                      sizes="(min-width: 1024px) 50vw, 100vw"
                       aria-hidden={index !== activeFeature}
-                      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${index === activeFeature ? "opacity-100" : "opacity-0"}`}
+                      className={`object-cover transition-opacity duration-500 ${index === activeFeature ? "opacity-100" : "opacity-0"}`}
                     />
                   ))}
                 </div>
@@ -1152,13 +1166,25 @@ export default function LandingPage() {
             to edge — and cropping it to a wide band by width would take the top off the
             headline and the grass off the bottom, which is most of the picture.
 
-            And it runs edge to edge at every width, as the artwork before it did — no
-            gutter, no cap, no centred card. The trade is height and it is worth naming:
-            a square that spans the viewport is as tall as the viewport is wide, so this
-            section is 1440px tall on a 1440px screen. That is the cost of a square shown
-            whole and full-bleed, and the only ways out of it are a narrower frame, which
-            is the cap this had briefly and does not want, or a crop, which this artwork
-            cannot afford — see above.
+            ── Why there is a cap, and what sets it ──────────────────────────────────
+
+            900px, and the number is about the TYPE rather than the layout. Every word in
+            this picture is painted into it at 1024px wide, so the size those words render
+            at is decided entirely by how wide the frame is: at 1440 they come out 1.41x
+            the size they were drawn, which is why full-bleed read as shouting. Cropping
+            does not help — a crop changes how much of the picture you see, never the
+            scale of what is left — so the displayed width is the only lever there is, and
+            900 puts the type at 0.88x, just under its drawn size.
+
+            Below 900 the frame is the full width of the screen, so a phone still gets it
+            edge to edge with no gutter. Above it the page ground shows either side, which
+            is the trade: a square cannot be both full-bleed on a wide screen and drawn at
+            a sane size, because full-bleed on a square means the section is as tall as the
+            viewport is wide.
+
+            One number to move if the type is still not right: raise it toward 1024 to grow
+            the words, lower it to shrink them. The hotspot is in percentages and follows
+            on its own.
 
             ── The hotspot ────────────────────────────────────────────────────────────
 
@@ -1173,15 +1199,23 @@ export default function LandingPage() {
             them — not enough to see, and enough to leave the tap hanging off the edge of
             a control somebody is trying to press. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative aspect-square w-full overflow-hidden">
+          <div className="relative mx-auto aspect-square w-full max-w-[900px] overflow-hidden">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               width={1024}
               height={1024}
-              sizes="100vw"
+              sizes="(min-width: 900px) 900px, 100vw"
               className="h-full w-full"
-              priority
+              /* eager rather than priority, and never lazy.
+                 priority preloads into the <head>, which is right for something in
+                 the first screen and wrong for this: it is the last thing on the
+                 page, and 723KB of it was being fetched ahead of the hero it sits
+                 a full scroll below. Lazy is not the answer either — it would
+                 leave the closing call to action blank at the moment somebody
+                 arrives at it. Eager fetches it immediately and in its place in
+                 the document, which is behind everything above it. */
+              loading="eager"
             />
             <button
               type="button"
