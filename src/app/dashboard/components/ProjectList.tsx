@@ -60,26 +60,28 @@ function updatedAgo(iso: string) {
  * So the cap moved to the other side of the filter. The query returns the whole
  * ranked list, each view takes its own rows out of it, and the three that show
  * are the top three OF THAT VIEW. Published now always shows published apps if
- * there are any, and the counts on the chips are counts of what you own rather
- * than of what happened to survive a slice. One read serves all three, so
- * switching between them is instant and costs nothing. */
+ * there are any, and the count on the chip is a count of what you own rather
+ * than of what happened to survive a slice. One read serves both views, so
+ * switching between them is instant and costs nothing.
+ *
+ * There were three chips at first, All among them. It is gone, because it was
+ * the odd one out: Apps and Published are two ways of looking at this section,
+ * and All was a way of leaving it — a third of everything you own, which is a
+ * worse answer to "show me everything" than the page that exists to answer it.
+ * That job belongs to View all, which is why the grid mark All wore now sits in
+ * that link. The two chips left are a real toggle, so they get the middle. */
 
-type View = "all" | "apps" | "published";
+type View = "apps" | "published";
 
-/* Which tab of the Projects page each view continues into, so "View all" lands
-   on the same set of projects the section is showing rather than always on
-   Active. `published` is that page's Live tab — the same rows, unabridged. */
-const VIEWS: { id: View; label: string; heading: string; icon: typeof LayoutGrid; filter: string }[] = [
-  { id: "all", label: "All", heading: "Your apps", icon: LayoutGrid, filter: "all" },
-  { id: "apps", label: "Apps", heading: "Continue working", icon: Laptop, filter: "active" },
-  { id: "published", label: "Published", heading: "Live apps", icon: Radio, filter: "published" },
+const VIEWS: { id: View; label: string; heading: string; icon: typeof Laptop }[] = [
+  { id: "apps", label: "Apps", heading: "Continue working", icon: Laptop },
+  { id: "published", label: "Published", heading: "Live apps", icon: Radio },
 ];
 
 /* Says what to do rather than what is absent — an empty state that only reports
    the emptiness leaves the question it raised unanswered. The published line is
    word for word the Projects page's, because they answer the same question. */
 const EMPTY: Record<View, string> = {
-  all: "No projects yet.",
   apps: "No active apps.",
   published: "Nothing published yet. Open an app and press Publish to put it online.",
 };
@@ -92,7 +94,7 @@ export default function ProjectList() {
   const { projects, rename: renameInList } = useProjects();
 
   const [ranked, setRanked] = useState<ProjectListItem[] | null>(null);
-  const [view, setView] = useState<View>("all");
+  const [view, setView] = useState<View>("apps");
   const [error, setError] = useState<string | null>(null);
   /* Held so the row's click handler has it without awaiting: opening a project
      touches it, and that write must start before the navigation, not after a
@@ -135,7 +137,6 @@ export default function ProjectList() {
   const buckets = useMemo(() => {
     const rows = ranked ?? [];
     return {
-      all: rows,
       apps: rows.filter((row) => !isArchived(row)),
       published: rows
         .filter((row) => isPublishedProject(row))
@@ -182,23 +183,52 @@ export default function ProjectList() {
 
   return (
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-1">
-        {/* The heading names the rows under it, so it follows the view rather
-            than standing over all three: "Continue working" above a list of
-            live apps is naming something else. */}
-        <h2 className="text-[17px] font-semibold tracking-tight text-ink md:text-lg">
-          {current.heading}
-        </h2>
+      <div className="px-1">
+        <div className="flex items-center justify-between gap-3">
+          {/* The heading names the rows under it, so it follows the view rather
+              than standing over both: "Continue working" above a list of live
+              apps is naming something else. */}
+          <h2 className="min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink md:text-lg">
+            {current.heading}
+          </h2>
 
-        <div className="flex items-center gap-2">
-          {/* The count rides on the selected chip only. Three counts side by
-              side is a readout; one is an answer to the question the press just
-              asked — how many of these do I have. */}
+          {/* What All used to be, wearing All's grid mark — placed between the
+              words and the arrow, so the mark says what is on the far side of
+              the link and the arrow says it is a journey. Shown always: it was
+              once held back until there were more than three projects, on the
+              reasoning that three rows already showed everything, which was
+              true and beside the point. It made the Projects page reachable
+              only from a dashboard that no longer needed it and unreachable
+              from the one that did, and archived apps, the search and delete
+              all live behind it. `all` rather than the selected view, because
+              this is now the way out to everything rather than a wider version
+              of what is on screen. */}
+          <Link
+            href="/dashboard/projects?filter=all"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+          >
+            View all
+            <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+            <span aria-hidden>→</span>
+          </Link>
+        </div>
+
+        {/* Centred on its own line rather than tucked in beside the link. Two
+            chips are a choice about what you are looking at, and a choice reads
+            as one when it sits over the middle of the thing it changes — pushed
+            into a corner it reads as another control in the corner's pile. Its
+            own line also means the centring is true at every width instead of
+            being whatever is left between a heading and a link. */}
+        <div className="mt-3 flex justify-center">
           {/* aria-pressed rather than a tablist, and the same control the
               Projects page draws. role="tab" owes the reader a tabpanel to
               point at, and there is none here — the rows below are the section
               they were always in, filtered. A pressed toggle is what this
-              actually is. */}
+              actually is.
+
+              The count rides on the selected chip only. Two counts side by side
+              is a readout; one is an answer to the question the press just
+              asked — how many of these do I have. */}
           <div
             role="group"
             aria-label="Which apps to show"
@@ -212,7 +242,7 @@ export default function ProjectList() {
                   key={option.id}
                   aria-pressed={selected}
                   onClick={() => setView(option.id)}
-                  className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] transition-colors ${
+                  className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] transition-colors ${
                     selected
                       ? "bg-layer/[0.08] text-ink"
                       : "text-muted hover:bg-layer/[0.04] hover:text-ink"
@@ -225,20 +255,6 @@ export default function ProjectList() {
               );
             })}
           </div>
-
-          {/* Always, and pointed at the tab of the Projects page that continues
-              whatever is on screen. It was shown only once there were more than
-              three projects, on the reasoning that three rows already showed
-              everything — which was true and beside the point: it made the
-              Projects page reachable only from a dashboard that no longer
-              needed it, and unreachable from the one that did. Archived apps,
-              the search, and delete all live behind this link. */}
-          <Link
-            href={`/dashboard/projects?filter=${current.filter}`}
-            className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
-          >
-            View all →
-          </Link>
         </div>
       </div>
 
