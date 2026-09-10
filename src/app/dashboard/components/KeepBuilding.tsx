@@ -55,10 +55,10 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
      light is still bright when it gets there.
 
      So the padding is now the light's length rather than its room: the wash is
-     168px tall, deeper than this padding at either width, and the section's
-     overflow-hidden does the cutting. Change one of these two numbers and the
-     other has to move, or the green either stops short of the divider or never
-     gets to full strength before it. */
+     168px tall and starts 20px below the button, so 112/124px of it shows and
+     the section's overflow-hidden cuts the rest. Change one of these numbers
+     and the others have to move, or the green either stops short of the
+     divider or never gets to full strength before it. */
   return (
     <section className="relative w-full overflow-hidden px-4 pb-[132px] pt-16 text-center md:px-6 md:pb-[144px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
@@ -93,6 +93,17 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
 
         {/* The button, and the light it is made of.
          *
+         * THE POCKET. The button gets a band of dark of its own, and sits
+         * about the middle of it: the wordmark's glow ends roughly 49px above
+         * the pill and the green begins roughly the same distance below. That
+         * balance is held by two numbers moving together and it is the reason
+         * neither may be edited alone. The margin above came down by 20px
+         * (mt-10/12 to mt-5/7), which lifts the button toward the board, and
+         * every layer of the light went down by the same 20px, which keeps the
+         * light where it already was on the page and hands the whole 20px to
+         * the gap underneath. Move one without the other and the button either
+         * drifts back into the green or the green stops short of the divider.
+         *
          * The wrapper is exactly as wide as the button — a block in a
          * flex-col/items-center column takes its content's width — so every
          * `left-1/2 -translate-x-1/2` below resolves to the button's own
@@ -104,7 +115,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
          * the foot of the band, the pool of denser light inside it, the pill
          * itself, and the core with its filament — the brightest thing on the
          * floor. Nothing sits around the pill; the light is all below it. */}
-        <div className="relative mt-10 md:mt-12">
+        <div className="relative mt-5 md:mt-7">
           {/* THE WASH: the light on the floor, from the button to the wall.
 
               This is the whole figure. It hangs off the button's bottom edge,
@@ -149,17 +160,17 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
               reaching the bottom edge still lit. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[168px] w-[160vw] -translate-x-1/2 bg-[radial-gradient(ellipse_25%_185%_at_50%_30%,rgba(52,245,160,0.32),rgba(52,245,160,0.23)_26%,rgba(52,245,160,0.15)_50%,rgba(52,245,160,0.08)_72%,rgba(52,245,160,0.03)_90%,transparent_100%)] opacity-90 blur-[22px] [-webkit-mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] [mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[168px] w-[160vw] -translate-x-1/2 translate-y-[20px] bg-[radial-gradient(ellipse_25%_185%_at_50%_30%,rgba(52,245,160,0.32),rgba(52,245,160,0.23)_26%,rgba(52,245,160,0.15)_50%,rgba(52,245,160,0.08)_72%,rgba(52,245,160,0.03)_90%,transparent_100%)] opacity-90 blur-[22px] [-webkit-mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] [mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] lg:opacity-100"
           />
 
           {/* THE POOL: the near, denser part of the same light.
            *
-              Its centre sits 52px below the button — the same line as the core
+              Its centre sits 72px below the button — the same line as the core
               below, because a light source has one brightest point and
               everything on the floor has to agree where it is. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[84px] w-[min(540px,56vw)] -translate-x-1/2 translate-y-[10px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.19),rgba(52,245,160,0.055)_46%,transparent_74%)] opacity-90 blur-[15px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[84px] w-[min(540px,56vw)] -translate-x-1/2 translate-y-[30px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.19),rgba(52,245,160,0.055)_46%,transparent_74%)] opacity-90 blur-[15px] lg:opacity-100"
           />
 
           <button
@@ -195,15 +206,15 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
               it is a glow, and light with room between them is a floor.
 
               Drawn after the button so it sits over the field rather than
-              under it. Both are centred on the same line, 52px down — the core
+              under it. Both are centred on the same line, 72px down — the core
               gives the light its width, the filament gives it a centre. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[15px] w-[min(420px,44vw)] -translate-x-1/2 translate-y-[45px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(170,255,220,0.42),rgba(52,245,160,0.17)_44%,transparent_72%)] opacity-[0.88] blur-[7px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[15px] w-[min(420px,44vw)] -translate-x-1/2 translate-y-[65px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(170,255,220,0.42),rgba(52,245,160,0.17)_44%,transparent_72%)] opacity-[0.88] blur-[7px] lg:opacity-100"
           />
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[4px] w-[min(270px,30vw)] -translate-x-1/2 translate-y-[50px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.55),transparent)] opacity-[0.88] blur-[3px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[4px] w-[min(270px,30vw)] -translate-x-1/2 translate-y-[70px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.55),transparent)] opacity-[0.88] blur-[3px] lg:opacity-100"
           />
         </div>
       </div>
