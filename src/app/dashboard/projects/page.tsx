@@ -97,7 +97,10 @@ function ProjectsScreen() {
   const params = useSearchParams();
   const requested = params.get("filter");
   const initial: ProjectFilter =
-    requested === "published" || requested === "archived" || requested === "all"
+    requested === "published" ||
+    requested === "archived" ||
+    requested === "all" ||
+    requested === "active"
       ? requested
       : "active";
 
