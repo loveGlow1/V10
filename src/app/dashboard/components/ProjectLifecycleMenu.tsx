@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useRef, useState } from "react";
+import Link from "next/link";
 import { Archive, ArchiveRestore, MoreHorizontal, Pin, PinOff } from "lucide-react";
 
 import AnchoredPanel from "./AnchoredPanel";
+import { ManageMark } from "./workspace/panelMarks";
 
 /* The per-row lifecycle menu, shared by the dashboard's "Continue working" list
  * and the Projects page.
@@ -151,6 +153,26 @@ export default function ProjectLifecycleMenu({
             </div>
           ) : (
             <>
+              {/* Manage, first, and the only entry here that opens something
+                  rather than doing something to the row.
+
+                  It exists for the phone. The drawer's Manage row only appears
+                  inside an app, because Home has no one app to mean — so from
+                  Home the only thing called Manage was the billing row, and
+                  that is what somebody looking for their database pressed.
+                  ?view=manage is read once on arrival by Workspace, which keeps
+                  this an ordinary link rather than a reach into that
+                  component's state. */}
+              <Link
+                role="menuitem"
+                href={`/dashboard/project/${project.id}?view=manage`}
+                onClick={close}
+                className={item}
+              >
+                <ManageMark className="h-4 w-4 shrink-0 text-muted" />
+                Manage
+              </Link>
+
               <button
                 role="menuitem"
                 onClick={() => {
