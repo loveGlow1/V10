@@ -444,6 +444,26 @@ body {
    The rules below hand light mode plain ink instead. */
 :root {
   --silver: linear-gradient(180deg, #f5f5f7 0%, #e2e2e7 55%, #9999a1 100%);
+
+  /* The same ramp in emerald, and deliberately the same shape: a pale
+     highlight at the cap line, the brand's own mint through the middle, a deep
+     shaded emerald at the baseline. Built on rgb(52 245 160) rather than
+     around it, so the .Ai is the green the rest of the app already lights
+     things with rather than a second green that only the wordmark knows.
+
+     It replaces a four-stop gradient that ran #b6f5b0 → #6fdc66 → #34a853 →
+     #4ee04a — a yellow-leaning green that got brighter again at the baseline.
+     Metal does not do that. Light comes from above, so the bottom of a letter
+     is the shaded end, and a ramp that lifts at the end reads as a glow rather
+     than as a surface, which is why the .Ai never quite sat with the silver
+     beside it.
+
+     The floor is #16a87a and not deeper. Three stops over a cap height is
+     already a lot of travel, and a darker end turns the feet of the letters
+     muddy at 13px, where this is set in the chat thread — the drop from top to
+     baseline here is close to the silver's own, on purpose. An emerald that
+     has to go dark to look like emerald is the wrong emerald. */
+  --emerald: linear-gradient(180deg, #a8f7d3 0%, #34f5a0 50%, #16a87a 100%);
 }
 
 /* Type cut out of that ramp. For display lines on the dark ground — the band at
@@ -493,12 +513,22 @@ body {
   color: transparent;
 }
 
+/* The two halves of the lockup. They are one object and must stay one: the
+   same construction, the same light from the same direction, differing only in
+   the metal each is cut from. Wherever the name is set, both of these appear —
+   the .Ai on its own beside plain text is half a logo. */
 .wordmark-ai {
-  background: linear-gradient(180deg, #b6f5b0 0%, #6fdc66 40%, #34a853 70%, #4ee04a 100%);
+  background: var(--emerald);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--brandGreen) 45%, transparent));
+  /* No glow. There was a 6px drop-shadow here, and it was the whole problem:
+     a soft green halo standing off every edge of the .Ai, which reads as fog
+     around the letters rather than as light in them, and which fringes the
+     silver it sits against. The colour is in the ramp; a gradient does not
+     need a lamp behind it to be seen. Anything added here comes back as
+     haze — if this half of the name needs more presence, take it from the
+     ramp. */
 }
 
 /* Floating application screenshots behind the hero (see HERO_APPS in page.tsx). The

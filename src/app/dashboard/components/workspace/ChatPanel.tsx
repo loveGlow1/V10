@@ -1399,8 +1399,11 @@ export default function ChatPanel({
           <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
             <div className="flex items-center gap-2">
               <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
-              <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-                QuickStark<span className="wordmark-ai">.Ai</span>
+              {/* Both halves of the lockup, as everywhere else the name is
+                  set. An emerald .Ai after plain text is half a logo. */}
+              <p className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                <span className="wordmark-quickstart">QuickStark</span>
+                <span className="wordmark-ai">.Ai</span>
               </p>
             </div>
             {/* The answer, as it is written.
