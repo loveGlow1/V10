@@ -23,14 +23,42 @@ import DotMatrixText from "./DotMatrixText";
 
    ── The axis ──────────────────────────────────────────────────────────────
 
-   One centre line runs through the heading, the dot board, the button and
-   every part of the light. It is not four things each centred by hand: the
-   heading and the board are centred by the same mx-auto column, and every lit
-   span lives inside the button's own wrapper, so left-1/2 is the button's
-   centre line by construction. Nothing here may be nudged with a stray offset
-   or a translate that is not -50% — the moment one of them is, the light is
-   centred on the page and the button is centred on the column, and at some
-   width those two stop being the same place. */
+   Two lines, and the second is derived from the first. The heading and the dot
+   board are centred on the column by the same mx-auto. The button is aligned
+   to the A of .Ai — because a button under the one mint word on the board is a
+   better place to stand than the middle of a line whose middle is the K of
+   QuickStark.
+
+   Aligned by its trailing edge, not its centre. The pill is about 177px wide
+   and the A about 32px, so a pill centred on that letter puts its whole right
+   half under the I and reads as sitting under .AI rather than under the A. Its
+   right edge stops where the A's does instead, and it clears the I with room
+   to spare.
+
+   Two utilities do it, and both are needed:
+
+     md:left-[12.6%]        moves the wrapper right by a share of the column
+     md:-translate-x-1/2    pulls it back by half of its own width
+
+   The board is a 131-column grid and the A ends at column 82, so its right
+   edge is at 82/131 = 62.6% of the column. A centred wrapper's right edge is
+   at 50% of the column plus half the pill; add 12.6% of the column and take
+   away half the pill and what is left is 62.6% of the column, with the pill's
+   width cancelled out of the answer. That cancellation is the reason for the
+   pair — the label's rendered width depends on the font that loads, so no
+   fixed offset could hold this alignment, while a percentage of the column
+   holds it at 768px and at 2560px alike.
+
+   Re-derive 12.6% if the wordmark ever changes. It is md-only because a phone
+   gets the board on two lines with the A somewhere else entirely.
+
+   Below that, nothing is nudged. Every lit span lives inside the button's own
+   wrapper, so left-1/2 is the button's centre by construction and the whole
+   light travels with the button rather than being re-aimed at it — the two
+   utilities above move the source and its light together, as one object. No
+   span inside may carry a horizontal offset or an x-translate that is not
+   -50%; the moment one does, the light is centred somewhere the button is
+   not, and at some width that shows. */
 
 /** The mint, as a literal: an SVG fill and a shadow cannot take a Tailwind class. */
 const MINT = "rgb(52 245 160)";
@@ -115,7 +143,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
          * the foot of the band, the pool of denser light inside it, the pill
          * itself, and the core with its filament — the brightest thing on the
          * floor. Nothing sits around the pill; the light is all below it. */}
-        <div className="relative mt-5 md:mt-7">
+        <div className="relative mt-5 md:left-[12.6%] md:mt-7 md:-translate-x-1/2">
           {/* THE WASH: the light on the floor, from the button to the wall.
 
               This is the whole figure. It hangs off the button's bottom edge,
