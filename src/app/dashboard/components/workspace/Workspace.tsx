@@ -98,16 +98,35 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const [previewPaneOpen, setPreviewPaneOpen] = useState(true);
   const requests = useRef(0);
 
-  /* The composer's GitHub button belongs to the chat half but its answer lives
-     in the other one, so the request is made here, where both are in view. On a
-     phone that also means bringing the preview half onto the screen. */
-  function openIntegrations() {
+  /* Every way into the Manage pane goes through here.
+   *
+   * The pane lives in the other half, so anything in the chat half that wants
+   * it — the composer's GitHub button, the preview sheet's Manage button — has
+   * to ask from this level, where both halves are in view. On a phone that also
+   * means bringing the preview half onto the screen, and putting the sheet away
+   * first: the sheet and the Manage screen are both full-screen layers at
+   * z-[70], so leaving it up covers the thing just asked for, and their two
+   * body-scroll locks would interleave and strand the page unscrollable.
+   *
+   * A counter on every request, so asking for the same section twice registers
+   * twice — see ManageRequest. */
+  function openManage(
+    section: ManageRequest["section"],
+    category: ManageRequest["category"] = "All",
+  ) {
     requests.current += 1;
-    setManageRequest({ section: "integrations", category: "Source", n: requests.current });
+    setManageRequest({ section, category, n: requests.current });
+    setPreviewSheetOpen(false);
     setView("preview");
     /* A request for a pane that has been put away has to reopen it, or the
        button answers by doing nothing visible at all. */
     setPreviewPaneOpen(true);
+  }
+
+  /* The composer's GitHub button: Manage, on Integrations, already filtered to
+     the source-control drawer. */
+  function openIntegrations() {
+    openManage("integrations", "Source");
   }
 
   /* Opening the route is what selects the app, so a link, a reload and a click
@@ -188,6 +207,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
         url={safeHttpUrl(project?.preview_url)}
         title={project?.name ?? "App"}
         onClose={() => setPreviewSheetOpen(false)}
+        /* On App settings, the pane's own first section, rather than on a
+           particular one: this is the general way in, not an answer to a
+           specific question the way the GitHub button is. */
+        onManage={() => openManage("settings")}
       />
 
       {loading ? (

@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, RotateCw, X } from "lucide-react";
 
+import { ManageMark } from "./panelMarks";
+
 /* The preview, over the whole screen, on a phone.
 
    Side by side is a desktop idea: it needs two columns. On a handset the app
@@ -12,19 +14,33 @@ import { ArrowUpRight, RotateCw, X } from "lucide-react";
    over the conversation and leaves again — the chat underneath is never
    unmounted, so nothing typed is lost while the app is being looked at.
 
-   The bar carries the three things you want while looking at a build and
-   nowhere else: reload it, open it properly, put it away. */
+   The bar carries the four things you want while looking at a build and
+   nowhere else: reload it, manage it, open it properly, put it away.
+
+   Manage is here because on a phone this sheet is where you look at your app,
+   and the Manage screen used to hang off a header this sheet covers. The pane
+   with the app's settings, its database, its integrations and its payments
+   lives in PreviewPanel, and PreviewPanel's phone header is reachable only by
+   the composer's GitHub button or by a publish card — so a phone that came to
+   the preview the ordinary way, from a build result, had no route to any of
+   it. The button hands the request up; the workspace closes this sheet and
+   opens the pane, because the two are full-screen layers at the same depth and
+   leaving this one up would put a preview over the thing just asked for. */
 export default function PreviewSheet({
   open,
   url,
   title,
   onClose,
+  onManage,
 }: {
   open: boolean;
   /** Already passed through safeHttpUrl by the caller. */
   url: string | null;
   title: string;
   onClose: () => void;
+  /* Asks for the Manage pane. Optional so the sheet stays usable anywhere it
+     might be dropped in without one — the button simply does not appear. */
+  onManage?: () => void;
 }) {
   /* Bumped by the reload button. It keys the frame, so a reload is a remount
      rather than a same-document navigation — the preview is cross-origin, so
@@ -96,6 +112,17 @@ export default function PreviewSheet({
             {/* Sized and spaced to balance the reload button, so the title sits
                 on the centre line rather than near it. */}
             <div className="flex shrink-0 items-center gap-2">
+              {/* Before the two that leave: managing the app is the one thing
+                  here you stay for. */}
+              {onManage && (
+                <button
+                  onClick={onManage}
+                  aria-label="Manage your app"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-layer/[0.08] text-ink transition-colors hover:bg-layer/[0.12]"
+                >
+                  <ManageMark className="h-4 w-4" />
+                </button>
+              )}
               {url && (
                 <a
                   href={url}
