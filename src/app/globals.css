@@ -456,8 +456,14 @@ body {
      Metal does not do that. Light comes from above, so the bottom of a letter
      is the shaded end, and a ramp that lifts at the end reads as a glow rather
      than as a surface, which is why the .Ai never quite sat with the silver
-     beside it. */
-  --emerald: linear-gradient(180deg, #a6f5d5 0%, #34f5a0 50%, #0b8a62 100%);
+     beside it.
+
+     The floor is #16a87a and not deeper. Three stops over a cap height is
+     already a lot of travel, and a darker end turns the feet of the letters
+     muddy at 13px, where this is set in the chat thread — the drop from top to
+     baseline here is close to the silver's own, on purpose. An emerald that
+     has to go dark to look like emerald is the wrong emerald. */
+  --emerald: linear-gradient(180deg, #a8f7d3 0%, #34f5a0 50%, #16a87a 100%);
 }
 
 /* Type cut out of that ramp. For display lines on the dark ground — the band at
@@ -516,10 +522,13 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  /* The glow the silver does not get, because this is the lit half of the
-     name. Tied to --accent rather than --brandGreen so it agrees with the
-     ramp above it and re-picks itself in the light palette. */
-  filter: drop-shadow(0 0 6px rgb(var(--accent) / 0.45));
+  /* No glow. There was a 6px drop-shadow here, and it was the whole problem:
+     a soft green halo standing off every edge of the .Ai, which reads as fog
+     around the letters rather than as light in them, and which fringes the
+     silver it sits against. The colour is in the ramp; a gradient does not
+     need a lamp behind it to be seen. Anything added here comes back as
+     haze — if this half of the name needs more presence, take it from the
+     ramp. */
 }
 
 /* Floating application screenshots behind the hero (see HERO_APPS in page.tsx). The
