@@ -997,6 +997,15 @@ create table if not exists public.service_heartbeats (
 alter table public.service_heartbeats enable row level security;
 revoke all on public.service_heartbeats from anon, authenticated;
 
+-- The same thing again, as a comment ON THE TABLE rather than only in this
+-- file. It is what the security advisor shows beside "RLS enabled, no policy",
+-- and documents and n8n_chat_histories both carry one — this table did not, so
+-- it was the one entry on that list with nothing to say for itself. A reader in
+-- the dashboard should not have to find this file to learn the omission is
+-- deliberate.
+comment on table public.service_heartbeats is
+  'One row per service, overwritten each run — is the job still running, not a history of its runs. Service role only: RLS is on with no policy BY DESIGN, and API grants are revoked from anon and authenticated. Nothing in the browser has any business reading when a cron last fired. Written by src/lib/heartbeat.ts.';
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The n8n agent — documents, n8n_chat_histories.
 --
