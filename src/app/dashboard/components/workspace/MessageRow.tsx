@@ -106,11 +106,14 @@ export default function MessageRow({
             "You"
           ) : (
             <>
-              {/* The same green the landing page gives it. Not the shimmer
-                  beside it: that sweeps every seven seconds, and twenty rows
-                  each catching the light on their own schedule is a thread
-                  that will not sit still. */}
-              QuickStark<span className="wordmark-ai">.Ai</span>
+              {/* The lockup the landing page uses — silver and emerald, both
+                  halves. It was half of it here: an emerald .Ai after plain
+                  text, which is the name in two materials rather than one
+                  object. Not the shimmer, though: that sweeps every seven
+                  seconds, and twenty rows each catching the light on their own
+                  schedule is a thread that will not sit still. */}
+              <span className="wordmark-quickstart">QuickStark</span>
+              <span className="wordmark-ai">.Ai</span>
             </>
           )}
         </p>
