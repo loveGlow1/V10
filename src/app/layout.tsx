@@ -4,9 +4,11 @@ import "./globals.css";
 import { SITE_URL } from "@/lib/site";
 import { THEME_BOOT_SCRIPT } from "./theme";
 
-/* The FAQ is set in a geometric grotesque rather than the system stack the rest of the
-   page uses. Exposed as a CSS variable and mapped to Tailwind's `font-display`, so it is
-   opt-in per section instead of a site-wide type change. */
+/* The display face: a geometric grotesque, for the lines that are talking rather than
+   working — the landing FAQ, the legal page titles, and the headline on the band at the
+   foot of Home. Everything else stays on the system stack. Exposed as a CSS variable and
+   mapped to Tailwind's `font-display`, so it is opt-in per section instead of a site-wide
+   type change, and adding a fourth caller costs nothing: it is already downloaded. */
 const dmSans = DM_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
