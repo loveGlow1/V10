@@ -25,23 +25,27 @@ const TAIL_OUTER_REACH = 2.75;
 const TAIL_STROKE_WIDTH = 0.8;
 const DIAGONAL = Math.SQRT1_2;
 
-/* The mark stays black — it is the brand, and it is not the thing to change.
- * What changed is what it sits on. */
-const MARK_BLACK = "#050506";
+/* Green mark on a black tile — the icon this product has always had.
+ *
+ * These two are lifted from the icon that shipped before this file existed
+ * (public/icon-192.png, deleted in 02e2aec): its ground sampled #050505 and its
+ * mark #8EF08A, and that green is exactly --brandGreen-rgb: 142 240 138 in
+ * globals.css. So this is the brand's own pair rather than a new choice.
+ *
+ * It was briefly inverted — black mark, white ground — to solve a real problem:
+ * the mark on its own dark sphere was near-black on near-black, a smudge nobody
+ * could pick out of a row of tabs. But inverting solved contrast by discarding
+ * the colour people actually recognise the product by, and there was a way to
+ * have both: keep the dark ground and put the mark in brand green on it. Green
+ * on near-black is a stronger contrast than black on white, and it is the thing
+ * somebody's eye is already trained to find. */
+const MARK_GREEN = "#8EF08A";
+const GROUND_BLACK = "#050506";
 
-/* A white ground, which is how a dark mark survives a browser tab.
- *
- * The mark on its own dark sphere is right on the page, where it sits against
- * a lit halo. As a favicon it was black on near-black: a smudge nobody can
- * pick out of a row of tabs, which is the one job the icon has. Lightening the
- * mark would have fixed the contrast by changing the logo, which is backwards.
- *
- * So the ground carries it instead. This is the arrangement OpenAI, Vercel,
- * Linear and Notion all land on for the same reason: one flat field, the mark
- * in full contrast on top, and nothing else competing at 16 pixels. It also
- * holds up in both browser themes — a white tile reads as a deliberate object
- * on a dark tab strip, where a dark tile disappears into it. */
-const GROUND_WHITE = "#FFFFFF";
+/* A rounded tile rather than a square one, at the same proportion the old icon
+   used. Square corners at 16px read as a screenshot of something; the radius is
+   what makes it an object. */
+const CORNER_SHARE = 0.22;
 
 /* How much of the icon the mark's ring spans. The tail reaches further than
    the ring does — 2.75 against 2.0 — so this leaves room for it to finish
@@ -69,10 +73,11 @@ export function brandIcon(size: number) {
           height: size,
           display: "flex",
           position: "relative",
-          /* Flat, edge to edge. The stars and the vignette went with the dark
-             sphere: on white the first are invisible and the second would be a
-             grey haze at 16px, which is dirt rather than depth. */
-          background: GROUND_WHITE,
+          /* Flat. The stars and the vignette that surround the mark on the
+             page do not come with it: at 16px the first are invisible and the
+             second is a grey haze, which is dirt rather than depth. */
+          background: GROUND_BLACK,
+          borderRadius: size * CORNER_SHARE,
         }}
       >
         {/* The ring: a circle whose border IS the stroke, so its inner and
@@ -86,7 +91,7 @@ export function brandIcon(size: number) {
             width: ringOuter,
             height: ringOuter,
             borderRadius: ringOuter,
-            border: `${ringBorder}px solid ${MARK_BLACK}`,
+            border: `${ringBorder}px solid ${MARK_GREEN}`,
             boxSizing: "border-box",
           }}
         />
@@ -99,7 +104,7 @@ export function brandIcon(size: number) {
             top: size / 2 + tailOffset - tailWidth / 2,
             width: tailLength,
             height: tailWidth,
-            background: MARK_BLACK,
+            background: MARK_GREEN,
             transform: "rotate(45deg)",
           }}
         />
