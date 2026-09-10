@@ -101,7 +101,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
   // than pointing at routes this application does not have.
   const menuItems: { icon: typeof Gift; label: string; trailing?: "chevron" | "external"; onClick?: () => void }[] = [
     { icon: Gift, label: "Refer and Earn" },
-    { icon: CreditCard, label: "Plan & Billing", onClick: () => { setPanelOpen(false); onUpgradeClick(); } },
+    { icon: CreditCard, label: "Manage Plan", onClick: () => { setPanelOpen(false); onUpgradeClick(); } },
     { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
     { icon: Settings, label: "Account Settings", onClick: () => { setPanelOpen(false); onAccountSettingsClick(); } },
     { icon: Globe, label: "Language", trailing: "chevron" },

@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Coins,
-  CreditCard,
   Eye,
   EyeOff,
   Gift,
@@ -110,15 +109,11 @@ interface SidebarProps {
   /* Opens the Manage pane for the app currently on screen — its settings, its
      database, its integrations, its payments.
 
-     Optional, and its absence is the signal: Home passes nothing because there
-     is no app open there, so the row does not appear. Only the workspace
-     passes it.
-
-     It exists because the billing row below was the only thing on a phone with
-     the word Manage on it — so somebody looking for their app's database
-     pressed it and got a plan sheet asking for crypto. Two different things
-     called Manage, one of them absent, is a worse fault than either alone; that
-     row is Plan & Billing now, and this is the Manage. */
+     Optional, and its absence is what tells the Manage row which way to go:
+     the workspace passes it and the row opens the pane in place, while Home
+     passes nothing and the row links to the app you were last in instead. Same
+     destination either way, so there is one Manage on a phone rather than one
+     per screen. */
   onManageApp?: () => void;
 }
 
@@ -240,31 +235,58 @@ export default function Sidebar({
     }
   }
 
-  /* The same rows the desktop header's account panel carries. Only Plan &
-     Billing and Account Settings have somewhere real to go; the rest stay inert
+  /* Nearly the same rows the desktop header's account panel carries. Only
+     Manage and Account Settings have somewhere real to go; the rest stay inert
      rather than pointing at routes this application does not have.
 
-     Plan & Billing was "Manage Plan", and the word was the whole trouble: it
-     opened a plan sheet asking for crypto, and on a phone it was the only thing
-     anywhere with Manage on it — so somebody looking for their app's database
-     pressed it, twice, and reported that Manage routes to crypto. The row was
-     always right about what it does. It was wrong about what it was called
-     while the other Manage had no representation here at all. */
+     ── Manage ────────────────────────────────────────────────────────────────
+
+     This row was "Manage Plan" and it opened a plan sheet asking for crypto.
+     On a phone it was the only thing anywhere with Manage on it, so somebody
+     looking for their app's database pressed it and got asked to pay.
+
+     It is the whole Manage pane now — App settings, Database, Integrations,
+     Payments — which is what the word means on a desktop, and billing is not
+     lost by the change: it is one level in, at Payments → Manage plan, exactly
+     where a desktop finds it. One gateway rather than two rows arguing over a
+     word.
+
+     Where it goes depends on where it is opened from, and both are the same
+     destination:
+
+       in an app   onManageApp() opens the pane over this screen
+       on Home     a link to the app you were last in, on ?view=manage
+
+     Absent when there is no app at all. There is nothing to manage before the
+     first build, and the plan is still two taps away by the Upgrade button in
+     the card above and by Account Settings below. */
+  const manageTarget = selected?.id ?? recent[0]?.id ?? null;
   const menuItems: {
-    icon: typeof Gift;
+    /* Wide enough for both: the rest of these are lucide icons, and Manage
+       carries the workspace's own mark so the two read as one destination. */
+    icon: React.ComponentType<{ className?: string }>;
     label: string;
     trailing?: "chevron" | "external";
     onClick?: () => void;
   }[] = [
     { icon: Gift, label: "Refer and Earn" },
-    {
-      icon: CreditCard,
-      label: "Plan & Billing",
-      onClick: () => {
-        setAccountMenuOpen(false);
-        onUpgradeClick();
-      },
-    },
+    ...(onManageApp || manageTarget
+      ? [
+          {
+            icon: ManageMark,
+            label: "Manage",
+            onClick: () => {
+              setAccountMenuOpen(false);
+              onClose();
+              if (onManageApp) {
+                onManageApp();
+                return;
+              }
+              router.push(`/dashboard/project/${manageTarget}?view=manage`);
+            },
+          },
+        ]
+      : []),
     { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
     ...(onAccountSettings
       ? [
@@ -352,24 +374,6 @@ export default function Sidebar({
             {/* Nav items */}
             {/* min-h-11 keeps each row at a thumb-sized target while the gaps close up. */}
             <nav className="mb-5 shrink-0 space-y-1">
-              {/* First, when there is one: this drawer is opened from inside an
-                  app, and the app you are looking at outranks the lists of the
-                  others. Same mark as the workspace's own Manage control, so
-                  the two read as one destination reached two ways — and named
-                  "this app" because it is one of several places the word now
-                  appears, and the only one that means the app you are in. */}
-              {onManageApp && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    onManageApp();
-                  }}
-                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
-                >
-                  <ManageMark className="h-4 w-4 shrink-0" />
-                  <span className="text-sm font-medium">Manage this app</span>
-                </button>
-              )}
               {/* Published Apps was a button with no onClick — it looked like
                   navigation and did nothing, which is worse than not being
                   there: somebody looking for the sites they had put online
