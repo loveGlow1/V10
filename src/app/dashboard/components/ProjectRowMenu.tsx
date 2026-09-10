@@ -1,7 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Download, MoreHorizontal } from "lucide-react";
+
+import { ManageMark } from "./workspace/panelMarks";
 
 import { useProjects, type Project } from "../ProjectsContext";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -105,6 +108,26 @@ export default function ProjectRowMenu({ project }: { project: Project }) {
             </div>
           ) : (
             <>
+              {/* Manage, first, because it is the only entry here that opens
+                  something rather than doing something.
+
+                  It is the phone's way in from a list. The drawer's own Manage
+                  row only appears inside an app — Home has no one app to mean —
+                  so without this, somebody on Home looking for their database
+                  found nothing called Manage but the billing row, and pressed
+                  that. ?view=manage is read once on arrival by Workspace, which
+                  is what keeps this a link rather than a reach into that
+                  component's state. */}
+              <Link
+                role="menuitem"
+                href={`/dashboard/project/${project.id}?view=manage`}
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-layer/[0.06]"
+              >
+                <ManageMark className="h-4 w-4 shrink-0 text-muted" />
+                Manage
+              </Link>
+
               {/* An anchor rather than a button: the route answers with a
                   Content-Disposition, so the browser saves the file and the
                   page this menu is on never navigates. Absent, rather than

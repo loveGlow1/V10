@@ -114,11 +114,11 @@ interface SidebarProps {
      is no app open there, so the row does not appear. Only the workspace
      passes it.
 
-     It exists because "Manage Plan" below is the only row on a phone with the
-     word Manage on it, and it is about billing — so somebody looking for their
-     app's database pressed it and got a plan sheet asking for crypto. Two
-     different things called Manage, one of them absent, is a worse fault than
-     either alone. */
+     It exists because the billing row below was the only thing on a phone with
+     the word Manage on it — so somebody looking for their app's database
+     pressed it and got a plan sheet asking for crypto. Two different things
+     called Manage, one of them absent, is a worse fault than either alone; that
+     row is Plan & Billing now, and this is the Manage. */
   onManageApp?: () => void;
 }
 
@@ -240,9 +240,16 @@ export default function Sidebar({
     }
   }
 
-  /* The same rows the desktop header's account panel carries. Only Manage Plan
-     and Account Settings have somewhere real to go; the rest stay inert rather
-     than pointing at routes this application does not have. */
+  /* The same rows the desktop header's account panel carries. Only Plan &
+     Billing and Account Settings have somewhere real to go; the rest stay inert
+     rather than pointing at routes this application does not have.
+
+     Plan & Billing was "Manage Plan", and the word was the whole trouble: it
+     opened a plan sheet asking for crypto, and on a phone it was the only thing
+     anywhere with Manage on it — so somebody looking for their app's database
+     pressed it, twice, and reported that Manage routes to crypto. The row was
+     always right about what it does. It was wrong about what it was called
+     while the other Manage had no representation here at all. */
   const menuItems: {
     icon: typeof Gift;
     label: string;
@@ -252,7 +259,7 @@ export default function Sidebar({
     { icon: Gift, label: "Refer and Earn" },
     {
       icon: CreditCard,
-      label: "Manage Plan",
+      label: "Plan & Billing",
       onClick: () => {
         setAccountMenuOpen(false);
         onUpgradeClick();
@@ -349,8 +356,8 @@ export default function Sidebar({
                   app, and the app you are looking at outranks the lists of the
                   others. Same mark as the workspace's own Manage control, so
                   the two read as one destination reached two ways — and named
-                  "this app" so it cannot be mistaken for Manage Plan further
-                  down, which is billing. */}
+                  "this app" because it is one of several places the word now
+                  appears, and the only one that means the app you are in. */}
               {onManageApp && (
                 <button
                   onClick={() => {

@@ -43,10 +43,16 @@ export default function Workspace({ projectId }: { projectId: string }) {
      "build from a blueprint that does not exist". */
   const chosen = search.get("kind");
   const initialKind = isBuildKind(chosen) ? chosen : null;
-  /* "?view=preview" is how the apps list says "they wanted to look at it".
-     Read once on arrival rather than watched: closing the sheet must not be
-     undone by the parameter still sitting in the address bar. */
+  /* "?view=preview" is how the apps list says "they wanted to look at it", and
+     "?view=manage" is how it says "they wanted to work on it" — the second is
+     what gives every list of apps a way into the Manage pane without each menu
+     having to reach into this component's state.
+
+     Read once on arrival rather than watched: closing the sheet, or leaving the
+     pane, must not be undone by the parameter still sitting in the address
+     bar. */
   const openedOnPreview = search.get("view") === "preview";
+  const openedOnManage = search.get("view") === "manage";
   const { projects, loading, error, select } = useProjects();
 
   /* Opening an app is the signal the dashboard ranks on — see touch_project in
@@ -128,6 +134,18 @@ export default function Workspace({ projectId }: { projectId: string }) {
   function openIntegrations() {
     openManage("integrations", "Source");
   }
+
+  /* Arriving on "?view=manage". Once, on mount: openManage() is a request, and
+     re-running it would drag somebody back into the pane every time this
+     component re-rendered with the parameter still in the address bar. */
+  const arrivedOnManage = useRef(false);
+  useEffect(() => {
+    if (!openedOnManage || arrivedOnManage.current) return;
+    arrivedOnManage.current = true;
+    openManage("settings");
+    // openManage is stable for this purpose: it only ever sets state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openedOnManage]);
 
   /* Opening the route is what selects the app, so a link, a reload and a click
      in the list all leave the account on the same project. */
