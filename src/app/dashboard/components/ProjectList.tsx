@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, Laptop, Pin, Radio } from "lucide-react";
+import { Laptop, Pin, Radio } from "lucide-react";
 
 import { isPublished, useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -234,24 +234,27 @@ export default function ProjectList() {
               {current.heading}
             </h2>
 
-            {/* What All used to be, wearing All's grid mark — placed between the
-                words and the arrow, so the mark says what is on the far side of
-                the link and the arrow says it is a journey. Shown always: it was
-                once held back until there were more than three projects, on the
-                reasoning that three rows already showed everything, which was
-                true and beside the point. It made the Projects page reachable
-                only from a dashboard that no longer needed it and unreachable
-                from the one that did, and archived apps, the search and delete
-                all live behind it. `all` rather than the selected view, because
-                this is now the way out to everything rather than a wider version
-                of what is on screen. */}
+            {/* What All used to be. Shown always: it was once held back until
+                there were more than three projects, on the reasoning that three
+                rows already showed everything, which was true and beside the
+                point. It made the Projects page reachable only from a dashboard
+                that no longer needed it and unreachable from the one that did,
+                and archived apps, the search and delete all live behind it.
+                `all` rather than the selected view, because this is now the way
+                out to everything rather than a wider version of what is on
+                screen.
+
+                Words and an arrow, nothing else — the same link a phone gets.
+                It briefly carried All's grid mark, on the reasoning that the
+                chip's icon should follow the job to wherever the job went; but
+                two glyphs on a four-character link is a lot of furniture for a
+                link, and the arrow was already saying the only thing that
+                needed saying. */}
             <Link
               href="/dashboard/projects?filter=all"
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+              className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
             >
-              View all
-              <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
-              <span aria-hidden>→</span>
+              View all →
             </Link>
           </div>
 
