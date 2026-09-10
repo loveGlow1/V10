@@ -1157,56 +1157,47 @@ export default function LandingPage() {
             wordmark, headline, promise and a painted button are all in the image, so
             nothing is drawn over it.
 
-            ── A band, not a square ──────────────────────────────────────────────────
+            ── Whole, not cropped ────────────────────────────────────────────────────
 
-            The file is 1024 x 1024 and this shows a slice of it: 16:9 from sm up, full
-            bleed, with the crop anchored at 7% from the top. That lands the visible
-            window on source rows 31 to 607 — wordmark, headline, promise, button, and
-            the top of the mark, with the rest of the mark and the grass below the cut.
-            Cropping the logo is not damage here, it is the composition: it is what puts
-            the type in the middle of a wide band instead of stacking a whole square on
-            the page.
+            The file is 1024 x 1024 and all of it is shown. It was a 16:9 band for a
+            while, cropped to put the type in a wide strip the way the reference this was
+            modelled on does — and that crop took the grass with it. It had to: the grass
+            is the bottom sixth of the picture and the wordmark is the top sixteenth, so
+            any frame wider than about 1.06:1 drops one end or the other. There is no
+            wide crop of this artwork that keeps both, which makes the aspect ratio not a
+            choice: it is square because the picture is.
 
-            ── Why it stops at 1024 ──────────────────────────────────────────────────
+            ── Why it stops at 900 ───────────────────────────────────────────────────
 
-            That is the file's own width, so the picture is never enlarged: every word in
-            it renders at exactly the size it was painted. Past that the band would be
-            upscaled — 1.33x at 1366, 1.41x at 1440 — and the type in this particular
-            artwork cannot afford it, because it is drawn across 90% of its own canvas
-            already. (The reference this was modelled on draws its headline across 46% of
-            its frame, which is why the same treatment reads calm there and loud here.
-            That difference is in the two pictures, not in any frame around them: width
-            scales everything together and cannot change the ratio of type to canvas.)
+            Type size in a picture is set entirely by how wide the picture is drawn. This
+            one is painted at 1024, so 1024 is its true size and anything past that is an
+            upscale — 1.33x at 1366, 1.41x at 1440, both of which read as shouting. 900
+            goes the other way and lands at 0.88x, a little under true size, which is
+            where this artwork wants to be: its headline is drawn across 90% of its own
+            canvas, where the reference draws its headline across 46% of the frame. That
+            difference lives in the two pictures and no frame can close it — width scales
+            type and canvas together and cannot change the ratio between them. Making the
+            frame narrower is the whole of the lever here.
 
-            Under 1024 the band is the full width of the screen, so there is no gutter on
-            a laptop, a tablet or a phone — only the widest desktops see the page ground
-            either side, and that is the price of the type staying its own size.
-
-            576px tall at the cap, against the 1425px the whole square wanted on a 1440px
-            screen.
-
-            A phone keeps the whole square instead. At 16:9 a 390px screen gives a 219px
-            band, and everything painted in it is drawn at 0.38x, which is unreadable.
-            Square there means no overflow in either axis, so the crop anchor has nothing
-            to act on and the picture arrives whole.
+            One number if it is still not right: lower 900 to shrink it, raise it toward
+            1024 to grow it. Below 900 the frame is simply the width of the screen, so a
+            laptop, a tablet and a phone see it edge to edge with no gutter.
 
             ── The hotspot ───────────────────────────────────────────────────────────
 
             The painted pill is at 356,438 in the file and 314 x 75 in size, measured off
-            the pixels. Left and width are the same in both frames because object-cover
-            scales uniformly and neither frame crops horizontally. Top and height are not:
-            the same pill is 7.32% of a whole square and 13.02% of a band that shows 576
-            of its 1024 rows, so those two carry a breakpoint. Re-derive all of it if the
-            artwork, the ratio or the 7% anchor changes — the three are one calculation,
-            and a tap that misses is the only way any of it reports being wrong. */}
+            the pixels rather than judged by eye. As percentages of a frame that shows the
+            whole picture, those are the four below, and they hold at every width because
+            the frame and the file share a ratio — nothing is cropped, so nothing shifts.
+            Re-measure them if the artwork is replaced. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden sm:aspect-[16/9]">
+          <div className="relative mx-auto aspect-square w-full max-w-[900px] overflow-hidden">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               fill
-              sizes="(min-width: 1024px) 1024px, 100vw"
-              className="object-cover object-[center_7%]"
+              sizes="(min-width: 900px) 900px, 100vw"
+              className="object-cover"
               /* eager rather than priority, and never lazy. priority preloads into the
                  <head>, which is right for the first screen and wrong for the last thing
                  on the page. Lazy would leave this blank at the moment somebody arrives
@@ -1216,7 +1207,7 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={() => openAuthModal("email")}
-              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)] sm:top-[70.60%] sm:h-[13.02%]"
+              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
             >
               <span className="sr-only">Get Started</span>
             </button>
