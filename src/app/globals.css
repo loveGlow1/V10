@@ -47,7 +47,22 @@
   --line: 255 255 255;
 
   --canvas: 13 13 15;
-  --bar: 12 12 14;
+  /* The chrome above the canvas — the workspace tab strip and the desktop
+     header — and the one surface in the dark palette that is LIGHTER than the
+     page rather than darker.
+
+     It was 12 12 14 against a canvas of 13 13 15: one point per channel, which
+     is not a colour difference, it is a rounding error. The tab strip and the
+     screen below it were the same black, so an open tab — which wears the
+     canvas colour, because that is what fuses it to the screen — was invisible
+     against the strip behind it, and the resting tabs beside it were text
+     floating on nothing. Nobody could see the tabs because there were no tabs
+     to see, only labels.
+
+     Now it is a real step up, and the browser-tab idiom works the way it is
+     supposed to: a grey band at the top, with the open tab cut out of it in the
+     colour of the page it belongs to. */
+  --bar: 28 28 33;
   --panel: 18 18 21;
   --sunken: 14 15 18;
 
@@ -85,7 +100,22 @@
   --line: 255 255 255;
 
   --canvas: 13 13 15;
-  --bar: 12 12 14;
+  /* The chrome above the canvas — the workspace tab strip and the desktop
+     header — and the one surface in the dark palette that is LIGHTER than the
+     page rather than darker.
+
+     It was 12 12 14 against a canvas of 13 13 15: one point per channel, which
+     is not a colour difference, it is a rounding error. The tab strip and the
+     screen below it were the same black, so an open tab — which wears the
+     canvas colour, because that is what fuses it to the screen — was invisible
+     against the strip behind it, and the resting tabs beside it were text
+     floating on nothing. Nobody could see the tabs because there were no tabs
+     to see, only labels.
+
+     Now it is a real step up, and the browser-tab idiom works the way it is
+     supposed to: a grey band at the top, with the open tab cut out of it in the
+     colour of the page it belongs to. */
+  --bar: 28 28 33;
   --panel: 18 18 21;
   --sunken: 14 15 18;
 

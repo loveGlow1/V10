@@ -53,19 +53,32 @@ pricing question to pricing chunks.
 
 ## Loading it
 
-1. Pick an embedding provider and confirm its output width. **Anthropic's API
-   does not produce embeddings**, so this is a separate choice from the model
-   the product uses. `supabase/rag-schema.sql` defaults to `vector(1536)`;
-   change every `1536` in that file if your provider differs. The width cannot
-   be changed later without re-embedding every row.
-2. Run `supabase/rag-schema.sql` in the SQL editor. Safe to run repeatedly.
-3. Embed each line's `content` and upsert on `chunk_id` — the unique
-   constraint is what makes a re-ingest update in place instead of doubling the
-   corpus.
+The table is `public.documents`, and `supabase/schema.sql` creates it along
+with its HNSW index and the `match_documents` function. There is no separate
+file to run for this — there was one, `supabase/rag-schema.sql`, describing a
+`support_documents` table and a second `match_documents` beside it. Nothing was
+ever loaded into it, the agent has always read `documents`, and running the
+file today would create an unused table and then fail on the function, whose
+live version returns a different set of columns. It has been deleted rather
+than left as a trap.
+
+1. **The embedding width is already fixed at 1536** and is not a free choice
+   here: `documents.embedding` is `extensions.vector(1536)`, and both embedding
+   nodes in the n8n workflow are pinned to `text-embedding-3-small` to match.
+   A dimension mismatch is rejected at insert time by the column. Changing it
+   means re-embedding every row. (**Anthropic's API does not produce
+   embeddings** — this is a separate provider from the model the product uses.)
+2. Ingest through the workflow's Supabase Vector Store nodes rather than by
+   hand. `content`, `metadata` and `embedding` are LangChain's own column
+   names; renaming any of them breaks ingestion silently.
+3. Re-ingesting appends rather than updating: there is no unique key on the
+   chunk id, which lives inside `metadata`. Clear the corpus before a reload if
+   you do not want it doubled.
 4. Query with `match_documents(query_embedding, match_count, filter)`.
 
 Ingestion runs server-side with the `service_role` key. RLS is enabled on
-`support_documents` with no policy, so the anon key cannot read or write it.
+`documents` with no policy and its API grants are revoked, so nothing in the
+browser can read or write it — see the comment on the table.
 
 ## Keeping it current
 

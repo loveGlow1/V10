@@ -33,6 +33,7 @@ export type StartBuildHandle = { start: () => void };
 export default function StartBuildButton({
   prompt,
   kind,
+  context,
   onError,
   disabled = false,
   ref,
@@ -43,6 +44,13 @@ export default function StartBuildButton({
      on — see src/lib/builder/blueprints. Null means the chip said nothing and
      the server should classify the sentence itself. */
   kind?: BuildKind | null;
+  /* What the follow-up chips under the composer answered, as a sentence, or
+     empty when nothing was asked or answered.
+     Kept apart from `prompt` rather than folded into it because the two are
+     read by different things: the name comes from what somebody typed, and
+     appending "Used by a team" to that would put it in the tab. The build gets
+     both, joined; the name gets only the first. */
+  context?: string;
   onError: (message: string | null) => void;
   /* Set while the builder is not taking work. Home reads that from the server
      and passes it down rather than asking again here, so the banner and the
@@ -103,7 +111,15 @@ export default function StartBuildButton({
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
     const target = kind ? `&kind=${encodeURIComponent(kind)}` : "";
-    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(text)}${target}`);
+    /* The context rides in the brief rather than in a parameter of its own.
+       The blueprint's requirements are conditional on what the brief says — a
+       web app gets sign-in "when the product has user accounts, saved data or
+       more than one user" — so an answer stated in the brief is read by the
+       thing that was already asking the question. A new parameter would have
+       to be plumbed through the workspace, the classifier and the brief before
+       it reached the same place. */
+    const brief = context ? `${text}\n\n${context}` : text;
+    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(brief)}${target}`);
   }
 
   return (

@@ -52,7 +52,15 @@ export default function WorkspaceTabs() {
      bottom hairline, which is what fuses it to the screen below. */
   const shape =
     "group relative -mb-px flex h-[34px] shrink-0 items-center gap-2 rounded-t-[10px] border px-2.5 text-[13px] transition-colors";
-  const resting = "border-transparent text-muted hover:bg-layer/[0.05] hover:text-ink";
+  /* A resting tab is a shape, not a word.
+     It was border-transparent with no fill: on the old strip that made it a
+     label floating in black, and the row read as three pieces of text rather
+     than as tabs. A hairline and the faintest fill are enough to give each one
+     an edge — deliberately faint, because the open tab has to keep winning the
+     row, and it wins by being darker than the strip rather than by being the
+     only thing on it. */
+  const resting =
+    "border-line/[0.07] bg-layer/[0.03] text-muted hover:bg-layer/[0.07] hover:text-ink";
   const open =
     "border-line/[0.08] border-b-canvas bg-canvas text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]";
 

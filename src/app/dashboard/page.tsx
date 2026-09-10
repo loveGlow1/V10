@@ -103,6 +103,57 @@ const STARTERS = [
   },
 ] as const;
 
+/* The two questions asked under a Web App, and the sentence each answer puts
+   into the brief.
+ *
+ * "Web app" is the one chip whose meaning people disagree with the builder
+ * about. The blueprint is right about what an app is — sign-in, views, data and
+ * a back end — but the requirement that brings sign-in in is conditional: it
+ * applies "when the product has user accounts, personal workspaces, saved data,
+ * private content, or more than one user". That is a judgement made from the
+ * brief, and a brief of eleven words does not support it. So somebody asks for
+ * an app, gets a page with no front door, and reasonably concludes the chip did
+ * nothing.
+ *
+ * These two questions are the smallest thing that turns that judgement into a
+ * fact. They are not a form and they are not required: they are two rows of
+ * chips, answered in a tap or ignored entirely, and a build with neither
+ * answered behaves exactly as it did before.
+ *
+ * The wording of each `brief` line is load-bearing — each is written to match
+ * the language of the condition it is meant to satisfy, so "several people sign
+ * in" and "keeps data between visits" land on "more than one user" and "saved
+ * data" rather than near them. Change a label freely; change these only against
+ * src/lib/builder/blueprints/webapp.ts.
+ *
+ * Note what "Just me" and "No" do, which is the half people forget: they say a
+ * single-user tool that saves nothing, and that is the brief under which the
+ * blueprint correctly declines to build a login. A unit converter should not
+ * have one. */
+const WEBAPP_USERS = [
+  { id: "solo", label: "Just me", brief: "One person uses this — me. Nobody else signs in." },
+  {
+    id: "team",
+    label: "A team",
+    brief:
+      "A team uses this: several people sign in, they do not all do the same things, and each of them has their own account.",
+  },
+  {
+    id: "customers",
+    label: "Customers",
+    brief:
+      "My customers use this. Each of them signs up, has their own account, and sees only their own private data.",
+  },
+] as const;
+
+const WEBAPP_DATA = [
+  { id: "yes", label: "Yes", brief: "It saves data between visits — what people put in is still there when they come back." },
+  { id: "no", label: "No", brief: "It saves nothing between visits; everything resets on reload." },
+] as const;
+
+type WebappUsers = (typeof WEBAPP_USERS)[number]["id"];
+type WebappData = (typeof WEBAPP_DATA)[number]["id"];
+
 /* The bar suggests what to ask for by cycling its placeholder rather than
    sitting on one example. */
 const PROMPTS = [
@@ -168,6 +219,24 @@ export default function DashboardPage() {
      project switcher wants the project's. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
   const [activeType, setActiveType] = useState<BuildKind | null>(null);
+  /* Answered only under Web App, and deliberately not cleared when the chip
+     changes: switching to Landing and back should not lose a tap. Nothing is
+     sent unless Web App is the chip at the moment of sending. */
+  const [webappUsers, setWebappUsers] = useState<WebappUsers | null>(null);
+  const [webappData, setWebappData] = useState<WebappData | null>(null);
+
+  /* What those two answers add to the brief — and nothing at all unless Web App
+     is the chip at the moment of sending, so an answer left behind by a chip
+     somebody moved off cannot describe a landing page as having accounts. */
+  const webappContext =
+    activeType === "webapp"
+      ? [
+          WEBAPP_USERS.find((option) => option.id === webappUsers)?.brief,
+          WEBAPP_DATA.find((option) => option.id === webappData)?.brief,
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : "";
   const [composerFocused, setComposerFocused] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
@@ -719,6 +788,7 @@ export default function DashboardPage() {
                     ref={sendRef}
                     prompt={transcript}
                     kind={activeType}
+                    context={webappContext}
                     onError={setStartError}
                     disabled={paused !== null}
                   />
@@ -857,6 +927,64 @@ export default function DashboardPage() {
               </div>
             </Popover>
           </div>
+
+          {/* Under a Web App: the two things that decide whether it gets a
+              front door.
+
+              Under the composer rather than under the chip that reveals it,
+              which is where it reads as belonging but is not where it can go:
+              from md up the target chips are fused to the top edge of the
+              composer — rounded tops, -mb-px, the panel's own fill — and a row
+              inserted between them would cut that seam. Below the whole object
+              it still reads as part of this build, and the seam holds.
+
+              Two rows on a phone rather than one scroller: five chips and two
+              labels do not make a line at 360px, and a question you have to
+              scroll to finish reading is one nobody finishes. */}
+          {activeType === "webapp" && (
+            <div className="relative z-10 mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+              {[
+                {
+                  label: "Who uses it?",
+                  options: WEBAPP_USERS,
+                  chosen: webappUsers as string | null,
+                  choose: (id: string) =>
+                    setWebappUsers((current) => (current === id ? null : (id as WebappUsers))),
+                },
+                {
+                  label: "Saves data?",
+                  options: WEBAPP_DATA,
+                  chosen: webappData as string | null,
+                  choose: (id: string) =>
+                    setWebappData((current) => (current === id ? null : (id as WebappData))),
+                },
+              ].map((question) => (
+                <div key={question.label} className="flex items-center gap-2">
+                  <span className="shrink-0 text-[12.5px] text-muted">{question.label}</span>
+                  <div className="flex gap-1.5">
+                    {question.options.map((option) => {
+                      const chosen = question.chosen === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          aria-pressed={chosen}
+                          onClick={() => question.choose(option.id)}
+                          className={`h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-[12.5px] transition-colors ${
+                            chosen
+                              ? "border-accent/40 bg-accent/[0.10] text-ink"
+                              : "border-line/[0.08] bg-layer/[0.03] text-soft hover:border-line/[0.14] hover:text-ink"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Starters, centred under the composer. The row scrolls sideways
               rather than wrapping, so it stays one line on a phone and the chips keep

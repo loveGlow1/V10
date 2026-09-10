@@ -124,12 +124,51 @@ const COUNTRY_OPTIONS: CountryOption[] = countries
   .filter((country): country is CountryOption => Boolean(country))
   .sort((a, b) => a.name.localeCompare(b.name));
 
+/* Why a password check lives in the browser at all.
+ *
+ * Supabase Auth can refuse a password that appears in a breach corpus — it
+ * checks the candidate against HaveIBeenPwned as part of sign-up, which is
+ * strictly better than anything a rule can do, because "password is on a list
+ * of 800 million stolen ones" is a fact and "password has a digit in it" is a
+ * guess. That feature is Pro-plan and above, and this project is on Free, so it
+ * is not available to turn on. This is the substitute, and it should be deleted
+ * in favour of the real thing the day the plan changes.
+ *
+ * Ten characters rather than eight. Length is the only one of these rules that
+ * reliably costs an attacker anything; the character-class rule below is worth
+ * less and is here mainly to stop the ten from being "aaaaaaaaaa".
+ *
+ * The deny-list is deliberately tiny. A long list read in the browser is a long
+ * list an attacker also has, and the point is not to enumerate bad passwords —
+ * it is to catch the handful somebody types when they are not really choosing
+ * one. */
+const OBVIOUS = new Set([
+  "password", "password1", "password123", "12345678", "123456789", "1234567890",
+  "qwertyuiop", "letmein123", "iloveyou1", "admin12345", "quickstark",
+]);
+
+export function passwordProblem(password: string): string | null {
+  if (password.length < 10) return "Use at least 10 characters.";
+  if (OBVIOUS.has(password.toLowerCase())) return "That password is too common. Choose another.";
+  const classes =
+    Number(/[a-z]/.test(password)) +
+    Number(/[A-Z]/.test(password)) +
+    Number(/[0-9]/.test(password)) +
+    Number(/[^A-Za-z0-9]/.test(password));
+  if (classes < 2) return "Mix in a capital, a number or a symbol.";
+  return null;
+}
+
 export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSignUp, onEmailSignIn, onPhoneContinue, onPhoneVerify, initialStep }: LoginModalProps) {
   const [authStep, setAuthStep] = useState<AuthStep>("email");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  /* Shown only after a submit is refused: telling somebody their password is
+     too short while they are still typing the first four characters of it is
+     nagging, not helping. */
+  const [passwordIssue, setPasswordIssue] = useState<string | null>(null);
   const [signinEmail, setSigninEmail] = useState("");
   const [signinPassword, setSigninPassword] = useState("");
   const [showSigninPassword, setShowSigninPassword] = useState(false);
@@ -355,6 +394,9 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault();
+                    const problem = passwordProblem(password);
+                    setPasswordIssue(problem);
+                    if (problem) return;
                     await onEmailSignUp({ name, email, password });
                   }}
                   className="space-y-3"
@@ -385,7 +427,10 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                     <input
                       type={showPassword ? "text" : "password"}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (passwordIssue) setPasswordIssue(null);
+                      }}
                       placeholder="Enter your password"
                       className={inputFieldClass}
                     />
@@ -398,6 +443,12 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+
+                  {passwordIssue && (
+                    <p role="alert" className="px-1 text-[12.5px] leading-relaxed text-danger">
+                      {passwordIssue}
+                    </p>
+                  )}
 
                   <div className="space-y-3 pt-1">
                     <button type="submit" className={primaryActionButtonClass}>
