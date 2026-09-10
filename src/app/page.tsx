@@ -1139,37 +1139,50 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Closing call to action, built on the composed artwork at /page.png — wordmark,
+        {/* Closing call to action, built on the composed artwork at /page.jpg — wordmark,
             headline, promise and a painted button are all in the image, so nothing is drawn
-            over it. Narrow screens crop in rather than swap to different markup: the frame
-            turns square, the artwork keeps its own 16:9 inside it, and the sides are clipped
-            evenly. 56% of the width stays visible, which clears the headline's 50% reach, and
-            the type lands close to twice the size it would if the whole width were squeezed
-            into a phone. The corner marks are the only thing the crop loses. Every figure
-            here — including the hotspot, a percentage of the artwork rather than of the
-            frame, so cropping moves it with the painted button — is measured off the file
-            and has to be re-measured whenever the artwork is replaced. */}
+            over it.
+
+            ── The frame ──────────────────────────────────────────────────────────────
+
+            The artwork is square, 1024 x 1024, and it is shown whole at every width.
+            There is no crop here any more and there must not be one: the old artwork was
+            1672 x 941 and a phone cropped its sides, which cost only the corner marks. A
+            square cannot give up its sides the same way — the headline runs nearly edge
+            to edge — and cropping it to a wide band by width would take the top off the
+            headline and the grass off the bottom, which is most of the picture.
+
+            So the shape is fixed and the SIZE is what varies: full width up to 820px, and
+            capped there. That cap is the whole of the desktop treatment. A square shown
+            full-bleed on a 1440px screen is a 1440px-tall section — a closing CTA the
+            height of the whole viewport, which nobody scrolls past to reach the footer.
+
+            ── The hotspot ────────────────────────────────────────────────────────────
+
+            The painted button is at 359,439 in the file and 317 x 74 in size, measured off
+            the pixels rather than judged by eye. Those figures are written below as
+            percentages of the artwork, which is what keeps the tap on the paint as the
+            frame resizes. Re-measure all four whenever the artwork is replaced — the last
+            set belonged to a different picture and would land this one in empty sky. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative w-full overflow-hidden aspect-square sm:aspect-[1672/941]">
-            <div className="absolute left-1/2 top-1/2 h-full aspect-[1672/941] -translate-x-1/2 -translate-y-1/2">
-              <Image
-                src="/page.png"
-                alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
-                width={1672}
-                height={941}
-                sizes="(min-width: 640px) 100vw, 178vw"
-                className="h-full w-full"
-                priority
-              />
-              <button
-                type="button"
-                onClick={() => openAuthModal("email")}
-                style={{ left: "41.27%", top: "43.25%", width: "17.40%", height: "7.12%" }}
-                className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
-              >
-                <span className="sr-only">Get Started</span>
-              </button>
-            </div>
+          <div className="relative mx-auto aspect-square w-full max-w-[820px] overflow-hidden">
+            <Image
+              src="/page.jpg"
+              alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
+              width={1024}
+              height={1024}
+              sizes="(min-width: 820px) 820px, 100vw"
+              className="h-full w-full"
+              priority
+            />
+            <button
+              type="button"
+              onClick={() => openAuthModal("email")}
+              style={{ left: "35.06%", top: "42.87%", width: "30.96%", height: "7.23%" }}
+              className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
+            >
+              <span className="sr-only">Get Started</span>
+            </button>
           </div>
         </section>
       </main>
