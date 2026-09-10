@@ -256,6 +256,15 @@ export default function PreviewPanel({
      and the eye has to count. */
   const divider = <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-line/[0.09]" />;
 
+  /* The material of the four controls in the phone Manage screen's header.
+     Squarer and quieter than `glass` above: that one sits over the workspace's
+     blue and has to hold its own against it, while these sit on a flat panel
+     over the whole screen. 32px, which is what lets four of them and a title
+     share a 390px line; disabled reads as dimmed rather than as missing, the
+     way the desktop row's dead controls do. */
+  const manageAction =
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.06] bg-layer/[0.04] text-ink/70 transition-all hover:bg-layer/[0.08] hover:text-ink disabled:pointer-events-none disabled:opacity-40";
+
   /* Glass over the blue, the material every control in the phone header is made
      of: a translucent fill, a hairline rim, one pixel of light along the top. */
   const glass =
@@ -699,14 +708,67 @@ export default function PreviewPanel({
         {view === "manage" &&
           createPortal(
             <div className="fixed inset-0 z-[70] flex flex-col bg-canvas">
-              <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
-                <h2 className="text-base font-semibold tracking-tight text-ink">
+              {/* The same four things a desktop keeps beside this pane.
+               *
+               * On a pointer the pane's header stays put while Manage is open,
+               * so opening it in one column and copying its link in the next is
+               * one screen. A phone draws Manage over everything, which took
+               * that header away with it — so Manage there was the four sections
+               * and nothing else, and the actions were somewhere behind it: the
+               * link on the header underneath, opening the app in the preview
+               * sheet, and Download nowhere on a phone at all.
+               *
+               * They are here now, in the order the desktop row has them. The
+               * two that need something built are dead controls rather than
+               * links to a 404 when there is nothing, exactly as they are on the
+               * desktop. Publish stays out: it is a flow with its own panel and
+               * its own state, and a second copy of that Popover in here would
+               * be a second thing to keep in step — it is one tap away, on the
+               * header this screen closes back onto. */}
+              <header className="flex shrink-0 items-center gap-1.5 border-b border-line/[0.06] px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
+                <h2 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-ink">
                   Manage your app
                 </h2>
+
+                {previewUrl ? (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open the app in a new tab"
+                    className={manageAction}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <button disabled aria-label="Nothing to open yet" className={manageAction}>
+                    <ExternalLink className="h-4 w-4" />
+                  </button>
+                )}
+
+                <button onClick={share} aria-label="Copy a link to this app" className={manageAction}>
+                  {shared ? <Check className="h-4 w-4 text-accent" /> : <Link2 className="h-4 w-4" />}
+                </button>
+
+                {previewUrl ? (
+                  <a
+                    href={`/preview/${project?.id}?download=1`}
+                    download
+                    aria-label="Download this page"
+                    className={manageAction}
+                  >
+                    <Download className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <button disabled aria-label="Nothing to download yet" className={manageAction}>
+                    <Download className="h-4 w-4" />
+                  </button>
+                )}
+
                 <button
                   onClick={() => setView("preview")}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-line/[0.06] bg-layer/[0.04] text-ink/70 transition-all hover:bg-layer/[0.08] hover:text-ink"
+                  className={manageAction}
                 >
                   <X className="h-4 w-4" />
                 </button>
