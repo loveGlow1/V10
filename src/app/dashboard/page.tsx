@@ -924,26 +924,17 @@ export default function DashboardPage() {
       </main>
 
       {/* Below the list of what has been built: the way back to the composer at
-          the top of this page, and — on a desktop — the footer under it. Outside
-          main, so both run the full width rather than the column the composer
-          sits in.
+          the top of this page, and the footer under it. Outside main, so both
+          run the full width rather than the column the composer sits in.
 
-          The band runs at every width. It was md-only on the argument that a
-          phone's Home ends on the list and the composer is one thumb-flick back
-          up, so a band inviting you to return to it only says what the screen
-          above already said. That was the wrong way round: it is a phone that
-          scrolls furthest from the composer, and the band is not only a way
-          back, it is the one piece of the brand on this screen. It carries its
-          own phone layout — the board breaks to two lines at roughly twice the
-          dot pitch, and every part of the light is min(px, vw) on one centre —
-          so it arrives at a smaller size rather than as a clipped desktop.
-
-          The footer stays md-only, and that half of the old argument still
-          holds: five columns of links is a page in its own right down there,
-          and the desktop has the room and the pointer that make a link row
-          worth having. */}
-      <KeepBuilding onKeepBuilding={focusComposer} />
+          From md up only. A phone's Home ends on the list — the composer is one
+          thumb-flick back up, so a band inviting you to return to it is a screen
+          of scrolling to say what the screen above already said, and a
+          five-column footer of links is a page in its own right down there. The
+          desktop has the room and the pointer that makes a link row worth
+          having. */}
       <div className="hidden md:block">
+        <KeepBuilding onKeepBuilding={focusComposer} />
         <DashboardFooter />
       </div>
 

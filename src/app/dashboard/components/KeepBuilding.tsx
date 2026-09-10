@@ -98,23 +98,9 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
      168px tall and starts 20px below the button, so 112/124px of it shows and
      the section's overflow-hidden cuts the rest. Change one of these numbers
      and the others have to move, or the green either stops short of the
-     divider or never gets to full strength before it.
-
-     ── The line the light ends on ────────────────────────────────────────────
-
-     On a desktop that line is the footer's own border-t, sitting immediately
-     under this section. A phone has no footer — it is hidden below md — so the
-     band would end on a cut with nothing to justify it, and a floor that stops
-     for no reason is the smudge this whole figure was built to avoid. The
-     section carries the hairline itself below md, at the footer's own weight,
-     and drops it from md up where the footer supplies one: two borders meeting
-     would draw 2px where every other rule on this page draws 1.
-
-     overflow-hidden clips at the padding box, so the green is cut on the
-     inside of that border and the line lands immediately under it. The light
-     ends, and then the wall. */
+     divider or never gets to full strength before it. */
   return (
-    <section className="relative w-full overflow-hidden border-b border-line/[0.06] px-4 pb-[132px] pt-16 text-center md:border-b-0 md:px-6 md:pb-[144px] md:pt-24">
+    <section className="relative w-full overflow-hidden px-4 pb-[132px] pt-16 text-center md:px-6 md:pb-[144px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
         <h2 className="silver-type font-display text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight">
           Start building with
