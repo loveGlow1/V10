@@ -861,7 +861,7 @@ export default function DashboardPage() {
           {/* Starters, centred under the composer. The row scrolls sideways
               rather than wrapping, so it stays one line on a phone and the chips keep
               the size they have on a desktop. */}
-          <div className="mt-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="relative z-10 mt-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* w-max + mx-auto centres the row under the composer while it fits, and lets
                 it start at the left edge once it is wider than the column — centring the
                 flex line itself would push the first chip out of reach when it scrolls. */}
@@ -918,6 +918,50 @@ export default function DashboardPage() {
             })}
             </div>
           </div>
+        </div>
+
+        {/* THE FLOOR under the composer.
+
+            The composer is the lit object on this screen and this is the light
+            it puts on the floor below it — the same figure the Keep Building
+            band ends the page with, so Home opens and closes on one idea.
+
+            Three rules, and every number below is one of them:
+
+            · Below, not around. Every layer hangs off the top of this element,
+              which begins under the chips — so nothing green ever reaches the
+              composer's edge, the tabs or the heading. The one layer that
+              starts higher, the field, is the faintest, and its gradient has
+              gone transparent well before it gets there.
+            · One object. The field, the pool and the two lit lines all agree
+              that the brightest point is 26px down this element, on the centre
+              line — so it reads as one curved pool rather than four glows that
+              happen to overlap.
+            · Its own room. The element has a real height, so the light is not
+              borrowing the gap above the project list: the pool finishes, and
+              then the list begins. The chips are lifted over it by z-10 rather
+              than the light being pushed away from them.
+
+            Widths are min(px, vw) on the same centre, so a phone gets this
+            composition at a smaller size rather than the desktop's spread
+            clipped; the near layers also come down in opacity under lg,
+            because a light that only narrows reads hotter in a smaller frame.
+
+            Dark only. A pool of light on a white floor is not a thing light
+            does, and the mint is picked for a dark ground. */}
+        <div aria-hidden className="relative h-[76px] w-full shrink-0 [html[data-theme=light]_&]:hidden">
+          {/* THE FIELD: how far the light gets before the room takes it. */}
+          <span className="pointer-events-none absolute left-1/2 top-0 h-[160px] w-[min(860px,90vw)] -translate-x-1/2 -translate-y-[24px] bg-[radial-gradient(ellipse_58%_46%_at_50%_48%,rgba(52,245,160,0.18),rgba(52,245,160,0.075)_40%,rgba(52,245,160,0.022)_66%,transparent_84%)] opacity-90 blur-[24px] lg:opacity-100" />
+
+          {/* THE POOL: the near, denser part of the same light. */}
+          <span className="pointer-events-none absolute left-1/2 top-0 h-[82px] w-[min(500px,54vw)] -translate-x-1/2 -translate-y-[6px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.25),rgba(52,245,160,0.075)_46%,transparent_74%)] opacity-90 blur-[16px] lg:opacity-100" />
+
+          {/* THE CORE, and the filament inside it: the brightest thing on the
+              screen, and the one place the mint goes pale. Both are centred on
+              the same line — the core gives it width, the filament gives it a
+              centre. */}
+          <span className="pointer-events-none absolute left-1/2 top-0 h-[15px] w-[min(400px,44vw)] -translate-x-1/2 translate-y-[26px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(170,255,220,0.56),rgba(52,245,160,0.23)_44%,transparent_72%)] opacity-[0.88] blur-[7px] lg:opacity-100" />
+          <span className="pointer-events-none absolute left-1/2 top-0 h-[4px] w-[min(250px,28vw)] -translate-x-1/2 translate-y-[31px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.74),transparent)] opacity-[0.88] blur-[3px] lg:opacity-100" />
         </div>
 
         <ProjectList />
