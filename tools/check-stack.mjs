@@ -250,5 +250,26 @@ has(stackQuestion(decideStack("users log in")) === "", "a settled decision produ
 /* Both options always offered, so neither is a trap. */
 has(stackOptions(leaning).length === 2, "both answers are offered");
 
+/* ── The price is on the choice ──────────────────────────────────────────
+   This is the one moment the question can still save somebody money, and for
+   a long time it did not mention money at all: a person picked on the words
+   and learned the difference from the bill.
+   
+   It is not the per-call rate that differs — a page and a twelve-file project
+   both land on the generate band's ceiling — it is that a project is built in
+   stages, several model calls, each carrying more context than the last. So
+   the comparison has to be stated, and it is checked here because copy is
+   exactly the kind of thing a later edit quietly drops. */
+const offered = stackOptions(leaning);
+const projectOption = offered.find((o) => o.stack === "nextjs");
+const pageOption = offered.find((o) => o.stack === "standalone-html");
+has(/cost|costs|cheap/i.test(projectOption.blurb), "the project option says what it costs", projectOption.blurb);
+has(/cheap|one build/i.test(pageOption.blurb), "the page option says it is the cheaper one", pageOption.blurb);
+has(/cost/i.test(question), "and the question itself warns before a build is spent", question);
+/* Still no exact figure: the real number depends on the model, the number of
+   stages and what the person has already said. A quote this code cannot honour
+   is worse than an honest comparison. */
+has(!/\b\d+\s*credits?\b/i.test(projectOption.blurb + pageOption.blurb), "without quoting a figure it cannot know");
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
