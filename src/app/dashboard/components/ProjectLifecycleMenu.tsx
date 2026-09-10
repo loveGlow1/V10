@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Archive, ArchiveRestore, MoreHorizontal, Pin, PinOff } from "lucide-react";
+
+import AnchoredPanel from "./AnchoredPanel";
 
 /* The per-row lifecycle menu, shared by the dashboard's "Continue working" list
  * and the Projects page.
@@ -58,15 +60,6 @@ export default function ProjectLifecycleMenu({
     setConfirming(false);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [open]);
-
   const item =
     "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-layer/[0.06]";
 
@@ -85,11 +78,25 @@ export default function ProjectLifecycleMenu({
         <MoreHorizontal className="h-4 w-4" />
       </button>
 
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-[240px] overflow-hidden rounded-xl border border-line/[0.09] bg-panel p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
-        >
+      {/* Anchored rather than absolutely placed. On the last row of a page
+          there is nothing below the button, so `top-full` put Delete past the
+          end of the document — on screen as far as the layout was concerned,
+          and unreachable by anyone, because a positioned box does not extend
+          the scroll area of an ancestor that is not scrolling. This flips above
+          the button when the room is up there, caps itself to what room there
+          is and scrolls the rest, and closes on a press outside — which it has
+          to own itself now, since the panel is portalled out of this component
+          and a `contains` check here would read every press inside the menu as
+          a press outside it. */}
+      <AnchoredPanel
+        open={open}
+        onClose={close}
+        side="bottom"
+        align="right"
+        role="menu"
+        className="w-[240px] rounded-xl border border-line/[0.09] bg-panel p-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
+      >
+        <>
           {renaming ? (
             <form
               onSubmit={(event) => {
@@ -191,8 +198,8 @@ export default function ProjectLifecycleMenu({
               )}
             </>
           )}
-        </div>
-      )}
+        </>
+      </AnchoredPanel>
     </div>
   );
 }
