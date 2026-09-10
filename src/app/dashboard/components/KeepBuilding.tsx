@@ -49,7 +49,12 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
      cannot have; it stops reading as light and starts reading as a rectangle.
      The padding is now deep enough that the gradient reaches transparent on
      its own, inside the section, before the footer's divider. Nothing below
-     moves: the band simply owns the space its own light needs. */
+     moves: the band simply owns the space its own light needs.
+
+     The light has since been made lower and wider, and now finishes about
+     166px under the button rather than filling this — so the padding is no
+     longer the tight fit it was, and there is room to grow the light again
+     without moving the footer. It is the ceiling, not the measurement. */
   return (
     <section className="relative w-full overflow-hidden px-4 pb-[188px] pt-16 text-center md:px-6 md:pb-[212px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
@@ -91,53 +96,62 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
          * sync. That is the whole trick: the light is a child of the thing
          * casting it, not a decoration hung off the section or the viewport.
          *
-         * Five parts, from the floor up: the wide field, the pool inside it,
-         * the halo around the pill, the pill itself, and the two rules of
-         * reflection that are the brightest thing on the floor. */}
+         * Four parts and the pill, from the floor up: the wide field, the
+         * pool inside it, the pill itself, and the core with its filament —
+         * the brightest thing on the floor. Nothing sits around the pill any
+         * more; the light is all below it. */}
         <div className="relative mt-10 md:mt-12">
           {/* THE FIELD: how far the light gets before the room takes it.
-           *
+
               Low and wide, and it begins at the button's bottom edge —
               top-full with no lift, so no part of it is ever behind the pill.
               It used to start 64px above the button's top, which put a haze
               over the one thing in the band that has to stay crisp.
 
               The gradient does the shaping rather than the box: an ellipse
-              62% of the width by 46% of the height, centred a fifth of the way
-              down. That centre is the brightest line, ~50px under the button;
-              upward it has only 0.45 of its vertical radius to travel, so it
-              arrives at the button's edge as a contact glow rather than a
-              wash, and sideways it has the full 620px, which is what makes it
-              read as a light field on a floor and not a disc behind a button.
+              58% of the width by 40% of the height, centred just over a third
+              of the way down. That centre is the brightest line, 52px under
+              the button, and the vertical radius is short enough that the
+              light has spent itself before it reaches the pill's edge — what
+              little arrives there is the contact glow a floor actually throws
+              back, not a wash. Sideways it has the full 820px, which is what
+              makes it read as a light field on a floor and not a disc behind a
+              button.
+
+              There is no halo any more. A layer centred ON the button, which
+              is what that was, is light around the thing rather than under it:
+              it hazed the air beside the pill and reached up toward the dot
+              board, and it is the single reason this band read as noisy. The
+              button's own four rim lines are the source now, and everything
+              else is floor.
 
               Every width below is min(px, vw) on the same centre, so the
               tablet gets this composition at a smaller size rather than the
               desktop's spread clipped by the section's overflow-hidden — and
               under lg the near layers also come down in opacity, because a
               light that only narrows still reads hotter in a smaller frame.
-              The px half of each min() is what a wide desktop resolves to, so
-              nothing about the desktop composition moves. */}
+
+              NOTE — wide and low, never hot. Every alpha here is a ceiling
+              rather than a starting point: 0.14 on the field, 0.19 on the
+              pool, 0.42 on the pale core, and they match the floor light under
+              the composer at the top of Home so the page opens and closes on
+              one light rather than two. A light on a floor is a large dim
+              thing; the moment one of these is raised to make it 'show up' it
+              stops being a floor and becomes a lamp pointed at the reader. If
+              it needs more presence, widen it. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[clamp(170px,22vw,240px)] w-[min(1000px,90vw)] -translate-x-1/2 bg-[radial-gradient(ellipse_62%_46%_at_50%_21%,rgba(52,245,160,0.26),rgba(52,245,160,0.13)_32%,rgba(52,245,160,0.045)_58%,transparent_78%)] opacity-90 blur-[20px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[140px] w-[min(820px,88vw)] -translate-x-1/2 translate-y-[2px] bg-[radial-gradient(ellipse_58%_40%_at_50%_36%,rgba(52,245,160,0.14),rgba(52,245,160,0.06)_40%,rgba(52,245,160,0.018)_66%,transparent_84%)] opacity-90 blur-[24px] lg:opacity-100"
           />
 
           {/* THE POOL: the near, denser part of the same light.
            *
-              Its centre sits 51px below the button — the same line as the
-              reflection below, because a light source has one brightest point
-              and everything on the floor has to agree where it is. */}
+              Its centre sits 52px below the button — the same line as the core
+              below, because a light source has one brightest point and
+              everything on the floor has to agree where it is. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[92px] w-[min(520px,48vw)] -translate-x-1/2 translate-y-[5px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.30),rgba(52,245,160,0.11)_46%,transparent_74%)] opacity-[0.85] blur-[14px] lg:opacity-100"
-          />
-
-          {/* THE HALO: the air immediately around the pill. Belongs to the
-              button rather than the floor, which is why it is centred on it
-              and not below it. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[150px] w-[min(420px,52vw)] -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.28),transparent_68%)] blur-xl"
+            className="pointer-events-none absolute left-1/2 top-full h-[84px] w-[min(540px,56vw)] -translate-x-1/2 translate-y-[10px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.19),rgba(52,245,160,0.055)_46%,transparent_74%)] opacity-90 blur-[15px] lg:opacity-100"
           />
 
           <button
@@ -164,23 +178,24 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
             <ArrowRight className="h-[18px] w-[18px] shrink-0 transition-transform group-hover:translate-x-0.5" />
           </button>
 
-          {/* THE REFLECTION: the button's own rim, bounced off the floor.
+          {/* THE CORE, and the filament inside it: the brightest thing in
+              the band, and the one place the mint goes pale.
            *
-              Narrow, wider than the button, brightest at its centre and gone by
-              its ends — and separated from the button by a band of dark. That
-              gap is the whole effect: light touching the thing that casts it is
-              a glow, and light with room between them is a reflection.
+              Narrow, wider than the button, brightest at its centre and gone
+              by its ends — and separated from the button by a band of dark.
+              That gap is the whole effect: light touching the thing that casts
+              it is a glow, and light with room between them is a floor.
 
               Drawn after the button so it sits over the field rather than
-              under it: this is the brightest point of the composition, and it
-              is on the axis, 51px down. */}
+              under it. Both are centred on the same line, 52px down — the core
+              gives the light its width, the filament gives it a centre. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[22px] w-[min(460px,46vw)] -translate-x-1/2 translate-y-[40px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(140,255,215,0.62),rgba(52,245,160,0.30)_45%,transparent_72%)] opacity-[0.85] blur-[8px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[15px] w-[min(420px,44vw)] -translate-x-1/2 translate-y-[45px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(170,255,220,0.42),rgba(52,245,160,0.17)_44%,transparent_72%)] opacity-[0.88] blur-[7px] lg:opacity-100"
           />
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[6px] w-[min(230px,26vw)] -translate-x-1/2 translate-y-[48px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.8),transparent)] opacity-[0.85] blur-[4px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[4px] w-[min(270px,30vw)] -translate-x-1/2 translate-y-[50px] rounded-full bg-[linear-gradient(90deg,transparent,rgba(200,255,235,0.55),transparent)] opacity-[0.88] blur-[3px] lg:opacity-100"
           />
         </div>
       </div>
