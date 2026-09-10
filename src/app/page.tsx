@@ -1152,10 +1152,13 @@ export default function LandingPage() {
             to edge — and cropping it to a wide band by width would take the top off the
             headline and the grass off the bottom, which is most of the picture.
 
-            So the shape is fixed and the SIZE is what varies: full width up to 820px, and
-            capped there. That cap is the whole of the desktop treatment. A square shown
-            full-bleed on a 1440px screen is a 1440px-tall section — a closing CTA the
-            height of the whole viewport, which nobody scrolls past to reach the footer.
+            And it runs edge to edge at every width, as the artwork before it did — no
+            gutter, no cap, no centred card. The trade is height and it is worth naming:
+            a square that spans the viewport is as tall as the viewport is wide, so this
+            section is 1440px tall on a 1440px screen. That is the cost of a square shown
+            whole and full-bleed, and the only ways out of it are a narrower frame, which
+            is the cap this had briefly and does not want, or a crop, which this artwork
+            cannot afford — see above.
 
             ── The hotspot ────────────────────────────────────────────────────────────
 
@@ -1170,13 +1173,13 @@ export default function LandingPage() {
             them — not enough to see, and enough to leave the tap hanging off the edge of
             a control somebody is trying to press. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[820px] overflow-hidden">
+          <div className="relative aspect-square w-full overflow-hidden">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               width={1024}
               height={1024}
-              sizes="(min-width: 820px) 820px, 100vw"
+              sizes="100vw"
               className="h-full w-full"
               priority
             />
