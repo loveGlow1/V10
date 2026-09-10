@@ -14,10 +14,16 @@ import DotMatrixText from "./DotMatrixText";
    ── The light ─────────────────────────────────────────────────────────────
 
    The whole band is one lit object standing in a dark room, and everything
-   below is in service of that: the board is lit white with the name's own
-   suffix picked out in the brand mint, the button is a rim of light rather
-   than a filled shape, and the floor under it carries the pool that light
-   would actually cast. A filled button here would read as a control that
+   below is in service of that: the headline is cut out of silver rather than
+   set in white, so it takes a light from above the way the metal in the
+   wordmark does, the board below it is lit white with the name's own suffix
+   picked out in the brand mint, the button is a rim of light rather than a
+   filled shape, and the floor under it carries the pool that light would
+   actually cast.
+
+   Three tones, and they are meant to be three: silver reads as a surface,
+   white as a lamp, mint as the brand. A white headline made the top of the
+   band compete with the board underneath it for the same job. A filled button here would read as a control that
    happened to land in the dark; an outlined one reads as the thing the light
    is coming from.
 
@@ -90,7 +96,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
   return (
     <section className="relative w-full overflow-hidden px-4 pb-[132px] pt-16 text-center md:px-6 md:pb-[144px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
-        <h2 className="text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight text-ink">
+        <h2 className="silver-type text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight">
           Start building with
         </h2>
 

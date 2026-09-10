@@ -432,6 +432,36 @@ body {
         calc(var(--q-logo-size, 144px) * 0.278)
         rgba(80, 80, 100, 0.35);
 }
+/* The silver. One tonal ramp — bright at the top, mid-grey through the middle,
+   dropping to a shaded grey at the baseline — which is what reads as brushed
+   metal catching a light from above rather than as grey text. It was written
+   out three times: on the nav wordmark, on the hero headline's shimmer and on
+   the Keep Building headline. Written out once now, because three copies of a
+   brand colour is three chances for one of them to drift.
+
+   Not themed. It is the same metal in both palettes; what changes is whether
+   the metal is used at all, since silver on a white ground is barely there.
+   The rules below hand light mode plain ink instead. */
+:root {
+  --silver: linear-gradient(180deg, #f5f5f7 0%, #e2e2e7 55%, #9999a1 100%);
+}
+
+/* Type cut out of that ramp. For display lines on the dark ground — the band at
+   the foot of Home uses it — and it owns the element's colour outright rather
+   than sitting alongside a text- utility, so there is no question of which one
+   paints. */
+.silver-type {
+  background-image: var(--silver);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+[data-theme='light'] .silver-type {
+  background-image: none;
+  color: rgb(var(--ink));
+}
+
 /* Apple-inspired metallic silver chrome: a static tonal gradient (base layer)
    plus a soft diagonal highlight band (second layer) that periodically sweeps
    across the text via background-position, composited with `screen` blending
@@ -440,7 +470,7 @@ body {
    sweeps read as the same brand effect. */
 .metal-shimmer {
   background-image:
-    linear-gradient(180deg, #f5f5f7 0%, #e2e2e7 55%, #9999a1 100%),
+    var(--silver),
     linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.95) 46%, transparent 62%);
   background-size: 100% 100%, 250% 100%;
   background-position: 0 0, -250% 0;
@@ -457,7 +487,7 @@ body {
 }
 
 .wordmark-quickstart {
-  background: linear-gradient(180deg, #f5f5f7 0%, #e2e2e7 55%, #9999a1 100%);
+  background: var(--silver);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
