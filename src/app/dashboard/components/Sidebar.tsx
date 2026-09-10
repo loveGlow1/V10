@@ -29,6 +29,7 @@ import Q3DCanvas from "../../Q3DCanvas";
 import QMark from "../../QMark";
 import { maskEmail } from "../account";
 import ProjectRowMenu from "./ProjectRowMenu";
+import { ManageMark } from "./workspace/panelMarks";
 import ThemeSwitch from "./ThemeSwitch";
 import { avatarFor } from "../projectColours";
 import { useProjects } from "../ProjectsContext";
@@ -106,6 +107,19 @@ interface SidebarProps {
   credits?: string;
   onNewTask?: () => void;
   onAccountSettings?: () => void;
+  /* Opens the Manage pane for the app currently on screen — its settings, its
+     database, its integrations, its payments.
+
+     Optional, and its absence is the signal: Home passes nothing because there
+     is no app open there, so the row does not appear. Only the workspace
+     passes it.
+
+     It exists because "Manage Plan" below is the only row on a phone with the
+     word Manage on it, and it is about billing — so somebody looking for their
+     app's database pressed it and got a plan sheet asking for crypto. Two
+     different things called Manage, one of them absent, is a worse fault than
+     either alone. */
+  onManageApp?: () => void;
 }
 
 export default function Sidebar({
@@ -115,6 +129,7 @@ export default function Sidebar({
   credits = "0.00",
   onNewTask,
   onAccountSettings,
+  onManageApp,
 }: SidebarProps) {
   const router = useRouter();
   /* The drawer is md:hidden, so the lock below must be too — otherwise widening the
@@ -330,6 +345,24 @@ export default function Sidebar({
             {/* Nav items */}
             {/* min-h-11 keeps each row at a thumb-sized target while the gaps close up. */}
             <nav className="mb-5 shrink-0 space-y-1">
+              {/* First, when there is one: this drawer is opened from inside an
+                  app, and the app you are looking at outranks the lists of the
+                  others. Same mark as the workspace's own Manage control, so
+                  the two read as one destination reached two ways — and named
+                  "this app" so it cannot be mistaken for Manage Plan further
+                  down, which is billing. */}
+              {onManageApp && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onManageApp();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+                >
+                  <ManageMark className="h-4 w-4 shrink-0" />
+                  <span className="text-sm font-medium">Manage this app</span>
+                </button>
+              )}
               {/* Published Apps was a button with no onClick — it looked like
                   navigation and did nothing, which is worse than not being
                   there: somebody looking for the sites they had put online

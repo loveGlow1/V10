@@ -179,6 +179,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
           setBillingOpen(true);
         }}
         onAccountSettings={() => setAccountSettingsOpen(true)}
+        /* The phone's other way into Manage, and the one somebody reaches for
+           first: the drawer is what the workspace's ⋯ opens. Only passed from
+           here — Home has no app to manage. */
+        onManageApp={() => openManage("settings")}
         onNewTask={() => {
           setSidebarOpen(false);
           router.push("/dashboard");
