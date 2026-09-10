@@ -42,6 +42,28 @@ const DIAGONAL = Math.SQRT1_2;
 const MARK_GREEN = "#8EF08A";
 const GROUND_BLACK = "#050506";
 
+/* The bezel: a light rim around the black tile.
+ *
+ * It is doing a job, not decoration. A near-black tile on a dark browser
+ * chrome has no outer edge — the icon bleeds into the toolbar and loses its
+ * shape, which is the whole reason a tab icon is recognisable at a glance.
+ * The rim gives the tile a silhouette against a dark UI, and against a light
+ * one the black does that on its own.
+ *
+ * Silver rather than white, and a gradient rather than a flat fill, because
+ * that is what reads as a machined edge: light catching the top-left, shading
+ * away to the bottom-right. Three stops sampled off the aluminium finish the
+ * brief named. At 16px the gradient collapses to a single light grey, which is
+ * the right thing for it to collapse to. */
+const BEZEL_LIGHT = "#F6F7F8";
+const BEZEL_MID = "#DADCDF";
+const BEZEL_DARK = "#B4B8BE";
+
+/* How thick the rim is, as a share of the icon. 6% is ~2px in a 32px tab —
+   thin enough to stay a rim rather than a frame, thick enough to survive the
+   browser halving a 64px render twice. */
+const BEZEL_SHARE = 0.06;
+
 /* A rounded tile rather than a square one, at the same proportion the old icon
    used. Square corners at 16px read as a screenshot of something; the radius is
    what makes it an object. */
@@ -65,6 +87,9 @@ export function brandIcon(size: number) {
   /* The tail's midpoint, out along the 45° diagonal from the centre. */
   const tailOffset = ((TAIL_INNER_REACH + TAIL_OUTER_REACH) / 2) * unit * DIAGONAL;
 
+  const bezel = size * BEZEL_SHARE;
+  const outerRadius = size * CORNER_SHARE;
+
   return new ImageResponse(
     (
       <div
@@ -73,13 +98,38 @@ export function brandIcon(size: number) {
           height: size,
           display: "flex",
           position: "relative",
-          /* Flat. The stars and the vignette that surround the mark on the
-             page do not come with it: at 16px the first are invisible and the
-             second is a grey haze, which is dirt rather than depth. */
-          background: GROUND_BLACK,
-          borderRadius: size * CORNER_SHARE,
+          /* The bezel is this element's own background, with the black tile
+             laid over it inset by the rim's thickness — rather than a CSS
+             border on the tile.
+             
+             Two reasons. A border cannot take a gradient without
+             border-image, which this renderer does not do; and a border would
+             shrink the padding box every absolute child below is measured
+             against, silently moving the mark off centre. Painting the rim
+             underneath leaves the mark's geometry addressed to the full size,
+             exactly as it was. */
+          background: `linear-gradient(145deg, ${BEZEL_LIGHT} 0%, ${BEZEL_MID} 48%, ${BEZEL_DARK} 100%)`,
+          borderRadius: outerRadius,
         }}
       >
+        {/* The tile. Flat: the stars and the vignette that surround the mark
+            on the page do not come with it — at 16px the first are invisible
+            and the second is a grey haze, which is dirt rather than depth.
+            
+            Its radius is the outer one less the rim, so the two curves stay
+            concentric instead of the inner corner turning square. */}
+        <div
+          style={{
+            position: "absolute",
+            left: bezel,
+            top: bezel,
+            width: size - bezel * 2,
+            height: size - bezel * 2,
+            background: GROUND_BLACK,
+            borderRadius: outerRadius - bezel,
+          }}
+        />
+
         {/* The ring: a circle whose border IS the stroke, so its inner and
             outer edges land on RING_INNER_RADIUS and RING_OUTER_RADIUS
             exactly. */}
