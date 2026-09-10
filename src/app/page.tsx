@@ -6,6 +6,7 @@ import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
 import LoginModal, { FacebookIcon, GoogleIcon, PROVIDER_ICON_CLASS, ProviderButton } from "./LoginModal";
 import Q3DCanvas from "./Q3DCanvas";
+import ClosingWings from "./ClosingWings";
 import {
   createSupabaseBrowserClient,
   describeMissingSupabaseEnvVars,
@@ -1165,12 +1166,14 @@ export default function LandingPage() {
             versions of this section — one enlarged the picture 1.41x to span a 1440px
             screen, another cropped it to a wide band and took the grass with it.
 
-            The cost is the one thing left over: past 1024 the page ground shows either
-            side. Two gradients continuing the picture's own edge colours were tried
-            there and taken out again — sampled off the file at twenty-one stops a side,
-            they still read as a blur beside a photograph, which is worse than an honest
-            edge. A laptop, a tablet and a phone are all under 1024 anyway and see it
-            edge to edge regardless.
+            ── And still edge to edge ────────────────────────────────────────────────
+
+            Past 1024 the page ground used to show either side, which put the artwork's
+            edges in the middle of a desktop screen. ClosingWings fills that out of the
+            picture itself — its sky continued outward, its clouds and grass reflected —
+            so the scene reaches both edges while the picture here stays untouched. All
+            of its numbers are measurements of this file; read the header there before
+            changing the artwork.
 
             One number if the size wants changing: lower 1024 to shrink the picture,
             which shrinks its letters with it. Nothing may raise it — above the file's own
@@ -1181,9 +1184,8 @@ export default function LandingPage() {
             The painted pill is at 356,438 in the file and 314 x 75 in size, measured off
             the pixels. As percentages of a frame that shows the whole picture those are
             the four below, and they hold at every width because frame and file share a
-            ratio. Re-measure if the artwork is replaced — and re-sample the two gradients
-            with it, or the sides will continue a picture that is no longer there. */}
-        <section id="get-started" className="relative overflow-hidden">
+            ratio. Re-measure if the artwork is replaced. */}
+<section id="get-started" className="relative overflow-hidden">
           <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
             <Image
               src="/page.jpg"
@@ -1205,6 +1207,11 @@ export default function LandingPage() {
               <span className="sr-only">Get Started</span>
             </button>
           </div>
+
+          {/* Outside the picture's box, never over it, so the painted button
+              keeps every pixel of its hit area. */}
+          <ClosingWings side="left" />
+          <ClosingWings side="right" />
         </section>
       </main>
 
