@@ -1167,9 +1167,23 @@ export default function LandingPage() {
             the type in the middle of a wide band instead of stacking a whole square on
             the page.
 
-            810px tall on a 1440px screen, which is the height the 1672 x 941 artwork
-            before it had. The square shown whole was 1425px on the same screen — a
-            closing call to action the height of the viewport.
+            ── Why it stops at 1024 ──────────────────────────────────────────────────
+
+            That is the file's own width, so the picture is never enlarged: every word in
+            it renders at exactly the size it was painted. Past that the band would be
+            upscaled — 1.33x at 1366, 1.41x at 1440 — and the type in this particular
+            artwork cannot afford it, because it is drawn across 90% of its own canvas
+            already. (The reference this was modelled on draws its headline across 46% of
+            its frame, which is why the same treatment reads calm there and loud here.
+            That difference is in the two pictures, not in any frame around them: width
+            scales everything together and cannot change the ratio of type to canvas.)
+
+            Under 1024 the band is the full width of the screen, so there is no gutter on
+            a laptop, a tablet or a phone — only the widest desktops see the page ground
+            either side, and that is the price of the type staying its own size.
+
+            576px tall at the cap, against the 1425px the whole square wanted on a 1440px
+            screen.
 
             A phone keeps the whole square instead. At 16:9 a 390px screen gives a 219px
             band, and everything painted in it is drawn at 0.38x, which is unreadable.
@@ -1186,12 +1200,12 @@ export default function LandingPage() {
             artwork, the ratio or the 7% anchor changes — the three are one calculation,
             and a tap that misses is the only way any of it reports being wrong. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative aspect-square w-full overflow-hidden sm:aspect-[16/9]">
+          <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden sm:aspect-[16/9]">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               fill
-              sizes="100vw"
+              sizes="(min-width: 1024px) 1024px, 100vw"
               className="object-cover object-[center_7%]"
               /* eager rather than priority, and never lazy. priority preloads into the
                  <head>, which is right for the first screen and wrong for the last thing
