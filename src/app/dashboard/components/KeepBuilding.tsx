@@ -133,12 +133,17 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
 
               NOTE — wide and low, never hot. Every alpha here is a ceiling
               rather than a starting point: 0.14 on the field, 0.19 on the
-              pool, 0.42 on the pale core, and they match the floor light under
-              the composer at the top of Home so the page opens and closes on
-              one light rather than two. A light on a floor is a large dim
+              pool, 0.42 on the pale core. A light on a floor is a large dim
               thing; the moment one of these is raised to make it 'show up' it
               stops being a floor and becomes a lamp pointed at the reader. If
-              it needs more presence, widen it. */}
+              it needs more presence, widen it.
+
+              NOTE — this is the only floor light on Home, and it belongs to
+              this button. One was tried under the composer at the top of the
+              page and taken back out: two pools of the same light on one
+              screen is not twice the effect, it is the end of the effect —
+              a lit object is only lit while it is the one thing casting. The
+              composer has its own orbiting rim and needs no floor. */}
           <span
             aria-hidden
             className="pointer-events-none absolute left-1/2 top-full h-[140px] w-[min(820px,88vw)] -translate-x-1/2 translate-y-[2px] bg-[radial-gradient(ellipse_58%_40%_at_50%_36%,rgba(52,245,160,0.14),rgba(52,245,160,0.06)_40%,rgba(52,245,160,0.018)_66%,transparent_84%)] opacity-90 blur-[24px] lg:opacity-100"
