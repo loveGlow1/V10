@@ -1157,27 +1157,24 @@ export default function LandingPage() {
             wordmark, headline, promise and a painted button are all in the image, so
             nothing is drawn over it.
 
-            ── Full width without enlarging anything ─────────────────────────────────
+            ── Whole, and never enlarged ─────────────────────────────────────────────
 
-            Three things were wanted at once and they looked mutually exclusive: the band
-            spanning the screen, the letters no bigger than they are painted, and the
-            grass in shot. A 1024px picture cannot do all three on its own — spanning a
-            1440px screen means enlarging it by 1.41x, and cropping to a band to save the
-            height throws the grass away.
+            1024px, which is the file's own width, so the picture is shown at exactly the
+            size it was painted: the letters in it are never scaled up, and the grass and
+            the ground are never cropped off. Both of those were lost in turn by earlier
+            versions of this section — one enlarged the picture 1.41x to span a 1440px
+            screen, another cropped it to a wide band and took the grass with it.
 
-            So the picture stops being the thing that spans. It sits at its own 1024px,
-            whole and unenlarged, and the width either side of it is filled by two
-            gradients that continue its own edge colours down the page. Both were sampled
-            off the file — twenty-one bands down the first and last six columns — which
-            is what lets them meet the photograph without a seam. Six stops was tried
-            first and was not enough: a gradient interpolates in straight lines and this
-            edge does not, so it drifted away from the photo between stops and drew a
-            visible join. They are two gradients and not one mirrored, because the left
-            edge is lit green where the right is nearly black.
+            The cost is the one thing left over: past 1024 the page ground shows either
+            side. Two gradients continuing the picture's own edge colours were tried
+            there and taken out again — sampled off the file at twenty-one stops a side,
+            they still read as a blur beside a photograph, which is worse than an honest
+            edge. A laptop, a tablet and a phone are all under 1024 anyway and see it
+            edge to edge regardless.
 
-            The result is a band that runs edge to edge, in which nothing has been scaled
-            up and nothing has been cropped out. Under 1024 the picture is simply the
-            width of the screen and the gradients are not visible at all.
+            One number if the size wants changing: lower 1024 to shrink the picture,
+            which shrinks its letters with it. Nothing may raise it — above the file's own
+            width every word in it is being enlarged.
 
             ── The hotspot ───────────────────────────────────────────────────────────
 
@@ -1187,17 +1184,6 @@ export default function LandingPage() {
             ratio. Re-measure if the artwork is replaced — and re-sample the two gradients
             with it, or the sides will continue a picture that is no longer there. */}
         <section id="get-started" className="relative overflow-hidden">
-          {/* The sides. Behind the picture and drawn first, so only the part of each that
-              falls outside it is ever seen. */}
-          <div
-            aria-hidden
-            className="absolute inset-y-0 left-0 right-1/2 bg-[linear-gradient(180deg,rgb(48,81,55)_0%,rgb(49,83,54)_5%,rgb(56,87,63)_10%,rgb(59,92,67)_15%,rgb(64,97,73)_20%,rgb(64,98,74)_25%,rgb(64,104,75)_30%,rgb(75,118,83)_35%,rgb(76,126,85)_40%,rgb(113,168,100)_45%,rgb(152,208,110)_50%,rgb(115,173,105)_55%,rgb(236,244,193)_60%,rgb(245,247,221)_65%,rgb(213,222,197)_70%,rgb(224,222,203)_75%,rgb(110,141,128)_80%,rgb(88,120,109)_85%,rgb(75,101,94)_90%,rgb(48,75,32)_95%,rgb(7,16,4)_100%)]"
-          />
-          <div
-            aria-hidden
-            className="absolute inset-y-0 left-1/2 right-0 bg-[linear-gradient(180deg,rgb(9,15,15)_0%,rgb(8,13,17)_5%,rgb(6,16,16)_10%,rgb(10,18,18)_15%,rgb(8,19,20)_20%,rgb(10,21,21)_25%,rgb(10,24,24)_30%,rgb(12,27,25)_35%,rgb(15,31,29)_40%,rgb(15,34,32)_45%,rgb(17,37,33)_50%,rgb(31,59,41)_55%,rgb(189,213,150)_60%,rgb(139,162,137)_65%,rgb(88,118,120)_70%,rgb(94,120,116)_75%,rgb(156,163,154)_80%,rgb(198,195,176)_85%,rgb(169,168,154)_90%,rgb(128,142,117)_95%,rgb(27,50,10)_100%)]"
-          />
-
           <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
             <Image
               src="/page.jpg"
