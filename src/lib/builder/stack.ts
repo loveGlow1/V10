@@ -258,20 +258,42 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
 export function stackQuestion(needs: StackNeeds): string {
   return needs.certain
     ? ""
-    : "Before I spend a build on it — is this a site people just look at, or software they sign into? They're built differently and I'd rather ask than get it wrong.";
+    : "Before I spend a build on it — is this a site people just look at, or software they sign into? They cost very different amounts and the wrong one is a rebuild, so I would rather ask than guess.";
 }
 
-/** The two answers, the likelier one first. */
+/* The two answers, the likelier one first.
+ *
+ * ── Why the price is in the blurb ────────────────────────────────────────
+ *
+ * This question is asked at the one moment it can still save somebody money,
+ * and until now it did not mention money. A person picked between "a site" and
+ * "software" on the words alone, and only found out afterwards that one of
+ * them had cost several times the other.
+ *
+ * The difference is not in the per-call rate — a page and a twelve-file project
+ * both land on the generate band's ceiling, so a single call prices the same
+ * either way. It is that a project is built in STAGES, one model call each, so
+ * the bill is that ceiling several times over, and the carried context is
+ * larger on every one of them.
+ *
+ * No exact figure, deliberately. It depends on the model, on how many stages
+ * the brief turns into, and on what the person has already said — quoting "40
+ * credits" here would be a number this function cannot actually know, and a
+ * quote that turns out wrong is worse than an honest comparison. The shape of
+ * the difference is what somebody needs to choose correctly, and the shape is
+ * what is stated. */
 export function stackOptions(needs: StackNeeds): { stack: Stack; label: string; blurb: string }[] {
   const page = {
     stack: "standalone-html" as const,
     label: "A site people look at",
-    blurb: "One page, everything on it. Fastest to build and to change afterwards.",
+    blurb:
+      "One page, everything on it. One build, the cheapest thing here, and the fastest to change afterwards.",
   };
   const app = {
     stack: "nextjs" as const,
     label: "Software people sign into",
-    blurb: "A full Next.js project with accounts, its own pages and a database behind it.",
+    blurb:
+      "A full Next.js project with accounts, its own pages and a database behind it. Built in stages, so it costs several times a page — pick this only if people really do sign in.",
   };
 
   return needs.stack === "nextjs" ? [app, page] : [page, app];
