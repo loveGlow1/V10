@@ -1153,75 +1153,56 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Closing call to action, built on the composed artwork at /page.jpg — wordmark,
-            headline, promise and a painted button are all in the image, so nothing is drawn
-            over it.
+        {/* Closing call to action, built on the composed artwork at /page.jpg —
+            wordmark, headline, promise and a painted button are all in the image, so
+            nothing is drawn over it.
 
-            ── The frame ──────────────────────────────────────────────────────────────
+            ── A band, not a square ──────────────────────────────────────────────────
 
-            The artwork is square, 1024 x 1024, and it is shown whole at every width.
-            There is no crop here any more and there must not be one: the old artwork was
-            1672 x 941 and a phone cropped its sides, which cost only the corner marks. A
-            square cannot give up its sides the same way — the headline runs nearly edge
-            to edge — and cropping it to a wide band by width would take the top off the
-            headline and the grass off the bottom, which is most of the picture.
+            The file is 1024 x 1024 and this shows a slice of it: 16:9 from sm up, full
+            bleed, with the crop anchored at 7% from the top. That lands the visible
+            window on source rows 31 to 607 — wordmark, headline, promise, button, and
+            the top of the mark, with the rest of the mark and the grass below the cut.
+            Cropping the logo is not damage here, it is the composition: it is what puts
+            the type in the middle of a wide band instead of stacking a whole square on
+            the page.
 
-            ── Why there is a cap, and what sets it ──────────────────────────────────
+            810px tall on a 1440px screen, which is the height the 1672 x 941 artwork
+            before it had. The square shown whole was 1425px on the same screen — a
+            closing call to action the height of the viewport.
 
-            900px, and the number is about the TYPE rather than the layout. Every word in
-            this picture is painted into it at 1024px wide, so the size those words render
-            at is decided entirely by how wide the frame is: at 1440 they come out 1.41x
-            the size they were drawn, which is why full-bleed read as shouting. Cropping
-            does not help — a crop changes how much of the picture you see, never the
-            scale of what is left — so the displayed width is the only lever there is, and
-            900 puts the type at 0.88x, just under its drawn size.
+            A phone keeps the whole square instead. At 16:9 a 390px screen gives a 219px
+            band, and everything painted in it is drawn at 0.38x, which is unreadable.
+            Square there means no overflow in either axis, so the crop anchor has nothing
+            to act on and the picture arrives whole.
 
-            Below 900 the frame is the full width of the screen, so a phone still gets it
-            edge to edge with no gutter. Above it the page ground shows either side, which
-            is the trade: a square cannot be both full-bleed on a wide screen and drawn at
-            a sane size, because full-bleed on a square means the section is as tall as the
-            viewport is wide.
+            ── The hotspot ───────────────────────────────────────────────────────────
 
-            One number to move if the type is still not right: raise it toward 1024 to grow
-            the words, lower it to shrink them. The hotspot is in percentages and follows
-            on its own.
-
-            ── The hotspot ────────────────────────────────────────────────────────────
-
-            The painted button is at 356,438 in the file and 314 x 75 in size, measured off
-            the pixels rather than judged by eye — decoded, then scanned for the longest
-            run of pill-green in each row, which is what separates the button from the
-            green clouds behind it. Those figures are written below as percentages of the
-            artwork, which is what keeps the tap on the paint as the frame resizes.
-
-            Re-measure all four whenever the artwork is replaced. This is the second
-            picture to sit here and the pill moved three pixels left and one down between
-            them — not enough to see, and enough to leave the tap hanging off the edge of
-            a control somebody is trying to press. */}
+            The painted pill is at 356,438 in the file and 314 x 75 in size, measured off
+            the pixels. Left and width are the same in both frames because object-cover
+            scales uniformly and neither frame crops horizontally. Top and height are not:
+            the same pill is 7.32% of a whole square and 13.02% of a band that shows 576
+            of its 1024 rows, so those two carry a breakpoint. Re-derive all of it if the
+            artwork, the ratio or the 7% anchor changes — the three are one calculation,
+            and a tap that misses is the only way any of it reports being wrong. */}
         <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[900px] overflow-hidden">
+          <div className="relative aspect-square w-full overflow-hidden sm:aspect-[16/9]">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
-              width={1024}
-              height={1024}
-              sizes="(min-width: 900px) 900px, 100vw"
-              className="h-full w-full"
-              /* eager rather than priority, and never lazy.
-                 priority preloads into the <head>, which is right for something in
-                 the first screen and wrong for this: it is the last thing on the
-                 page, and 723KB of it was being fetched ahead of the hero it sits
-                 a full scroll below. Lazy is not the answer either — it would
-                 leave the closing call to action blank at the moment somebody
-                 arrives at it. Eager fetches it immediately and in its place in
-                 the document, which is behind everything above it. */
+              fill
+              sizes="100vw"
+              className="object-cover object-[center_7%]"
+              /* eager rather than priority, and never lazy. priority preloads into the
+                 <head>, which is right for the first screen and wrong for the last thing
+                 on the page. Lazy would leave this blank at the moment somebody arrives
+                 at it. */
               loading="eager"
             />
             <button
               type="button"
               onClick={() => openAuthModal("email")}
-              style={{ left: "34.77%", top: "42.77%", width: "30.66%", height: "7.32%" }}
-              className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
+              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)] sm:top-[70.60%] sm:h-[13.02%]"
             >
               <span className="sr-only">Get Started</span>
             </button>
