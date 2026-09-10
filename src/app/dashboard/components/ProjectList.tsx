@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LayoutGrid, Laptop, Pin, Radio } from "lucide-react";
 
 import { isPublished, useProjects } from "../ProjectsContext";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import PageThumbnail from "./PageThumbnail";
 import ProjectLifecycleMenu from "./ProjectLifecycleMenu";
 import { browserAccessToken, byRank, isArchived, patchProject } from "@/lib/projects/client";
@@ -93,6 +94,17 @@ export default function ProjectList() {
   const router = useRouter();
   const { projects, rename: renameInList } = useProjects();
 
+  /* The chips are a pointer's control. A phone shows this section the way it
+     always did — heading, three rows, View all — because the room the toggle
+     needs is room a handset spends on the rows themselves, and because Apps is
+     the only view a phone was ever going to be on.
+
+     From md up is deliberately not "desktop only": 768px takes in an iPad in
+     portrait, a MacBook, and a television, which are all screens with room for
+     it. It is the same breakpoint the tab strip and the support widget already
+     split on, so there is one idea of wide in this app rather than three. */
+  const isWide = useMediaQuery("(min-width: 768px)");
+
   const [ranked, setRanked] = useState<ProjectListItem[] | null>(null);
   const [view, setView] = useState<View>("apps");
   const [error, setError] = useState<string | null>(null);
@@ -178,91 +190,126 @@ export default function ProjectList() {
      projects is a route nobody finds. */
   if (ranked === null) return null;
 
-  const current = VIEWS.find((option) => option.id === view) ?? VIEWS[0];
-  const shown = buckets[view].slice(0, SHOWN);
+  /* Derived rather than read straight out of state, so a window narrowed from
+     a desktop that had chosen Published does not leave a phone-width layout
+     showing live sites under a heading it has no control to change. Below md
+     this section is Apps and nothing else. */
+  const active: View = isWide ? view : "apps";
+  const current = VIEWS.find((option) => option.id === active) ?? VIEWS[0];
+  const shown = buckets[active].slice(0, SHOWN);
 
   return (
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
-      <div className="px-1">
-        <div className="flex items-center justify-between gap-3">
-          {/* The heading names the rows under it, so it follows the view rather
-              than standing over both: "Continue working" above a list of live
-              apps is naming something else. */}
-          <h2 className="min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink md:text-lg">
-            {current.heading}
-          </h2>
+      {/* What a phone had before the chips existed, restored exactly: the
+          heading only when there are rows to name, the link in the corner, and
+          nothing else competing for a 360px line. */}
+      {!isWide && (
+        <div
+          className={`flex items-end gap-4 px-1 ${
+            shown.length === 0 ? "justify-end" : "justify-between"
+          }`}
+        >
+          {shown.length > 0 && (
+            <h2 className="text-[17px] font-semibold tracking-tight text-ink">
+              Continue working
+            </h2>
+          )}
 
-          {/* What All used to be, wearing All's grid mark — placed between the
-              words and the arrow, so the mark says what is on the far side of
-              the link and the arrow says it is a journey. Shown always: it was
-              once held back until there were more than three projects, on the
-              reasoning that three rows already showed everything, which was
-              true and beside the point. It made the Projects page reachable
-              only from a dashboard that no longer needed it and unreachable
-              from the one that did, and archived apps, the search and delete
-              all live behind it. `all` rather than the selected view, because
-              this is now the way out to everything rather than a wider version
-              of what is on screen. */}
           <Link
-            href="/dashboard/projects?filter=all"
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+            href="/dashboard/projects"
+            className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
           >
-            View all
-            <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
-            <span aria-hidden>→</span>
+            View all →
           </Link>
         </div>
+      )}
 
-        {/* Centred on its own line rather than tucked in beside the link. Two
-            chips are a choice about what you are looking at, and a choice reads
-            as one when it sits over the middle of the thing it changes — pushed
-            into a corner it reads as another control in the corner's pile. Its
-            own line also means the centring is true at every width instead of
-            being whatever is left between a heading and a link. */}
-        <div className="mt-3 flex justify-center">
-          {/* aria-pressed rather than a tablist, and the same control the
-              Projects page draws. role="tab" owes the reader a tabpanel to
-              point at, and there is none here — the rows below are the section
-              they were always in, filtered. A pressed toggle is what this
-              actually is.
+      {isWide && (
+        <div className="px-1">
+          <div className="flex items-center justify-between gap-3">
+            {/* The heading names the rows under it, so it follows the view rather
+                than standing over both: "Continue working" above a list of live
+                apps is naming something else. */}
+            <h2 className="min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink md:text-lg">
+              {current.heading}
+            </h2>
 
-              The count rides on the selected chip only. Two counts side by side
-              is a readout; one is an answer to the question the press just
-              asked — how many of these do I have. */}
-          <div
-            role="group"
-            aria-label="Which apps to show"
-            className="flex items-center gap-1 rounded-full border border-line/[0.07] bg-layer/[0.03] p-1"
-          >
-            {VIEWS.map((option) => {
-              const Icon = option.icon;
-              const selected = option.id === view;
-              return (
-                <button
-                  key={option.id}
-                  aria-pressed={selected}
-                  onClick={() => setView(option.id)}
-                  className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] transition-colors ${
-                    selected
-                      ? "bg-layer/[0.08] text-ink"
-                      : "text-muted hover:bg-layer/[0.04] hover:text-ink"
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {option.label}
-                  {selected && <span className="text-muted">({buckets[option.id].length})</span>}
-                </button>
-              );
-            })}
+            {/* What All used to be, wearing All's grid mark — placed between the
+                words and the arrow, so the mark says what is on the far side of
+                the link and the arrow says it is a journey. Shown always: it was
+                once held back until there were more than three projects, on the
+                reasoning that three rows already showed everything, which was
+                true and beside the point. It made the Projects page reachable
+                only from a dashboard that no longer needed it and unreachable
+                from the one that did, and archived apps, the search and delete
+                all live behind it. `all` rather than the selected view, because
+                this is now the way out to everything rather than a wider version
+                of what is on screen. */}
+            <Link
+              href="/dashboard/projects?filter=all"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+            >
+              View all
+              <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
+
+          {/* Centred on its own line rather than tucked in beside the link. Two
+              chips are a choice about what you are looking at, and a choice reads
+              as one when it sits over the middle of the thing it changes — pushed
+              into a corner it reads as another control in the corner's pile. Its
+              own line also means the centring is true at every width instead of
+              being whatever is left between a heading and a link. */}
+          <div className="mt-3 flex justify-center">
+            {/* aria-pressed rather than a tablist, and the same control the
+                Projects page draws. role="tab" owes the reader a tabpanel to
+                point at, and there is none here — the rows below are the section
+                they were always in, filtered. A pressed toggle is what this
+                actually is.
+
+                The count rides on the selected chip only. Two counts side by side
+                is a readout; one is an answer to the question the press just
+                asked — how many of these do I have. */}
+            <div
+              role="group"
+              aria-label="Which apps to show"
+              className="flex items-center gap-1 rounded-full border border-line/[0.07] bg-layer/[0.03] p-1"
+            >
+              {VIEWS.map((option) => {
+                const Icon = option.icon;
+                const selected = option.id === view;
+                return (
+                  <button
+                    key={option.id}
+                    aria-pressed={selected}
+                    onClick={() => setView(option.id)}
+                    className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] transition-colors ${
+                      selected
+                        ? "bg-layer/[0.08] text-ink"
+                        : "text-muted hover:bg-layer/[0.04] hover:text-ink"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    {option.label}
+                    {selected && <span className="text-muted">({buckets[option.id].length})</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-3 space-y-1 md:mt-4">
         {error && <p className="py-8 text-center text-sm text-danger">{error}</p>}
 
-        {!error && shown.length === 0 && (
-          <p className="px-3 py-8 text-center text-sm text-muted">{EMPTY[view]}</p>
+        {/* Wide only, because a phone never had it: below md this section is
+            Apps, and an empty Apps is the state the heading already disappears
+            for. A line of explanation under a heading that is not there would
+            be new furniture on the screen with the least room for it. */}
+        {isWide && !error && shown.length === 0 && (
+          <p className="px-3 py-8 text-center text-sm text-muted">{EMPTY[active]}</p>
         )}
 
         {shown.map((row) => {
@@ -282,7 +329,7 @@ export default function ProjectList() {
              That is the whole difference between the two, and it is why this is
              an anchor there and a button everywhere else — the row goes where
              the view says it goes. */
-          const toLive = view === "published" && address !== null;
+          const toLive = active === "published" && address !== null;
 
           const inside = (
             <>
