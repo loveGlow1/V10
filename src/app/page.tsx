@@ -1159,11 +1159,16 @@ export default function LandingPage() {
 
             ── The hotspot ────────────────────────────────────────────────────────────
 
-            The painted button is at 359,439 in the file and 317 x 74 in size, measured off
-            the pixels rather than judged by eye. Those figures are written below as
-            percentages of the artwork, which is what keeps the tap on the paint as the
-            frame resizes. Re-measure all four whenever the artwork is replaced — the last
-            set belonged to a different picture and would land this one in empty sky. */}
+            The painted button is at 356,438 in the file and 314 x 75 in size, measured off
+            the pixels rather than judged by eye — decoded, then scanned for the longest
+            run of pill-green in each row, which is what separates the button from the
+            green clouds behind it. Those figures are written below as percentages of the
+            artwork, which is what keeps the tap on the paint as the frame resizes.
+
+            Re-measure all four whenever the artwork is replaced. This is the second
+            picture to sit here and the pill moved three pixels left and one down between
+            them — not enough to see, and enough to leave the tap hanging off the edge of
+            a control somebody is trying to press. */}
         <section id="get-started" className="relative overflow-hidden">
           <div className="relative mx-auto aspect-square w-full max-w-[820px] overflow-hidden">
             <Image
@@ -1178,7 +1183,7 @@ export default function LandingPage() {
             <button
               type="button"
               onClick={() => openAuthModal("email")}
-              style={{ left: "35.06%", top: "42.87%", width: "30.96%", height: "7.23%" }}
+              style={{ left: "34.77%", top: "42.77%", width: "30.66%", height: "7.32%" }}
               className="absolute rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
             >
               <span className="sr-only">Get Started</span>
