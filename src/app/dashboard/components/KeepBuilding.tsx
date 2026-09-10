@@ -8,8 +8,14 @@ import DotMatrixText from "./DotMatrixText";
 /* The band at the foot of Home: one line of encouragement and one button back
    to the composer at the top of the same page.
 
+   The headline is set in the display face, the geometric grotesque the FAQ and
+   the legal pages use — font-display, which is DM Sans, already loaded at the
+   root for those. It is the same request the band was already making of the
+   type below it: the system stack is the app's working voice, and this is the
+   one line on Home that is talking rather than working.
+
    The second line is the brand on a dot board — the one piece of display type
-   in the app, which is why it is drawn rather than set.
+   that is drawn rather than set.
 
    ── The light ─────────────────────────────────────────────────────────────
 
@@ -96,7 +102,7 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
   return (
     <section className="relative w-full overflow-hidden px-4 pb-[132px] pt-16 text-center md:px-6 md:pb-[144px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
-        <h2 className="silver-type text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight">
+        <h2 className="silver-type font-display text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight">
           Start building with
         </h2>
 
