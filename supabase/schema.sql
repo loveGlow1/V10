@@ -298,9 +298,11 @@ create index if not exists mcp_connections_user_id_idx
 -- The rules these tables enforce are written out in src/app/dashboard/credits.ts;
 -- what lives here is everything that must not be decided in a browser. A balance
 -- the client could write is not a balance, so no policy below grants insert or
--- update on it to anyone: the only way credits move is public.spend_credits(),
--- which locks the row, drains the buckets in the right order and writes the
--- ledger in one transaction.
+-- update on it to anyone: credits move only through spend_credits_for() and
+-- charge_credits(), which lock the row, drain the buckets in the right order
+-- and write the ledger in one transaction. Both take the account as an
+-- argument and are executable by service_role alone, so the price is always
+-- decided on a server.
 --
 -- Division of labour with the application:
 --   * what an ACTION COSTS is decided in TypeScript (creditCostOf) and passed in,
@@ -516,8 +518,8 @@ create policy "Owners read their ledger"
   on public.credit_ledger for select
   using (auth.uid() = user_id);
 
--- Append-only from the application's point of view: only spend_credits and
--- grant_credits write here, and they run as the definer.
+-- Append-only from the application's point of view: only spend_credits_for,
+-- charge_credits and grant_credits write here, and they run as the definer.
 revoke all on public.credit_ledger from anon, authenticated;
 grant select on public.credit_ledger to authenticated;
 

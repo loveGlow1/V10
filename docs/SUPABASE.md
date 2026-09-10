@@ -161,35 +161,65 @@ non-negative and that the balance covers it. Supabase's own linter flags this as
 nobody can credit themselves. The exposure is the price of a charge, not the
 creation of one.
 
-This contradicts what `/api/credits/spend` says about itself: that the browser
-says what happened and never what it costs. It was latent while chat, which
-tops out at one credit, was the only client-priced action that worked. It is
-not latent any more — publishing ships at `PUBLISH_COST`, and charging yourself
-zero for it is worth doing.
+#### How bad it actually is, having checked
 
-Closing it means the server calling the function as `service_role` rather than
-as the user. The parts are now written, and they are deliberately three steps
-rather than one, because a migration and a deployment cannot land in the same
-instant and charging must keep working across the gap:
+This section used to say publishing was paid for through `/api/credits/spend`,
+and therefore that somebody could charge themselves zero for a fifty-credit
+publish. **That was wrong, and it is worth being precise about why, because the
+wrong version reads like an emergency and this one does not.**
 
-1. **Run `supabase/schema.sql`.** It adds `spend_credits_for(p_user_id, …)`,
-   which is told whose account to charge and is executable by the service role
-   alone, and turns `spend_credits` into a wrapper over it so the two cannot
-   drift. Nothing changes for the running app — the wrapper keeps whatever
-   grant it already had, since `create or replace function` preserves
-   privileges.
-2. **Deploy.** `/api/credits/spend` charges through `spend_credits_for` with
-   the service key, having settled who the caller is under their own session
-   first. Until step 1 has run it falls back to the session-scoped wrapper and
-   logs an error naming the migration, so the order of 1 and 2 cannot break
-   charging.
+Nothing is paid for through `/api/credits/spend`. Every priced action charges
+itself, on the server, through `charge_credits` — which `authenticated` has no
+`EXECUTE` on and no browser can reach:
+
+| Action | Where it is charged |
+| --- | --- |
+| Publish and redeploy | `/api/publish` — prices with `creditCostOf`, charges with `chargeCredits` |
+| Build, edit, question | `/api/build` and `/api/builder/webapp/save`, the same way |
+
+`/api/credits/spend` has **no caller at all**. Not one `.ts` or `.tsx` file in
+`src/` fetches it; the only mentions are three comments referring to it. The
+route is vestigial.
+
+So what a signed-in user can actually do by calling `/rest/v1/rpc/spend_credits`
+is deduct credits **from their own balance** and write a row in **their own**
+ledger with an action and description of their choosing. They cannot credit
+themselves, cannot reach another account, and cannot obtain free work. It is an
+accounting-integrity flaw — someone can pollute or drain their own ledger — not
+a way to take value.
+
+Two checks against the live database, on 2026-09-09:
+
+- **The ledger is clean.** 191 rows, no zero-cost row of any kind. Publishes sit
+  at −50 and −1, chats at real fractional prices. Nothing looks hand-made.
+- **The function is not called.** 24 hours of request logs show zero hits on
+  `/rest/v1/rpc/spend_credits`, against 38 on `charge_credits` and 77 on
+  `ensure_credit_balance`.
+
+#### Closing it anyway
+
+Worth doing — a browser-reachable write into the credit ledger has no reason to
+exist — but at the pace of housekeeping, not an incident.
+
+1. **`spend_credits_for(p_user_id, …)` — done, applied 2026-09-09.** Told whose
+   account to charge, executable by `service_role` alone. `spend_credits` is now
+   a wrapper over it so the two cannot drift, and keeps the grant it already
+   had, since `create or replace function` preserves privileges.
+2. **Deploy.** `/api/credits/spend` charges through `spend_credits_for` with the
+   service key, having settled who the caller is under their own session first.
+   Until step 1 has run it falls back to the wrapper and logs an error naming
+   the migration, so the order of 1 and 2 cannot break charging.
 3. **Run `supabase/close-spend-credits.sql`.** One `revoke`, plus a query that
-   proves it. This is the step that actually closes the hole, and running it
-   before step 2 breaks every charge the app makes.
+   proves it. Running it before step 2 breaks every charge the app makes.
 
 The fallback in step 2 needs no cleanup: after step 3 `authenticated` no longer
-holds `EXECUTE` on the wrapper, so that path fails on its own. Removing the
-dead branch afterwards is tidying, not a fix.
+holds `EXECUTE` on the wrapper, so that path fails on its own.
+
+**The better fix is to delete the route.** A public endpoint with no caller is a
+surface with no purpose, and deleting it closes this more decisively than a
+revoke does. The only reason to check first is that it is a public URL, so a
+stale cached client could still be calling it — read the deployment's own logs
+before removing it.
 
 `SUPABASE_SERVICE_ROLE_KEY` must be set in the deployment for any of this —
 without it the route stays on the fallback and says so in the log.

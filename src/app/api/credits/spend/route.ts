@@ -29,6 +29,19 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  * What is left is chat, whose band tops out at a single credit; runtime, which
  * is free; and publish.
  *
+ * ── Nothing calls this route ──────────────────────────────────────────────
+ *
+ * Worth knowing before trusting anything above as a description of the running
+ * system. No file in src/ fetches it, and 24 hours of request logs show no
+ * traffic behind it. Publishing charges itself in /api/publish, and chat, edits
+ * and builds charge themselves in /api/build — all through charge_credits,
+ * under the service key. docs/SUPABASE.md used to say publishing was paid for
+ * here, which was wrong and made a dormant route look like a live one.
+ *
+ * It is left in place rather than deleted because it is a public URL and a
+ * stale cached client could still reach it; deleting it is the better fix once
+ * the deployment's own logs confirm nothing does.
+ *
  * Publish is the one that needs care. It is the largest charge on the platform,
  * and it is fifty times cheaper for a project that is already live — so
  * "alreadyPublished" is a signal a caller has every reason to assert and no
