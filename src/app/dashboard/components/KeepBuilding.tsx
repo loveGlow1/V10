@@ -41,22 +41,26 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
      that is entirely one colour has nothing to pick out. */
   const lit = "text-ink [filter:drop-shadow(0_0_9px_rgba(255,255,255,0.28))]";
 
-  /* The bottom padding is the light's room to finish.
+  /* The bottom padding is where the light ends.
 
-     It was pb-20/28, and the floor pool was 320px tall hanging off the
-     section's own bottom edge — so overflow-hidden cut it in a straight line
-     across the band. A hard horizontal edge is the one thing a pool of light
-     cannot have; it stops reading as light and starts reading as a rectangle.
-     The padding is now deep enough that the gradient reaches transparent on
-     its own, inside the section, before the footer's divider. Nothing below
-     moves: the band simply owns the space its own light needs.
+     It used to be 188/212px, chosen so a 320px pool could reach transparent on
+     its own before the footer's divider — the rule then being that a pool of
+     light cannot have a hard horizontal edge without turning into a rectangle.
 
-     The light has since been made lower and wider, and now finishes about
-     166px under the button rather than filling this — so the padding is no
-     longer the tight fit it was, and there is room to grow the light again
-     without moving the footer. It is the ceiling, not the measurement. */
+     That rule was wrong about this room. In the reference the green does not
+     fade out at all: it spreads downward off the button, widens as it goes,
+     stays lit all the way to the foot of the band, and stops dead on the
+     footer's hairline. The straight line is the end of the light — a floor
+     seen edge-on, ending at a wall — and it only reads that way because the
+     light is still bright when it gets there.
+
+     So the padding is now the light's length rather than its room: the wash is
+     168px tall, deeper than this padding at either width, and the section's
+     overflow-hidden does the cutting. Change one of these two numbers and the
+     other has to move, or the green either stops short of the divider or never
+     gets to full strength before it. */
   return (
-    <section className="relative w-full overflow-hidden px-4 pb-[188px] pt-16 text-center md:px-6 md:pb-[212px] md:pt-24">
+    <section className="relative w-full overflow-hidden px-4 pb-[132px] pt-16 text-center md:px-6 md:pb-[144px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
         <h2 className="text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight text-ink">
           Start building with
@@ -96,57 +100,56 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
          * sync. That is the whole trick: the light is a child of the thing
          * casting it, not a decoration hung off the section or the viewport.
          *
-         * Four parts and the pill, from the floor up: the wide field, the
-         * pool inside it, the pill itself, and the core with its filament —
-         * the brightest thing on the floor. Nothing sits around the pill any
-         * more; the light is all below it. */}
+         * Four parts and the pill, from the floor up: the wash that runs to
+         * the foot of the band, the pool of denser light inside it, the pill
+         * itself, and the core with its filament — the brightest thing on the
+         * floor. Nothing sits around the pill; the light is all below it. */}
         <div className="relative mt-10 md:mt-12">
-          {/* THE FIELD: how far the light gets before the room takes it.
+          {/* THE WASH: the light on the floor, from the button to the wall.
 
-              Low and wide, and it begins at the button's bottom edge —
-              top-full with no lift, so no part of it is ever behind the pill.
-              It used to start 64px above the button's top, which put a haze
-              over the one thing in the band that has to stay crisp.
+              This is the whole figure. It hangs off the button's bottom edge,
+              is brightest on the line the core sits on, and from there it
+              spreads down and outward — the gradient's vertical radius is 185%
+              of the box, so it is nowhere near spent when the section's bottom
+              edge cuts it. That cut is the point: the straight line under the
+              green is the footer's own hairline, and light that arrives at it
+              still lit reads as a floor ending at a wall. Light that faded out
+              first would just be a smudge with a rule underneath it.
 
-              The gradient does the shaping rather than the box: an ellipse
-              58% of the width by 40% of the height, centred just over a third
-              of the way down. That centre is the brightest line, 52px under
-              the button, and the vertical radius is short enough that the
-              light has spent itself before it reaches the pill's edge — what
-              little arrives there is the contact glow a floor actually throws
-              back, not a wash. Sideways it has the full 820px, which is what
-              makes it read as a light field on a floor and not a disc behind a
-              button.
+              It widens on the way down for free. The iso-alpha contours of an
+              ellipse this tall are narrow beside its centre and broad below
+              it, so the green is tight where it leaves the button and spans
+              most of the band by the time it reaches the divider.
 
-              There is no halo any more. A layer centred ON the button, which
-              is what that was, is light around the thing rather than under it:
-              it hazed the air beside the pill and reached up toward the dot
-              board, and it is the single reason this band read as noisy. The
-              button's own four rim lines are the source now, and everything
-              else is floor.
+              The mask is what keeps it off the button. A gradient this strong
+              would otherwise put green in the air beside the pill and up
+              toward the dot board — the old halo's mistake, arrived at from
+              below instead of from around. Fading the top 34% of the layer to
+              nothing leaves a band of dark under the button that the light
+              starts on the far side of, and the pill keeps its own rim as the
+              only thing lighting it.
 
-              Every width below is min(px, vw) on the same centre, so the
-              tablet gets this composition at a smaller size rather than the
-              desktop's spread clipped by the section's overflow-hidden — and
-              under lg the near layers also come down in opacity, because a
-              light that only narrows still reads hotter in a smaller frame.
+              Widths: the box is 160vw with a 25% horizontal radius, so the
+              green spans 80% of the screen at every width and the gradient is
+              transparent a whole half-viewport before the box ends. That
+              margin is not decoration. A mask only covers its own element, so
+              the blur bleeding past the box edge gets cut off square there —
+              give this layer a width the gradient actually reaches and the
+              masking turns that falloff into a vertical seam. Under lg it also
+              comes down in opacity, because a light that only narrows reads
+              hotter in a smaller frame.
 
-              NOTE — wide and low, never hot. Every alpha here is a ceiling
-              rather than a starting point: 0.14 on the field, 0.19 on the
-              pool, 0.42 on the pale core. A light on a floor is a large dim
-              thing; the moment one of these is raised to make it 'show up' it
-              stops being a floor and becomes a lamp pointed at the reader. If
-              it needs more presence, widen it.
-
-              NOTE — this is the only floor light on Home, and it belongs to
-              this button. One was tried under the composer at the top of the
-              page and taken back out: two pools of the same light on one
-              screen is not twice the effect, it is the end of the effect —
-              a lit object is only lit while it is the one thing casting. The
-              composer has its own orbiting rim and needs no floor. */}
+              NOTE — the wash carries the brightness; the near layers stay
+              quiet. 0.32 falling to 0.03 across this gradient is what makes
+              the floor still read as lit at the divider. The pool below is
+              0.19 and the pale core 0.42, and those two are ceilings rather
+              than starting points: raising them to give the light more
+              presence is the wrong lever every time, because it turns a floor
+              into a lamp pointed at the reader. Presence comes from this layer
+              reaching the bottom edge still lit. */}
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-full h-[140px] w-[min(820px,88vw)] -translate-x-1/2 translate-y-[2px] bg-[radial-gradient(ellipse_58%_40%_at_50%_36%,rgba(52,245,160,0.14),rgba(52,245,160,0.06)_40%,rgba(52,245,160,0.018)_66%,transparent_84%)] opacity-90 blur-[24px] lg:opacity-100"
+            className="pointer-events-none absolute left-1/2 top-full h-[168px] w-[160vw] -translate-x-1/2 bg-[radial-gradient(ellipse_25%_185%_at_50%_30%,rgba(52,245,160,0.32),rgba(52,245,160,0.23)_26%,rgba(52,245,160,0.15)_50%,rgba(52,245,160,0.08)_72%,rgba(52,245,160,0.03)_90%,transparent_100%)] opacity-90 blur-[22px] [-webkit-mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] [mask-image:linear-gradient(180deg,transparent_0%,#000_34%)] lg:opacity-100"
           />
 
           {/* THE POOL: the near, denser part of the same light.
