@@ -30,20 +30,17 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
      that is entirely one colour has nothing to pick out. */
   const lit = "text-ink [filter:drop-shadow(0_0_9px_rgba(255,255,255,0.28))]";
 
-  return (
-    <section className="relative w-full overflow-hidden px-4 pb-20 pt-16 text-center md:px-6 md:pb-28 md:pt-24">
-      {/* The floor, in two layers, because a reflection and a glow are not the
-          same thing and one gradient cannot be both.
-       *
-          THE SPILL is the light that fills the room: wide, shallow, dim, and
-          low enough that it surrounds what is below rather than washing over
-          it. On its own it reads as fog — which is what this band had, and why
-          nothing in it looked like a reflection. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute bottom-0 left-1/2 h-[320px] w-[min(980px,130vw)] -translate-x-1/2 translate-y-[34%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.26),rgba(52,245,160,0.09)_42%,transparent_70%)] blur-[16px]"
-      />
+  /* The bottom padding is the light's room to finish.
 
+     It was pb-20/28, and the floor pool was 320px tall hanging off the
+     section's own bottom edge — so overflow-hidden cut it in a straight line
+     across the band. A hard horizontal edge is the one thing a pool of light
+     cannot have; it stops reading as light and starts reading as a rectangle.
+     The padding is now deep enough that the gradient reaches transparent on
+     its own, inside the section, before the footer's divider. Nothing below
+     moves: the band simply owns the space its own light needs. */
+  return (
+    <section className="relative w-full overflow-hidden px-4 pb-[188px] pt-16 text-center md:px-6 md:pb-[212px] md:pt-24">
       <div className="relative mx-auto flex w-full max-w-[880px] flex-col items-center">
         <h2 className="text-[clamp(28px,7vw,54px)] font-semibold leading-[1.06] tracking-tight text-ink">
           Start building with
@@ -84,6 +81,27 @@ export default function KeepBuilding({ onKeepBuilding }: { onKeepBuilding: () =>
          * different distances away — the halo belongs to the button and moves
          * with it. */}
         <div className="relative mt-10 md:mt-12">
+          {/* THE SPILL: the pool the button's light lays on the floor.
+           *
+              It used to hang off the section — bottom-0 on the <section>, so
+              its centre was wherever the band happened to end rather than
+              wherever the button happens to be. It lives in the button's own
+              wrapper now, so left-1/2 is the button's centre line, not the
+              band's, and the two cannot drift apart at any width.
+
+              Geometry, since it is all offsets: the box is 320px tall and
+              starts at the button's bottom edge (top-full), pulled up 116px,
+              which puts its centre — the brightest point — 44px below the
+              button, on the same axis as the reflection just under it. The
+              gradient is transparent by 70% of its radius, so it has finished
+              112px past that centre, well inside the padding above.
+
+              The colours are the ones it always had. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-full h-[320px] w-[min(980px,96vw)] -translate-x-1/2 -translate-y-[116px] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.26),rgba(52,245,160,0.09)_42%,transparent_70%)] blur-[16px]"
+          />
+
           <span
             aria-hidden
             className="pointer-events-none absolute left-1/2 top-1/2 h-[150px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(52,245,160,0.30),transparent_68%)] blur-xl"
