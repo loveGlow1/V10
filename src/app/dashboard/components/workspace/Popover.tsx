@@ -4,6 +4,7 @@ import React, { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
+import AnchoredPanel from "../AnchoredPanel";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 /* A panel hung off a control.
@@ -57,14 +58,21 @@ export default function Popover({
   if (!open) return null;
 
   if (isDesktop || !sheetOnMobile) {
+    /* AnchoredPanel rather than an `absolute` box: it flips to whichever side
+       has room, caps itself to the room that side has and scrolls the rest,
+       and clamps both edges into the screen. The model list is the case that
+       forced it — taller than the space above the composer it opens out of, so
+       its first rows were drawn up behind the header where nothing could
+       scroll them back. See AnchoredPanel. */
     return (
-      <div
-        className={`absolute z-50 ${align === "right" ? "right-0" : "left-0"} ${
-          side === "top" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"
-        } ${width} max-w-[calc(100vw-24px)] rounded-xl border border-line/[0.09] bg-panel p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]`}
+      <AnchoredPanel
+        open
+        side={side}
+        align={align}
+        className={`${width} max-w-[calc(100vw-24px)] rounded-xl border border-line/[0.09] bg-panel p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]`}
       >
         {children}
-      </div>
+      </AnchoredPanel>
     );
   }
 

@@ -97,9 +97,26 @@ export async function listProjects(opts: {
   return (data ?? []) as ProjectListItem[];
 }
 
-/** Dashboard "Continue working" — hard cap of 3. */
+/* Dashboard "Continue working" — the whole ranked list, uncapped.
+ *
+ * It used to ask for `active` with a limit of 3, which is what that section
+ * shows. But the section now offers All / Apps / Published over these rows, and
+ * a filter applied to three pre-chosen rows answers the wrong question: press
+ * Published on an account whose three most recently opened apps happen to be
+ * unpublished and you get an empty list, while the sidebar says you have
+ * published apps. The cap belongs on the far side of the filter, so it lives in
+ * the component and this returns everything to filter.
+ *
+ * Uncapped, and `all` rather than `active`, for the same reason: `active`
+ * excludes a project that has not been opened in thirty days, and a live site
+ * nobody has edited since spring is exactly that — still published, still
+ * something its owner wants to find. Ordering is unchanged, so Apps and All
+ * both still lead with pinned and then most recently opened.
+ *
+ * The Projects page already reads this table unbounded for its own list, so
+ * this adds no shape of query that page does not already make. */
 export async function listContinueWorking(accessToken: string) {
-  return listProjects({ accessToken, filter: "active", limit: 3 });
+  return listProjects({ accessToken, filter: "all" });
 }
 
 export async function countActiveProjects(accessToken: string) {

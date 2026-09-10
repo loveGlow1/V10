@@ -763,10 +763,11 @@ export default function DashboardPage() {
                 Model changes apply from your next message
               </p>
 
-              <div
-                className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5"
-                role="menu"
-              >
+              {/* No cap and no scroller of its own any more. The card around
+                  it measures the room it actually has and scrolls what does not
+                  fit, so a fixed 52vh here would either leave room unused on a
+                  tall window or start a second scrollbar inside the first. */}
+              <div className="-mx-1.5 px-1.5" role="menu">
                 {groupedModels().map((group) => (
                   <div key={group.provider}>
                     {group.label && (

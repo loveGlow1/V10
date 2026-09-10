@@ -45,7 +45,8 @@
     "check:validate": "node tools/check-validate.mjs",
     "audit:page": "node tools/audit-page.mjs",
     "qa": "node tools/qa.mjs",
-    "settle": "node tools/settle-payment.mjs"
+    "settle": "node tools/settle-payment.mjs",
+    "check:anchored": "node tools/check-anchored.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
