@@ -24,24 +24,38 @@ import Image from "next/image";
  * left-hand glow survives it because the work is done per column. Nothing below
  * row 550 is touched, which is everything anyone actually looks at.
  *
- * ── Why the scene stops at 1024 ───────────────────────────────────────────
+ * ── How it reaches both edges without resizing anything ──────────────────
  *
- * Because that is how many pixels it has. Past its own width every pixel in it
- * is being stretched, and the one thing in it with hard edges — the mark — goes
- * soft; on a 2x screen a full-width 1440 layout was stretching it nearly three
- * times. Resampling the file to 2048 first was tried and measured: edge energy
- * across the mark came back 2.52 against 2.51, which is nothing, because no
- * resample invents detail that was never in the file.
+ * The scene is drawn at 1:1 and never stretched — past its own width every
+ * pixel in it would be enlarged, and the one thing in it with hard edges, the
+ * mark, is what goes soft. A full-width 1440 layout was stretching it 1.41x,
+ * and close to three times that on a 2x screen. Measured on the render, edge
+ * energy across the mark falls from 7.59 to 4.48 when it is.
  *
- * Compositing the mark separately at 1:1 over a stretched background was tried
- * too, on paper: it fails where the mark meets the grass, since a 1:1 mark
- * standing on 1.4x grass does not touch the ground it is standing on.
+ * So the margins are filled with the scene reflected, at 1:1, rather than with
+ * the scene enlarged. This is only possible because the words came out of the
+ * picture: with them in it, reflecting the top folded the headline back into
+ * frame reversed, and the sky up there had to be faked instead. The scene has
+ * no words at any height, so the reflection is the artwork's own pixels all the
+ * way up — no gradients, nothing invented, nothing resized.
  *
- * So SCENE_MAX is the artwork's resolution, and the scene is never drawn past
- * it. This is the ONE number that a larger export of the same artwork would
- * change: at 2048 the scene would reach a 2048px screen with nothing stretched,
- * and the type would not move a pixel, because the type is no longer tied to
- * the picture's size. Nothing else in this file would need touching.
+ * It turns around every FOLD and folds back, the way a kaleidoscope does. Each
+ * fold meets the last on a shared column, so every join is invisible, and the
+ * mark is never reached: measured, it spans columns 372 to 722, leaving 301
+ * columns of clearance on the tighter side, and the fold turns around well
+ * inside that.
+ *
+ * Two other ways to keep the width were tried and rejected on evidence.
+ * Resampling the file to 2048 with a sharpen first: edge energy came back 2.52
+ * against 2.51 at 2x, which is nothing, because no resample invents detail the
+ * file never had. Compositing the mark alone at 1:1 over a stretched
+ * background: it breaks where the mark meets the grass, since a 1:1 mark
+ * standing on 1.41x grass does not touch the ground it stands on.
+ *
+ * SCENE_MAX is the artwork's resolution. A larger export of the same scene
+ * raises it, the scene itself reaches further before the reflection starts, and
+ * not a pixel of type moves — the type has not been tied to the picture's size
+ * since the words came out of it.
  *
  * ── Held at the painted size ──────────────────────────────────────────────
  *
@@ -66,6 +80,18 @@ const SCENE_MAX = 1024;
 /* The scene is square, so its height is its width, capped the same way. */
 const HEIGHT = `min(100vw, ${SCENE_MAX}px)`;
 
+/* How far the reflection runs before it folds back. Under 301, the mark's
+   clearance from the nearer edge. */
+const FOLD = 290;
+
+/* Five folds a side is 1450px of reflected scene, which is the margin on a
+   3900px screen. Each is one <img>, and every copy on the section resolves to
+   the same URL, so it stays one download and one decode. */
+const FOLDS = [0, 1, 2, 3, 4];
+
+/* The same sizes as the scene itself, so the browser fetches one file. */
+const SIZES = `(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`;
+
 /* The artwork's own colours, sampled off the pixels. */
 const WHITE = "#ffffff";
 const GREEN = "rgb(174,252,106)";
@@ -77,6 +103,52 @@ function u(n: number) {
   return `calc(${n} * var(--u))`;
 }
 
+/* One margin, built from the scene reflected back on itself.
+ *
+ * object-cover on a square source in a tall FOLD-wide box is a 1:1 crop, so
+ * object-left / object-right pick out the scene's own outermost columns at
+ * their painted size. Every other fold is flipped, which is what makes
+ * consecutive folds meet on a shared column. */
+function Reflection({ side }: { side: "left" | "right" }) {
+  const isLeft = side === "left";
+  const edge = `calc(50% + ${SCENE_MAX / 2}px)`;
+
+  return (
+    <div
+      aria-hidden
+      /* Hidden below 1024, where there is no margin to fill: the scene already
+         spans the screen there. */
+      className="pointer-events-none absolute inset-y-0 hidden overflow-hidden lg:block"
+      style={isLeft ? { left: 0, right: edge } : { right: 0, left: edge }}
+    >
+      {FOLDS.map((fold) => (
+        <div
+          key={fold}
+          className="absolute inset-y-0 overflow-hidden"
+          style={
+            isLeft
+              ? { width: FOLD, right: fold * FOLD }
+              : { width: FOLD, left: fold * FOLD }
+          }
+        >
+          <Image
+            src="/page-scene.jpg"
+            alt=""
+            fill
+            sizes={SIZES}
+            className={[
+              "object-cover",
+              isLeft ? "object-left" : "object-right",
+              fold % 2 === 0 ? "-scale-x-100" : "",
+            ].join(" ")}
+            loading="eager"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ClosingScene({ onStart }: { onStart: () => void }) {
   return (
     <section
@@ -84,6 +156,9 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
       className="relative w-full overflow-hidden"
       style={{ ["--u" as string]: UNIT, height: HEIGHT }}
     >
+      <Reflection side="left" />
+      <Reflection side="right" />
+
       {/* The scene, centred and never past its own resolution. The type lives
           inside this box too, so the two stay registered to each other however
           wide the page is. */}
@@ -95,7 +170,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
           src="/page-scene.jpg"
           alt=""
           fill
-          sizes={`(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`}
+          sizes={SIZES}
           className="object-cover object-bottom"
           /* eager rather than priority, and never lazy. priority preloads into the
              <head>, which is right for the first screen and wrong for the last thing
