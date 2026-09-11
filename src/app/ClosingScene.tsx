@@ -99,15 +99,15 @@ const SCENE_MAX = 1024;
    
    The scene is a square, and a 1024px square is taller than the window most
    people read this in — the end of it was below the fold. Shortening it cannot
-   scale anything, so it crops: 102 rows of empty sky off the top and 92 rows of
-   foreground grass off the bottom, 830 left. The bottom edge lands at row 932,
+   scale anything, so it crops: 156 rows of empty sky off the top and 92 rows of
+   foreground grass off the bottom, 776 left. The bottom edge lands at row 932,
    eight rows above the rock, so nothing in the picture is cut through — the cut
    is all sky and all foreground. The words move up with the sky
    they sit on, at exactly the sizes they already were, and nothing else in the
    picture is touched: the mark still runs from row 555 to 885 and the grass
-   still crests at 880, 52 rows above the new bottom edge.
+   still crests at 880.
    
-   The three are one sum — 102 of sky + 830 of band + 92 of grass = 1024 — so
+   The three are one sum — 156 of sky + 776 of band + 92 of grass = 1024 — so
    changing one means changing another. They are written out literally in the
    classes below rather than kept here, because Tailwind reads class names as
    text and cannot see a constant.
@@ -216,7 +216,7 @@ function Reflection({ side }: { side: "left" | "right" }) {
       /* A full scene tall and pulled up by the crop, so the reflection keeps
          1:1 — object-cover in a box shorter than the file would shrink it —
          and the band's own overflow does the cropping. */
-      className="pointer-events-none absolute top-0 hidden h-full overflow-hidden lg:block lg:h-[1024px] lg:-top-[102px]"
+      className="pointer-events-none absolute top-0 hidden h-full overflow-hidden lg:block lg:h-[1024px] lg:-top-[156px]"
       style={isLeft ? { left: 0, right: edge } : { right: 0, left: edge }}
     >
       {FOLDS.map((fold) => (
@@ -278,7 +278,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
       id="get-started"
       /* A square on a phone, where the scene already fits the width. A band on
          a desktop, so the whole thing lands inside one window. */
-      className="relative h-[100vw] w-full overflow-hidden lg:h-[830px]"
+      className="relative h-[100vw] w-full overflow-hidden lg:h-[776px]"
       style={{ ["--u" as string]: UNIT }}
     >
       <Reflection side="left" />
@@ -288,7 +288,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
           tall and pulled up by the crop for the same reason the reflections
           are: object-cover has to have the file's own height to keep 1:1. */}
       <div
-        className="relative mx-auto h-full w-full lg:h-[1024px] lg:-mt-[102px]"
+        className="relative mx-auto h-full w-full lg:h-[1024px] lg:-mt-[156px]"
         style={{ maxWidth: `${SCENE_W}px` }}
       >
         <Image
@@ -310,21 +310,8 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
           be pulled up with it. Both are centred on the same middle, so they
           stay registered to each other. */}
       <div className="absolute inset-0 font-display">
-        <p
-          className="absolute left-1/2 -translate-x-1/2 font-bold top-[calc(58*var(--u))] lg:top-[calc(15*var(--u))]"
-          style={{
-            fontSize: u(41.7),
-            lineHeight: 1,
-            letterSpacing: "-0.02em",
-            color: WHITE,
-            whiteSpace: "nowrap",
-          }}
-        >
-          QuickStark <span style={{ color: GREEN }}>.Ai</span>
-        </p>
-
         <h2
-          className="absolute left-1/2 -translate-x-1/2 text-center font-bold top-[calc(150*var(--u))] lg:top-[calc(78*var(--u))]"
+          className="absolute left-1/2 -translate-x-1/2 text-center font-bold top-[calc(150*var(--u))] lg:top-[calc(24*var(--u))]"
           style={{
             fontSize: u(85.7),
             /* 97u between the two cap tops, measured off the file. */
@@ -340,7 +327,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
         </h2>
 
         <p
-          className="absolute left-1/2 -translate-x-1/2 text-center top-[calc(367*var(--u))] lg:top-[calc(293*var(--u))]"
+          className="absolute left-1/2 -translate-x-1/2 text-center top-[calc(367*var(--u))] lg:top-[calc(239*var(--u))]"
           style={{
             fontSize: u(25.9),
             lineHeight: 1,
@@ -354,7 +341,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
         <button
           type="button"
           onClick={onStart}
-          className="absolute left-1/2 -translate-x-1/2 top-[calc(438*var(--u))] lg:top-[calc(352*var(--u))] inline-flex items-center justify-center rounded-pill font-semibold transition-[box-shadow,transform] duration-300 hover:brightness-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70"
+          className="absolute left-1/2 -translate-x-1/2 top-[calc(438*var(--u))] lg:top-[calc(298*var(--u))] inline-flex items-center justify-center rounded-pill font-semibold transition-[box-shadow,transform] duration-300 hover:brightness-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70"
           style={{
             width: u(314),
             height: u(75),
