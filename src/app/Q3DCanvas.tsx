@@ -28,10 +28,22 @@ export default function Q3DCanvas({
   withBackdrop = false,
   spinAxisTiltDeg,
   spinDirection,
+  flat = false,
 }: {
   scale?: number;
   className?: string;
   withBackdrop?: boolean;
+  /** Skip WebGL entirely and paint the flat mark only.
+   *
+   *  For the small instances. At 40px the two are indistinguishable — the
+   *  bevels the 3D one exists to show are a pixel wide there — and a canvas
+   *  costs a GL context, which is the one resource on this page that is
+   *  genuinely scarce: Chrome caps them per process and drops the oldest when
+   *  the cap is hit, and a dropped context is a blank box where the logo was.
+   *  The header's also sits inside a fixed, backdrop-blurred bar, which is the
+   *  worst place to ask a canvas to composite correctly. Three contexts for one
+   *  page, two of them for a 40px logo, was not a trade worth making. */
+  flat?: boolean;
   /** Tilts the spin axis toward the camera so the mark never turns edge-on.
    *  For the small instances; see Q3DCanvasScene for why 60 is the number. */
   spinAxisTiltDeg?: number;
@@ -47,7 +59,9 @@ export default function Q3DCanvas({
   const [painted, setPainted] = useState(false);
   const [retired, setRetired] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    if (!flat) setMounted(true);
+  }, [flat]);
 
   useEffect(() => {
     if (!painted) return;
@@ -79,6 +93,11 @@ export default function Q3DCanvas({
           className="h-full w-full"
           style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
           onPainted={() => setPainted(true)}
+          /* Back to the flat mark rather than a blank box. */
+          onContextLost={() => {
+            setPainted(false);
+            setRetired(false);
+          }}
         />
       )}
     </div>

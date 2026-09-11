@@ -341,7 +341,7 @@ export default function Sidebar({
                     className through to it, so without one the mark had no box and the
                     36px frame clipped it to a sliver. */}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center">
-                  <Q3DCanvas scale={0.65} className="h-9 w-9" />
+                  <Q3DCanvas scale={0.65} className="h-9 w-9" flat />
                 </div>
                 <span className="text-lg font-bold tracking-tight text-ink">
                   QuickStark<span className="text-accent">.Ai</span>
