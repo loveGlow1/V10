@@ -106,6 +106,32 @@ const GLINT_ORBIT_RADIUS = 3.4;
 // directly overhead/underneath where it would be less visible.
 const GLINT_VERTICAL_COMPRESSION = 0.5;
 
+/* Reports the first frame this scene actually draws.
+ *
+ * It lives inside the same Suspense boundary as the environment, and that
+ * placement is the whole point. The signal used to come from the Canvas's
+ * onCreated, which fires when the renderer is constructed — before the HDRI the
+ * material needs has arrived. The flat mark was therefore retired on a timer
+ * while the 3D one still could not draw, and on a cold refresh, with an HDRI
+ * coming from a third-party CDN, the gap between the two was a blank slot where
+ * the logo should be. From in here the signal cannot run early: React will not
+ * mount this until the environment has resolved, and useFrame will not call it
+ * until a frame has been rendered with it.
+ *
+ * It is a sibling of the error boundary rather than a child, so a failed HDRI
+ * still hands the mark over — without reflections, but drawn. If the fetch
+ * neither resolves nor fails, nothing happens at all and the flat mark simply
+ * stays, which is the right way for this to fail. */
+function FirstFrame({ onPainted }: { onPainted?: () => void }) {
+  const reported = useRef(false);
+  useFrame(() => {
+    if (reported.current || !onPainted) return;
+    reported.current = true;
+    onPainted();
+  });
+  return null;
+}
+
 class EnvironmentErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
 
@@ -323,13 +349,9 @@ export default function Q3DCanvasScene({
     <Canvas
       className={className}
       style={{ width: "100%", height: "100%", ...style }}
-      /* onCreated fires when the renderer exists, which is one frame before it
-         has drawn anything. Waiting for the rAF after it means the fade starts
-         against a painted mark rather than against an empty canvas — otherwise
-         the placeholder disappears into a blank box for a frame, which is the
-         flash this was added to remove. */
+      /* Only wires up context loss. The hand-over from the flat mark is
+         reported by FirstFrame, from inside the tree — see there for why. */
       onCreated={({ gl }) => {
-        if (onPainted) requestAnimationFrame(() => requestAnimationFrame(onPainted));
         if (onContextLost) {
           gl.domElement.addEventListener("webglcontextlost", onContextLost, { once: true });
         }
@@ -361,6 +383,7 @@ export default function Q3DCanvasScene({
         <EnvironmentErrorBoundary>
           <Environment preset="studio" />
         </EnvironmentErrorBoundary>
+        <FirstFrame onPainted={onPainted} />
       </Suspense>
       {/* Raised ambient plus an added front-lower fill light so the ring reads as a
           consistent obsidian metal all the way around as it spins, instead of the

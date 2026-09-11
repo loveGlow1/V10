@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QMark from "./QMark";
 import Q3DCanvasScene from "./Q3DCanvasScene";
 
@@ -28,22 +28,10 @@ export default function Q3DCanvas({
   withBackdrop = false,
   spinAxisTiltDeg,
   spinDirection,
-  flat = false,
 }: {
   scale?: number;
   className?: string;
   withBackdrop?: boolean;
-  /** Skip WebGL entirely and paint the flat mark only.
-   *
-   *  For the small instances. At 40px the two are indistinguishable — the
-   *  bevels the 3D one exists to show are a pixel wide there — and a canvas
-   *  costs a GL context, which is the one resource on this page that is
-   *  genuinely scarce: Chrome caps them per process and drops the oldest when
-   *  the cap is hit, and a dropped context is a blank box where the logo was.
-   *  The header's also sits inside a fixed, backdrop-blurred bar, which is the
-   *  worst place to ask a canvas to composite correctly. Three contexts for one
-   *  page, two of them for a 40px logo, was not a trade worth making. */
-  flat?: boolean;
   /** Tilts the spin axis toward the camera so the mark never turns edge-on.
    *  For the small instances; see Q3DCanvasScene for why 60 is the number. */
   spinAxisTiltDeg?: number;
@@ -59,9 +47,49 @@ export default function Q3DCanvas({
   const [painted, setPainted] = useState(false);
   const [retired, setRetired] = useState(false);
 
+  /* Whether this mark is anywhere near the screen.
+   *
+   *  A GL context is the scarcest thing on the page: Chrome caps how many live
+   *  at once per process and silently drops the oldest when the cap is hit — a
+   *  few tabs of anything that draws will do it — and a canvas whose context
+   *  has gone is a blank box where the logo should be. That is what turned the
+   *  header's mark white on a refresh.
+   *
+   *  So a mark holds a context only while it is worth drawing. The footer's and
+   *  the hero's release theirs the moment they are well off screen and take one
+   *  back before they return, which on the landing page is usually one context
+   *  live instead of three. 600px of margin is roughly half a viewport: far
+   *  enough ahead that the canvas has drawn its first frame before anyone can
+   *  see the slot. */
+  const host = useRef<HTMLDivElement>(null);
+  /* Starts true, and the observer's job is only ever to turn it off. If
+     IntersectionObserver is missing, or never reports — which is exactly what
+     one headless build did — the mark still mounts and still spins. Failing
+     towards the working logo is the whole point. */
+  const [near, setNear] = useState(true);
+
+  useEffect(() => setMounted(true), []);
+
   useEffect(() => {
-    if (!flat) setMounted(true);
-  }, [flat]);
+    const el = host.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      ([entry]) => setNear(entry.isIntersecting),
+      { rootMargin: "600px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  /* Whichever way the canvas goes away — scrolled out of reach, or its context
+     taken — the flat mark has to be back before it does, or the slot is empty
+     for a frame. */
+  useEffect(() => {
+    if (near) return;
+    setPainted(false);
+    setRetired(false);
+  }, [near]);
 
   useEffect(() => {
     if (!painted) return;
@@ -74,7 +102,7 @@ export default function Q3DCanvas({
      `absolute` in it — so this wrapper must not take a position of its own; a
      single-cell grid overlays its children without one. */
   return (
-    <div className={className} style={{ display: "grid" }}>
+    <div ref={host} className={className} style={{ display: "grid" }}>
       {/* Painted with the first paint, before a byte of three.js has run. */}
       {!retired && (
         <QMark
@@ -84,7 +112,7 @@ export default function Q3DCanvas({
         />
       )}
 
-      {mounted && (
+      {mounted && near && (
         <Q3DCanvasScene
           scale={scale}
           withBackdrop={withBackdrop}
@@ -93,7 +121,9 @@ export default function Q3DCanvas({
           className="h-full w-full"
           style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
           onPainted={() => setPainted(true)}
-          /* Back to the flat mark rather than a blank box. */
+          /* Back to the flat mark rather than a blank box. The canvas stays
+             mounted — the browser may hand the context back, and if it does
+             the scene redraws and fades in again on its own. */
           onContextLost={() => {
             setPainted(false);
             setRetired(false);
