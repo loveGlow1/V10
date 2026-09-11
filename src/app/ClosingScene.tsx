@@ -154,6 +154,33 @@ const SKY_RIGHT = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAQACAIAAAC
    the file, and the panel is the file's full height. */
 const SKY_MASK = "linear-gradient(180deg,#000 0 48%,transparent 58%)";
 
+/* How the left margin settles into the same sky the right one holds.
+ *
+ * The light in the artwork comes from the left, so its left edge column is four
+ * times the brightness of its right: 61 against 16 at the top of the band, 104
+ * against 37 at the bottom. Held flat across a wide margin, the left read as a
+ * milky field — dust — while the right, being near-black, read as nothing at
+ * all. They are the same trick and only one of them was visible.
+ *
+ * So the left margin now starts on its own edge column at the join, where it
+ * has to match, and resolves over 260px into the right edge column — the same
+ * sky the other side holds, so both margins end the page on the same tone. Both
+ * layers are real columns of the artwork; nothing between them is invented but
+ * the crossfade.
+ *
+ * The crossfade is eased rather than linear, and measured in percent of the
+ * margin rather than pixels. Both matter. A straight ramp ends in a corner, and
+ * on a 2560 screen that corner showed as a soft vertical edge partway out; the
+ * stops below flatten into the settled tone instead. And a ramp fixed in pixels
+ * either overshoots a narrow margin or stops short of a wide one — at 410px it
+ * left a 1440 screen still twelve levels brighter on the left than the right.
+ * In percent it always finishes exactly at the screen edge, so both sides end
+ * the page on the same tone whatever the width. */
+const SKY_SETTLE =
+  "linear-gradient(to left,#000 0%,rgba(0,0,0,0.93) 11%,rgba(0,0,0,0.79) 24%," +
+  "rgba(0,0,0,0.57) 40%,rgba(0,0,0,0.34) 56%,rgba(0,0,0,0.15) 72%," +
+  "rgba(0,0,0,0.04) 85%,transparent 100%)";
+
 /* The same sizes as the scene itself, so the browser fetches one file. */
 const SIZES = `(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`;
 
@@ -214,16 +241,33 @@ function Reflection({ side }: { side: "left" | "right" }) {
         </div>
       ))}
 
+      {/* The held sky. Two layers on the left, one on the right — the right
+          edge column is already the tone both sides settle on. */}
       <div
         className="absolute inset-0"
-        style={{
-          backgroundImage: `url("${isLeft ? SKY_LEFT : SKY_RIGHT}")`,
-          backgroundRepeat: "no-repeat",
-          backgroundSize: "100% 100%",
-          WebkitMaskImage: SKY_MASK,
-          maskImage: SKY_MASK,
-        }}
-      />
+        style={{ WebkitMaskImage: SKY_MASK, maskImage: SKY_MASK }}
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url("${SKY_RIGHT}")`,
+            backgroundRepeat: "no-repeat",
+            backgroundSize: "100% 100%",
+          }}
+        />
+        {isLeft && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url("${SKY_LEFT}")`,
+              backgroundRepeat: "no-repeat",
+              backgroundSize: "100% 100%",
+              WebkitMaskImage: SKY_SETTLE,
+              maskImage: SKY_SETTLE,
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
