@@ -6,6 +6,7 @@ import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
 import LoginModal, { FacebookIcon, GoogleIcon, PROVIDER_ICON_CLASS, ProviderButton } from "./LoginModal";
 import Q3DCanvas from "./Q3DCanvas";
+import ClosingScene from "./ClosingScene";
 import {
   createSupabaseBrowserClient,
   describeMissingSupabaseEnvVars,
@@ -1153,67 +1154,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Closing call to action, built on the composed artwork at /page.jpg —
-            wordmark, headline, promise and a painted button are all in the image, so
-            nothing is drawn over it.
-
-            ── Whole, and never enlarged ─────────────────────────────────────────────
-
-            1024px, the file's own width, so the picture is shown at exactly the size it
-            was painted. Every letter in it is the size it was drawn, the grass and the
-            ground are all there, and no pixel on screen is anything but the file's own.
-
-            ── Why it stops at 1024 ──────────────────────────────────────────────────
-
-            Because the words are inside the picture. The headline spans 90% of a 1024
-            canvas, so the frame cannot grow without growing the type with it — the
-            frame IS the type's size. Three ways round that were built and taken out
-            again, and all three cost something the picture should not have to pay:
-
-              covering the screen    enlarged every word by the same factor
-              cropping to a band     took the grass and the ground off the bottom
-              building the sides     invented pixels, and beside a photograph they
-                                     read as invented
-
-            So the picture stops at its own width, and past that the page ground shows
-            either side. That is the honest version of a square picture on a wide
-            screen, and the only thing that can change it is the file: the same scene
-            on a wider canvas, with the type set at half the width rather than 90% of
-            it, would fill a desktop at its painted size. Nothing in this file can.
-
-            One number if the size wants changing: lower 1024 to shrink the picture,
-            which shrinks its letters with it. Nothing may raise it — above the file's
-            own width every word in it is being enlarged.
-
-            ── The hotspot ───────────────────────────────────────────────────────────
-
-            The painted pill is at 356,438 in the file and 314 x 75 in size, measured off
-            the pixels. As percentages of a frame that shows the whole picture those are
-            the four below, and they hold at every width because frame and file share a
-            ratio. Re-measure if the artwork is replaced. */}
-        <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
-            <Image
-              src="/page.jpg"
-              alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
-              fill
-              sizes="(min-width: 1024px) 1024px, 100vw"
-              className="object-cover"
-              /* eager rather than priority, and never lazy. priority preloads into the
-                 <head>, which is right for the first screen and wrong for the last thing
-                 on the page. Lazy would leave this blank at the moment somebody arrives
-                 at it. */
-              loading="eager"
-            />
-            <button
-              type="button"
-              onClick={() => openAuthModal("email")}
-              className="absolute left-[34.77%] top-[42.77%] h-[7.32%] w-[30.66%] rounded-pill transition-shadow duration-300 hover:shadow-[0_0_0_3px_rgba(255,255,255,0.65)] focus:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,255,255,0.9)]"
-            >
-              <span className="sr-only">Get Started</span>
-            </button>
-          </div>
-        </section>
+        {/* Closing call to action. The section lives in ClosingScene — the scene
+            spans the screen, the words are held at the size they were painted, and
+            the header there explains why the two had to be separated to get both. */}
+        <ClosingScene onStart={() => openAuthModal("email")} />
       </main>
 
       <footer className="relative z-10 border-t border-brandBorder px-6 py-14">
