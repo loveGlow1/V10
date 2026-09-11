@@ -1191,7 +1191,7 @@ export default function LandingPage() {
             the pixels. As percentages of a frame that shows the whole picture those are
             the four below, and they hold at every width because frame and file share a
             ratio. Re-measure if the artwork is replaced. */}
-<section id="get-started" className="relative overflow-hidden">
+        <section id="get-started" className="relative overflow-hidden">
           <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
             <Image
               src="/page.jpg"
