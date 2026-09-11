@@ -39,13 +39,30 @@ import Image from "next/image";
  * no words at any height, so the reflection is the artwork's own pixels all the
  * way up — no gradients, nothing invented, nothing resized.
  *
- * It turns around every FOLD and folds back, the way a kaleidoscope does. Each
- * fold meets the last on a shared column, so every join is invisible, and the
- * mark is never reached: measured, it spans columns 372 to 722, leaving 301
- * columns of clearance on the tighter side, and the fold turns around well
- * inside that.
+ * ── Why the scene is cropped before it is reflected ───────────────────────
  *
- * Two other ways to keep the width were tried and rejected on evidence.
+ * A mirror turns whatever sits on its axis into a line of symmetry, and the
+ * file's outermost columns are the worst possible axis. They carry a bright lip
+ * — a border artifact of the render, +8 levels over six columns — and a thin
+ * vertical light beam at column 22. Reflected, each became a hard vertical
+ * line standing in the margin: measured, +10.4 at the join and +2.0 either side
+ * of it.
+ *
+ * CROP drops those columns instead of repairing them. Repairing was tried three
+ * ways — flattening the lip, flattening the edge gradient, and both per row
+ * band — and every one of them traded the line for something worse: vertical
+ * smears through the cloud, then blotches, because the correction has to grow
+ * teeth to beat a gradient that steep. Cropping needs no correction at all. The
+ * file stays exactly as it was; the reflection simply takes its axis 72 columns
+ * in, where the profile is nearly flat. Measured across the file, that drops
+ * the ridge at the join by 89%, and the beam is inside the part that is gone.
+ *
+ * The cost is 14% of the artwork's width, all of it sky and cloud edge — the
+ * mark spans columns 372 to 722 and is nowhere near it, and the grass runs on
+ * into the reflection without a break.
+ *
+ * ── Other things tried ────────────────────────────────────────────────────
+ *
  * Resampling the file to 2048 with a sharpen first: edge energy came back 2.52
  * against 2.51 at 2x, which is nothing, because no resample invents detail the
  * file never had. Compositing the mark alone at 1:1 over a stretched
@@ -80,14 +97,19 @@ const SCENE_MAX = 1024;
 /* The scene is square, so its height is its width, capped the same way. */
 const HEIGHT = `min(100vw, ${SCENE_MAX}px)`;
 
-/* How far the reflection runs before it folds back. Under 301, the mark's
-   clearance from the nearer edge. */
-const FOLD = 290;
+/* How much of the scene is shown. The rest — 72 columns a side, since the crop
+   is centred — is the file's own bad border, dropped rather than reflected. */
+const SCENE_W = 880;
+const CROP = (SCENE_MAX - SCENE_W) / 2;
 
-/* Five folds a side is 1450px of reflected scene, which is the margin on a
-   3900px screen. Each is one <img>, and every copy on the section resolves to
+/* How far the reflection runs before it folds back. Under 229, the mark's
+   clearance from the cropped edge (the mark spans columns 372 to 722). */
+const FOLD = 220;
+
+/* Six folds a side is 1320px of reflected scene, which is the margin on a
+   3500px screen. Each is one <img>, and every copy on the section resolves to
    the same URL, so it stays one download and one decode. */
-const FOLDS = [0, 1, 2, 3, 4];
+const FOLDS = [0, 1, 2, 3, 4, 5];
 
 /* The same sizes as the scene itself, so the browser fetches one file. */
 const SIZES = `(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`;
@@ -111,7 +133,10 @@ function u(n: number) {
  * consecutive folds meet on a shared column. */
 function Reflection({ side }: { side: "left" | "right" }) {
   const isLeft = side === "left";
-  const edge = `calc(50% + ${SCENE_MAX / 2}px)`;
+  const edge = `calc(50% + ${SCENE_W / 2}px)`;
+  /* Where the reflection takes its axis: CROP columns in from the file's edge,
+     which is exactly the column the cropped scene ends on. */
+  const from = isLeft ? `-${CROP}px center` : `calc(100% + ${CROP}px) center`;
 
   return (
     <div
@@ -136,11 +161,8 @@ function Reflection({ side }: { side: "left" | "right" }) {
             alt=""
             fill
             sizes={SIZES}
-            className={[
-              "object-cover",
-              isLeft ? "object-left" : "object-right",
-              fold % 2 === 0 ? "-scale-x-100" : "",
-            ].join(" ")}
+            className={["object-cover", fold % 2 === 0 ? "-scale-x-100" : ""].join(" ")}
+            style={{ objectPosition: from }}
             loading="eager"
           />
         </div>
@@ -164,14 +186,14 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
           wide the page is. */}
       <div
         className="relative mx-auto h-full w-full"
-        style={{ maxWidth: `${SCENE_MAX}px` }}
+        style={{ maxWidth: `${SCENE_W}px` }}
       >
         <Image
           src="/page-scene.jpg"
           alt=""
           fill
           sizes={SIZES}
-          className="object-cover object-bottom"
+          className="object-cover object-center"
           /* eager rather than priority, and never lazy. priority preloads into the
              <head>, which is right for the first screen and wrong for the last thing
              on the page. Lazy would leave this blank at the moment somebody arrives
