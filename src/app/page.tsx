@@ -6,7 +6,6 @@ import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
 import LoginModal, { FacebookIcon, GoogleIcon, PROVIDER_ICON_CLASS, ProviderButton } from "./LoginModal";
 import Q3DCanvas from "./Q3DCanvas";
-import ClosingWings from "./ClosingWings";
 import {
   createSupabaseBrowserClient,
   describeMissingSupabaseEnvVars,
@@ -1158,26 +1157,25 @@ export default function LandingPage() {
             wordmark, headline, promise and a painted button are all in the image, so
             nothing is drawn over it.
 
-            ── Whole, and never enlarged ─────────────────────────────────────────────
+            ── The file, and nothing else ────────────────────────────────────────────
 
-            1024px, which is the file's own width, so the picture is shown at exactly the
-            size it was painted: the letters in it are never scaled up, and the grass and
-            the ground are never cropped off. Both of those were lost in turn by earlier
-            versions of this section — one enlarged the picture 1.41x to span a 1440px
-            screen, another cropped it to a wide band and took the grass with it.
+            The picture spans the screen, whatever the screen is: one square frame at
+            the full width, the same on a phone as on a desktop. No cap, no crop, no
+            margin, and nothing painted alongside it.
 
-            ── And still edge to edge ────────────────────────────────────────────────
+            That last one is the point, and it cost a few attempts to arrive at. Capping
+            the width at 1024 kept the letters at the size they were painted but left
+            the page ground showing either side, which put the artwork's edges in the
+            middle of a desktop screen. Filling those sides out of the picture itself —
+            its sky continued, its clouds and grass reflected — reached both edges, but
+            every pixel of it was invented, and invented pixels beside a photograph
+            read as exactly that. Cropping to a wide band took the grass with it.
 
-            Past 1024 the page ground used to show either side, which put the artwork's
-            edges in the middle of a desktop screen. ClosingWings fills that out of the
-            picture itself — its sky continued outward, its clouds and grass reflected —
-            so the scene reaches both edges while the picture here stays untouched. All
-            of its numbers are measurements of this file; read the header there before
-            changing the artwork.
-
-            One number if the size wants changing: lower 1024 to shrink the picture,
-            which shrinks its letters with it. Nothing may raise it — above the file's own
-            width every word in it is being enlarged.
+            So: the file, whole, at the width of the screen. Wider screens show it
+            larger, the way narrower screens already show it smaller, because the frame
+            follows the screen rather than the file. That is the trade, and it is the
+            one that keeps every word and every blade of grass in the picture and keeps
+            everything outside the picture out of it.
 
             ── The hotspot ───────────────────────────────────────────────────────────
 
@@ -1186,12 +1184,12 @@ export default function LandingPage() {
             the four below, and they hold at every width because frame and file share a
             ratio. Re-measure if the artwork is replaced. */}
 <section id="get-started" className="relative overflow-hidden">
-          <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
+          <div className="relative aspect-square w-full overflow-hidden">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               fill
-              sizes="(min-width: 1024px) 1024px, 100vw"
+              sizes="100vw"
               className="object-cover"
               /* eager rather than priority, and never lazy. priority preloads into the
                  <head>, which is right for the first screen and wrong for the last thing
@@ -1207,11 +1205,6 @@ export default function LandingPage() {
               <span className="sr-only">Get Started</span>
             </button>
           </div>
-
-          {/* Outside the picture's box, never over it, so the painted button
-              keeps every pixel of its hit area. */}
-          <ClosingWings side="left" />
-          <ClosingWings side="right" />
         </section>
       </main>
 
