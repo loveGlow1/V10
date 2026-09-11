@@ -389,17 +389,105 @@ body {
   100% { transform: translateX(-50%); }
 }
 
+/* The atmosphere layer behind the landing page: grain, vignette and two slow
+ * glows. These lived in a <style> tag at the very bottom of page.tsx's JSX, so
+ * the browser only learned about them after it had already laid out and
+ * painted the whole document — every one of these divs spent the first paint
+ * as an ordinary static block in the flow, and the rules that take them out of
+ * it (position: fixed/absolute) arrived one reflow too late. Here they are
+ * part of the stylesheet in <head>, known before the first box is placed.
+ * .noise-bg is transparent by design — it is the animated grain carrier. */
+.noise-bg {
+  position: fixed;
+  top: -50%; left: -50%; right: -50%; bottom: -50%;
+  width: 200%; height: 200%;
+  opacity: 0.8;
+  pointer-events: none;
+  z-index: 999;
+  animation: noise-anim 0.2s infinite;
+}
+
+@keyframes noise-anim {
+  0%   { transform: translate(0, 0); }
+  10%  { transform: translate(-1%, -1%); }
+  20%  { transform: translate(-2%, 1%); }
+  30%  { transform: translate(1%, -2%); }
+  40%  { transform: translate(-1%, 3%); }
+  50%  { transform: translate(-1%, 1%); }
+  60%  { transform: translate(3%, -1%); }
+  70%  { transform: translate(2%, 1%); }
+  80%  { transform: translate(-2%, -1%); }
+  90%  { transform: translate(1%, 3%); }
+  100% { transform: translate(1%, -2%); }
+}
+
+.radial-vignette {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 30%, rgba(9, 9, 9, 0.9) 100%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.ambient-glow-1 {
+  position: absolute;
+  top: 15%; left: 20%;
+  width: 45vw; height: 45vw;
+  background: radial-gradient(circle, rgba(142, 240, 138, 0.03) 0%, transparent 70%);
+  pointer-events: none;
+  filter: blur(80px);
+  z-index: 1;
+  animation: slow-drift-1 25s infinite alternate ease-in-out;
+}
+
+.ambient-glow-2 {
+  position: absolute;
+  bottom: 20%; right: 15%;
+  width: 50vw; height: 50vw;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.02) 0%, transparent 75%);
+  pointer-events: none;
+  filter: blur(100px);
+  z-index: 1;
+  animation: slow-drift-2 30s infinite alternate ease-in-out;
+}
+
+@keyframes slow-drift-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(50px, -40px) scale(1.1); }
+}
+
+@keyframes slow-drift-2 {
+  0%   { transform: translate(0, 0) scale(1.1); }
+  100% { transform: translate(-60px, 50px) scale(0.9); }
+}
+
+/* The scroll reveal, stated the right way round.
+ *
+ * It used to hide by default: .reveal-element was opacity 0, shifted 24px down,
+ * scaled to 0.98 and blurred 4px, and only a class added after hydration
+ * brought it back. That made the page's own first paint the broken one — every
+ * section below the hero arrived invisible, displaced and blurred, and stayed
+ * that way until JavaScript had downloaded, parsed, hydrated and an observer
+ * had fired. Reload part-way down the page and that is exactly what you were
+ * looking at. With scripting off it never recovered at all.
+ *
+ * So the resting state IS the finished state, and the animation is opt-in:
+ * script adds .reveal-pending, and only to elements that are below the fold
+ * when they mount — content already on screen is correct as rendered and is
+ * left alone. Nothing can hide the page before the page has had its chance to
+ * be right. */
 .reveal-element {
-  opacity: 0;
-  transform: translateY(24px) scale(0.98);
-  filter: blur(4px);
   transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1), transform 1s cubic-bezier(0.16, 1, 0.3, 1), filter 1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.reveal-element.active {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
+/* transition: none so arming it is instant — the element is off screen at that
+   point, and a one-second fade *out* is not what anyone is waiting to see. The
+   fade in runs off the base rule above once the class comes off. */
+.reveal-element.reveal-pending {
+  opacity: 0;
+  transform: translateY(24px) scale(0.98);
+  filter: blur(4px);
+  transition: none;
 }
 
 .btn-spinner {
@@ -668,6 +756,14 @@ body {
    for this too. The gradient stays — it is the brand's colour, not its
    animation — and only the band of light stops travelling. */
 @media (prefers-reduced-motion: reduce) {
+  /* No reveal at all, rather than an instant one: with motion reduced the
+     resting state is already the finished state, so there is nothing to do. */
+  .reveal-element.reveal-pending {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
   .metal-shimmer {
     animation: none;
   }
