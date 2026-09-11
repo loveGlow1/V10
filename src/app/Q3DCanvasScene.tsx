@@ -295,6 +295,7 @@ export default function Q3DCanvasScene({
   spinDirection = FORWARD,
   style,
   onPainted,
+  onContextLost,
 }: {
   scale?: number;
   className?: string;
@@ -312,6 +313,11 @@ export default function Q3DCanvasScene({
    *  can be faded out against something that exists rather than against a
    *  renderer that has merely been constructed. */
   onPainted?: () => void;
+  /** Called if the browser takes the GL context away, so the flat mark can come
+   *  back. Chrome caps live contexts per process and drops the oldest when the
+   *  cap is hit — a few tabs of anything that draws is enough — and a canvas
+   *  whose context has gone is a blank box where the logo was. */
+  onContextLost?: () => void;
 }) {
   return (
     <Canvas
@@ -322,8 +328,11 @@ export default function Q3DCanvasScene({
          against a painted mark rather than against an empty canvas — otherwise
          the placeholder disappears into a blank box for a frame, which is the
          flash this was added to remove. */
-      onCreated={() => {
+      onCreated={({ gl }) => {
         if (onPainted) requestAnimationFrame(() => requestAnimationFrame(onPainted));
+        if (onContextLost) {
+          gl.domElement.addEventListener("webglcontextlost", onContextLost, { once: true });
+        }
       }}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
       dpr={[1, 2]}
