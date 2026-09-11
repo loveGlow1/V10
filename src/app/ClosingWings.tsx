@@ -44,12 +44,16 @@ import Image from "next/image";
  *              picture on exactly the colour the picture ends on — measured,
  *              every row agrees to the value.
  *
- *   FALLOFF_*  the panel darkened outward, on a curve read off the picture's
- *              own text-free top strip: the left edge carries a glow that falls
- *              to about a third of its brightness 350px in, the right edge is
- *              near-flat already. Without it the flat column reads as a wall of
- *              light standing beside the picture. With it the light falls away
- *              outward the way it falls away inward.
+ *   FALLOFF_*  the panel darkened outward until there is nothing left of it.
+ *              The left curve is steep on purpose. Matching the picture's own
+ *              measured falloff was the first attempt and it was wrong: the
+ *              picture's left edge carries a glow, and carried outward at the
+ *              rate it actually decays it spread a dusty green haze across the
+ *              margin, banded by the row-to-row noise in the column. That haze
+ *              is not in the artwork and has no business being invented beside
+ *              it. So the light is let go within about 150px and the margin
+ *              settles into the dark the sky is already heading for. The right
+ *              edge is near-black to begin with and needs almost nothing.
  *
  * The two meet across rows 47%–60%: sky above, reflection below, and nothing
  * to see at the handover because the reflection at the join is the same edge
@@ -83,9 +87,9 @@ const EDGE_RIGHT = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAQACAIAAA
    of the panel — the light in the picture falls away over a fixed distance, not
    over a share of whatever screen this happens to be. */
 const FALLOFF_LEFT =
-  "linear-gradient(to left,rgba(0,0,0,0) 0px,rgba(0,0,0,0.17) 50px,rgba(0,0,0,0.30) 100px," +
-  "rgba(0,0,0,0.38) 150px,rgba(0,0,0,0.47) 200px,rgba(0,0,0,0.55) 250px,rgba(0,0,0,0.61) 300px," +
-  "rgba(0,0,0,0.66) 380px,rgba(0,0,0,0.72) 500px,rgba(0,0,0,0.78) 700px,rgba(0,0,0,0.80) 900px)";
+  "linear-gradient(to left,rgba(0,0,0,0) 0px,rgba(0,0,0,0.40) 30px,rgba(0,0,0,0.65) 70px," +
+  "rgba(0,0,0,0.80) 110px,rgba(0,0,0,0.88) 160px,rgba(0,0,0,0.93) 230px,rgba(0,0,0,0.96) 340px," +
+  "rgba(0,0,0,0.97) 600px)";
 const FALLOFF_RIGHT =
   "linear-gradient(to right,rgba(0,0,0,0) 0px,rgba(0,0,0,0.05) 120px,rgba(0,0,0,0.09) 260px," +
   "rgba(0,0,0,0.12) 420px,rgba(0,0,0,0.14) 700px)";
