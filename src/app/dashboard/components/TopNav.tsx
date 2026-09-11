@@ -120,7 +120,7 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <a href="/dashboard" className="flex shrink-0 items-center gap-2" aria-label="QuickStark.Ai dashboard">
             <span className="flex h-7 w-7 items-center justify-center overflow-hidden">
-              <Q3DCanvas scale={0.55} flat />
+              <Q3DCanvas scale={0.55} />
             </span>
             <span className="whitespace-nowrap text-[15px] font-bold tracking-tight text-ink">
               QuickStark<span className="text-accent">.Ai</span>

@@ -734,7 +734,7 @@ export default function LandingPage() {
               the nav does not jump sideways when the button mounts on scroll. */}
           <div className="page-shell h-20 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
             <a href="#" className="justify-self-start -ml-2 flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40 rounded-full px-2" aria-label="QuickStark.Ai Homepage">
-              <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" flat /></div>
+              <div className="w-10 h-10 relative overflow-hidden flex items-center justify-center"><Q3DCanvas scale={0.85} className="w-10 h-10 absolute pointer-events-none" /></div>
               <span className="text-xl font-bold tracking-tight"><span className="wordmark-quickstart metal-shimmer">QuickStark</span><span className="wordmark-ai">.Ai</span></span>
             </a>
             <nav className="hidden md:flex justify-self-center items-center gap-8 text-sm font-medium text-brandTextSec">
@@ -1172,7 +1172,7 @@ export default function LandingPage() {
           <Reveal className="max-w-sm xl:max-w-xs">
             <a href="#" className="inline-flex items-center gap-3 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brandGreen/40" aria-label="QuickStark.Ai Homepage">
               <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden">
-                <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" flat />
+                <Q3DCanvas scale={0.8} className="absolute h-10 w-10 pointer-events-none" />
               </div>
               <span className="text-xl font-bold tracking-tight">
                 <span className="wordmark-quickstart">QuickStark</span><span className="wordmark-ai">.Ai</span>
