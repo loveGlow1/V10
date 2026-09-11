@@ -1157,25 +1157,33 @@ export default function LandingPage() {
             wordmark, headline, promise and a painted button are all in the image, so
             nothing is drawn over it.
 
-            ── The file, and nothing else ────────────────────────────────────────────
+            ── Whole, and never enlarged ─────────────────────────────────────────────
 
-            The picture spans the screen, whatever the screen is: one square frame at
-            the full width, the same on a phone as on a desktop. No cap, no crop, no
-            margin, and nothing painted alongside it.
+            1024px, the file's own width, so the picture is shown at exactly the size it
+            was painted. Every letter in it is the size it was drawn, the grass and the
+            ground are all there, and no pixel on screen is anything but the file's own.
 
-            That last one is the point, and it cost a few attempts to arrive at. Capping
-            the width at 1024 kept the letters at the size they were painted but left
-            the page ground showing either side, which put the artwork's edges in the
-            middle of a desktop screen. Filling those sides out of the picture itself —
-            its sky continued, its clouds and grass reflected — reached both edges, but
-            every pixel of it was invented, and invented pixels beside a photograph
-            read as exactly that. Cropping to a wide band took the grass with it.
+            ── Why it stops at 1024 ──────────────────────────────────────────────────
 
-            So: the file, whole, at the width of the screen. Wider screens show it
-            larger, the way narrower screens already show it smaller, because the frame
-            follows the screen rather than the file. That is the trade, and it is the
-            one that keeps every word and every blade of grass in the picture and keeps
-            everything outside the picture out of it.
+            Because the words are inside the picture. The headline spans 90% of a 1024
+            canvas, so the frame cannot grow without growing the type with it — the
+            frame IS the type's size. Three ways round that were built and taken out
+            again, and all three cost something the picture should not have to pay:
+
+              covering the screen    enlarged every word by the same factor
+              cropping to a band     took the grass and the ground off the bottom
+              building the sides     invented pixels, and beside a photograph they
+                                     read as invented
+
+            So the picture stops at its own width, and past that the page ground shows
+            either side. That is the honest version of a square picture on a wide
+            screen, and the only thing that can change it is the file: the same scene
+            on a wider canvas, with the type set at half the width rather than 90% of
+            it, would fill a desktop at its painted size. Nothing in this file can.
+
+            One number if the size wants changing: lower 1024 to shrink the picture,
+            which shrinks its letters with it. Nothing may raise it — above the file's
+            own width every word in it is being enlarged.
 
             ── The hotspot ───────────────────────────────────────────────────────────
 
@@ -1183,13 +1191,13 @@ export default function LandingPage() {
             the pixels. As percentages of a frame that shows the whole picture those are
             the four below, and they hold at every width because frame and file share a
             ratio. Re-measure if the artwork is replaced. */}
-<section id="get-started" className="relative overflow-hidden">
-          <div className="relative aspect-square w-full overflow-hidden">
+        <section id="get-started" className="relative overflow-hidden">
+          <div className="relative mx-auto aspect-square w-full max-w-[1024px] overflow-hidden">
             <Image
               src="/page.jpg"
               alt="Start building on QuickStark.Ai today — turn your ideas into fully functional apps, faster than ever."
               fill
-              sizes="100vw"
+              sizes="(min-width: 1024px) 1024px, 100vw"
               className="object-cover"
               /* eager rather than priority, and never lazy. priority preloads into the
                  <head>, which is right for the first screen and wrong for the last thing
