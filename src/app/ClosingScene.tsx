@@ -131,6 +131,29 @@ const FOLD = 220;
    the same URL, so it stays one download and one decode. */
 const FOLDS = [0, 1, 2, 3, 4, 5];
 
+/* The sky at the crop edge, one pixel wide and the file's full height.
+ *
+ * The sky in the artwork is a hard left-to-right gradient — 104 levels at the
+ * left edge down to 25 near the right — and a mirror turns whatever sits on its
+ * axis into a local maximum. Reflecting the sky therefore put a bright column
+ * down the join: measured, the axis reads +14 levels against the 170 columns
+ * inside it. That is a glow the artwork does not have.
+ *
+ * Above the cloud line the sky has no horizontal detail worth reflecting, so
+ * the margin takes the edge column itself and holds it: the same colour the
+ * scene ends on, carried straight out. No maximum at the join, because nothing
+ * turns around there — it simply continues. The columns are smooth enough for
+ * it, 0.15 and 0.10 levels of row-to-row step, so there is no banding to see.
+ *
+ * The reflection still does the cloud and the grass below, where there is real
+ * detail and the gradient is weak. */
+const SKY_LEFT = "data:image/png;base64,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";
+const SKY_RIGHT = "data:image/png;base64,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";
+
+/* Where the held sky hands over to the reflection: the cloud line is row 560 of
+   the file, and the panel is the file's full height. */
+const SKY_MASK = "linear-gradient(180deg,#000 0 48%,transparent 58%)";
+
 /* The same sizes as the scene itself, so the browser fetches one file. */
 const SIZES = `(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`;
 
@@ -190,6 +213,17 @@ function Reflection({ side }: { side: "left" | "right" }) {
           />
         </div>
       ))}
+
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `url("${isLeft ? SKY_LEFT : SKY_RIGHT}")`,
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "100% 100%",
+          WebkitMaskImage: SKY_MASK,
+          maskImage: SKY_MASK,
+        }}
+      />
     </div>
   );
 }
