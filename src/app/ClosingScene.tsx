@@ -2,53 +2,69 @@
 
 import Image from "next/image";
 
-/* The closing call to action: the artwork's scene, edge to edge, with its words
- * set as type on top of it.
+/* The closing call to action: the artwork's scene with its words set as type on
+ * top of it.
  *
  * ── Why the words are not in the picture any more ─────────────────────────
  *
  * They used to be. /page.jpg is a 1024px square with the wordmark, headline,
  * promise and button painted into it, and the headline spans 90% of that
- * canvas — so the frame WAS the type's size. The picture could not reach the
- * edge of a desktop screen without carrying every letter up with it, and every
- * way round that cost something: covering the screen enlarged the words,
- * cropping to a band took the grass, and building the margins out of the
- * picture invented pixels that read as invented next to a photograph.
+ * canvas — so the frame WAS the type's size, and the picture could not be shown
+ * any larger without carrying every letter up with it.
  *
- * Separating the two ends the trade. /page-scene.jpg is that same file with the
- * words lifted out — sky, glow, cloud, mark, grass and rock, untouched — so the
- * scene is free to span any width, while the words below are held at the size
- * they were painted and never scale with it.
+ * /page-scene.jpg is that same file with the words lifted out — sky, glow,
+ * cloud, mark, grass and rock, untouched. The words below are set as type at the
+ * size they were painted. Separating them means the picture's size and the
+ * type's size are no longer the same dial.
  *
  * The scene was made from the original by rebuilding the sky the words sat on:
  * for every column, rows 44 to 550 are the straight line between the last clean
  * row above and the first clean row below. That band is a smooth vertical ramp
- * in the artwork, so the reconstruction is the artwork's own gradient, and the
+ * in the artwork, so what comes back is the artwork's own gradient, and the
  * left-hand glow survives it because the work is done per column. Nothing below
  * row 550 is touched, which is everything anyone actually looks at.
+ *
+ * ── Why the scene stops at 1024 ───────────────────────────────────────────
+ *
+ * Because that is how many pixels it has. Past its own width every pixel in it
+ * is being stretched, and the one thing in it with hard edges — the mark — goes
+ * soft; on a 2x screen a full-width 1440 layout was stretching it nearly three
+ * times. Resampling the file to 2048 first was tried and measured: edge energy
+ * across the mark came back 2.52 against 2.51, which is nothing, because no
+ * resample invents detail that was never in the file.
+ *
+ * Compositing the mark separately at 1:1 over a stretched background was tried
+ * too, on paper: it fails where the mark meets the grass, since a 1:1 mark
+ * standing on 1.4x grass does not touch the ground it is standing on.
+ *
+ * So SCENE_MAX is the artwork's resolution, and the scene is never drawn past
+ * it. This is the ONE number that a larger export of the same artwork would
+ * change: at 2048 the scene would reach a 2048px screen with nothing stretched,
+ * and the type would not move a pixel, because the type is no longer tied to
+ * the picture's size. Nothing else in this file would need touching.
  *
  * ── Held at the painted size ──────────────────────────────────────────────
  *
  * Every measurement below is in units of the original canvas, carried by --u:
  * one unit is one pixel of the 1024px file. Below 1024 the unit tracks the
  * viewport, so a phone gets exactly what it got when the words were painted in
- * — same sizes, same positions, to the pixel. At 1024 and above the unit locks
- * to 1px and stops growing, which is the whole point: the scene widens, the
- * words do not.
+ * — same sizes, same positions, to the pixel. At 1024 it locks to 1px.
  *
  * Sizes and colours are measured off the file rather than chosen. The headline
  * is 85.7u because that is the size at which DM Sans sets the longer line to the
- * 921u it occupies in the artwork, measured off the render rather than guessed; the greens, the greys and the button fill
- * are the artwork's own pixel values. */
+ * 921u it occupies in the artwork, measured off the render rather than guessed;
+ * the greens, the greys and the button fill are the artwork's own pixel values. */
 
 /* One unit = one pixel of the original 1024px canvas, until 1024. */
 const UNIT = "min(0.09766vw, 1px)";
 
-/* Section height. Below 1024 it is the square the file always was. Above it,
-   the height that keeps the mark's top row exactly 570u down — the room the
-   words need — while the scene scales with the width. The two expressions meet
-   at 1024, so nothing jumps at the breakpoint. */
-const HEIGHT = "min(100vw, calc(570px + 44.34vw))";
+/* The artwork's own width in pixels. The scene is never drawn wider than this,
+   because past it the mark is being stretched. Raise it the day a larger export
+   of the same scene lands — nothing else here depends on the number. */
+const SCENE_MAX = 1024;
+
+/* The scene is square, so its height is its width, capped the same way. */
+const HEIGHT = `min(100vw, ${SCENE_MAX}px)`;
 
 /* The artwork's own colours, sampled off the pixels. */
 const WHITE = "#ffffff";
@@ -68,20 +84,25 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
       className="relative w-full overflow-hidden"
       style={{ ["--u" as string]: UNIT, height: HEIGHT }}
     >
-      {/* Anchored to the bottom, so what a wide screen trims is sky and never
-          the grass. */}
-      <Image
-        src="/page-scene.jpg"
-        alt=""
-        fill
-        sizes="100vw"
-        className="object-cover object-bottom"
-        /* eager rather than priority, and never lazy. priority preloads into the
-           <head>, which is right for the first screen and wrong for the last thing
-           on the page. Lazy would leave this blank at the moment somebody arrives
-           at it. */
-        loading="eager"
-      />
+      {/* The scene, centred and never past its own resolution. The type lives
+          inside this box too, so the two stay registered to each other however
+          wide the page is. */}
+      <div
+        className="relative mx-auto h-full w-full"
+        style={{ maxWidth: `${SCENE_MAX}px` }}
+      >
+        <Image
+          src="/page-scene.jpg"
+          alt=""
+          fill
+          sizes={`(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`}
+          className="object-cover object-bottom"
+          /* eager rather than priority, and never lazy. priority preloads into the
+             <head>, which is right for the first screen and wrong for the last thing
+             on the page. Lazy would leave this blank at the moment somebody arrives
+             at it. */
+          loading="eager"
+        />
 
       <div className="absolute inset-0 font-display">
         <p
@@ -156,6 +177,7 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
             <path d="M5 12h14M13 6l6 6-6 6" />
           </svg>
         </button>
+        </div>
       </div>
     </section>
   );
