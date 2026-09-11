@@ -94,8 +94,28 @@ const UNIT = "min(0.09766vw, 1px)";
    of the same scene lands — nothing else here depends on the number. */
 const SCENE_MAX = 1024;
 
-/* The scene is square, so its height is its width, capped the same way. */
-const HEIGHT = `min(100vw, ${SCENE_MAX}px)`;
+/* How tall the band is on a desktop, and how much sky is taken off the top to
+   get there.
+   
+   The scene is a square, and a 1024px square is taller than the window most
+   people read this in — the end of it was below the fold. Shortening it cannot
+   scale anything, so it crops: 102 rows of empty sky off the top and 92 rows of
+   foreground grass off the bottom, 830 left. The bottom edge lands at row 932,
+   eight rows above the rock, so nothing in the picture is cut through — the cut
+   is all sky and all foreground. The words move up with the sky
+   they sit on, at exactly the sizes they already were, and nothing else in the
+   picture is touched: the mark still runs from row 555 to 885 and the grass
+   still crests at 880, 52 rows above the new bottom edge.
+   
+   The three are one sum — 102 of sky + 830 of band + 92 of grass = 1024 — so
+   changing one means changing another. They are written out literally in the
+   classes below rather than kept here, because Tailwind reads class names as
+   text and cannot see a constant.
+   
+   None of this touches a phone. There the scene already fits the width and the
+   band is the square it always was, so the words keep the offsets they were
+   painted at — every `top` below carries the painted value and an lg: override,
+   and only the override is tightened. */
 
 /* How much of the scene is shown. The rest — 72 columns a side, since the crop
    is centred — is the file's own bad border, dropped rather than reflected. */
@@ -143,7 +163,10 @@ function Reflection({ side }: { side: "left" | "right" }) {
       aria-hidden
       /* Hidden below 1024, where there is no margin to fill: the scene already
          spans the screen there. */
-      className="pointer-events-none absolute inset-y-0 hidden overflow-hidden lg:block"
+      /* A full scene tall and pulled up by the crop, so the reflection keeps
+         1:1 — object-cover in a box shorter than the file would shrink it —
+         and the band's own overflow does the cropping. */
+      className="pointer-events-none absolute top-0 hidden h-full overflow-hidden lg:block lg:h-[1024px] lg:-top-[102px]"
       style={isLeft ? { left: 0, right: edge } : { right: 0, left: edge }}
     >
       {FOLDS.map((fold) => (
@@ -175,17 +198,19 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
   return (
     <section
       id="get-started"
-      className="relative w-full overflow-hidden"
-      style={{ ["--u" as string]: UNIT, height: HEIGHT }}
+      /* A square on a phone, where the scene already fits the width. A band on
+         a desktop, so the whole thing lands inside one window. */
+      className="relative h-[100vw] w-full overflow-hidden lg:h-[830px]"
+      style={{ ["--u" as string]: UNIT }}
     >
       <Reflection side="left" />
       <Reflection side="right" />
 
-      {/* The scene, centred and never past its own resolution. The type lives
-          inside this box too, so the two stay registered to each other however
-          wide the page is. */}
+      {/* The scene, centred and never past its own resolution. A full scene
+          tall and pulled up by the crop for the same reason the reflections
+          are: object-cover has to have the file's own height to keep 1:1. */}
       <div
-        className="relative mx-auto h-full w-full"
+        className="relative mx-auto h-full w-full lg:h-[1024px] lg:-mt-[102px]"
         style={{ maxWidth: `${SCENE_W}px` }}
       >
         <Image
@@ -200,12 +225,16 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
              at it. */
           loading="eager"
         />
+      </div>
 
+      {/* The words sit on the band, not inside the scene's box — the scene is
+          taller than the band and pulled up by the crop, and the type must not
+          be pulled up with it. Both are centred on the same middle, so they
+          stay registered to each other. */}
       <div className="absolute inset-0 font-display">
         <p
-          className="absolute left-1/2 -translate-x-1/2 font-bold"
+          className="absolute left-1/2 -translate-x-1/2 font-bold top-[calc(58*var(--u))] lg:top-[calc(15*var(--u))]"
           style={{
-            top: u(58),
             fontSize: u(41.7),
             lineHeight: 1,
             letterSpacing: "-0.02em",
@@ -217,9 +246,8 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
         </p>
 
         <h2
-          className="absolute left-1/2 -translate-x-1/2 text-center font-bold"
+          className="absolute left-1/2 -translate-x-1/2 text-center font-bold top-[calc(150*var(--u))] lg:top-[calc(78*var(--u))]"
           style={{
-            top: u(150),
             fontSize: u(85.7),
             /* 97u between the two cap tops, measured off the file. */
             lineHeight: 97 / 85.7,
@@ -234,9 +262,8 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
         </h2>
 
         <p
-          className="absolute left-1/2 -translate-x-1/2 text-center"
+          className="absolute left-1/2 -translate-x-1/2 text-center top-[calc(367*var(--u))] lg:top-[calc(293*var(--u))]"
           style={{
-            top: u(367),
             fontSize: u(25.9),
             lineHeight: 1,
             color: GREY,
@@ -249,9 +276,8 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
         <button
           type="button"
           onClick={onStart}
-          className="absolute left-1/2 -translate-x-1/2 inline-flex items-center justify-center rounded-pill font-semibold transition-[box-shadow,transform] duration-300 hover:brightness-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70"
+          className="absolute left-1/2 -translate-x-1/2 top-[calc(438*var(--u))] lg:top-[calc(352*var(--u))] inline-flex items-center justify-center rounded-pill font-semibold transition-[box-shadow,transform] duration-300 hover:brightness-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70"
           style={{
-            top: u(438),
             width: u(314),
             height: u(75),
             gap: u(18),
@@ -274,7 +300,6 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
             <path d="M5 12h14M13 6l6 6-6 6" />
           </svg>
         </button>
-        </div>
       </div>
     </section>
   );
