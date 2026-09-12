@@ -390,6 +390,47 @@ async function buildLog(
   return lines.slice(-LOG_LINES).join("\n").slice(-LOG_CHARS);
 }
 
+/* ── Asking again, because the last lines arrive last ──────────────────────
+ *
+ * The deployment's state flips to ERROR before its final log events are
+ * readable, and reading them immediately gets the log as it was a moment
+ * before it failed. On a real failure that produced this, ending mid-sentence
+ * exactly where the reason was about to be:
+ *
+ *     ✓ Compiled successfully in 11.3s
+ *     Linting and checking validity of types ...
+ *
+ * The compile had succeeded, the type check had not, and the line naming the
+ * file and the error had not been written yet. Everything the customer needed
+ * was in the two lines after the last one we fetched.
+ *
+ * So it is fetched again, twice, a second apart, and the longest answer wins.
+ * Longer is the right test rather than newer: these events only ever accrue,
+ * so the fullest log is the latest one, and a request that comes back short
+ * because it raced is never mistaken for the truth.
+ *
+ * Two seconds in the worst case, spent only on builds that already failed.
+ * That is a cheap price for the difference between a diagnosis and a
+ * cliffhanger. */
+const LOG_SETTLE_TRIES = 3;
+const LOG_SETTLE_MS = 1_000;
+
+async function settledLog(
+  id: string,
+  creds: { token: string; teamQuery: string },
+): Promise<string | null> {
+  let best: string | null = null;
+
+  for (let attempt = 0; attempt < LOG_SETTLE_TRIES; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, LOG_SETTLE_MS));
+
+    const log = await buildLog(id, creds);
+    if (log && (!best || log.length > best.length)) best = log;
+  }
+
+  return best;
+}
+
 async function waitForBuild(
   id: string,
   url: string,
@@ -417,7 +458,7 @@ async function waitForBuild(
          * So the state is reported as what it is — Vercel would not finish the
          * deployment — and the log says why. Guessing at a cause and being
          * wrong sent an hour looking for a type error that was never there. */
-        const log = await buildLog(id, creds);
+        const log = await settledLog(id, creds);
         const what = state === "CANCELED" ? "the deployment was cancelled" : "Vercel could not finish the deployment";
         /* The whole log lives on Vercel's own page for this deployment. What
            is quoted below is the tail of it, and a tail is not always where
