@@ -43,7 +43,15 @@ export const dynamic = "force-dynamic";
 
 /* A Next.js build on Vercel is install, compile and upload. The deploy module
    gives up on its own at three minutes; this is the ceiling for the request
-   around it. */
+   around it.
+   
+   READ THIS AS AN ASK, NOT A GUARANTEE. The account this runs on is on Vercel's
+   Hobby plan, which caps a function at 60 seconds whatever a route declares —
+   so in production this is 60, and a Vercel build that takes longer than that
+   will have its deployment created and its URL never recorded, because the
+   function polling for it is gone. A build of a small project finishes inside
+   the minute and most do. Moving this account to Pro is what makes the number
+   below mean what it says. */
 export const maxDuration = 300;
 
 /* The signed-in address, for the allowlist. Read from the session rather than

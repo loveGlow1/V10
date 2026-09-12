@@ -125,6 +125,30 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/* The longest-running route in the system, and until now the only one that
+ * never said so.
+ *
+ * This is not a quick write. It resolves and fetches the photographs, repairs
+ * the document, runs the quality gates, stores a page that can be megabytes and
+ * a tree that can be forty files — and it had no maxDuration at all, so it ran
+ * on whatever the platform hands an undeclared function. Every other route on
+ * this path declares one; /api/build has said 60 since it was written.
+ *
+ * What that looked like from the outside is two builds on one account that
+ * logged "Your build is underway" and then nothing. No build row, no failure
+ * message, no page — the function was stopped partway through storing the
+ * result, so neither the success path nor reportFailure ever ran. The
+ * orchestrator's Save Page node gave up on its own 120-second timeout and
+ * wrote Failed on the project with no reason attached, because writing the
+ * reason is this route's job and this route was already gone.
+ *
+ * 60 rather than 300: the Vercel account this runs on is on Hobby, which caps
+ * a function at 60 seconds whatever the code asks for. Declaring 300 here would
+ * be a number that reads as a guarantee and is not one. See the note in
+ * projects/[id]/deploy/route.ts, which asks for 300 and is subject to the same
+ * ceiling. */
+export const maxDuration = 60;
+
 type SaveRequest = {
   requestId?: unknown;
   projectId?: unknown;
