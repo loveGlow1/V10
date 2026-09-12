@@ -382,7 +382,7 @@ function heroRingPosition(angle: number) {
      pictures sliding around a track. */
   const depth = (1 + sin) / 2;
   const delta = Math.abs((((angle - 270) % 360) + 540) % 360 - 180);
-  const gate = Math.min(1, Math.max(0, (delta - 15) / 20));
+  const gate = Math.min(1, Math.max(0, (delta - 10) / 15));
 
   return {
     left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * cos).toFixed(2)}%)`,
@@ -390,8 +390,8 @@ function heroRingPosition(angle: number) {
     transform:
       `translate(-50%, -50%) perspective(1300px) rotateZ(${(9 * cos).toFixed(1)}deg) ` +
       `rotateY(${(-15 * cos).toFixed(1)}deg) rotateX(${(2 * sin).toFixed(1)}deg) ` +
-      `scale(${(0.6 + 0.3 * depth).toFixed(3)})`,
-    opacity: ((0.16 + 0.26 * depth) * gate).toFixed(3),
+      `scale(${(0.66 + 0.3 * depth).toFixed(3)})`,
+    opacity: ((0.38 + 0.42 * depth) * gate).toFixed(3),
     z: String(Math.round(depth * 6)),
     /* Negative, so the panel opens already that far into the revolution. Six
        delays across one duration is what spaces them round the ring. */
@@ -447,6 +447,37 @@ const HERO_APPS = [
     height: 860,
     alt: "Skincare shop with a row of amber bottles and an add-to-basket bar",
     angle: 308,
+  },
+  /* The three below were added to a wheel that already had six, and their
+     angles are the midpoints of its three widest gaps rather than a fresh
+     division of the circle. Re-spacing all nine evenly would have been tidier
+     arithmetic and would have moved every existing panel; this leaves the six
+     where they were and fills the holes between them. */
+  {
+    // Enters at the front, dead centre. Portrait, which is why it is the one
+    // placed there: a narrow panel crosses behind the sign-in stack without
+    // spanning it.
+    src: "/hero-apps/patisserie.webp",
+    width: 832,
+    height: 1472,
+    alt: "Patisserie storefront with a tiered celebration cake and an order button",
+    angle: 90,
+  },
+  {
+    // Enters left of centre, between the far left and the upper left.
+    src: "/hero-apps/nocturne.webp",
+    width: 1147,
+    height: 860,
+    alt: "Restaurant site with a guest review and a table booking calendar",
+    angle: 158,
+  },
+  {
+    // Enters at the back, mid-fade behind the mark.
+    src: "/hero-apps/aurora.webp",
+    width: 1147,
+    height: 860,
+    alt: "Coastal property site with an oceanfront residence and a consultation booking",
+    angle: 270,
   },
 ] as const;
 
