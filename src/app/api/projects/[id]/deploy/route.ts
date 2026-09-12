@@ -80,19 +80,39 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
    * place the reason could appear is not a safer failure, it is a silent one.
    * So: allowlisted means the button is drawn, and `ready` and `reason` say
    * what will happen when it is pressed. */
+  /* The address this project is already running at, if it is. Answered here
+     rather than waiting for somebody to press the button again: a deployment
+     that succeeded an hour ago is still live, and the preview should be showing
+     it the moment the workspace opens rather than the receipt it replaced. */
+  const service = createSupabaseServiceClient();
+  const { data: latest } = service
+    ? await service
+        .from("project_builds")
+        .select("deployment_url")
+        .eq("project_id", owned.projectId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ deployment_url: string | null }>()
+    : { data: null };
+  const url = latest?.deployment_url ?? null;
+
   if (!canDeploy(await callerEmail())) {
-    return NextResponse.json({ available: false, ready: false, reason: NOT_ALLOWED });
+    /* Still handed over. Whether somebody may CREATE a deployment and whether
+       they may SEE the one their own project already has are different
+       questions, and ownership was settled above. */
+    return NextResponse.json({ available: false, ready: false, url, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
       available: true,
       ready: false,
+      url,
       reason:
         "Hosting is not configured: this deployment has no VERCEL_API_TOKEN. " +
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {

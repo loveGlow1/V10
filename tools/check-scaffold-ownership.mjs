@@ -110,6 +110,47 @@ has(at("app/dashboard/page.tsx").includes("function D"), "the model's routes sur
 has(tree.some((f) => f.path === "package.json"),
   "package.json is still scaffolded when the model omits it");
 
+// ── The styling actually works ────────────────────────────────────────────
+//
+// The deployed login page rendered as two white rectangles on black: every
+// className in the project compiled to nothing. Tailwind was installed and
+// configured with an EMPTY theme while the prompt put every colour in
+// tokens.css, and globals.css never asked for the utilities at all. Both
+// halves are asserted here because either one alone still produces a page
+// with no styling.
+
+/* Asserted against a tree that HAS a stylesheet. The first tree above has
+   none — platformFiles only scaffolds globals.css when a design system was
+   decided — and assertions against a file that is not there pass or fail for
+   reasons that have nothing to do with the fix. */
+const twConfig = at("tailwind.config.ts");
+has(twConfig.includes("var(--ground)") && twConfig.includes("var(--ink)"),
+  "the token names are mapped, so bg-ground and text-ink are real classes");
+has(!/theme:\s*\{\s*extend:\s*\{\s*\}\s*\}/.test(twConfig),
+  "the theme is not left empty");
+
+/* Applied even when the model wrote the stylesheet itself. */
+const fromModel = completeTree(
+  [{ path: "app/globals.css", content: "@import './tokens.css';\n\nbody { margin: 0 }" }],
+  "Shop", MANIFEST, MODEL,
+);
+const modelCss = fromModel.find((f) => f.path === "app/globals.css").content;
+has(/^@tailwind base;$/m.test(modelCss) && /^@tailwind utilities;$/m.test(modelCss),
+  "globals.css asks for the Tailwind utilities");
+has(modelCss.indexOf("@import") < modelCss.indexOf("@tailwind"),
+  "the tokens @import still comes first, as CSS requires");
+has(modelCss.includes("body { margin: 0 }"),
+  "the model's own stylesheet survives underneath");
+
+/* Idempotent: a stylesheet that already has them is left alone. */
+const already = completeTree(
+  [{ path: "app/globals.css", content: "@tailwind base;\n@tailwind components;\n@tailwind utilities;\nbody{}" }],
+  "Shop", MANIFEST, MODEL,
+);
+const twice = already.find((f) => f.path === "app/globals.css").content;
+has((twice.match(/@tailwind utilities;/g) || []).length === 1,
+  "directives are not added twice");
+
 /* Only one entry per path, however many versions arrived. */
 const dupes = tree.map((f) => f.path).filter((p, i, a) => a.indexOf(p) !== i);
 has(dupes.length === 0, "no path appears twice", dupes.join(", "));

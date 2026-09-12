@@ -175,11 +175,47 @@ export default nextConfig;
 
     {
       path: "tailwind.config.ts",
+      /* The tokens, wired through to Tailwind — and this is a bug fix.
+       *
+       * Tailwind was installed, configured and given an EMPTY theme, while the
+       * prompt told the model to put every colour in tokens.css as a custom
+       * property. So the model did what anyone would with a tailwind.config in
+       * front of it and wrote `className="bg-ground text-ink"` — classes that
+       * existed in neither system and compiled to nothing. The deployed result
+       * was a page with no styling at all: two white rectangles on black.
+       *
+       * Mapping the token names here is what makes those classes real. The
+       * values stay in tokens.css, where the prompt says they live; this only
+       * teaches Tailwind the names, so `bg-ground` resolves to var(--ground)
+       * and the two halves of the design system stop contradicting each other. */
       content: `import type { Config } from "tailwindcss";
 
 export default {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
-  theme: { extend: {} },
+  theme: {
+    extend: {
+      colors: {
+        ground: "var(--ground)",
+        surface: "var(--surface)",
+        ink: "var(--ink)",
+        muted: "var(--muted)",
+        line: "var(--line)",
+        accent: "var(--accent)",
+        "accent-ink": "var(--accent-ink)",
+      },
+      borderRadius: {
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        pill: "var(--radius-pill)",
+      },
+      boxShadow: {
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+      },
+      maxWidth: { container: "var(--container)" },
+    },
+  },
   plugins: [],
 } satisfies Config;
 `,
@@ -365,8 +401,39 @@ const PLATFORM_OWNED = new Set([
   "lib/database.types.ts",
   "next.config.mjs",
   "postcss.config.mjs",
+  "tailwind.config.ts",
   "tsconfig.json",
 ]);
+
+/* Tailwind's own directives, guaranteed to be in the stylesheet.
+ *
+ * The other half of the same bug. postcss.config.mjs runs Tailwind, the
+ * project depends on it, and tailwind.config.ts now maps the design tokens —
+ * and none of that emits a single class unless the stylesheet actually asks
+ * for them. The model writes app/globals.css to a prompt about resets and
+ * tokens, so it had no reason to include the directives, and without them
+ * every `className` in the project resolved to nothing at all.
+ *
+ * Inserted rather than the file being taken over. globals.css IS the model's
+ * work — the tokens import, the resets, the element styles — and owning it
+ * outright would throw away the design to fix the plumbing. So the three lines
+ * go in and nothing else is touched.
+ *
+ * After any leading @import, because CSS requires @import to come first and a
+ * stylesheet that breaks that rule drops the import silently — which would
+ * take the tokens with it. */
+function withTailwindDirectives(css: string): string {
+  if (/^\s*@tailwind\s+utilities/m.test(css)) return css;
+
+  const lines = css.split("\n");
+  let at = 0;
+  while (at < lines.length && (lines[at].trim() === "" || lines[at].trim().startsWith("@import"))) {
+    at += 1;
+  }
+
+  const directives = ["@tailwind base;", "@tailwind components;", "@tailwind utilities;", ""];
+  return [...lines.slice(0, at), ...directives, ...lines.slice(at)].join("\n");
+}
 
 export function completeTree(
   generated: FileTree,
@@ -385,6 +452,11 @@ export function completeTree(
        There is no half of a wrong connection string worth keeping. */
     if (owned.has(file.path)) continue;
     byPath.set(file.path, file);
+  }
+
+  const globals = byPath.get("app/globals.css");
+  if (globals) {
+    byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(globals.content) });
   }
 
   return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
