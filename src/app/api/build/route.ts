@@ -2399,6 +2399,12 @@ async function handle(
       systemPrompt,
       userMessage(project.name, brief.text, attachedText, imageUrls.length),
       imageUrls.map((url) => ({ url })),
+      /* The same condition that decided treeInstructions above, because it is
+         the same fact: this build's answer is a file tree rather than a
+         document. It governs how the output budget is split — thinking and
+         files are spent from one allowance, and a project needs the files.
+         See the effort note in model-request.ts. */
+      needs.stack === "nextjs" ? "project" : "page",
     );
 
     result = await startBuild({

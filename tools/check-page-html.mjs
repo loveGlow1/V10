@@ -112,5 +112,72 @@ refuses("```html\n<!doctype html>\n<html><body>unfinished", "a fenced truncated 
    reachable by putting a closing tag in the prose. */
 refuses("<!doctype html>\n<html><body>cut off", "no closing tag anywhere");
 
+// ── A project that ran out of room ────────────────────────────────────────
+//
+// The failure this half exists for. A build of the second stack answers with a
+// JSON object of paths to file contents. Execution 698 hit max_tokens at 65%
+// thinking and the object arrived with no closing brace, so the orchestrator
+// could not parse it, could not route it to `files`, and passed the raw text
+// through as `html` — where the only sentence available was "What came back
+// was not an HTML document."
+//
+// It is still a failed build. It must still fail. What it must not do is
+// describe itself as the wrong KIND of answer when it was the right one,
+// unfinished: that sent the reader looking for a generator returning prose,
+// which is not what happened and not where the fix was.
+
+const TREE = (files) =>
+  "{" + files.map((p, i) => JSON.stringify(p) + ":" + JSON.stringify(`// ${i}\nexport default 1;`)).join(",");
+
+function refusesWith(input, needle, label) {
+  try {
+    readGeneratedDocument(input);
+    fail(label, "it was accepted");
+  } catch (error) {
+    has(error instanceof PageHtmlError && error.message.includes(needle), label,
+      `got ${JSON.stringify(error?.message?.slice(0, 120))}`);
+  }
+}
+
+/* Eleven whole files and a twelfth cut mid-write — execution 698's shape. */
+const CUT = TREE([
+  "app/globals.css", "lib/data.ts", "components/Button.tsx", "components/FormField.tsx",
+  "components/StoreProvider.tsx", "components/Modal.tsx", "components/AuthForms.tsx",
+  "components/AuthModal.tsx", "components/PreferencesModal.tsx", "components/SearchModal.tsx",
+  "components/CartDrawer.tsx",
+]) + ',"components/WishlistDrawer.tsx":"export default function W() { return <div classNam';
+
+refusesWith(CUT, "unfinished", "a cut-off project says it is unfinished");
+refusesWith(CUT, "11 files", "it says how far it got — THE ONE THIS EXISTS FOR");
+refusesWith(CUT, "smaller", "it says what to do about it");
+
+/* The count is of files that ARRIVED, not of files that were opened. The one
+   it died inside is the one the reader is being told about. */
+refusesWith(TREE(["app/page.tsx"]) + ',"app/layout.tsx":"export default fun',
+  "1 file", "one whole file is singular");
+refusesWith('{"app/page.tsx":"export default fun', "before the first file",
+  "nothing complete is said differently");
+
+/* It must not claim a diagnosis it cannot support. Unfinished JSON with no
+   file paths in it is not a project, and calling it one would be inventing a
+   cause out of a brace. */
+refusesWith('{"status":"partial","detail":"the model was interrup',
+  "not an HTML document", "unfinished JSON with no paths is not called a project");
+
+/* And the ordinary failures keep their own sentences. */
+refusesWith("<!doctype html>\n<html><body><h1>Half a p", "longer than one build allows",
+  "a truncated PAGE still reports as a truncated page");
+refusesWith("Here is a description of the site I would build.", "not an HTML document",
+  "prose still reports as prose");
+
+/* A complete tree is not this function's problem — the orchestrator routes
+   those to `files` before they arrive here — so it must not be claimed as a
+   cut-off one. It is still not a page. */
+refusesWith(TREE(["app/page.tsx"]) + "}", "not an HTML document",
+  "a COMPLETE tree is not reported as unfinished");
+
+/* Fenced as json, which is how a model labels a fence it put round JSON. */
+refusesWith("```json\n" + CUT + "\n```", "unfinished", "a fenced cut-off project is seen through its fence");
+
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
