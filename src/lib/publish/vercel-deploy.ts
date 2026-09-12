@@ -43,6 +43,7 @@
  */
 
 import type { FileTree } from "@/lib/builder/tree";
+import { NEXT_VERSION } from "@/lib/builder/scaffold";
 
 const API = "https://api.vercel.com";
 
@@ -121,6 +122,43 @@ export function deploymentName(projectName: string, projectId: string): string {
  * without a network, and a caller that wants to see what would be uploaded
  * should not have to attempt a deployment to find out.
  */
+/* The framework version the platform stands behind, forced on the way out.
+ *
+ * A tree carries whatever package.json it was generated with, and a build from
+ * last month pins whatever was current last month. When that version is later
+ * deprecated for a CVE, every one of those trees becomes undeployable —
+ * Vercel refuses the deployment outright, AFTER a clean compile, with
+ * "Vulnerable version of Next.js detected". That is what happened here: the
+ * stored tree pinned 15.5.4, the scaffold had already been patched to 15.5.25,
+ * and the only way out looked like regenerating the project and paying for it
+ * again.
+ *
+ * It is not a fair thing to charge somebody for. The framework version is
+ * infrastructure this platform chooses — the same argument that makes
+ * lib/supabase.ts and next.config.mjs PLATFORM_OWNED in scaffold.ts — so the
+ * deployment carries the current pin whatever the tree says.
+ *
+ * Only `next`, and only in dependencies. Everything else the model or the
+ * scaffold put in that manifest is left exactly as it is, because a deploy
+ * quietly rewriting somebody's dependency list is its own kind of bug.
+ *
+ * Unparseable JSON is left alone rather than repaired. A malformed
+ * package.json fails the build loudly, which is the right failure; a deploy
+ * step that silently rewrites one hides a real problem. */
+function withCurrentFramework(file: { file: string; data: string; encoding: "utf-8" }) {
+  if (file.file !== "package.json") return file;
+
+  try {
+    const manifest = JSON.parse(file.data) as { dependencies?: Record<string, string> };
+    if (!manifest.dependencies?.next || manifest.dependencies.next === NEXT_VERSION) return file;
+
+    manifest.dependencies.next = NEXT_VERSION;
+    return { ...file, data: `${JSON.stringify(manifest, null, 2)}\n` };
+  } catch {
+    return file;
+  }
+}
+
 export function deploymentFiles(tree: FileTree, target: DeployTarget) {
   /* Written rather than appended to whatever the generator emitted: a
      generated .env.production would be the model's guess at these values, and
@@ -137,7 +175,7 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
     .map((file) => ({ file: file.path, data: file.content, encoding: "utf-8" as const }));
 
   files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
-  return files;
+  return files.map(withCurrentFramework);
 }
 
 type Called = { ok: true; status: number; body: unknown } | { ok: false; reason: string };

@@ -43,7 +43,8 @@ import type { FileTree, ProjectFile } from "./tree";
  * patched release on the same minor line; the jump to 16 is a major and is not
  * something to make inside a security patch. check:versions is the reason this
  * will not go unnoticed again. */
-const NEXT = "15.5.25";
+export const NEXT_VERSION = "15.5.25";
+const NEXT = NEXT_VERSION;
 const REACT = "19.1.0";
 const TYPES_REACT = "19.1.0";
 const TYPESCRIPT = "5.6.3";
