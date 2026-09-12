@@ -35,7 +35,8 @@ import {
   writeProjectIndex,
 } from "@/lib/context/store";
 import { projectSummary } from "@/lib/builder/project-summary";
-import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
+import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -427,6 +428,14 @@ export async function POST(request: Request) {
      row rather than only in a log nobody reads. */
   let deploymentUrl: string | null = null;
   let deploymentError: string | null = null;
+  /* Recorded after the build row exists, because a deployment belongs to the
+     build whose files went up, and that row is written further down. */
+  let pendingDeployment: {
+    deploymentId: string;
+    vercelProject: string;
+    url: string;
+    inspectUrl: string | null;
+  } | null = null;
 
   if (sentPage) {
     try {
@@ -471,17 +480,46 @@ export async function POST(request: Request) {
          * the right answer; it simply had no caller. */
         const env = summaryBackend ? envFor(summaryBackend) : null;
 
-        const deployed = await deployProject(tree, {
-          name: deploymentName((project.name as string | null) ?? "app", project.id as string),
+        /* ── Started, not waited for ─────────────────────────────────────
+         *
+         * This used to call deployProject, which polls Vercel for up to 180
+         * seconds inside a route the platform stops at 60. A project slow
+         * enough to be interesting was therefore created, built and hosted
+         * perfectly, and then lost its address — because the function holding
+         * the poll was killed and nothing had written the id down.
+         *
+         * Vercel returns the id and the hostname when it ACCEPTS the upload,
+         * before a line of the build has run. Both are recorded here, and
+         * /api/cron/deployments finds out how it went. The URL below is
+         * therefore where the app WILL be rather than where it already is,
+         * which is the honest thing to put in the summary while it builds.
+         *
+         * The Vercel project is read before it is derived. deploymentName
+         * folds in the project's TITLE, so renaming a project used to create a
+         * second Vercel project beside the first and leave the original
+         * orphaned and still serving. The first deployment's name is kept and
+         * answers forever. */
+        const vercelProject =
+          (await existingVercelProject(supabase, project.id as string)) ??
+          deploymentName((project.name as string | null) ?? "app", project.id as string);
+
+        const started = await startDeployment(tree, {
+          name: vercelProject,
           supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
           supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
           supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
         });
 
-        if (deployed.ok) {
-          deploymentUrl = deployed.url;
+        if (started.ok) {
+          deploymentUrl = started.url;
+          pendingDeployment = {
+            deploymentId: started.deploymentId,
+            vercelProject,
+            url: started.url,
+            inspectUrl: started.inspect,
+          };
         } else {
-          deploymentError = deployed.reason;
+          deploymentError = started.reason;
         }
       }
 
@@ -697,6 +735,23 @@ export async function POST(request: Request) {
         500,
       );
     }
+  }
+
+  /* The deployment, against the build whose files it is. After the build row
+     rather than before it, for the same reason storeTree is: a deployment is
+     of a particular set of files, and those files only have an id from here
+     on. Best effort — a deployment that is running is running whatever this
+     table says, and losing the row costs the poll rather than the site. */
+  if (pendingDeployment) {
+    await recordDeployment(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      buildId: inserted.id as string,
+      deploymentId: pendingDeployment.deploymentId,
+      vercelProject: pendingDeployment.vercelProject,
+      url: pendingDeployment.url,
+      inspectUrl: pendingDeployment.inspectUrl,
+    });
   }
 
   /* ── Saying what the gates found ───────────────────────────────────────
