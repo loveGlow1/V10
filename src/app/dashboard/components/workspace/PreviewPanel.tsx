@@ -85,6 +85,36 @@ export default function PreviewPanel({
   const [integrationsCategory, setIntegrationsCategory] = useState<IntegrationCategory>("All");
   const [shared, setShared] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  /* Running the app, for a build that is a project rather than a page.
+   *
+   * A project build's preview is a written summary of its files — honest, and
+   * not an app. The files were always there; nothing in the system could
+   * compile them. This asks the server to take the newest build's stored tree
+   * and have Vercel build and host it, which costs no credits and regenerates
+   * nothing: it is the same source, run.
+   *
+   * The failure is shown rather than swallowed. The commonest one by far is
+   * this deployment having no VERCEL_API_TOKEN, and that sentence in front of
+   * the person who can add it is worth more than a disabled button. */
+  const [deploying, setDeploying] = useState(false);
+  const [deployed, setDeployed] = useState<string | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
+
+  async function runTheApp() {
+    if (!project?.id || deploying) return;
+    setDeploying(true);
+    setDeployError(null);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/deploy`, { method: "POST" });
+      const body = (await response.json()) as { url?: string | null; error?: string };
+      if (response.ok && body.url) setDeployed(body.url);
+      else setDeployError(body.error ?? "The deployment did not complete.");
+    } catch {
+      setDeployError("The deployment could not be reached.");
+    } finally {
+      setDeploying(false);
+    }
+  }
   const [draft, setDraft] = useState(project?.name ?? "");
   const [confirming, setConfirming] = useState(false);
   /* Bumped by the reload button and used as the frame's key, which is what
@@ -883,6 +913,38 @@ export default function PreviewPanel({
             )}
             <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
+
+          {/* Run it. Only for a build that produced a project — a single page is
+              already running in the pane behind this. Once there is an address
+              it becomes the link to it, because the second thing anybody wants
+              after "build my app" is "open my app". */}
+          {deployed ? (
+            <a
+              href={deployed}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open ${deployed}`}
+              className={action}
+            >
+              <ExternalLink className="h-4 w-4 shrink-0" />
+              <span className="hidden xl:inline">Open app</span>
+            </a>
+          ) : (
+            <button
+              onClick={runTheApp}
+              disabled={deploying || !project?.id}
+              title={deployError ?? "Build and host this project"}
+              className={action}
+            >
+              <Rocket className="h-4 w-4 shrink-0" />
+              {/* The label carries the outcome as well as the invitation. A
+                  failure that lives only in a tooltip is a failure most people
+                  never read. */}
+              <span className="hidden xl:inline">
+                {deploying ? "Building…" : deployError ? "Couldn't host" : "Run app"}
+              </span>
+            </button>
+          )}
 
           {/* Download's permanent home, beside Publish. The copy in the chat
               card is the shortcut and it expires; this one does not, which is
