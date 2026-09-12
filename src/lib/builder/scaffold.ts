@@ -318,7 +318,15 @@ if (!url || !anonKey) {
   );
 }
 
-export const supabase = createClient<Database>(url, anonKey, {
+/* The schema as an explicit generic, not just as a runtime option.
+ *
+ * database.types.ts mounts this project's tables under BOTH their real schema
+ * name and \`public\`, so that a query written the way every Supabase example
+ * writes it compiles. The cost of that is here: with \`public\` present,
+ * createClient's second type parameter defaults to it, and then \`db.schema\`
+ * is required to be "public" too — which would be a lie about which schema is
+ * really being read. Naming it settles both halves. */
+export const supabase = createClient<Database, "${model.schema}">(url, anonKey, {
   db: { schema: schema as "${model.schema}" },
 });
 `,
