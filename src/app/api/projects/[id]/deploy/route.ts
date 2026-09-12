@@ -68,16 +68,31 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const owned = await ownedProject(id);
   if ("error" in owned) return owned.error;
 
+  /* Two questions, and they are not the same question.
+   *
+   * WHO MAY USE THIS decides whether the control exists. Outside the rollout
+   * there is nothing to show, because there is nothing this person could do.
+   *
+   * WHETHER IT CAN SUCCEED RIGHT NOW does not. A missing VERCEL_API_TOKEN is a
+   * thing the account looking at this button is the one who can fix — and the
+   * first version of this hid the button for exactly that case, so the rollout
+   * account saw nothing at all and had no way to learn why. Hiding the only
+   * place the reason could appear is not a safer failure, it is a silent one.
+   * So: allowlisted means the button is drawn, and `ready` and `reason` say
+   * what will happen when it is pressed. */
   if (!canDeploy(await callerEmail())) {
-    return NextResponse.json({ available: false, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
-      available: false,
-      reason: "This deployment has no VERCEL_API_TOKEN, so it cannot host projects.",
+      available: true,
+      ready: false,
+      reason:
+        "Hosting is not configured: this deployment has no VERCEL_API_TOKEN. " +
+        "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, reason: null });
+  return NextResponse.json({ available: true, ready: true, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
