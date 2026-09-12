@@ -2256,3 +2256,23 @@ grant select on public.tool_results to authenticated;
 
 create index if not exists tool_results_project_created_idx
   on public.tool_results (project_id, created_at desc);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Update: where a generated project is running
+--
+-- A build that produced a Next.js project used to have nowhere to run. The
+-- preview showed a written summary of the files, because .tsx is not something
+-- a browser can be handed and nothing in the system ran `next build`. The
+-- project is now uploaded to Vercel, which builds and hosts it, and this is
+-- where the resulting address is kept.
+--
+-- Both columns are nullable and both are ordinary states rather than errors.
+-- Null in the first means no deployment: a single-page build, a deployment with
+-- no VERCEL_API_TOKEN, or one that failed — and the second says which, in a
+-- sentence meant for the person who asked for the build. A build with neither
+-- still has its files and still shows its summary.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table public.project_builds
+  add column if not exists deployment_url text,
+  add column if not exists deployment_error text;

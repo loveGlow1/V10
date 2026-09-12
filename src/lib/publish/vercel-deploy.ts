@@ -1,0 +1,283 @@
+/* Making a generated project a running site.
+ *
+ * A build that produces a Next.js project produces `.tsx`, and `.tsx` is not
+ * something a browser can be shown. Until this file there was nowhere in the
+ * system that could turn it into HTML: the preview fell back to a written
+ * summary (see builder/project-summary.ts, which argues correctly that a
+ * mock-up would be worse), and publishing could only ever serve the single
+ * `html` column. So a customer who asked for an app got a receipt for one.
+ *
+ * The missing step is a build, and the cheapest correct place to do a Next.js
+ * build is Vercel, which already does exactly this and is already a dependency
+ * of this deployment for custom domains. The files go up, Vercel installs,
+ * builds and hosts them, and the deployment URL is the preview — not a picture
+ * of the app, the app.
+ *
+ * ── The environment goes in the FILES, not in the API call ────────────────
+ *
+ * A generated project needs three values to reach its database:
+ * NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and
+ * NEXT_PUBLIC_SUPABASE_SCHEMA. All three are NEXT_PUBLIC_, which means Next
+ * inlines them at BUILD time and ships them to every visitor — they are public
+ * by construction, and the generated README says so.
+ *
+ * They are therefore written into the uploaded tree as `.env.production`
+ * rather than passed as deployment environment variables. Partly because the
+ * build needs them at build time and a file is unambiguous about that; mostly
+ * because `files` is the mechanism this was written against and verified, and
+ * an integration that depends on a field nobody checked is an integration that
+ * fails in production for a reason nobody can see.
+ *
+ * NOTHING SECRET MAY BE ADDED TO THAT FILE. It is compiled into the site. A
+ * service-role key or a Postgres URL written here would be handed to every
+ * visitor of every generated app, which is why writeEnvFile below takes a
+ * fixed set of three keys rather than a record.
+ *
+ * ── Failure is ordinary ───────────────────────────────────────────────────
+ *
+ * Every path returns a reason rather than throwing. No token configured, a
+ * refused request, a build that fails to compile: all of them leave the caller
+ * free to fall back to the summary, which is a worse preview but an honest one.
+ * A deployment that could not happen must never take the build down with it —
+ * the files are still worth having and the customer still paid for them.
+ */
+
+import type { FileTree } from "@/lib/builder/tree";
+
+const API = "https://api.vercel.com";
+
+/* One request. Generous next to the domain client's ten seconds because this
+   one carries the whole project in its body. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/* How long to wait for Vercel to install and compile. A small Next.js project
+   is usually well inside a minute; past three the answer the customer needs is
+   "it is still building", not a spinner that never resolves. */
+const BUILD_TIMEOUT_MS = 180_000;
+const POLL_INTERVAL_MS = 3_000;
+
+/* Vercel derives the deployment's hostname from this, so it has to survive
+   being put in one: lowercase, alphanumeric and dashes, no leading or trailing
+   dash, and short enough to leave room for the suffixes Vercel appends. */
+const MAX_NAME_LENGTH = 52;
+
+export type DeployTarget = {
+  /** Names the Vercel project. One per generated project, stable across builds. */
+  name: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  /** The generated app's own Postgres schema. */
+  supabaseSchema: string;
+};
+
+export type DeployOutcome =
+  | { ok: true; url: string; deploymentId: string }
+  /* `reason` is written to be shown to the person who asked for the build, so
+     it says what failed and what it means for them rather than echoing a
+     status code. */
+  | { ok: false; reason: string };
+
+function credentials(): { token: string; teamQuery: string } | null {
+  const token = process.env.VERCEL_API_TOKEN;
+  if (!token) return null;
+
+  /* VERCEL_PROJECT_ID is deliberately NOT read here. That variable names the
+     Vercel project this platform is deployed as; a generated app is its own
+     project, created by name on first deploy. Reusing the platform's id would
+     deploy a customer's app over this one. */
+  const teamId = process.env.VERCEL_TEAM_ID;
+  return { token, teamQuery: teamId ? `?teamId=${encodeURIComponent(teamId)}` : "" };
+}
+
+/** Whether generated projects can be deployed at all in this deployment. */
+export function deploymentsConfigured(): boolean {
+  return credentials() !== null;
+}
+
+/**
+ * A Vercel project name derived from whatever the customer called their
+ * project. Never throws and never returns empty: a name that cannot be
+ * salvaged becomes its fallback, because refusing to deploy over a project
+ * title is not a trade anybody would choose.
+ */
+export function deploymentName(projectName: string, projectId: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_NAME_LENGTH);
+
+  /* The project id's first segment, so two projects with the same title are
+     still two sites. */
+  const suffix = projectId.replace(/[^a-z0-9]/gi, "").slice(0, 8).toLowerCase();
+  const base = slug || "app";
+  return `${base}-${suffix}`.slice(0, MAX_NAME_LENGTH).replace(/-+$/g, "");
+}
+
+/**
+ * The tree as Vercel wants it, plus the environment the build needs.
+ *
+ * Exported for its own sake: the payload is the part of this worth testing
+ * without a network, and a caller that wants to see what would be uploaded
+ * should not have to attempt a deployment to find out.
+ */
+export function deploymentFiles(tree: FileTree, target: DeployTarget) {
+  /* Written rather than appended to whatever the generator emitted: a
+     generated .env.production would be the model's guess at these values, and
+     the platform's own are the correct ones. Last writer wins below. */
+  const env = [
+    `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
+    `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
+    "",
+  ].join("\n");
+
+  const files = tree
+    .filter((file) => file.path !== ".env.production" && file.path !== ".env.local")
+    .map((file) => ({ file: file.path, data: file.content, encoding: "utf-8" as const }));
+
+  files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
+  return files;
+}
+
+type Called = { ok: true; status: number; body: unknown } | { ok: false; reason: string };
+
+async function call(path: string, init: RequestInit, token: string): Promise<Called> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+
+    return { ok: true, status: response.status, body };
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === "AbortError";
+    return { ok: false, reason: aborted ? "Vercel did not answer in time" : "could not reach Vercel" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Vercel puts the reason a request was refused in the body. A status on its
+   own tells the customer nothing they can act on. */
+function refusal(body: unknown, status: number): string {
+  const message =
+    body && typeof body === "object" && "error" in body
+      ? (body as { error?: { message?: string } }).error?.message
+      : undefined;
+  return message ? `Vercel refused the deployment: ${message}` : `Vercel answered ${status}`;
+}
+
+function readDeployment(body: unknown): { id: string; url: string; state: string } | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as { id?: unknown; url?: unknown; readyState?: unknown; status?: unknown };
+  if (typeof record.id !== "string" || typeof record.url !== "string") return null;
+  /* readyState is the documented field; status appears alongside it on some
+     responses. Either is enough to know whether to keep waiting. */
+  const state =
+    typeof record.readyState === "string"
+      ? record.readyState
+      : typeof record.status === "string"
+        ? record.status
+        : "QUEUED";
+  return { id: record.id, url: record.url, state };
+}
+
+/**
+ * Uploads a generated project and waits for Vercel to build it.
+ *
+ * Resolves with the deployment's URL once it is READY, or with a reason. Never
+ * throws: see the note at the top of the file about why a failed deployment
+ * must not be able to fail the build it came from.
+ */
+export async function deployProject(tree: FileTree, target: DeployTarget): Promise<DeployOutcome> {
+  const creds = credentials();
+  if (!creds) {
+    return { ok: false, reason: "this deployment has no VERCEL_API_TOKEN, so it cannot build projects" };
+  }
+  if (tree.length === 0) {
+    return { ok: false, reason: "there are no files to deploy" };
+  }
+
+  const created = await call(
+    `/v13/deployments${creds.teamQuery}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: target.name,
+        files: deploymentFiles(tree, target),
+        /* framework: "nextjs" is what tells Vercel to run `next build` and to
+           host the result rather than serving the source as static files.
+           The nulls are Vercel's own defaults for the framework and are sent
+           explicitly so a project setting left over from an earlier deploy of
+           the same name cannot override them. */
+        projectSettings: {
+          framework: "nextjs",
+          buildCommand: null,
+          installCommand: null,
+          outputDirectory: null,
+          devCommand: null,
+        },
+        target: "production",
+      }),
+    },
+    creds.token,
+  );
+
+  if (!created.ok) return { ok: false, reason: created.reason };
+  if (created.status >= 400) return { ok: false, reason: refusal(created.body, created.status) };
+
+  const deployment = readDeployment(created.body);
+  if (!deployment) return { ok: false, reason: "Vercel accepted the upload but did not say where it went" };
+
+  const ready = await waitForBuild(deployment.id, deployment.url, creds);
+  return ready;
+}
+
+async function waitForBuild(
+  id: string,
+  url: string,
+  creds: { token: string; teamQuery: string },
+): Promise<DeployOutcome> {
+  const deadline = Date.now() + BUILD_TIMEOUT_MS;
+
+  for (;;) {
+    const polled = await call(`/v13/deployments/${encodeURIComponent(id)}${creds.teamQuery}`, {}, creds.token);
+
+    if (polled.ok && polled.status < 400) {
+      const state = readDeployment(polled.body)?.state ?? "QUEUED";
+
+      if (state === "READY") return { ok: true, url: `https://${url}`, deploymentId: id };
+
+      if (state === "ERROR" || state === "CANCELED") {
+        /* The compile failed, which is a fact about the generated code rather
+           than about Vercel, and the customer needs it said that way. */
+        return { ok: false, reason: "the project did not compile — its build failed on Vercel" };
+      }
+    }
+
+    if (Date.now() >= deadline) {
+      /* Still building is not the same as broken, and the URL is real whether
+         or not this call waited long enough to see it finish. */
+      return { ok: false, reason: "the build is taking longer than expected and is still running" };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+}
