@@ -679,8 +679,13 @@ body {
   /* The hero itself only clips horizontally (the logo halo needs the vertical room), so
      the layer masks its own edges instead — the surfaces fade out rather than ending on a
      hard line where they cross the fold. */
-  -webkit-mask-image: radial-gradient(125% 105% at 50% 45%, #000 55%, transparent 100%);
-  mask-image: radial-gradient(125% 105% at 50% 45%, #000 55%, transparent 100%);
+  /* 150% tall rather than 105%. The path now tucks below the fold as it passes
+     the sign-in stack, and at the old height that part of it fell outside the
+     mask entirely — the panel would have vanished at exactly the moment it was
+     meant to be seen sliding underneath. Reaching further down turns that into
+     what it should be: a fade as it goes under, rather than a cut. */
+  -webkit-mask-image: radial-gradient(125% 150% at 50% 45%, #000 55%, transparent 100%);
+  mask-image: radial-gradient(125% 150% at 50% 45%, #000 55%, transparent 100%);
 }
 
 /* Two placements per panel: the phone one until lg, the ring one from lg up. An inline
@@ -759,77 +764,77 @@ body {
     z-index: 4;
   }
   5.5556% {
-    transform: translate(-50%, -50%) translate3d(45.11cqw, 15.73cqh, 0) perspective(1300px) rotateZ(8.5deg) rotateY(-14.1deg) rotateX(0.7deg) scale(0.861);
+    transform: translate(-50%, -50%) translate3d(45.11cqw, 15.78cqh, 0) perspective(1300px) rotateZ(8.5deg) rotateY(-14.1deg) rotateX(0.7deg) scale(0.861);
     opacity: 0.662;
     z-index: 4;
   }
   8.3333% {
-    transform: translate(-50%, -50%) translate3d(41.57cqw, 23.00cqh, 0) perspective(1300px) rotateZ(7.8deg) rotateY(-13.0deg) rotateX(1.0deg) scale(0.885);
+    transform: translate(-50%, -50%) translate3d(41.57cqw, 25.90cqh, 0) perspective(1300px) rotateZ(7.8deg) rotateY(-13.0deg) rotateX(1.0deg) scale(0.885);
     opacity: 0.695;
     z-index: 4;
   }
   11.1111% {
-    transform: translate(-50%, -50%) translate3d(36.77cqw, 29.57cqh, 0) perspective(1300px) rotateZ(6.9deg) rotateY(-11.5deg) rotateX(1.3deg) scale(0.906);
+    transform: translate(-50%, -50%) translate3d(36.77cqw, 40.11cqh, 0) perspective(1300px) rotateZ(6.9deg) rotateY(-11.5deg) rotateX(1.3deg) scale(0.906);
     opacity: 0.725;
     z-index: 5;
   }
   13.8889% {
-    transform: translate(-50%, -50%) translate3d(30.85cqw, 35.24cqh, 0) perspective(1300px) rotateZ(5.8deg) rotateY(-9.6deg) rotateX(1.5deg) scale(0.925);
+    transform: translate(-50%, -50%) translate3d(30.85cqw, 52.99cqh, 0) perspective(1300px) rotateZ(5.8deg) rotateY(-9.6deg) rotateX(1.5deg) scale(0.925);
     opacity: 0.751;
     z-index: 5;
   }
   16.6667% {
-    transform: translate(-50%, -50%) translate3d(24.00cqw, 39.84cqh, 0) perspective(1300px) rotateZ(4.5deg) rotateY(-7.5deg) rotateX(1.7deg) scale(0.940);
+    transform: translate(-50%, -50%) translate3d(24.00cqw, 57.84cqh, 0) perspective(1300px) rotateZ(4.5deg) rotateY(-7.5deg) rotateX(1.7deg) scale(0.940);
     opacity: 0.772;
     z-index: 6;
   }
   19.4444% {
-    transform: translate(-50%, -50%) translate3d(16.42cqw, 43.23cqh, 0) perspective(1300px) rotateZ(3.1deg) rotateY(-5.1deg) rotateX(1.9deg) scale(0.951);
+    transform: translate(-50%, -50%) translate3d(16.42cqw, 61.23cqh, 0) perspective(1300px) rotateZ(3.1deg) rotateY(-5.1deg) rotateX(1.9deg) scale(0.951);
     opacity: 0.787;
     z-index: 6;
   }
   22.2222% {
-    transform: translate(-50%, -50%) translate3d(8.34cqw, 45.30cqh, 0) perspective(1300px) rotateZ(1.6deg) rotateY(-2.6deg) rotateX(2.0deg) scale(0.958);
+    transform: translate(-50%, -50%) translate3d(8.34cqw, 63.30cqh, 0) perspective(1300px) rotateZ(1.6deg) rotateY(-2.6deg) rotateX(2.0deg) scale(0.958);
     opacity: 0.797;
     z-index: 6;
   }
   25.0% {
-    transform: translate(-50%, -50%) translate3d(0.00cqw, 46.00cqh, 0) perspective(1300px) rotateZ(0.0deg) rotateY(-0.0deg) rotateX(2.0deg) scale(0.960);
+    transform: translate(-50%, -50%) translate3d(0.00cqw, 64.00cqh, 0) perspective(1300px) rotateZ(0.0deg) rotateY(-0.0deg) rotateX(2.0deg) scale(0.960);
     opacity: 0.800;
     z-index: 6;
   }
   27.7778% {
-    transform: translate(-50%, -50%) translate3d(-8.34cqw, 45.30cqh, 0) perspective(1300px) rotateZ(-1.6deg) rotateY(2.6deg) rotateX(2.0deg) scale(0.958);
+    transform: translate(-50%, -50%) translate3d(-8.34cqw, 63.30cqh, 0) perspective(1300px) rotateZ(-1.6deg) rotateY(2.6deg) rotateX(2.0deg) scale(0.958);
     opacity: 0.797;
     z-index: 6;
   }
   30.5556% {
-    transform: translate(-50%, -50%) translate3d(-16.42cqw, 43.23cqh, 0) perspective(1300px) rotateZ(-3.1deg) rotateY(5.1deg) rotateX(1.9deg) scale(0.951);
+    transform: translate(-50%, -50%) translate3d(-16.42cqw, 61.23cqh, 0) perspective(1300px) rotateZ(-3.1deg) rotateY(5.1deg) rotateX(1.9deg) scale(0.951);
     opacity: 0.787;
     z-index: 6;
   }
   33.3333% {
-    transform: translate(-50%, -50%) translate3d(-24.00cqw, 39.84cqh, 0) perspective(1300px) rotateZ(-4.5deg) rotateY(7.5deg) rotateX(1.7deg) scale(0.940);
+    transform: translate(-50%, -50%) translate3d(-24.00cqw, 57.84cqh, 0) perspective(1300px) rotateZ(-4.5deg) rotateY(7.5deg) rotateX(1.7deg) scale(0.940);
     opacity: 0.772;
     z-index: 6;
   }
   36.1111% {
-    transform: translate(-50%, -50%) translate3d(-30.85cqw, 35.24cqh, 0) perspective(1300px) rotateZ(-5.8deg) rotateY(9.6deg) rotateX(1.5deg) scale(0.925);
+    transform: translate(-50%, -50%) translate3d(-30.85cqw, 52.99cqh, 0) perspective(1300px) rotateZ(-5.8deg) rotateY(9.6deg) rotateX(1.5deg) scale(0.925);
     opacity: 0.751;
     z-index: 5;
   }
   38.8889% {
-    transform: translate(-50%, -50%) translate3d(-36.77cqw, 29.57cqh, 0) perspective(1300px) rotateZ(-6.9deg) rotateY(11.5deg) rotateX(1.3deg) scale(0.906);
+    transform: translate(-50%, -50%) translate3d(-36.77cqw, 40.11cqh, 0) perspective(1300px) rotateZ(-6.9deg) rotateY(11.5deg) rotateX(1.3deg) scale(0.906);
     opacity: 0.725;
     z-index: 5;
   }
   41.6667% {
-    transform: translate(-50%, -50%) translate3d(-41.57cqw, 23.00cqh, 0) perspective(1300px) rotateZ(-7.8deg) rotateY(13.0deg) rotateX(1.0deg) scale(0.885);
+    transform: translate(-50%, -50%) translate3d(-41.57cqw, 25.90cqh, 0) perspective(1300px) rotateZ(-7.8deg) rotateY(13.0deg) rotateX(1.0deg) scale(0.885);
     opacity: 0.695;
     z-index: 4;
   }
   44.4444% {
-    transform: translate(-50%, -50%) translate3d(-45.11cqw, 15.73cqh, 0) perspective(1300px) rotateZ(-8.5deg) rotateY(14.1deg) rotateX(0.7deg) scale(0.861);
+    transform: translate(-50%, -50%) translate3d(-45.11cqw, 15.78cqh, 0) perspective(1300px) rotateZ(-8.5deg) rotateY(14.1deg) rotateX(0.7deg) scale(0.861);
     opacity: 0.662;
     z-index: 4;
   }

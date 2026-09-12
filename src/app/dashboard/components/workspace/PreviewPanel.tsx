@@ -99,6 +99,39 @@ export default function PreviewPanel({
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
+  /* Whether to draw the control at all. Asked of the server rather than
+     decided here, because the answer depends on an allowlist and on an
+     environment variable, neither of which the browser knows — and because a
+     control whose only possible outcome is a refusal is worse than no control.
+     Null while unasked, so nothing flickers in before the answer. */
+  const [canRun, setCanRun] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const id = project?.id;
+    if (!id) {
+      setCanRun(null);
+      return;
+    }
+
+    let current = true;
+    /* Reset per project: the previous one's answer is not this one's. */
+    setCanRun(null);
+    setDeployed(null);
+    setDeployError(null);
+
+    fetch(`/api/projects/${id}/deploy`)
+      .then((response) => (response.ok ? response.json() : { available: false }))
+      .then((body: { available?: boolean }) => {
+        if (current) setCanRun(body.available === true);
+      })
+      .catch(() => {
+        if (current) setCanRun(false);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [project?.id]);
 
   async function runTheApp() {
     if (!project?.id || deploying) return;
@@ -917,8 +950,11 @@ export default function PreviewPanel({
           {/* Run it. Only for a build that produced a project — a single page is
               already running in the pane behind this. Once there is an address
               it becomes the link to it, because the second thing anybody wants
-              after "build my app" is "open my app". */}
-          {deployed ? (
+              after "build my app" is "open my app".
+
+              Absent entirely outside the rollout. Not disabled: a greyed button
+              is a promise with no date on it. */}
+          {canRun !== true ? null : deployed ? (
             <a
               href={deployed}
               target="_blank"

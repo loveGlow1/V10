@@ -32,9 +32,11 @@ import { resolveBackend } from "@/lib/builder/backend/connection";
 import { schemaNameFor } from "@/lib/builder/schema";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
+import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { ownedProject } from "../backend/owned";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,10 +46,49 @@ export const dynamic = "force-dynamic";
    around it. */
 export const maxDuration = 300;
 
+/* The signed-in address, for the allowlist. Read from the session rather than
+   taken from anywhere the caller controls — an allowlist checked against a
+   value the browser supplies is not an allowlist. */
+async function callerEmail(): Promise<string | null> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getUser();
+  return data.user?.email ?? null;
+}
+
+/**
+ * Whether the workspace should offer to run this project.
+ *
+ * The button asks before it draws itself, so somebody outside the rollout is
+ * not shown a control whose only possible answer is a refusal. This is a
+ * courtesy: POST re-checks everything and is the actual gate.
+ */
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const owned = await ownedProject(id);
+  if ("error" in owned) return owned.error;
+
+  if (!canDeploy(await callerEmail())) {
+    return NextResponse.json({ available: false, reason: NOT_ALLOWED });
+  }
+  if (!deploymentsConfigured()) {
+    return NextResponse.json({
+      available: false,
+      reason: "This deployment has no VERCEL_API_TOKEN, so it cannot host projects.",
+    });
+  }
+  return NextResponse.json({ available: true, reason: null });
+}
+
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const owned = await ownedProject(id);
   if ("error" in owned) return owned.error;
+
+  /* Before anything is read and long before anything is uploaded. */
+  if (!canDeploy(await callerEmail())) {
+    return NextResponse.json({ error: NOT_ALLOWED }, { status: 403 });
+  }
 
   if (!deploymentsConfigured()) {
     /* Named exactly, because the person reading this is the person who can fix
