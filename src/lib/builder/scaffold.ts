@@ -27,6 +27,7 @@ import type { ArchitectureManifest } from "./architecture";
 import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
+import { splitClientRoutes } from "./client-routes";
 import type { FileTree, ProjectFile } from "./tree";
 
 /* The version of Next.js these projects are written against.
@@ -459,7 +460,13 @@ export function completeTree(
     byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(globals.content) });
   }
 
-  return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+  /* Last, and after everything else has been merged in: a page that is both
+     "use client" and a source of generateStaticParams does not compile, and
+     that is a property of the finished tree rather than of any one file the
+     model wrote. See client-routes.ts. */
+  return splitClientRoutes([...byPath.values()]).sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
 }
 
 /**
@@ -585,7 +592,16 @@ export function treeBrief(
     "- Next.js App Router, TypeScript, Tailwind. Every file must compile under `strict`.",
     "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
     "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    /* These two rules used to be one line, and together they instructed the
+       model straight into a page that cannot compile: every dynamic route
+       needs generateStaticParams, and a page that reads data has to be
+       "use client" — so it wrote both into one file, which Next.js refuses
+       outright. The brief has to name the way out, because both halves of the
+       conflict are things this same brief asks for. completeTree repairs it
+       either way (see client-routes.ts); this is so it stops happening. */
     "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
+    '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
+    "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
   ];
 

@@ -43,6 +43,7 @@
  */
 
 import type { FileTree } from "@/lib/builder/tree";
+import { splitClientRoutes } from "@/lib/builder/client-routes";
 import { NEXT_VERSION } from "@/lib/builder/scaffold";
 
 const API = "https://api.vercel.com";
@@ -170,7 +171,14 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
     "",
   ].join("\n");
 
-  const files = tree
+  /* Repaired on the way out, for the same reason the framework pin is: every
+     project ever generated is still sitting in the database, and a tree stored
+     before completeTree learned to split these would otherwise need generating
+     a second time — and charging for a second time — to become deployable.
+     Applied at BOTH ends deliberately: completeTree fixes what gets stored, so
+     the download compiles too, and this fixes what already was. It finds
+     nothing to do on a tree that has been through the other one. */
+  const files = splitClientRoutes(tree)
     .filter((file) => file.path !== ".env.production" && file.path !== ".env.local")
     .map((file) => ({ file: file.path, data: file.content, encoding: "utf-8" as const }));
 
