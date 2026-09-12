@@ -74,7 +74,7 @@ const rewrite = (dir) => {
   }
 };
 rewrite(out);
-const { carryBrief, conversational, priorTurns, isContinuation, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
+const { carryBrief, conversational, priorTurns, isContinuation, describesNothing, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
   await import(join(out, "lib/builder/brief.js"));
 const { wantsDownload } = await import(join(out, "lib/builder/download.js"));
 const { resumableFrom, RESUME_WINDOW_MS } = await import(
@@ -560,9 +560,57 @@ const plainOk = plain === 0;
 if (!plainOk) wrong++;
 console.log(`${plainOk ? "ok  " : "WRONG"} a brief nobody continued carries nothing: ${plain}`);
 
+/* ── Nothing to build from ──────────────────────────────────────────────────
+ *
+ * The guard that stops a generation running on a message that describes
+ * nothing. A build ran on the word "Rerun" and produced a news publication for
+ * somebody who had described a bakery — and the reason nothing caught it is
+ * that nothing was checking whether there was a brief at all.
+ *
+ * The BUILD half of this list matters more than the refuse half. Refusing a
+ * real brief is the expensive failure: the person has said what they want and
+ * been told they have not. Two of these are real messages that real customers
+ * sent — "À page for a school ?" and "Build me an ecomerce page", misspelling
+ * and all — and both are why this is a word list rather than a word count.
+ * Counting would have refused them both. */
+const NOTHING = [
+  // Must BUILD. Short, vague, misspelled — but each one names a thing.
+  ["a real brief, short", "E-commerce landing page", false],
+  ["a real brief, a question mark", "À page for a school ?", false],
+  ["a real brief, misspelled — WOULD FAIL A WORD COUNT", "Build me an ecomerce page", false],
+  ["a real brief, three words", "a portfolio site", false],
+  ["a real brief, possessive", "dashboard for my gym", false],
+  ["the thinnest thing that still names something", "make me a page", false],
+  ["a name nobody has heard of is not gibberish", "asdf", false],
+
+  // Must REFUSE. Requests, every one — not a description between them.
+  ["THE ONE: the word that built a newsroom", "Rerun", true],
+  ["rerun, politely", "Rerun please", true],
+  ["a greeting", "hello", true],
+  ["a greeting with company", "hi there", true],
+  ["agreement", "yes please", true],
+  ["a request with no object", "make me something", true],
+  ["a pronoun standing in for the thing", "ok do that", true],
+  ["the restart family", "build it again", true],
+  ["one more time", "one more time", true],
+  ["punctuation only", "!!!", true],
+  ["nothing at all", "", true],
+  ["whitespace", "   ", true],
+];
+
+for (const [label, message, expected] of NOTHING) {
+  const got = describesNothing(message);
+  const ok = got === expected;
+  if (!ok) wrong++;
+  console.log(
+    `${ok ? "ok  " : "WRONG"} ${expected ? "nothing to build from" : "is a brief"}: ${label}`,
+  );
+  if (!ok) console.log(`      ${JSON.stringify(message)} -> describesNothing=${got}`);
+}
+
 console.log(
   `\n${
-    CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + WORDS.length + TRIMS.length + 6
+    CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + WORDS.length + TRIMS.length + NOTHING.length + 6
   } checks · ${wrong} wrong`,
 );
 process.exit(wrong === 0 ? 0 : 1);

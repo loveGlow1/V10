@@ -26,7 +26,14 @@ import {
   signedImageUrls,
 } from "@/lib/builder/attachments";
 import { readPage, regressions } from "@/lib/builder/brain";
-import { carryBrief, conversational, countWords, isContinuation, priorTurns } from "@/lib/builder/brief";
+import {
+  carryBrief,
+  conversational,
+  countWords,
+  describesNothing,
+  isContinuation,
+  priorTurns,
+} from "@/lib/builder/brief";
 import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
@@ -1953,6 +1960,56 @@ async function handle(
       "Carried your earlier description forward",
       `"${brief.carried.slice(0, 60)}${brief.carried.length > 60 ? "…" : ""}"`,
     );
+  }
+
+  /* ── Nothing to build from ───────────────────────────────────────────────
+   *
+   * A build ran on the word "Rerun" and produced a news publication — posts,
+   * categories, an editor — for somebody who had described a bakery. The word
+   * was meant as "do the last thing again"; the last thing was not carried,
+   * for a reason now fixed in brief.ts; and what was left was one word that
+   * describes nothing, handed to a pipeline where every stage succeeds.
+   *
+   * Nothing rejected it because nothing was looking. The kind classifier read
+   * a word with no signals in it, said so honestly, and offered five buttons —
+   * and every one of those buttons leads to a full generation from a brief
+   * that says nothing. The question was wrong, not the answer: what is missing
+   * at that point is the description, not the kind.
+   *
+   * So this is checked HERE, before the kind is asked about and long before a
+   * model is called. Nothing is generated and nothing is charged.
+   *
+   * Two messages, because the two cases are different to be on the receiving
+   * end of. Somebody who typed "rerun" is asking for something they believe
+   * exists; somebody who typed "hi" has not started yet. Telling the first
+   * that they have not described anything would be wrong — they described it,
+   * we could not find it. */
+  if (!stageRequest && describesNothing(brief.text)) {
+    const asked = isContinuation(prompt)
+      ? "There is nothing to run again yet — I could not find an earlier description in this project to build from. " +
+        "Tell me what to build and I will build it."
+      : "I do not have anything to build from yet. Describe what you want — what it is for, who it is for, " +
+        "and roughly what should be on it — and I will build it.";
+    const stored = await deliver(asked, { key: "nothing-to-build-from" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsBrief: true,
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: "landing",
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
   }
 
   /* ── Which blueprint this is built from ──────────────────────────────────
