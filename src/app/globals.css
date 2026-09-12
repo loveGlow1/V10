@@ -269,7 +269,11 @@ body {
    so the headline reads as a separate block sitting under the mark rather than inside its
    glow. */
 .q-logo-block {
-  --q-logo-size: clamp(88px, 12vmin, 160px);
+  /* The 200px ceiling only engages above 1666px of vmin — a television or a
+     very large monitor, nothing else. At 1080p, 12vmin is 130px and at 1440p
+     it is 173px, so every ordinary screen is unaffected by the change and the
+     mark simply stops being stranded at laptop size on a wall. */
+  --q-logo-size: clamp(88px, 12vmin, 200px);
   width: var(--q-logo-size);
   height: var(--q-logo-size);
   /* Equal clearance above and below, so the mark reads as centred in its own space rather

@@ -119,9 +119,15 @@ const GLINT_VERTICAL_COMPRESSION = 0.5;
  * until a frame has been rendered with it.
  *
  * It is a sibling of the error boundary rather than a child, so a failed HDRI
- * still hands the mark over — without reflections, but drawn. If the fetch
- * neither resolves nor fails, nothing happens at all and the flat mark simply
- * stays, which is the right way for this to fail. */
+ * still hands the mark over — without reflections, but drawn.
+ *
+ * What it cannot cover is a fetch that neither resolves nor fails. A hung
+ * request leaves this unmounted for as long as it hangs, and the flat mark
+ * stays — static, and a plainer drawing than the one it stands in for. That was
+ * once called the right way to fail. It is not: the mark is lit by five lights
+ * of its own and draws perfectly well with no environment at all, so waiting
+ * forever on a reflection map is strictly worse than drawing without one. See
+ * FrameDeadline. */
 function FirstFrame({ onPainted }: { onPainted?: () => void }) {
   const reported = useRef(false);
   useFrame(() => {
@@ -129,6 +135,35 @@ function FirstFrame({ onPainted }: { onPainted?: () => void }) {
     reported.current = true;
     onPainted();
   });
+  return null;
+}
+
+/* The backstop, and the reason the wait above can never become a hang.
+ *
+ * Same mechanism as FirstFrame — a real drawn frame reports it — but mounted
+ * OUTSIDE the Suspense boundary, so no pending fetch can hold it up, and armed
+ * only once the deadline has passed. Whichever of the two fires first wins;
+ * onPainted is idempotent.
+ *
+ * On any normal connection the environment resolves well inside this and
+ * FirstFrame reports with reflections already on the mark. Past it, the
+ * judgement changes: a visitor looking at a static placeholder is being served
+ * worse than one looking at the real mark lit only by its own lights, so the
+ * hand-over stops waiting. */
+const ENVIRONMENT_DEADLINE_MS = 1500;
+
+function FrameDeadline({ onPainted }: { onPainted?: () => void }) {
+  const reported = useRef(false);
+  const armedAt = useRef<number | null>(null);
+
+  useFrame(() => {
+    if (reported.current || !onPainted) return;
+    if (armedAt.current === null) armedAt.current = performance.now();
+    if (performance.now() - armedAt.current < ENVIRONMENT_DEADLINE_MS) return;
+    reported.current = true;
+    onPainted();
+  });
+
   return null;
 }
 
@@ -357,7 +392,17 @@ export default function Q3DCanvasScene({
         }
       }}
       gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
-      dpr={[1, 2]}
+      /* A FLOOR of 2, not a ceiling of 2, and the floor is the part that
+         matters. This clamps the device's own pixel ratio into the range, so
+         the old [1, 2] meant a display reporting 1 got a backing store the
+         same size as the box — 160 real pixels of mark. That is fine on a
+         laptop, where 160px is an inch, and poor on a television, where the
+         same 160px is spread across a foot of glass and every one of them is
+         visible. Rendering at 2-3x and letting the browser downsample costs
+         about 300k fragments on a canvas this small, which is nothing, and it
+         is the difference between a crisp mark and a soft one on any large or
+         scaled display. */
+      dpr={[2, 3]}
       // Slight three-quarter angle: raised and shifted to the right of center so
       // the ring's right outer edge and top-inner rim catch visible depth/shading
       // instead of the flat, dead-on silhouette a straight-on [0,0,z] camera gives.
@@ -385,6 +430,8 @@ export default function Q3DCanvasScene({
         </EnvironmentErrorBoundary>
         <FirstFrame onPainted={onPainted} />
       </Suspense>
+      {/* Outside the boundary on purpose — see FrameDeadline. */}
+      <FrameDeadline onPainted={onPainted} />
       {/* Raised ambient plus an added front-lower fill light so the ring reads as a
           consistent obsidian metal all the way around as it spins, instead of the
           far side falling into total black and only catching highlights on the
