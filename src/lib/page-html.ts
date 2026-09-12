@@ -56,7 +56,26 @@ export function readGeneratedDocument(value: unknown): string {
 
   const trimmed = value.trim();
   const fenced = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n?```$/i);
-  const html = (fenced ? fenced[1] : trimmed).trim();
+  const unfenced = (fenced ? fenced[1] : trimmed).trim();
+
+  /* The document is FOUND in the answer rather than required to be the whole of
+     it, and that is the same judgement the fenced-block unwrap above already
+     makes: failing an entire build over a pair of backticks would be its own
+     kind of wrong, and so is failing one over a sentence.
+     
+     Four builds died this way in twenty minutes — "What came back was not an
+     HTML document" — on prompts that opened `CREATE — index.html`. A model
+     handed that echoes the filename, or writes a line about what it built,
+     before the doctype. The page after it was fine and was thrown away.
+     
+     From the first doctype to the LAST closing tag: anything the model said
+     before or after the document is commentary, and a build is not the place
+     to insist on a format nobody would notice was wrong. */
+  const opens = unfenced.search(/<!doctype html|<html[\s>]/i);
+  const closes = unfenced.toLowerCase().lastIndexOf("</html>");
+  const html = opens >= 0 && closes > opens
+    ? unfenced.slice(opens, closes + "</html>".length).trim()
+    : unfenced;
 
   if (!/^<!doctype html/i.test(html) && !/^<html/i.test(html)) {
     throw new PageHtmlError("What came back was not an HTML document.", 422);
