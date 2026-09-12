@@ -108,6 +108,35 @@ const CASES = [
   ["try again", "try again.", [you(STORE)], { carries: STORE }],
   ["build it", "build it", [you(STORE)], { carries: STORE }],
   ["continue", "Continue", [you(STORE)], { carries: STORE }],
+
+  /* ── The restart family ─────────────────────────────────────────────────
+   *
+   * THE ONE THIS EXISTS FOR is "Rerun", which was missing. A customer pasted
+   * a twelve-thousand-word brief for a bakery storefront, the build failed for
+   * an unrelated reason, and they typed it. It matched nothing, so nothing was
+   * carried, so the word "Rerun" became the brief — and the build produced a
+   * news publication with posts and categories and not one product in it.
+   *
+   * The rest are here because which of these words somebody reaches for is a
+   * coin toss, and every one of them means the same thing. A gap in this list
+   * does not fail loudly; it spends a build on nothing and hands back a
+   * working application of the wrong kind. */
+  ["rerun — THE ONE", "Rerun", [you(STORE)], { carries: STORE }],
+  ["re-run hyphenated", "re-run", [you(STORE)], { carries: STORE }],
+  ["rerun it", "rerun it", [you(STORE)], { carries: STORE }],
+  ["run it again", "run it again", [you(STORE)], { carries: STORE }],
+  ["run again", "Run again.", [you(STORE)], { carries: STORE }],
+  ["redo", "redo", [you(STORE)], { carries: STORE }],
+  ["redo it", "Redo it", [you(STORE)], { carries: STORE }],
+  ["regenerate", "regenerate", [you(STORE)], { carries: STORE }],
+  ["start over", "start over", [you(STORE)], { carries: STORE }],
+  ["one more time", "one more time", [you(STORE)], { carries: STORE }],
+  ["do it again", "do it again", [you(STORE)], { carries: STORE }],
+  ["rebuild it again", "rebuild it again", [you(STORE)], { carries: STORE }],
+  /* Politeness must not change the meaning of a message. */
+  ["please rerun", "please rerun", [you(STORE)], { carries: STORE }],
+  ["rerun please", "Rerun please", [you(STORE)], { carries: STORE }],
+  ["a question mark is still a continuation", "rerun?", [you(STORE)], { carries: STORE }],
   [
     "the most recent description wins, not the first",
     "rebuild",
@@ -139,6 +168,34 @@ const CASES = [
   [
     "make it, with an object",
     "make it darker",
+    [you(STORE)],
+    { carries: null, keeps: true },
+  ],
+  /* The other side of widening the restart family. Every branch is anchored at
+     both ends, so a restart word followed by an actual instruction is an
+     instruction — and it must stay one, or widening this list would start
+     eating the edits people type. */
+  [
+    "redo, with an instruction after it",
+    "redo the hero in green",
+    [you(STORE)],
+    { carries: null, keeps: true },
+  ],
+  [
+    "rerun, with an instruction after it",
+    "rerun the checkout section with fewer fields",
+    [you(STORE)],
+    { carries: null, keeps: true },
+  ],
+  [
+    "run, as a verb in a real brief",
+    "Build a page for a running club that runs weekly 5k events",
+    [you(STORE)],
+    { carries: null, keeps: true },
+  ],
+  [
+    "start over, with a subject",
+    "start over on the pricing table only",
     [you(STORE)],
     { carries: null, keeps: true },
   ],

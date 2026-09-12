@@ -64,9 +64,42 @@ export function conversational(turn: Turn): boolean {
 
 /* Messages that ask for the last thing again, or say yes to it, and describe
    nothing themselves. Anchored at both ends: "go" is a continuation, "go with a
-   darker header" is an instruction. */
+   darker header" is an instruction.
+ *
+ * ── What a gap in this list costs ─────────────────────────────────────────
+ *
+ * "Rerun" was not in it. It is now, and the reason is worth writing down
+ * because the damage was completely invisible from the outside.
+ *
+ * Somebody pasted a twelve-thousand-word brief for a premium bakery
+ * storefront — routes, products, cart, checkout, order history, the lot. The
+ * build failed for an unrelated reason. They typed "Rerun".
+ *
+ * "Rerun" matched nothing here, so it was not a continuation, so nothing was
+ * carried, so THE WORD "RERUN" BECAME THE BRIEF. Twelve thousand words of
+ * description were discarded in favour of one word that describes nothing.
+ * The kind classifier could not read it, asked which kind it was, and the
+ * build that followed produced a NEWS PUBLICATION — /[section], /article/
+ * [slug], /admin/posts, tables for posts and categories and tags. Not one
+ * product, not one cart. A complete, working, well-built application of
+ * entirely the wrong kind, and the customer paid for it.
+ *
+ * No error anywhere. Every component did exactly what it was told; the thing
+ * it was told was the residue of a missing regex branch.
+ *
+ * So the list is now generous about the RESTART family in particular — rerun,
+ * redo, regenerate, run it again, start over, one more time — because these
+ * are all the same request and which word somebody reaches for is a coin
+ * toss. The cost of missing one is a whole build spent on nothing; the cost
+ * of an extra one is that a message which was going to be carried gets
+ * carried. Those are not comparable, and this list should lean the way the
+ * cheaper mistake lies.
+ *
+ * Still anchored at both ends, which is what keeps it safe: every branch here
+ * has to be the WHOLE message. "redo the hero in green" is an instruction and
+ * stays one. */
 const CONTINUATION =
-  /^\s*(re-?build( it)?|build( it)?( again)?|make it|do it|do that|go( ahead|on)?|yes|yep|yeah|sure|ok(ay)?|please( do)?|continue|carry on|keep going|proceed|resume|start|again|try again|retry|same( thing)?|as before)\s*[.!]*\s*$/i;
+  /^\s*(?:please\s+)?(?:re-?build( it| that)?( again)?|re-?run( it| that)?( again)?|re-?do( it| that)?( again)?|re-?generate( it| that)?( again)?|run( it| that)?( again)?|build( it)?( again)?|make it( again)?|do (?:it|that)( again)?|go( ahead| on)?|yes|yep|yeah|sure|ok(?:ay)?|please( do)?|continue|carry on|keep going|proceed|resume|start( over| again)?|again|try again|try once more|once more|one more time|retry|same( thing| again)?|as before)(?:\s+please)?\s*[.!?]*\s*$/i;
 
 /* Below this, a message is unlikely to be a brief on its own — but length alone
    never decides. It is only used to pick which earlier message to carry. */
