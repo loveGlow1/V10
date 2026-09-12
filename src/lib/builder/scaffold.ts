@@ -327,6 +327,38 @@ export function packageName(name: string): string {
  * for. The scaffold is a floor, not a ceiling — it supplies what is missing and
  * argues with nothing.
  */
+/* Files the platform writes and the model may not replace.
+ *
+ * These used to be scaffolded first and then overwritten by anything the model
+ * happened to emit at the same path, which is the right precedence for
+ * everything the model is actually being asked to write — app/** is its job,
+ * and a scaffolded placeholder should lose to a real page.
+ *
+ * It is the wrong precedence here, and one build shows why. Asked for a
+ * dashboard with sign-in, the model wrote its own `lib/supabase.ts` carrying a
+ * hardcoded project URL and anon key — a project that does not exist, invented
+ * whole. It replaced a scaffolded client that reads
+ * NEXT_PUBLIC_SUPABASE_URL/ANON_KEY/SCHEMA from the environment and is pinned
+ * to the schema this project's tables were actually created in. The app that
+ * came out would have talked to nothing, and would have gone on doing it
+ * silently, because a Supabase client does not fail until it is queried.
+ *
+ * So these paths are the platform's. Every one of them is infrastructure whose
+ * correct contents are known here and cannot be known by a model: the
+ * credentials, the schema they are pinned to, the types generated from the real
+ * tables, and the config that makes the export work at all.
+ *
+ * package.json is deliberately NOT on this list. A model that adds a dependency
+ * needs its manifest to survive, and a wrong one breaks a build loudly rather
+ * than quietly. */
+const PLATFORM_OWNED = new Set([
+  "lib/supabase.ts",
+  "lib/database.types.ts",
+  "next.config.mjs",
+  "postcss.config.mjs",
+  "tsconfig.json",
+]);
+
 export function completeTree(
   generated: FileTree,
   name: string,
@@ -335,9 +367,16 @@ export function completeTree(
   design?: DesignDNA,
 ): FileTree {
   const byPath = new Map<string, ProjectFile>();
+  const platform = platformFiles(name, manifest, model, design);
+  const owned = new Set(platform.filter((file) => PLATFORM_OWNED.has(file.path)).map((f) => f.path));
 
-  for (const file of platformFiles(name, manifest, model, design)) byPath.set(file.path, file);
-  for (const file of generated) byPath.set(file.path, file);
+  for (const file of platform) byPath.set(file.path, file);
+  for (const file of generated) {
+    /* The model's version of an owned path is discarded rather than merged.
+       There is no half of a wrong connection string worth keeping. */
+    if (owned.has(file.path)) continue;
+    byPath.set(file.path, file);
+  }
 
   return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
