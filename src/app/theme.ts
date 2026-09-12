@@ -55,6 +55,7 @@ export function applyTheme(choice: ThemeChoice) {
   const root = document.documentElement;
   if (resolved === "light") root.setAttribute("data-theme", "light");
   else root.removeAttribute("data-theme");
+  applyBrowserChrome(resolved);
 }
 
 /* Runs before the first paint, inlined into <head>. Without it someone who has
@@ -73,4 +74,24 @@ export function applyTheme(choice: ThemeChoice) {
    default, which is what the page already is. */
 export const THEME_BOOT_SCRIPT = `(function(){try{var c=localStorage.getItem(${JSON.stringify(
   THEME_KEY,
-)});var l=c==="light"||(c==="system"&&window.matchMedia("(prefers-color-scheme: light)").matches);if(l)document.documentElement.setAttribute("data-theme","light")}catch(e){}})();`;
+)});var l=c==="light"||(c==="system"&&window.matchMedia("(prefers-color-scheme: light)").matches);if(l){var r=document.documentElement;r.setAttribute("data-theme","light");r.style.colorScheme="light";var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f6f6f8")}}catch(e){}})();`;
+
+/* Kept in step with THEME_BOOT_SCRIPT above, for the runtime toggle.
+ *
+ * The boot script and this do the same two extra things the palette alone does
+ * not cover: `color-scheme` on the element, which decides the colour of the
+ * space beyond the page and of the scrollbars, and the theme-color meta, which
+ * decides the colour of the mobile browser's own bar. layout.tsx declares both
+ * as dark up front so the reload gap is painted dark rather than white; a
+ * visitor on the light theme has to have them moved back, at boot and again
+ * whenever they press the switch. */
+const LIGHT_BAR = "#f6f6f8";
+const DARK_BAR = "#050505";
+
+export function applyBrowserChrome(resolved: "light" | "dark") {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.style.colorScheme = resolved;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", resolved === "light" ? LIGHT_BAR : DARK_BAR);
+}

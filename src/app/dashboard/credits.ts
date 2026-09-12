@@ -156,7 +156,7 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
    as long as Pro granted 300. A card that names a number the plan does not
    give is worse than a card that names none. */
 const STANDARD_CREDITS = 100;
-const PRO_CREDITS = 300;
+const PRO_CREDITS = 410;
 
 export const PLANS: Record<PlanId, Plan> = {
   free: {
@@ -216,18 +216,18 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Pro",
     monthlyPriceUsd: 150,
     dailyCredits: 0,
-    /* 300, which makes Pro an ACCESS tier rather than a volume tier, and that
+    /* 410, which makes Pro an ACCESS tier rather than a volume tier, and that
        is worth being explicit about because the per-credit arithmetic looks
        wrong until you know it.
      *
-     * $150 for 300 credits is 50 cents a credit. Standard is 25 and a one-off
-     * top-up is 30 — so Pro is the dearest credit on the menu, twice Standard's
-     * rate and well above simply buying packs. Nobody should buy this plan for
-     * the credits.
+     * $150 for 410 credits is about 37 cents a credit. Standard is 25 and a
+     * one-off top-up is 30 — so Pro is still the dearest credit on the menu,
+     * half again Standard's rate and above simply buying packs. Nobody should
+     * buy this plan for the credits.
      *
      * What it actually sells is Fable, which no other plan can reach at any
      * balance, and which costs 5x a Sonnet turn to run — a twelve-section Fable
-     * build is 40 credits, so 300 is around seven of them. Read that way the
+     * build is 40 credits, so 410 is around ten of them. Read that way the
      * price is a licence with an allowance attached rather than an allowance
      * priced badly.
      *
