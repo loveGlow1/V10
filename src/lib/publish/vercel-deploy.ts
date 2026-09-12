@@ -230,9 +230,17 @@ function refusal(body: unknown, status: number): string {
   return message ? `Vercel refused the deployment: ${message}` : `Vercel answered ${status}`;
 }
 
-function readDeployment(body: unknown): { id: string; url: string; state: string } | null {
+function readDeployment(
+  body: unknown,
+): { id: string; url: string; state: string; inspect: string | null } | null {
   if (!body || typeof body !== "object") return null;
-  const record = body as { id?: unknown; url?: unknown; readyState?: unknown; status?: unknown };
+  const record = body as {
+    id?: unknown;
+    url?: unknown;
+    readyState?: unknown;
+    status?: unknown;
+    inspectorUrl?: unknown;
+  };
   if (typeof record.id !== "string" || typeof record.url !== "string") return null;
   /* readyState is the documented field; status appears alongside it on some
      responses. Either is enough to know whether to keep waiting. */
@@ -242,7 +250,15 @@ function readDeployment(body: unknown): { id: string; url: string; state: string
       : typeof record.status === "string"
         ? record.status
         : "QUEUED";
-  return { id: record.id, url: record.url, state };
+  /* Vercel's own page for this deployment, with the full build log on it.
+     Carried through so a failure can point at it: whatever this module puts in
+     a card is a tail, and the tail is not always where the reason is. */
+  return {
+    id: record.id,
+    url: record.url,
+    state,
+    inspect: typeof record.inspectorUrl === "string" ? record.inspectorUrl : null,
+  };
 }
 
 /**
@@ -310,12 +326,17 @@ export async function deployProject(tree: FileTree, target: DeployTarget): Promi
  * ask of the engineer who built this platform and not of somebody who typed a
  * sentence into it.
  *
- * Best effort, and short. This runs after a failure and must not become a
- * second one, so anything unexpected leaves the plain reason standing. The
- * lines are capped because the destination is a column in a table and a
- * sentence in a preview, not a log viewer. */
-const LOG_LINES = 12;
-const LOG_CHARS = 1200;
+ * Best effort. This runs after a failure and must not become a second one, so
+ * anything unexpected leaves the plain reason standing.
+ *
+ * Capped, because the destination is a column in a table and a card in a
+ * preview rather than a log viewer — but raised from 12 lines and 1200
+ * characters, which was tuned for a filtered log and is too tight for an
+ * unfiltered one. A `next build` that fails prints the failing file, the line,
+ * the code around it and then a summary, and twelve lines lands in the middle
+ * of that. Thirty reaches the start of it. */
+const LOG_LINES = 30;
+const LOG_CHARS = 3000;
 
 async function buildLog(
   id: string,
@@ -330,16 +351,39 @@ async function buildLog(
 
   if (!events.ok || events.status >= 400 || !Array.isArray(events.body)) return null;
 
-  /* stderr first: a failed `next build` puts the diagnosis there, and the
-     stdout around it is install chatter nobody needs. */
+  /* ── The tail of the log, not a search through it ────────────────────────
+   *
+   * This used to keep only lines that were stderr or matched
+   * /error|failed|cannot|expected|Type '/ — the theory being that a failed
+   * `next build` puts its diagnosis in one of those and the rest is install
+   * chatter.
+   *
+   * What that actually produced, on a real failed deployment, was this, in
+   * full, as the entire explanation given to the customer:
+   *
+   *     Vercel could not finish the deployment:
+   *     Vercel CLI 59.11.7
+   *
+   * Fifty-eight characters. The CLI banner goes to stderr, so it matched; the
+   * build output that said what went wrong went to stdout and did not contain
+   * any of those five words, so every line of it was discarded. The deployment
+   * failed for a reason that was sitting right there and got filtered out on
+   * the way to the one person who needed it.
+   *
+   * A filter that decides in advance which words a failure will use is a
+   * filter that hides the failures nobody predicted — and those are exactly
+   * the ones worth reading. The last lines of a build that stopped are what
+   * anybody would look at, so that is what this returns: all of them, in
+   * order, tail-first-out. Noisier by design. Noise can be read; a discarded
+   * diagnosis cannot. */
   const lines: string[] = [];
   for (const entry of events.body as { type?: unknown; payload?: unknown }[]) {
     const payload = entry?.payload as { text?: unknown } | undefined;
-    const text = typeof payload?.text === "string" ? payload.text.trim() : "";
-    if (!text) continue;
-    if (entry.type === "stderr" || /error|failed|cannot|expected|Type '/i.test(text)) {
-      lines.push(text);
-    }
+    const text = typeof payload?.text === "string" ? payload.text.trimEnd() : "";
+    /* Blank lines are dropped, and nothing else is. A build log is mostly
+       vertical whitespace and it is the one thing that costs a line of the
+       tail without ever carrying a reason. */
+    if (text.trim()) lines.push(text);
   }
 
   if (lines.length === 0) return null;
@@ -375,7 +419,13 @@ async function waitForBuild(
          * wrong sent an hour looking for a type error that was never there. */
         const log = await buildLog(id, creds);
         const what = state === "CANCELED" ? "the deployment was cancelled" : "Vercel could not finish the deployment";
-        return { ok: false, reason: log ? `${what}:\n${log}` : `${what} — its build reported ${state}` };
+        /* The whole log lives on Vercel's own page for this deployment. What
+           is quoted below is the tail of it, and a tail is not always where
+           the reason is — so the address goes with it rather than leaving
+           somebody to find a failed deployment by its name. */
+        const where = readDeployment(polled.body)?.inspect;
+        const tail = log ? `${what}:\n${log}` : `${what} — its build reported ${state}`;
+        return { ok: false, reason: where ? `${tail}\n\nFull build log: ${where}` : tail };
       }
     }
 
