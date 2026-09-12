@@ -33,6 +33,7 @@
     "check:models": "node tools/check-models.mjs",
     "check:name": "node tools/check-project-name.mjs",
     "check:narration": "node tools/check-narration.mjs",
+    "check:ownership": "node tools/check-scaffold-ownership.mjs",
     "check:patch": "node tools/check-patch.mjs",
     "check:payments": "node tools/check-payments.mjs",
     "check:pick": "node tools/check-pick.mjs",
