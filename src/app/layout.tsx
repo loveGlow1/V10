@@ -84,6 +84,31 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
+  /* The white frame on reload, and the only thing that can remove it.
+   *
+   * A stylesheet is render-blocking: the browser paints nothing of the document
+   * until globals.css has arrived and parsed. But on a RELOAD it has already
+   * thrown away the old page's pixels, so something has to be on screen in the
+   * meantime — and that something is the compositor's base canvas, chosen
+   * before any CSS exists. Undeclared, it is white. `body { background }` cannot
+   * help; it is not known yet. An inline <style> cannot help; it is in the
+   * document that is not being painted. A loading screen cannot help either —
+   * it is markup, and markup is exactly what is blocked. The flash is upstream
+   * of everything the page can say about itself.
+   *
+   * `color-scheme` is the one exception, because the browser reads it while
+   * parsing the head, before stylesheets, precisely so it can pick that canvas.
+   * Declared dark, the gap is painted near-black instead of white and the step
+   * to #050505 at first paint is imperceptible.
+   *
+   * "dark light" rather than "dark": dark is the default and is listed first,
+   * but light stays supported, so a browser whose visitor has chosen the light
+   * theme is still allowed to render form controls and scrollbars to match. */
+  colorScheme: "dark light",
+  /* The mobile browser's own chrome, for the same reason: an undeclared bar is
+     painted white above a black page. THEME_BOOT_SCRIPT rewrites this when the
+     stored choice is light. */
+  themeColor: "#050505",
 };
 
 export default function RootLayout({

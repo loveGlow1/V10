@@ -342,7 +342,7 @@ insert into public.credit_plans (id, name, monthly_price_usd, daily_credits, mon
 values
   ('free',     'Free',       0,   0, 0,   0),
   ('standard', 'Standard',  25,   0, 100, 1),
-  ('pro',      'Pro',      150,   0, 600, 1)
+  ('pro',      'Pro',      150,   0, 410, 1)
 on conflict (id) do update set
   name              = excluded.name,
   monthly_price_usd = excluded.monthly_price_usd,

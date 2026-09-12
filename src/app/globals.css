@@ -181,6 +181,13 @@
 html {
   /* Android Chrome and iOS paint a grey box over whatever you tap. */
   -webkit-tap-highlight-color: transparent;
+
+  /* Stated here as well as on <body>, so the page's ground is the root
+     element's own and not something propagated up from a descendant. It closes
+     the last step of the reload sequence: the browser paints its pre-CSS canvas
+     from `color-scheme` (see layout.tsx), and the moment this file lands that
+     canvas becomes the brand black exactly, rather than going through body. */
+  background-color: var(--brandBg);
 }
 
 button,
