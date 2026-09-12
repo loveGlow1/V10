@@ -187,6 +187,78 @@ export function isContinuation(message: string): boolean {
   return CONTINUATION.test(message);
 }
 
+/* ── Words that ask for something without saying what ──────────────────────
+ *
+ * Every one of these can be deleted from a message without losing a word of
+ * the description, because none of them describes anything: the restart
+ * vocabulary, agreement, greetings, politeness, and the pronouns and articles
+ * that hold a sentence together. What is left after they go is what somebody
+ * actually asked to be built.
+ *
+ * Note what is NOT here, and it is the whole reason this is a word list rather
+ * than a length. "page", "school", "shop", "ecomerce" — misspelled and all —
+ * survive, because they name a thing. Counting words instead would refuse
+ * "À page for a school ?" and "Build me an ecomerce page", which are real
+ * briefs that real people sent and that built real pages. */
+const SAYS_NOTHING = new Set([
+  // asking for it again
+  "rerun", "rebuild", "redo", "regenerate", "run", "build", "make", "do", "go",
+  "again", "retry", "resume", "continue", "proceed", "start", "over", "once",
+  "more", "time", "same", "keep", "going", "carry", "ahead", "on", "restart",
+  // agreeing
+  "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "fine", "alright", "k",
+  "cool", "great", "nice", "good", "perfect", "thanks", "thank",
+  // saying hello, and the words that keep it company
+  "hi", "hey", "hello", "yo", "morning", "afternoon", "evening", "gm",
+  "there", "here", "then", "so", "well", "oh", "hmm", "um", "uh", "anyway",
+  "right", "sorry",
+  // being polite, or being in a hurry
+  "please", "pls", "just", "now", "quickly", "quick", "fast", "asap", "kindly",
+  // standing in for the thing instead of naming it
+  "it", "that", "this", "these", "those", "them", "they", "one", "ones",
+  "i", "me", "my", "mine", "we", "us", "our", "you", "your",
+  "something", "anything", "everything", "stuff", "thing", "things",
+  // glue
+  "a", "an", "the", "some", "any", "for", "to", "of", "with", "and", "or",
+  "in", "at", "up", "be", "is", "are", "can", "will", "would", "should",
+  "let", "lets", "want", "need", "like", "put", "get", "give", "show", "add",
+]);
+
+/**
+ * Whether there is nothing here to build from.
+ *
+ * True when every word in the message is one that asks for something without
+ * saying what. "Rerun", "ok do that", "make me something", "hi" — all of them
+ * are requests, none of them is a description.
+ *
+ * ── Why this has to exist ─────────────────────────────────────────────────
+ *
+ * A build ran on the word "Rerun". Nothing rejected it, because nothing was
+ * looking: the kind classifier read a word with no signals in it, said it
+ * could not tell, and offered five buttons. Whichever button gets pressed, the
+ * thing behind it is a full generation from a brief that says nothing — and
+ * the one that got pressed produced a news publication, with posts and
+ * categories and an editor, for somebody who had described a bakery.
+ *
+ * Offering that choice at all is the mistake. The question is not which KIND
+ * of thing to build when there is nothing to build; the missing piece is the
+ * description, and that is what should be asked for.
+ *
+ * Deliberately narrow. Gibberish is not caught and should not be — "asdf" and
+ * a brand nobody has heard of are the same string to a word list, and refusing
+ * a real brief is worse than accepting a test one.
+ */
+export function describesNothing(message: string): boolean {
+  const words = message
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length === 0) return true;
+  return words.every((word) => SAYS_NOTHING.has(word));
+}
+
 export type Brief = {
   /** What to build. The message itself, unless something had to be carried. */
   text: string;
