@@ -81,7 +81,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib")]) {
   }
 }
 
-const { decideArchitecture, describeArchitecture } = await import(
+const { decideArchitecture, describeArchitecture, raiseArchitecture } = await import(
   join(out, "lib/builder/architecture.js")
 );
 const { dataModelFor, schemaNameFor, toSql, toTypes } = await import(
@@ -593,6 +593,81 @@ console.log("");
 if (failures > 0) {
   console.error(`${failures} ${failures === 1 ? "failure" : "failures"}.\n`);
   process.exit(1);
+}
+
+/* ── Capabilities are additive ─────────────────────────────────────────────
+ *
+ * Capability was decided once at build time and could not change, so the only
+ * route to one the first build missed was a rebuild — which throws the page
+ * away. That is the real reason this system leans toward giving every project
+ * everything up front: guessing low was unrecoverable.
+ *
+ * The rule that makes it safe to relax is that nothing here ever takes a layer
+ * AWAY. A later message that does not mention the database is not a request to
+ * delete somebody's tables.
+ */
+console.log("\nRaising a project's capabilities");
+
+const page = {
+  type: "landing",
+  frontend: true,
+  backend: false,
+  database: false,
+  authentication: false,
+  admin: false,
+  storage: false,
+  payments: false,
+};
+
+const withAuth = raiseArchitecture(page, ["authentication"]);
+if (withAuth.manifest.authentication && withAuth.manifest.backend && withAuth.manifest.database) {
+  pass("adding accounts brings the backend and database with them");
+} else {
+  fail("adding accounts brings the backend and database with them", JSON.stringify(withAuth.manifest));
+}
+
+if (withAuth.added.join() === "backend,database,authentication") {
+  pass("and says which layers were added, in build order");
+} else {
+  fail("and says which layers were added, in build order", withAuth.added.join());
+}
+
+const full = {
+  ...page,
+  type: "ecommerce",
+  backend: true,
+  database: true,
+  authentication: true,
+  admin: true,
+  storage: true,
+};
+const narrowed = raiseArchitecture(full, ["frontend"]);
+const lost = Object.keys(full).filter((k) => full[k] === true && narrowed.manifest[k] !== true);
+
+if (lost.length === 0) {
+  pass("an edit that mentions nothing removes nothing");
+} else {
+  fail("an edit that mentions nothing removes nothing", `lost: ${lost.join(", ")}`);
+}
+
+if (narrowed.added.length === 0) {
+  pass("and reports no change rather than a no-op upgrade");
+} else {
+  fail("and reports no change rather than a no-op upgrade", narrowed.added.join());
+}
+
+const admin = raiseArchitecture(page, ["admin"]);
+if (admin.manifest.authentication) {
+  pass("an admin cannot be added without a way to sign into it");
+} else {
+  fail("an admin cannot be added without a way to sign into it");
+}
+
+const pay = raiseArchitecture(page, ["payments"]);
+if (pay.manifest.database) {
+  pass("payments cannot be added without somewhere to record the sale");
+} else {
+  fail("payments cannot be added without somewhere to record the sale");
 }
 
 console.log("All good.\n");

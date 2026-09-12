@@ -94,6 +94,7 @@ import { reframe } from "@/lib/builder/framing";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
+import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { treeBrief } from "@/lib/builder/scaffold";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import { indexTree } from "@/lib/context/project-index";
@@ -1318,6 +1319,38 @@ async function handle(
       const plan = planEdit(stageRequest ?? prompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
 
+      /* ── The capability this edit needs, made real before it is written ──
+       *
+       * planEdit has always been able to work out that "add customer accounts"
+       * reaches authentication, backend and database. Nothing acted on it: the
+       * edit changed markup, the manifest still said authentication was off,
+       * no schema was ever created, and every later edit was planned against a
+       * record that had become wrong.
+       *
+       * So the only route to a capability the first build missed was a new
+       * build, which throws the page away — which is the real reason this
+       * system leans toward giving every project everything up front. Fix the
+       * ratchet and that pressure goes with it.
+       *
+       * Additive only, always: a message that does not mention the database is
+       * not a request to delete it. */
+      const upgrade = await upgradeCapabilities(service, {
+        projectId: project.id,
+        userId: user.id,
+        current: knownArchitecture,
+        touches: plan.touches,
+        stack: "nextjs",
+      });
+
+      if (upgrade.kind === "raised") {
+        steps.mark(
+          "upgrade",
+          `Added ${upgrade.added.join(", ")}`,
+          upgrade.provisionNote || "recorded against the project",
+        );
+        await deliver(upgrade.said, { key: "capability" });
+      }
+
       let source;
       try {
         steps.begin("edit", "Making the change", `reading ${picked.path}…`);
@@ -1328,7 +1361,11 @@ async function handle(
           project_.tree,
           prior,
           narrate("edit", "Making the change"),
-          editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          editPlanBrief(
+            plan,
+            upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture,
+            architectureRow?.design_system as string | null,
+          ),
         );
         steps.mark(
           "edit",
@@ -1778,6 +1815,47 @@ async function handle(
        * question about one section comes back having restyled the site. */
       const plan = planEdit(editPrompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
+
+      /* ── And whether this page can hold what is being asked of it ────────
+       *
+       * The same upgrade as the project path above, and on a single page it
+       * usually answers "no". A page has no server, no environment and no
+       * second route, so "add accounts" cannot be done by patching it however
+       * convincingly the form is written — and a sign-in that looks right and
+       * cannot work is the failure worth refusing rather than shipping.
+       *
+       * Said before anything is spent, with the way forward in the same
+       * sentence, and the page they have is left exactly as it is. */
+      const pageUpgrade = await upgradeCapabilities(service, {
+        projectId: project.id,
+        userId: user.id,
+        current: knownArchitecture,
+        touches: plan.touches,
+        stack: (architectureRow?.stack as string | null) ?? "standalone-html",
+      });
+
+      if (pageUpgrade.kind === "needs-rebuild") {
+        const stored = await deliver(pageUpgrade.said, { key: "needs-rebuild" });
+        return NextResponse.json(
+          {
+            error: pageUpgrade.said,
+            intent: "edit",
+            code: "needs_rebuild",
+            needsRebuild: true,
+            stored,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (pageUpgrade.kind === "raised") {
+        steps.mark(
+          "upgrade",
+          `Added ${pageUpgrade.added.join(", ")}`,
+          pageUpgrade.provisionNote || "recorded against the project",
+        );
+        await deliver(pageUpgrade.said, { key: "capability" });
+      }
 
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(

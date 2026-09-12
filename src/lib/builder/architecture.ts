@@ -501,3 +501,60 @@ export function architectureBrief(manifest: ArchitectureManifest): string {
 
   return lines.join("\n");
 }
+
+/**
+ * The manifest with layers added, and never with any taken away.
+ *
+ * Capability was decided once, at build time, and was immutable thereafter.
+ * That is the reason this system leans toward giving every project everything
+ * up front: if the first build guesses low there is no way back except a full
+ * rebuild, which discards the page somebody has been working on. Make it
+ * additive and the pressure to over-provision goes with it — a project can
+ * start as the front of a shop and become a shop.
+ *
+ * ADDITIVE IS A RULE, not an implementation detail. A later message that does
+ * not mention the database must never be read as a request to remove it: a
+ * customer's tables, their rows and their auth users are not something a
+ * classifier gets to decide about. Removal is a separate, explicit act.
+ *
+ * The implication chains from decideArchitecture are applied again here, for
+ * the same reasons they exist there — an admin nobody can sign into is a public
+ * back office, and payments with no database is a checkout that charges a card
+ * and forgets the sale.
+ */
+export function raiseArchitecture(
+  current: ArchitectureManifest,
+  add: readonly Layer[],
+): { manifest: ArchitectureManifest; added: Layer[] } {
+  const manifest: ArchitectureManifest = { ...current, frontend: true };
+
+  for (const layer of add) {
+    if (layer === "frontend") continue;
+    manifest[layer] = true;
+  }
+
+  if (manifest.payments) manifest.database = true;
+  if (manifest.admin) manifest.authentication = true;
+  if (manifest.authentication || manifest.admin || manifest.storage) manifest.backend = true;
+  if (manifest.backend && (manifest.authentication || manifest.admin)) manifest.database = true;
+
+  const added = LAYERS.filter((layer) => manifest[layer] && !current[layer]);
+  return { manifest, added };
+}
+
+/**
+ * What a capability upgrade is called where somebody reads it.
+ *
+ * Named as the thing they asked for rather than as the layers, because "adding
+ * accounts, which needs a database behind them" is a sentence somebody can
+ * agree or disagree with, and "authentication, backend, database" is a list
+ * they have to translate first.
+ */
+export function describeUpgrade(added: readonly Layer[]): string {
+  const names = added.map((layer) => LAYER_LABEL[layer].toLowerCase());
+  if (names.length === 0) return "";
+  if (names.length === 1) return `adding ${names[0]}`;
+
+  const last = names[names.length - 1];
+  return `adding ${names.slice(0, -1).join(", ")} and ${last}`;
+}
