@@ -380,8 +380,7 @@ const HERO_APPS = [
     angle: 232,
     radius: 1,
     size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[480px]",
-    mobile: { left: "20%", top: "calc(100% + 26px)" },
-    show: "hidden [@media(min-width:375px)_and_(min-height:720px)]:block lg:block",
+    show: "hidden lg:block",
     transform: "perspective(1400px) rotateZ(-12deg) rotateY(12deg) rotateX(3deg) scale(0.82)",
     opacity: 0.38,
     layer: "z-0",
@@ -397,7 +396,6 @@ const HERO_APPS = [
     angle: 185,
     radius: 1.04,
     size: "w-[26vw] max-w-[470px]",
-    mobile: null,
     show: "hidden lg:block",
     transform: "perspective(1200px) rotateZ(-6deg) rotateY(15deg) rotateX(-2deg) scale(0.9)",
     opacity: 0.5,
@@ -414,8 +412,7 @@ const HERO_APPS = [
     angle: 131,
     radius: 1.22,
     size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
-    mobile: { left: "12%", top: "40px" },
-    show: "hidden min-[375px]:block",
+    show: "hidden lg:block",
     transform: "perspective(1200px) rotateZ(-9deg) rotateY(13deg) rotateX(2deg) scale(1)",
     opacity: 0.74,
     layer: "z-10",
@@ -431,8 +428,7 @@ const HERO_APPS = [
     angle: 49,
     radius: 1.22,
     size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
-    mobile: { left: "88%", top: "32px" },
-    show: "hidden min-[375px]:block",
+    show: "hidden lg:block",
     transform: "perspective(1200px) rotateZ(-7deg) rotateY(-10deg) rotateX(-2deg) scale(0.97)",
     opacity: 0.68,
     filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
@@ -448,8 +444,7 @@ const HERO_APPS = [
     angle: 355,
     radius: 0.99,
     size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[470px]",
-    mobile: { left: "82%", top: "calc(100% + 30px)" },
-    show: "hidden [@media(min-width:375px)_and_(min-height:720px)]:block lg:block",
+    show: "hidden lg:block",
     transform: "perspective(1200px) rotateZ(9deg) rotateY(-12deg) rotateX(2deg) scale(0.92)",
     opacity: 0.52,
     filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
@@ -465,7 +460,6 @@ const HERO_APPS = [
     angle: 308,
     radius: 1.05,
     size: "w-[26vw] max-w-[480px]",
-    mobile: null,
     show: "hidden lg:block",
     transform: "perspective(1400px) rotateZ(11deg) rotateY(-13deg) rotateX(3deg) scale(0.84)",
     opacity: 0.34,
@@ -788,17 +782,22 @@ export default function LandingPage() {
               one element cannot hold both the drift and the rotation, since animating a
               transform would wipe the other out. See HERO_APPS for the ring itself.
 
-              Which of them appear at which width is each surface's own `show`
-              classes and nothing else. It used to be gated on a matchMedia read
-              as well, which could not be answered on the server: the hero was
-              therefore sent out with no surfaces at all and grew six of them
-              once JavaScript ran. The classes also disagreed with the gate —
-              two of these are written to appear from 375px up and the gate hid
-              them below 1024 — so the markup was never doing what it said.
+              The ring is a desktop composition and only a desktop one. All six
+              carry `hidden lg:block`, which is the same 1024px line the anchor
+              CSS switches its coordinates at, so below it there is no ring at
+              all and above it every surface sits on its point. That is why
+              `mobile` is null throughout: a position for a width the surface is
+              never drawn at is dead configuration, and the one thing worse than
+              no rule is a rule that cannot fire.
 
-              A phone still does not pay for the ones it does not show: they are
-              display:none, their images are lazy, and a lazy image inside a box
-              with no layout is never in a viewport and so is never fetched. */}
+              Stated in CSS rather than in JavaScript, deliberately. This used to
+              be gated on a matchMedia read too, which has no answer on the
+              server — the hero went out with no surfaces and grew six once
+              hydration ran.
+
+              A phone pays nothing for them: they are display:none, their images
+              are lazy, and a lazy image inside a box with no layout is never in
+              a viewport and so is never fetched. */}
           <div className="hero-apps pointer-events-none absolute inset-0" aria-hidden="true">
             {HERO_APPS.map((app) => {
               const place = heroRingPosition(app.angle, app.radius);
@@ -807,9 +806,9 @@ export default function LandingPage() {
                 <div
                   key={app.src}
                   className={`hero-app-anchor absolute -translate-x-1/2 -translate-y-1/2 ${app.show} ${app.layer} ${app.size}`}
+                  /* One pair of coordinates, because there is only one width
+                     this is ever drawn at. See the note above. */
                   style={{
-                    ["--m-left" as string]: app.mobile?.left ?? place.left,
-                    ["--m-top" as string]: app.mobile?.top ?? place.top,
                     ["--d-left" as string]: place.left,
                     ["--d-top" as string]: place.top,
                   }}
