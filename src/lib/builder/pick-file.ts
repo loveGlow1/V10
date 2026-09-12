@@ -177,3 +177,33 @@ export function homePageOf(tree: FileTree): string | null {
   }
   return tree[0]?.path ?? null;
 }
+
+/* What else in the project reaches this file.
+ *
+ * Paths and exported names only, never contents. The point of a tree is that
+ * changing one component does not require reading forty others — but the
+ * commonest way to break a project from inside one file is to rename or remove
+ * something another file still imports, and a model that cannot see who is
+ * asking has no way to know. A list of names is enough to stop that and costs
+ * a few dozen tokens.
+ */
+export function neighbourBrief(tree: FileTree, path: string): string {
+  const base = path.replace(/\.[jt]sx?$/, "");
+  const importers = tree
+    .filter((file) => file.path !== path && file.content.includes(base.replace(/^app\//, "@/app/")))
+    .map((file) => file.path);
+
+  const alsoImporting = tree
+    .filter((file) => {
+      if (file.path === path) return false;
+      const name = base.split("/").pop();
+      return Boolean(name) && new RegExp(`from\\s+["'][^"']*${name}["']`).test(file.content);
+    })
+    .map((file) => file.path);
+
+  const reaching = [...new Set([...importers, ...alsoImporting])];
+  if (reaching.length === 0) return "";
+
+  return `WHAT ELSE REACHES THIS FILE — ${reaching.join(", ")}.
+Whatever this file exports, those files are importing. Renaming or removing an export breaks every one of them, and a broken import is a build that does not deploy rather than a page that looks wrong.`;
+}

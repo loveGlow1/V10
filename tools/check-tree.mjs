@@ -333,5 +333,49 @@ has(
   "and a project with no backend is not told to talk to one",
 );
 
+
+/* ── Editing a project, rather than the receipt for one ────────────────────
+ *
+ * The defect these guard was silent in every way a defect can be. A Next.js
+ * build stores .tsx in project_files and a SUMMARY of the project in the html
+ * column; the edit path read that column and nothing else. So every edit to a
+ * project edited the summary — blocks matched, the patch applied, validation
+ * passed, a version was stored and charged for — and the customer's actual
+ * source was never touched. pickFile, which exists to choose the file, had no
+ * caller at all.
+ */
+const route = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+
+console.log("\nA project's source is what an edit changes:");
+
+has(
+  /pickFile\(/.test(route) && /editSource\(/.test(route),
+  "the build route picks a file and edits its source",
+  "without this every edit to a Next.js project edits the summary page",
+);
+
+has(
+  /currentTree\(service, project\.id\)/.test(route),
+  "and it loads the tree rather than reading the html column",
+);
+
+has(
+  route.indexOf("if (intent === \"edit\" && service) {") <
+    route.indexOf("if (intent === \"edit\" && currentHtml) {"),
+  "the project path is tried before the page path",
+  "a tree build has an html column too — it is the summary, and reaching it first is the bug",
+);
+
+has(
+  /storeTree\(\s*service/.test(route),
+  "the changed tree is stored as a new version",
+);
+
+has(
+  /startDeployment\(edited/.test(route),
+  "and the change is put online, not just stored",
+  "source changed and not deployed leaves the customer's site on the previous build",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

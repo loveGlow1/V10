@@ -37,7 +37,8 @@ execFileSync(
   { stdio: ["ignore", "ignore", "inherit"] },
 );
 
-const { pickFileLocally, readPick, homePageOf } = await import(join(out, "lib/builder/pick-file.js"));
+const { pickFileLocally, readPick, homePageOf, neighbourBrief } =
+  await import(join(out, "lib/builder/pick-file.js"));
 
 let failed = 0;
 const ok = (t, d) => console.log(`ok    ${t}${d !== undefined ? ` — ${d}` : ""}`);
@@ -165,6 +166,42 @@ has(
   "a project with no home page falls back to something rather than nothing",
 );
 has(homePageOf([]) === null, "and an empty project falls back to nothing");
+
+/* ── What else reaches a file ──────────────────────────────────────────────
+ *
+ * The other half of picking one. A model editing a component in isolation
+ * cannot see who imports it, and the commonest way to break a project from
+ * inside one file is to rename or remove an export another file is still
+ * asking for — which fails the BUILD rather than making the page look wrong,
+ * so nobody finds out until the deployment does not happen.
+ *
+ * Names and paths only. The point of a tree is that changing one component
+ * does not mean reading forty others. */
+const NEIGHBOURS = [
+  { path: "app/page.tsx", content: "import Hero from '@/components/Hero';\nexport default () => <Hero />;" },
+  { path: "app/about/page.tsx", content: "import Hero from '@/components/Hero';\nexport default () => <Hero />;" },
+  { path: "components/Hero.tsx", content: "export default function Hero(){return <h1>Welcome</h1>;}" },
+  { path: "app/globals.css", content: "@import './tokens.css';" },
+];
+
+const heroBrief = neighbourBrief(NEIGHBOURS, "components/Hero.tsx");
+has(
+  heroBrief.includes("app/page.tsx") && heroBrief.includes("app/about/page.tsx"),
+  "a component is told every file that imports it",
+  `got: ${heroBrief.slice(0, 120) || "(nothing)"}`,
+);
+has(
+  !heroBrief.includes("components/Hero.tsx"),
+  "and not told about itself",
+);
+has(
+  /breaks every one of them/.test(heroBrief),
+  "with the consequence stated, not just the list",
+);
+has(
+  neighbourBrief(NEIGHBOURS, "app/globals.css") === "",
+  "a file nothing imports gets an empty brief rather than an empty heading",
+);
 
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

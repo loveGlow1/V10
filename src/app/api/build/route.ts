@@ -44,6 +44,8 @@ import {
   askClarifying,
   editModelFor,
   editPage,
+  editSource,
+  pickFile,
   type OnProgress,
 } from "@/lib/builder/edit";
 import { estimateTokens } from "@/lib/context/budget";
@@ -68,6 +70,7 @@ import {
   readProjectIndex,
   recordCheckpoint,
   saveContext,
+  writeProjectIndex,
 } from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
@@ -89,9 +92,17 @@ import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
 import { referenceEditBrief } from "@/lib/builder/reference";
-import { resolveBackend } from "@/lib/builder/backend/connection";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { treeBrief } from "@/lib/builder/scaffold";
+import { currentTree, storeTree } from "@/lib/builder/store-tree";
+import { indexTree } from "@/lib/context/project-index";
+import {
+  deploymentName,
+  deploymentsConfigured,
+  startDeployment,
+} from "@/lib/publish/vercel-deploy";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
@@ -1249,6 +1260,266 @@ async function handle(
       },
       project: null,
     });
+  }
+
+  /* ── EDITING A PROJECT, rather than the receipt for one ──────────────────
+   *
+   * The largest defect in the edit pipeline, and it was completely silent.
+   *
+   * A build of the Next.js stack stores its .tsx in project_files and puts a
+   * SUMMARY of the project in the html column — the routes, the tables, the
+   * files — because nothing here runs `next build` and a tree of source cannot
+   * be shown to anybody. Everything below this point read that html column and
+   * nothing else. So every edit to a project edited the summary: blocks
+   * matched, the patch applied, validation passed, a new version was stored and
+   * charged for, and the customer's actual application was never touched. Their
+   * source was frozen from the first build, and redeploying redeployed it.
+   *
+   * pickFile, which chooses which file an instruction belongs in and has been
+   * written and tested this whole time, had no caller anywhere.
+   *
+   * Kept ahead of the page path rather than folded into it because they are
+   * different artefacts with different rules: a component has no <html> to
+   * balance, no stashed images, and neighbours that import it. See editSource.
+   */
+  if (intent === "edit" && service) {
+    const project_ = await currentTree(service, project.id);
+
+    if (project_.tree.length > 0 && project_.buildId) {
+      steps.begin("file", "Finding the file", "reading the project's own listing…");
+
+      const picked = await pickFile(stageRequest ?? prompt, project_.tree);
+      const target = picked
+        ? project_.tree.find((file) => file.path === picked.path)
+        : undefined;
+
+      if (!picked || !target) {
+        const said =
+          "I couldn't work out which file that belongs in. Name the page or the component — or the words on screen — and I'll find it.";
+        const stored = await deliver(said, { tone: "error", key: "edit-no-file" });
+        return NextResponse.json(
+          { error: said, intent: "edit", code: "edit_no_file", stored },
+          { status: 422 },
+        );
+      }
+
+      steps.mark(
+        "file",
+        `Editing ${picked.path}`,
+        picked.why === "named"
+          ? "you named it"
+          : picked.why === "only-one"
+            ? "it is the only file this could be"
+            : picked.why === "convention"
+              ? "that is where this lives in a Next.js project"
+              : "chosen by reading the file listing",
+      );
+
+      const plan = planEdit(stageRequest ?? prompt, knownArchitecture);
+      steps.mark("plan", describeEdit(plan), plan.why[0]);
+
+      let source;
+      try {
+        steps.begin("edit", "Making the change", `reading ${picked.path}…`);
+        source = await editSource(
+          stageRequest ?? prompt,
+          target,
+          picked.why,
+          project_.tree,
+          prior,
+          narrate("edit", "Making the change"),
+          editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+        );
+        steps.mark(
+          "edit",
+          `Applied ${source.applied} ${source.applied === 1 ? "change" : "changes"} to ${picked.path}`,
+          `${source.model}, ${source.outputTokens} output tokens${source.retried ? ", retried once" : ""}`,
+        );
+      } catch (error) {
+        if (error instanceof EditError) {
+          const stored = await deliver(error.message, { tone: "error", key: "edit-failed" });
+          return NextResponse.json(
+            { error: error.message, intent: "edit", code: "edit_failed", stored },
+            { status: error.status },
+          );
+        }
+        throw error;
+      }
+
+      /* The whole tree, with one file replaced. Stored as a NEW build rather
+         than as an update to the old one, for the same reason a page edit is:
+         undo is a version, never a deletion. */
+      const edited = project_.tree.map((file) =>
+        file.path === source.path ? { ...file, content: source.contents } : file,
+      );
+
+      steps.begin("version", "Saving the new version", "storing the project so you can undo back to this…");
+      const { data: newBuild, error: buildError } = await service
+        .from("project_builds")
+        .insert({
+          project_id: project.id,
+          user_id: user.id,
+          request_id: requestId,
+          prompt,
+          /* The summary is carried forward unchanged. It describes the project
+             — its routes and tables — and editing one component does not make
+             it wrong. What it is NOT is the thing that was edited, which is the
+             confusion this whole branch exists to end. */
+          html: currentHtml ?? "",
+          model: `${source.model} (${source.path})`,
+          files_touched: 1,
+        })
+        .select("id")
+        .single();
+
+      if (buildError || !newBuild) {
+        // eslint-disable-next-line no-console
+        console.error("edit: the project version could not be stored:", buildError);
+        const said = "I made the change but couldn't save it. Nothing was altered — this one is at our end.";
+        const stored = await deliver(said, { tone: "error", key: "edit-store-failed" });
+        return NextResponse.json({ error: said, intent: "edit", stored }, { status: 500 });
+      }
+
+      try {
+        await storeTree(
+          service,
+          { buildId: newBuild.id as string, projectId: project.id, userId: user.id },
+          edited,
+        );
+      } catch (error) {
+        /* A build row with no files is worse than no build row: it claims a
+           version that does not exist. Taken back out, exactly as the save
+           route does when its own tree fails to store. */
+        await service.from("project_builds").delete().eq("id", newBuild.id as string);
+        // eslint-disable-next-line no-console
+        console.error("edit: the project's files could not be stored:", error);
+        const said = "I made the change but couldn't save the project's files, so nothing was altered.";
+        const stored = await deliver(said, { tone: "error", key: "edit-store-failed" });
+        return NextResponse.json({ error: said, intent: "edit", stored }, { status: 500 });
+      }
+      steps.mark("version", "Saved a new version of the project");
+
+      /* The index, so the next edit can retrieve against what the project now
+         IS rather than against what it was. Best effort, like the save route's:
+         a build whose index fails to write is a build whose next edit retrieves
+         nothing, which is where it already was. */
+      try {
+        await writeProjectIndex(service, {
+          projectId: project.id,
+          userId: user.id,
+          entries: indexTree(edited),
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("edit: the project index was not updated:", error);
+      }
+
+      await service
+        .from("projects")
+        .update({
+          prompt,
+          status: "Built",
+          preview_url: previewUrl,
+          last_build_at: new Date().toISOString(),
+        })
+        .eq("id", project.id)
+        .eq("user_id", user.id);
+
+      /* ── And put it back online ────────────────────────────────────────
+       *
+       * The half that makes this an edit to an APPLICATION rather than to a
+       * row. Source that is changed and not deployed is source nobody can look
+       * at: the customer's site is still serving the build before this one.
+       *
+       * Started, never waited for — see startDeployment. This route has sixty
+       * seconds and a Next.js build takes minutes, so the deployment is
+       * recorded and /api/cron/deployments settles it. Every failure here is
+       * survivable: the edit is stored and paid for whatever Vercel does, and
+       * redeploying costs nothing. */
+      let deploying = false;
+      if (deploymentsConfigured()) {
+        const backendForDeploy = knownArchitecture?.database
+          ? await resolveBackend(service, project.id)
+          : null;
+        const deployEnv = backendForDeploy ? envFor(backendForDeploy) : null;
+        const vercelProject =
+          (await existingVercelProject(service, project.id)) ??
+          deploymentName(project.name as string, project.id);
+
+        steps.begin("deploy", "Putting the change online", "uploading the project to be built…");
+        const started = await startDeployment(edited, {
+          name: vercelProject,
+          supabaseUrl: deployEnv?.NEXT_PUBLIC_SUPABASE_URL,
+          supabaseAnonKey: deployEnv?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+          supabaseSchema: deployEnv?.NEXT_PUBLIC_SUPABASE_SCHEMA,
+        });
+
+        if (started.ok) {
+          deploying = true;
+          await recordDeployment(service, {
+            projectId: project.id,
+            userId: user.id,
+            buildId: newBuild.id as string,
+            deploymentId: started.deploymentId,
+            vercelProject,
+            url: started.url,
+            inspectUrl: started.inspect,
+          });
+          steps.mark("deploy", "Building it now", "you will be told when it is live");
+        } else {
+          steps.mark("deploy", "Not put online", started.reason);
+        }
+      }
+
+      const said = [
+        `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`,
+        source.failures.length > 0
+          ? `${source.failures.length} part of that could not be matched in the file.`
+          : null,
+        deploying ? "It is building now, and I'll tell you when it is live." : null,
+        source.note ? `Next: ${source.note}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const storedEdit = await deliver(said, { key: "edit" });
+
+      const editCost = creditCostOf(BUILD_ACTION, { filesTouched: 1, modelId: source.model });
+      const charge = await chargeCredits(service, {
+        userId: user.id,
+        action: BUILD_ACTION,
+        cost: roundCredits(editCost + contextCost),
+        description: `Edit: ${project.name} — ${source.path}`,
+        projectId: project.id,
+        filesTouched: 1,
+        dedupeKey: `edit:${requestId}`,
+      });
+      if (charge) steps.mark("charge", `Charged ${formatCredits(charge.charged)} credits`);
+
+      const { data: afterTree } = await supabase
+        .from("projects")
+        .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+        .eq("id", project.id)
+        .maybeSingle();
+
+      return NextResponse.json({
+        stored: storedEdit,
+        steps: steps.list(),
+        intent: "edit",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: previewUrl, repo: "", admin: "" },
+          configKeys: {},
+          artifacts: { applied: source.applied, file: source.path },
+          message: said,
+        },
+        project: afterTree ?? null,
+      });
+    }
   }
 
   // ── EDIT ─────────────────────────────────────────────────────────────────
