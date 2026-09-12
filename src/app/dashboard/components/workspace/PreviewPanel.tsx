@@ -105,6 +105,10 @@ export default function PreviewPanel({
      control whose only possible outcome is a refusal is worse than no control.
      Null while unasked, so nothing flickers in before the answer. */
   const [canRun, setCanRun] = useState<boolean | null>(null);
+  /* Eligible to press it is not the same as it being able to work. False means
+     hosting is not configured yet, which is a different sentence from a
+     deployment that was tried and failed. */
+  const [hostingReady, setHostingReady] = useState(true);
 
   useEffect(() => {
     const id = project?.id;
@@ -116,13 +120,22 @@ export default function PreviewPanel({
     let current = true;
     /* Reset per project: the previous one's answer is not this one's. */
     setCanRun(null);
+    setHostingReady(true);
     setDeployed(null);
     setDeployError(null);
 
     fetch(`/api/projects/${id}/deploy`)
       .then((response) => (response.ok ? response.json() : { available: false }))
-      .then((body: { available?: boolean }) => {
-        if (current) setCanRun(body.available === true);
+      .then((body: { available?: boolean; ready?: boolean; reason?: string | null }) => {
+        if (!current) return;
+        setCanRun(body.available === true);
+        /* Carried before anything is pressed. If hosting is not configured, the
+           account that can configure it should be able to read that from the
+           button rather than from a failed attempt. */
+        if (body.available === true && body.ready === false && body.reason) {
+          setHostingReady(false);
+          setDeployError(body.reason);
+        }
       })
       .catch(() => {
         if (current) setCanRun(false);
@@ -977,7 +990,13 @@ export default function PreviewPanel({
                   failure that lives only in a tooltip is a failure most people
                   never read. */}
               <span className="hidden xl:inline">
-                {deploying ? "Building…" : deployError ? "Couldn't host" : "Run app"}
+                {deploying
+                  ? "Building…"
+                  : !hostingReady
+                    ? "Hosting not set up"
+                    : deployError
+                      ? "Couldn't host"
+                      : "Run app"}
               </span>
             </button>
           )}
