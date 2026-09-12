@@ -250,6 +250,56 @@ export async function deployProject(tree: FileTree, target: DeployTarget): Promi
   return ready;
 }
 
+
+/* What the build actually said.
+ *
+ * "The project did not compile" is true and nearly useless. The thing that
+ * would fix the project is the compiler's own line — the file, the line
+ * number, the type that did not match — and Vercel has it, on the deployment's
+ * event stream, for the asking.
+ *
+ * So a failed build is asked. The alternative was a person opening the Vercel
+ * dashboard, finding a project named after their app among the others, opening
+ * the failed deployment and scrolling its log; that is a reasonable thing to
+ * ask of the engineer who built this platform and not of somebody who typed a
+ * sentence into it.
+ *
+ * Best effort, and short. This runs after a failure and must not become a
+ * second one, so anything unexpected leaves the plain reason standing. The
+ * lines are capped because the destination is a column in a table and a
+ * sentence in a preview, not a log viewer. */
+const LOG_LINES = 12;
+const LOG_CHARS = 1200;
+
+async function buildLog(
+  id: string,
+  creds: { token: string; teamQuery: string },
+): Promise<string | null> {
+  const joiner = creds.teamQuery ? "&" : "?";
+  const events = await call(
+    `/v2/deployments/${encodeURIComponent(id)}/events${creds.teamQuery}${joiner}builds=1&limit=200`,
+    {},
+    creds.token,
+  );
+
+  if (!events.ok || events.status >= 400 || !Array.isArray(events.body)) return null;
+
+  /* stderr first: a failed `next build` puts the diagnosis there, and the
+     stdout around it is install chatter nobody needs. */
+  const lines: string[] = [];
+  for (const entry of events.body as { type?: unknown; payload?: unknown }[]) {
+    const payload = entry?.payload as { text?: unknown } | undefined;
+    const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+    if (!text) continue;
+    if (entry.type === "stderr" || /error|failed|cannot|expected|Type '/i.test(text)) {
+      lines.push(text);
+    }
+  }
+
+  if (lines.length === 0) return null;
+  return lines.slice(-LOG_LINES).join("\n").slice(-LOG_CHARS);
+}
+
 async function waitForBuild(
   id: string,
   url: string,
@@ -267,8 +317,15 @@ async function waitForBuild(
 
       if (state === "ERROR" || state === "CANCELED") {
         /* The compile failed, which is a fact about the generated code rather
-           than about Vercel, and the customer needs it said that way. */
-        return { ok: false, reason: "the project did not compile — its build failed on Vercel" };
+           than about Vercel, and the customer needs it said that way — with the
+           compiler's own words, which are the only part anybody can act on. */
+        const log = await buildLog(id, creds);
+        return {
+          ok: false,
+          reason: log
+            ? `the project did not compile:\n${log}`
+            : "the project did not compile — its build failed on Vercel",
+        };
       }
     }
 

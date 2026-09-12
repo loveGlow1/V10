@@ -34,8 +34,16 @@ import type { FileTree, ProjectFile } from "./tree";
  * Pinned, and pinned exactly. A caret here means a project generated today and
  * a project generated in March install different frameworks, and the second one
  * fails on an API the first one used — which arrives as "my app broke and I
- * didn't touch it". Somebody moves this deliberately or it does not move. */
-const NEXT = "15.5.4";
+ * didn't touch it". Somebody moves this deliberately or it does not move.
+ *
+ * Moved deliberately, on 2026-09-12. 15.5.4 was deprecated on npm for
+ * CVE-2025-66478, which means every project generated up to that date shipped
+ * a framework with a known vulnerability — and the only place it was ever said
+ * out loud was an npm warning in a build log nobody was reading. 15.5.25 is the
+ * patched release on the same minor line; the jump to 16 is a major and is not
+ * something to make inside a security patch. check:versions is the reason this
+ * will not go unnoticed again. */
+const NEXT = "15.5.25";
 const REACT = "19.1.0";
 const TYPES_REACT = "19.1.0";
 const TYPESCRIPT = "5.6.3";
