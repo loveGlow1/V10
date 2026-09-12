@@ -66,10 +66,27 @@ const MAX_NAME_LENGTH = 52;
 export type DeployTarget = {
   /** Names the Vercel project. One per generated project, stable across builds. */
   name: string;
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  /* THE GENERATED APP'S OWN BACKEND, and never this platform's.
+   *
+   * These three were read straight off `process.env` at both call sites, which
+   * is the bug that made "connect your own Supabase" a lie: the schema came
+   * from the project's resolved backend and the URL and key came from
+   * QuickStark's, so a customer who linked their own database was deployed
+   * pointing at OURS, with schema `public`, querying the platform's own
+   * tables with the platform's anon key.
+   *
+   * They are supplied by the caller now, from envFor(resolveBackend(...)) —
+   * see src/lib/builder/backend/connection.ts, which is the one place that
+   * knows whether a project is on the shared instance or its owner's.
+   *
+   * Absent means the project HAS NO BACKEND, which is the ordinary case for
+   * every frontend-only build. No .env.production is written at all then,
+   * rather than one carrying credentials the app has no client to use and no
+   * business holding. */
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
   /** The generated app's own Postgres schema. */
-  supabaseSchema: string;
+  supabaseSchema?: string;
 };
 
 export type DeployOutcome =
@@ -163,13 +180,22 @@ function withCurrentFramework(file: { file: string; data: string; encoding: "utf
 export function deploymentFiles(tree: FileTree, target: DeployTarget) {
   /* Written rather than appended to whatever the generator emitted: a
      generated .env.production would be the model's guess at these values, and
-     the platform's own are the correct ones. Last writer wins below. */
-  const env = [
-    `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
-    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
-    `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
-    "",
-  ].join("\n");
+     the project's resolved backend is the correct one. Last writer wins below.
+
+     Null when this project has no backend. The generated tree then has no
+     lib/supabase.ts either — scaffold.ts writes one only when the manifest
+     says database — so there is nothing to configure, and writing a file full
+     of somebody else's credentials to satisfy a template would be handing them
+     to every visitor of a site that never asked for a database. */
+  const env =
+    target.supabaseUrl && target.supabaseAnonKey && target.supabaseSchema
+      ? [
+          `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
+          `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
+          `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
+          "",
+        ].join("\n")
+      : null;
 
   /* Repaired on the way out, for the same reason the framework pin is: every
      project ever generated is still sitting in the database, and a tree stored
@@ -182,7 +208,7 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
     .filter((file) => file.path !== ".env.production" && file.path !== ".env.local")
     .map((file) => ({ file: file.path, data: file.content, encoding: "utf-8" as const }));
 
-  files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
+  if (env) files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
   return files.map(withCurrentFramework);
 }
 

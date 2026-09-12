@@ -28,8 +28,7 @@
 
 import { NextResponse } from "next/server";
 
-import { resolveBackend } from "@/lib/builder/backend/connection";
-import { schemaNameFor } from "@/lib/builder/schema";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
 import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
@@ -192,17 +191,25 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     );
   }
 
+  /* ── Whose database this app talks to ──────────────────────────────────
+   *
+   * THIS PROJECT'S backend, resolved from project_backends — never the
+   * platform's own environment, which is what these three lines used to read.
+   * The schema came from the project and the URL and key came from
+   * process.env, so a redeploy of a project linked to its owner's Supabase
+   * sent them QuickStark's address and QuickStark's anon key.
+   *
+   * Null is a real answer and not a failure: a project with no database layer
+   * has no Supabase client in its tree, so no .env.production is written for
+   * it at all. See deploymentFiles. */
   const backend = await resolveBackend(service, owned.projectId);
+  const env = backend ? envFor(backend) : null;
 
   const deployed = await deployProject(tree, {
     name: deploymentName(project?.name ?? "app", owned.projectId),
-    /* The platform's own Supabase address and public key: the same pair every
-       generated app is built against, and both are NEXT_PUBLIC_ by nature.
-       Nothing server-only is read here — see the note in vercel-deploy.ts
-       about what may and may not reach a deployed file. */
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-    supabaseSchema: backend?.schema ?? schemaNameFor(owned.projectId),
+    supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
   });
 
   /* Recorded either way, and against the build rather than the project: a

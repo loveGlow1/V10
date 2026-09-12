@@ -78,8 +78,12 @@ import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import {
   type ArchitectureManifest,
+  architectureFromChoice,
+  architectureOptions,
+  architectureQuestion,
   decideArchitecture,
   describeArchitecture,
+  isArchitectureChoice,
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
@@ -170,6 +174,11 @@ type BuildRequestBody = {
      project whose kind is settled); otherwise the brief is classified. As with
      intentOverride, an explicit choice beats a guess. */
   buildKind?: unknown;
+  /* Whether this project has a back half, when the person was asked and
+     answered — "full" or "frontend". Sent back with the next request the
+     same way buildKind and stack are. Anything else here is ignored and the
+     brief decides; see decideArchitecture, which says when it is guessing. */
+  architecture?: unknown;
   /* Which market's conventions the content follows — "us" or "ng". Sent only
      when something already knows; otherwise it is read out of the brief, and
      either way a brief that names a country overrules it. */
@@ -2122,6 +2131,85 @@ async function handle(
     ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
     : decideStack(brief.text, kind.kind);
 
+  /* ── What this project is actually made of ──────────────────────────────
+   *
+   * The stack answered whether this can be one file. This answers what is in
+   * it: a database, accounts, a back office, storage, a way to take money. See
+   * src/lib/builder/architecture.ts, which is also where the reasons come from.
+   *
+   * It can raise the stack — a store with no database is a picture of a store —
+   * and where that raise is a guess rather than something the brief said, it
+   * comes back uncertain and is put to the person instead of being spent on.
+   * Same guard, same reason, as the stack question above it. */
+  /* ── And whether that answer is safe to spend a build on ─────────────────
+   *
+   * decideArchitecture has always returned `certain`, has always known when
+   * the layers came from the kind rather than from the brief, and has always
+   * had the words to ask — architectureQuestion, architectureOptions and
+   * isArchitectureChoice were written for this and had no caller. The flag was
+   * read by nothing, so a guess was spent on rather than asked about: "build
+   * me a shop" arrived with a users table, an admin area and a storage bucket,
+   * and the first anybody knew of it was a schema they had to go and delete.
+   *
+   * Same guard, same shape and same UX as the two questions above it. The only
+   * difference is what it decides, and it decides the most expensive thing
+   * here: whether this project has a back half at all. */
+  const chosenArchitecture = isArchitectureChoice(body.architecture) ? body.architecture : null;
+  const decided = decideArchitecture(brief.text, kind.kind, needs);
+  const architecture = chosenArchitecture
+    ? architectureFromChoice(chosenArchitecture, kind.kind, decided)
+    : decided;
+
+  /* An answer settles the artefact as well as the layers, so it is applied to
+     `needs` before either question below is considered. "The front of it" is a
+     page by definition — there is nothing left that a page cannot hold — and
+     answering one question only to be asked the other is how a question stops
+     being worth reading. */
+  if (chosenArchitecture) {
+    needs.certain = true;
+    if (chosenArchitecture === "frontend") {
+      needs.stack = "standalone-html";
+      needs.backend = false;
+      needs.auth = false;
+    } else if (architecture.needsProject) {
+      needs.stack = "nextjs";
+    }
+  }
+
+  if (!architecture.certain && ASK_WHEN_UNSURE) {
+    const asked = architectureQuestion(kind.kind, architecture.manifest);
+    const stored = await deliver(asked, { key: "which-architecture" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "new_project",
+      needsArchitecture: true,
+      architectureOptions: architectureOptions(kind.kind),
+      /* Both sent back, so the answer lands on the same reading of the brief
+         that produced the question rather than on a fresh classification. */
+      buildKind: kind.kind,
+      stack: needs.stack,
+      build: {
+        ok: true,
+        requestId,
+        projectId: project.id,
+        intent: kind.kind,
+        status: "Needs Clarification",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: asked,
+      },
+      project: null,
+    });
+  }
+
+  /* Only reached when the architecture question did not fire, which is the
+     case where it would have been the wrong question: no layers are on, so
+     "a database and an admin, or the front of it" describes neither answer.
+     What is genuinely undecided then is the artefact — a site somebody looks
+     at, or software they sign into — and that is what this asks. */
   if (!needs.certain && ASK_WHEN_UNSURE) {
     const asked = stackQuestion(needs);
     const stored = await deliver(asked, { key: "which-stack" });
@@ -2154,29 +2242,17 @@ async function handle(
     });
   }
 
-  steps.mark(
-    "stack",
-    needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
-    needs.why[0],
-  );
-
-  /* ── What this project is actually made of ──────────────────────────────
-   *
-   * The stack answered whether this can be one file. This answers what is in
-   * it: a database, accounts, a back office, storage, a way to take money. See
-   * src/lib/builder/architecture.ts, which is also where the reasons come from.
-   *
-   * It can raise the stack — a store with no database is a picture of a store —
-   * and where that raise is a guess rather than something the brief said, it
-   * comes back uncertain and is put to the person instead of being spent on.
-   * Same guard, same reason, as the stack question above it. */
-  const architecture = decideArchitecture(brief.text, kind.kind, needs);
-
   if (architecture.promoted) {
     needs.stack = "nextjs";
     needs.backend = architecture.manifest.backend;
     needs.auth = architecture.manifest.authentication;
   }
+
+  steps.mark(
+    "stack",
+    needs.stack === "nextjs" ? "Building this as a full project" : "Building this as a single page",
+    needs.why[0],
+  );
 
   steps.mark(
     "architecture",

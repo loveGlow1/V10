@@ -9,7 +9,7 @@ import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
-import { resolveBackend } from "@/lib/builder/backend/connection";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName } from "@/lib/builder/design";
 import { allIssues, autofix, describeQa, evidenceFrom, runQa } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
@@ -461,11 +461,21 @@ export async function POST(request: Request) {
        * deployment that could not happen must never take down a build that
        * did — the files are worth having and they were paid for. */
       if (deploymentsConfigured()) {
+        /* The project's OWN backend, not this platform's.
+         *
+         * This used to read NEXT_PUBLIC_SUPABASE_URL and _ANON_KEY off the
+         * environment while taking the schema from summaryBackend — so a
+         * project linked to its owner's Supabase was deployed carrying
+         * QuickStark's address and QuickStark's anon key against a schema
+         * belonging to neither. envFor is the function that has always known
+         * the right answer; it simply had no caller. */
+        const env = summaryBackend ? envFor(summaryBackend) : null;
+
         const deployed = await deployProject(tree, {
           name: deploymentName((project.name as string | null) ?? "app", project.id as string),
-          supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-          supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-          supabaseSchema: summaryBackend?.schema ?? schemaNameFor(claim.projectId),
+          supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
+          supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+          supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
         });
 
         if (deployed.ok) {
