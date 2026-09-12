@@ -278,9 +278,28 @@ const at = (path) => complete.find((f) => f.path === path);
 
 has(at("package.json") !== undefined, "the plumbing is filled in under what the model wrote");
 has(at("app/page.tsx").content.includes("<h1>Hi</h1>"), "and the model's own files survive");
+/* ── This expectation is the opposite of what it used to be ────────────────
+ *
+ * It read "the model wins a collision — taking its config away would undo what
+ * was asked for", and that was right while tailwind.config.ts was the model's
+ * to write. It stopped being right when the design system arrived: the
+ * scaffold now writes tokens into app/tokens.css and maps their NAMES in
+ * tailwind.config.ts, so `bg-ground` resolves to var(--ground).
+ *
+ * A model-written config has an empty theme, so those class names compile to
+ * nothing — which shipped, and deployed as a page with no styling at all: two
+ * white rectangles on black. tailwind.config.ts joined PLATFORM_OWNED in that
+ * fix; this assertion did not follow it and had been failing ever since,
+ * against code that is doing the right thing.
+ *
+ * The general rule is unchanged and is asserted directly above: the model's
+ * own files survive. The exception is narrow and is the one this file now
+ * guards — a path whose correct contents are known here and cannot be known by
+ * a model. */
 has(
-  at("tailwind.config.ts").content.includes("the model wrote its own"),
-  "the model wins a collision — taking its config away would undo what was asked for",
+  at("tailwind.config.ts").content.includes("var(--ground)"),
+  "the platform wins a collision on a config that carries the design tokens",
+  "a model-written tailwind.config has an empty theme, so every token class compiles to nothing",
 );
 has(
   complete.map((f) => f.path).join() === [...complete].sort((a, b) => a.path.localeCompare(b.path)).map((f) => f.path).join(),
