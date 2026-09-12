@@ -323,10 +323,59 @@ console.log("\nThe SQL");
     [`create or replace function ${schema}.is_admin()`, "the admin helper is defined"],
     ["security definer", "the admin helper bypasses RLS, or its own policy recurses"],
     [`set search_path = ${schema}, public`, "the helper's search_path is pinned"],
+    /* ── The two settings this migration does not run without ──────────────
+     *
+     * Both were missing and neither had ever been seen to fail, because the
+     * connection string pointed at a host that could not be resolved — every
+     * provision died at DNS, so none of them reached the SQL. Zero schemas had
+     * ever been created and there were two more reasons waiting behind the one
+     * that was visible. Found by running this migration by hand, which is not
+     * a way to find things.
+     *
+     * check_function_bodies: is_admin() is created before `profiles` exists,
+     * because the first table's own policies call it. Postgres validates a
+     * `language sql` body at creation and refuses:
+     *
+     *     ERROR: relation "profiles" does not exist
+     *
+     * Reordering cannot fix it — the function needs the table and the table's
+     * policies need the function. Turning off body validation for the
+     * transaction is the documented answer to that circle.
+     *
+     * search_path: the SQL refers to sibling tables unqualified, as
+     * `references categories(id)` and `select role from profiles`. Nothing set
+     * a path, so they resolved against `public`, where none of these tables
+     * live. */
+    ["set local check_function_bodies = off;", "is_admin() can be written before profiles exists"],
+    [`set local search_path = ${schema}, public;`, "unqualified sibling references resolve"],
   ];
 
   for (const [needle, what] of required) {
     if (!sql.includes(needle)) fail("emitted SQL", `${what} — missing ${JSON.stringify(needle)}`);
+  }
+
+  /* Both settings have to come before the first thing that depends on them,
+     which is everything. A `set` after the function is a `set` that did not
+     happen in time. */
+  const firstStatement = sql.indexOf("create ");
+  for (const setting of ["set local check_function_bodies = off;", `set local search_path = ${schema}, public;`]) {
+    const at = sql.indexOf(setting);
+    if (at === -1 || at > firstStatement) {
+      fail("emitted SQL", `${JSON.stringify(setting)} must come before the first create`);
+    }
+  }
+
+  /* `set local`, not `set`: provisioning runs this inside one transaction on a
+     pooled connection, and a plain `set` would outlive it and change how the
+     next thing on that connection behaves.
+   *
+   * Statement-level only, which is what the semicolon is doing in the pattern.
+   * is_admin() carries its own `set search_path = …` as part of `create
+   * function`, with no semicolon and no relation to transactions — and the
+   * first version of this check failed on exactly that, which is the check
+   * being wrong rather than the SQL. */
+  if (/^set (?!local )[^;\n]*;/m.test(sql)) {
+    fail("emitted SQL", "a setting escapes the transaction — use `set local`");
   }
 
   for (const table of model.tables) {

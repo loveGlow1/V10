@@ -797,6 +797,36 @@ export function toSql(model: DataModel): string {
     "-- that reads these tables runs in a browser with a public key, so these",
     "-- policies are the only thing standing between a row and anybody.",
     "",
+    /* ── Two settings, and this migration does not run without either ──────
+     *
+     * Both were missing, and neither failure was ever seen, because the
+     * connection string pointed at an endpoint that could not be resolved —
+     * so every provision died at DNS and none of them got far enough to fail
+     * here. Zero schemas had ever been created, and two reasons were waiting
+     * behind the one that was visible.
+     *
+     * check_function_bodies. is_admin() is created before `profiles` exists,
+     * because the very first table's policies call it. A `language sql`
+     * function is validated at creation, so Postgres refuses it:
+     *
+     *     ERROR: relation "profiles" does not exist
+     *
+     * The order cannot be fixed by moving things around — the function needs
+     * the table and the table's policies need the function. Turning off body
+     * validation for the transaction is the documented answer to exactly this
+     * circle, not a way around a mistake.
+     *
+     * search_path. The generated SQL refers to sibling tables unqualified —
+     * `references categories(id)`, `select role from profiles` — because that
+     * is what reads well and what the policies were written as. Nothing set a
+     * search_path, so those resolved against `public`, where none of these
+     * tables are. Setting it makes the unqualified names mean what they say.
+     *
+     * `set local`, so both end with the transaction rather than leaking into
+     * whatever the pooled connection does next. */
+    "set local check_function_bodies = off;",
+    `set local search_path = ${model.schema}, public;`,
+    "",
     `create schema if not exists ${model.schema};`,
     "",
     "-- The app's queries run with this on the search path; nothing here reaches",
