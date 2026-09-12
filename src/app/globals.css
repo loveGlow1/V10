@@ -269,7 +269,11 @@ body {
    so the headline reads as a separate block sitting under the mark rather than inside its
    glow. */
 .q-logo-block {
-  --q-logo-size: clamp(88px, 12vmin, 160px);
+  /* The 200px ceiling only engages above 1666px of vmin — a television or a
+     very large monitor, nothing else. At 1080p, 12vmin is 130px and at 1440p
+     it is 173px, so every ordinary screen is unaffected by the change and the
+     mark simply stops being stranded at laptop size on a wall. */
+  --q-logo-size: clamp(88px, 12vmin, 200px);
   width: var(--q-logo-size);
   height: var(--q-logo-size);
   /* Equal clearance above and below, so the mark reads as centred in its own space rather
@@ -662,6 +666,12 @@ body {
    makes each screenshot read as a surface in space. Depth comes from opacity, brightness
    and shadow rather than blur, so the UI in each shot stays legible. */
 .hero-apps {
+  /* The orbit is written in cqw/cqh so the ellipse is a share of THIS layer
+     rather than of the viewport, which is what lets the whole path be one
+     composited transform instead of six elements animating left/top and
+     re-laying-out on every frame. */
+  container-type: size;
+
   /* No perspective here: each panel carries its own perspective() inside its transform,
      which is what gives one edge of a screenshot a different distance from the viewer
      than the other. A shared perspective on the layer would flatten those differences
@@ -681,20 +691,50 @@ body {
    set of coordinates for narrow screens and a media query to switch between
    them; with the surfaces gone from those widths entirely, that pair could
    never apply and only looked like it could. */
+/* The wheel.
+ *
+ * Every surface rides one path and one animation; what separates them is a
+ * negative animation-delay, so each starts a fraction of a revolution ahead of
+ * the last and the six are evenly spaced around the ellipse forever. Nothing
+ * schedules anything, nothing accumulates drift, and there is no JavaScript in
+ * it at all — the browser is running one linear animation six times at six
+ * offsets, which it will still be doing correctly an hour later.
+ *
+ * The panel's whole character is a function of where it is on the path, which
+ * is the difference between a ring of six fixed pictures and a wheel. Scale,
+ * both rotations, the stacking order and the opacity are all keyed off the
+ * angle: a surface grows and brightens as it swings to the front, leans the
+ * other way as it crosses the middle, then shrinks, dims and is gone across the
+ * short arc behind the mark before it comes round again. See the keyframes.
+ *
+ * The anchor sits at the ring's centre and the path is entirely in the
+ * transform, so the only thing the browser recalculates per frame is a
+ * composited matrix. */
 .hero-app-anchor {
-  left: var(--d-left);
-  top: var(--d-top);
+  left: 50%;
+  top: 45%;
+  animation: hero-app-orbit var(--orbit-duration, 44s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+  will-change: transform, opacity;
 }
 
 .hero-app {
   --float-lift: 8px;
-  animation-name: hero-app-float;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+  /* 6.4s against the orbit's 44s: not a factor of it, so the lift and the
+     revolution never come back into phase and the motion never looks like it
+     is repeating a bar. */
+  animation: hero-app-float 6.4s ease-in-out infinite;
   will-change: transform;
 }
 
+/* Sized by height, not width, so a portrait phone and a landscape page take up
+   the same amount of the wheel and their own aspect decides the rest. Width
+   fixed per panel would have made the phone a sliver and the wide pages
+   enormous at the same point on the path. */
 .hero-app-surface {
+  height: clamp(170px, 26cqh, 280px);
+  width: auto;
+  max-width: none;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: 0 50px 90px -40px rgba(0, 0, 0, 0.95), 0 18px 40px -30px rgba(0, 0, 0, 0.8);
@@ -703,6 +743,194 @@ body {
 
 /* Position only, and barely: the panels lift a few pixels and settle. Their orientation
    is fixed — a rotation here would undo the attitude each one was given. */
+@keyframes hero-app-orbit {
+  0.0% {
+    transform: translate(-50%, -50%) translate3d(48.00cqw, 0.00cqh, 0) perspective(1300px) rotateZ(9.0deg) rotateY(-15.0deg) rotateX(0.0deg) scale(0.750);
+    opacity: 0.290;
+    z-index: 3;
+  }
+  2.7778% {
+    transform: translate(-50%, -50%) translate3d(47.27cqw, 7.99cqh, 0) perspective(1300px) rotateZ(8.9deg) rotateY(-14.8deg) rotateX(0.3deg) scale(0.776);
+    opacity: 0.313;
+    z-index: 4;
+  }
+  5.5556% {
+    transform: translate(-50%, -50%) translate3d(45.11cqw, 15.73cqh, 0) perspective(1300px) rotateZ(8.5deg) rotateY(-14.1deg) rotateX(0.7deg) scale(0.801);
+    opacity: 0.334;
+    z-index: 4;
+  }
+  8.3333% {
+    transform: translate(-50%, -50%) translate3d(41.57cqw, 23.00cqh, 0) perspective(1300px) rotateZ(7.8deg) rotateY(-13.0deg) rotateX(1.0deg) scale(0.825);
+    opacity: 0.355;
+    z-index: 4;
+  }
+  11.1111% {
+    transform: translate(-50%, -50%) translate3d(36.77cqw, 29.57cqh, 0) perspective(1300px) rotateZ(6.9deg) rotateY(-11.5deg) rotateX(1.3deg) scale(0.846);
+    opacity: 0.374;
+    z-index: 5;
+  }
+  13.8889% {
+    transform: translate(-50%, -50%) translate3d(30.85cqw, 35.24cqh, 0) perspective(1300px) rotateZ(5.8deg) rotateY(-9.6deg) rotateX(1.5deg) scale(0.865);
+    opacity: 0.390;
+    z-index: 5;
+  }
+  16.6667% {
+    transform: translate(-50%, -50%) translate3d(24.00cqw, 39.84cqh, 0) perspective(1300px) rotateZ(4.5deg) rotateY(-7.5deg) rotateX(1.7deg) scale(0.880);
+    opacity: 0.403;
+    z-index: 6;
+  }
+  19.4444% {
+    transform: translate(-50%, -50%) translate3d(16.42cqw, 43.23cqh, 0) perspective(1300px) rotateZ(3.1deg) rotateY(-5.1deg) rotateX(1.9deg) scale(0.891);
+    opacity: 0.412;
+    z-index: 6;
+  }
+  22.2222% {
+    transform: translate(-50%, -50%) translate3d(8.34cqw, 45.30cqh, 0) perspective(1300px) rotateZ(1.6deg) rotateY(-2.6deg) rotateX(2.0deg) scale(0.898);
+    opacity: 0.418;
+    z-index: 6;
+  }
+  25.0% {
+    transform: translate(-50%, -50%) translate3d(0.00cqw, 46.00cqh, 0) perspective(1300px) rotateZ(0.0deg) rotateY(-0.0deg) rotateX(2.0deg) scale(0.900);
+    opacity: 0.420;
+    z-index: 6;
+  }
+  27.7778% {
+    transform: translate(-50%, -50%) translate3d(-8.34cqw, 45.30cqh, 0) perspective(1300px) rotateZ(-1.6deg) rotateY(2.6deg) rotateX(2.0deg) scale(0.898);
+    opacity: 0.418;
+    z-index: 6;
+  }
+  30.5556% {
+    transform: translate(-50%, -50%) translate3d(-16.42cqw, 43.23cqh, 0) perspective(1300px) rotateZ(-3.1deg) rotateY(5.1deg) rotateX(1.9deg) scale(0.891);
+    opacity: 0.412;
+    z-index: 6;
+  }
+  33.3333% {
+    transform: translate(-50%, -50%) translate3d(-24.00cqw, 39.84cqh, 0) perspective(1300px) rotateZ(-4.5deg) rotateY(7.5deg) rotateX(1.7deg) scale(0.880);
+    opacity: 0.403;
+    z-index: 6;
+  }
+  36.1111% {
+    transform: translate(-50%, -50%) translate3d(-30.85cqw, 35.24cqh, 0) perspective(1300px) rotateZ(-5.8deg) rotateY(9.6deg) rotateX(1.5deg) scale(0.865);
+    opacity: 0.390;
+    z-index: 5;
+  }
+  38.8889% {
+    transform: translate(-50%, -50%) translate3d(-36.77cqw, 29.57cqh, 0) perspective(1300px) rotateZ(-6.9deg) rotateY(11.5deg) rotateX(1.3deg) scale(0.846);
+    opacity: 0.374;
+    z-index: 5;
+  }
+  41.6667% {
+    transform: translate(-50%, -50%) translate3d(-41.57cqw, 23.00cqh, 0) perspective(1300px) rotateZ(-7.8deg) rotateY(13.0deg) rotateX(1.0deg) scale(0.825);
+    opacity: 0.355;
+    z-index: 4;
+  }
+  44.4444% {
+    transform: translate(-50%, -50%) translate3d(-45.11cqw, 15.73cqh, 0) perspective(1300px) rotateZ(-8.5deg) rotateY(14.1deg) rotateX(0.7deg) scale(0.801);
+    opacity: 0.334;
+    z-index: 4;
+  }
+  47.2222% {
+    transform: translate(-50%, -50%) translate3d(-47.27cqw, 7.99cqh, 0) perspective(1300px) rotateZ(-8.9deg) rotateY(14.8deg) rotateX(0.3deg) scale(0.776);
+    opacity: 0.313;
+    z-index: 4;
+  }
+  50.0% {
+    transform: translate(-50%, -50%) translate3d(-48.00cqw, 0.00cqh, 0) perspective(1300px) rotateZ(-9.0deg) rotateY(15.0deg) rotateX(0.0deg) scale(0.750);
+    opacity: 0.290;
+    z-index: 3;
+  }
+  52.7778% {
+    transform: translate(-50%, -50%) translate3d(-47.27cqw, -7.99cqh, 0) perspective(1300px) rotateZ(-8.9deg) rotateY(14.8deg) rotateX(-0.3deg) scale(0.724);
+    opacity: 0.267;
+    z-index: 2;
+  }
+  55.5556% {
+    transform: translate(-50%, -50%) translate3d(-45.11cqw, -15.73cqh, 0) perspective(1300px) rotateZ(-8.5deg) rotateY(14.1deg) rotateX(-0.7deg) scale(0.699);
+    opacity: 0.246;
+    z-index: 2;
+  }
+  58.3333% {
+    transform: translate(-50%, -50%) translate3d(-41.57cqw, -23.00cqh, 0) perspective(1300px) rotateZ(-7.8deg) rotateY(13.0deg) rotateX(-1.0deg) scale(0.675);
+    opacity: 0.225;
+    z-index: 1;
+  }
+  61.1111% {
+    transform: translate(-50%, -50%) translate3d(-36.77cqw, -29.57cqh, 0) perspective(1300px) rotateZ(-6.9deg) rotateY(11.5deg) rotateX(-1.3deg) scale(0.654);
+    opacity: 0.206;
+    z-index: 1;
+  }
+  63.8889% {
+    transform: translate(-50%, -50%) translate3d(-30.85cqw, -35.24cqh, 0) perspective(1300px) rotateZ(-5.8deg) rotateY(9.6deg) rotateX(-1.5deg) scale(0.635);
+    opacity: 0.190;
+    z-index: 1;
+  }
+  66.6667% {
+    transform: translate(-50%, -50%) translate3d(-24.00cqw, -39.84cqh, 0) perspective(1300px) rotateZ(-4.5deg) rotateY(7.5deg) rotateX(-1.7deg) scale(0.620);
+    opacity: 0.133;
+    z-index: 0;
+  }
+  69.4444% {
+    transform: translate(-50%, -50%) translate3d(-16.42cqw, -43.23cqh, 0) perspective(1300px) rotateZ(-3.1deg) rotateY(5.1deg) rotateX(-1.9deg) scale(0.609);
+    opacity: 0.042;
+    z-index: 0;
+  }
+  72.2222% {
+    transform: translate(-50%, -50%) translate3d(-8.34cqw, -45.30cqh, 0) perspective(1300px) rotateZ(-1.6deg) rotateY(2.6deg) rotateX(-2.0deg) scale(0.602);
+    opacity: 0.000;
+    z-index: 0;
+  }
+  75.0% {
+    transform: translate(-50%, -50%) translate3d(-0.00cqw, -46.00cqh, 0) perspective(1300px) rotateZ(-0.0deg) rotateY(0.0deg) rotateX(-2.0deg) scale(0.600);
+    opacity: 0.000;
+    z-index: 0;
+  }
+  77.7778% {
+    transform: translate(-50%, -50%) translate3d(8.34cqw, -45.30cqh, 0) perspective(1300px) rotateZ(1.6deg) rotateY(-2.6deg) rotateX(-2.0deg) scale(0.602);
+    opacity: 0.000;
+    z-index: 0;
+  }
+  80.5556% {
+    transform: translate(-50%, -50%) translate3d(16.42cqw, -43.23cqh, 0) perspective(1300px) rotateZ(3.1deg) rotateY(-5.1deg) rotateX(-1.9deg) scale(0.609);
+    opacity: 0.042;
+    z-index: 0;
+  }
+  83.3333% {
+    transform: translate(-50%, -50%) translate3d(24.00cqw, -39.84cqh, 0) perspective(1300px) rotateZ(4.5deg) rotateY(-7.5deg) rotateX(-1.7deg) scale(0.620);
+    opacity: 0.133;
+    z-index: 0;
+  }
+  86.1111% {
+    transform: translate(-50%, -50%) translate3d(30.85cqw, -35.24cqh, 0) perspective(1300px) rotateZ(5.8deg) rotateY(-9.6deg) rotateX(-1.5deg) scale(0.635);
+    opacity: 0.190;
+    z-index: 1;
+  }
+  88.8889% {
+    transform: translate(-50%, -50%) translate3d(36.77cqw, -29.57cqh, 0) perspective(1300px) rotateZ(6.9deg) rotateY(-11.5deg) rotateX(-1.3deg) scale(0.654);
+    opacity: 0.206;
+    z-index: 1;
+  }
+  91.6667% {
+    transform: translate(-50%, -50%) translate3d(41.57cqw, -23.00cqh, 0) perspective(1300px) rotateZ(7.8deg) rotateY(-13.0deg) rotateX(-1.0deg) scale(0.675);
+    opacity: 0.225;
+    z-index: 1;
+  }
+  94.4444% {
+    transform: translate(-50%, -50%) translate3d(45.11cqw, -15.73cqh, 0) perspective(1300px) rotateZ(8.5deg) rotateY(-14.1deg) rotateX(-0.7deg) scale(0.699);
+    opacity: 0.246;
+    z-index: 2;
+  }
+  97.2222% {
+    transform: translate(-50%, -50%) translate3d(47.27cqw, -7.99cqh, 0) perspective(1300px) rotateZ(8.9deg) rotateY(-14.8deg) rotateX(-0.3deg) scale(0.724);
+    opacity: 0.267;
+    z-index: 2;
+  }
+  100.0% {
+    transform: translate(-50%, -50%) translate3d(48.00cqw, -0.00cqh, 0) perspective(1300px) rotateZ(9.0deg) rotateY(-15.0deg) rotateX(-0.0deg) scale(0.750);
+    opacity: 0.290;
+    z-index: 3;
+  }
+}
+
 @keyframes hero-app-float {
   0%, 100% { transform: translate3d(0, 0, 0); }
   50% { transform: translate3d(0, calc(-1 * var(--float-lift, 8px)), 0); }
@@ -718,6 +946,24 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* The wheel, stopped — and stopped somewhere sensible.
+ *
+ * The blanket rule above ends every animation on its last keyframe. For six
+ * panels sharing one orbit that is the SAME last keyframe, so they would all
+ * land on one point in a heap. Each one therefore carries the ring position it
+ * would have held at rest, and with motion reduced it simply stands there: the
+ * composition this page had before it turned. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-app-anchor {
+    animation: none !important;
+    left: var(--still-left);
+    top: var(--still-top);
+    transform: var(--still-transform);
+    opacity: var(--still-opacity);
+    z-index: var(--still-z);
   }
 }
 

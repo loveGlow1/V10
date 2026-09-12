@@ -349,123 +349,104 @@ const FOOTER_LINK_COLUMNS = [
    mobile point is a second pair of custom properties; globals.css picks which pair
    applies at each breakpoint, since an inline style cannot carry a media query.
 
-   HOW each one is turned is written out per app instead of derived, because a formula
-   gives a symmetry that reads as decoration. Every surface carries its own
-   perspective() + rotateZ + rotateY + rotateX + scale: the perspective is what makes it a
-   panel in space rather than a sticker rotated on the page, and the rotateY is what puts
-   one edge nearer the viewer than the other. Left-hand surfaces lean left, right-hand
-   ones lean right, but never by mirrored amounts, and not every right-hand one turns the
-   same way. Scale and opacity carry depth — foreground panels are near full size and
-   brightest, background ones smaller and faintest — and the two light-ground pages carry
-   their own filter, since the shared one is tuned for dark UIs. */
-const HERO_RING = { cx: 50, cy: 45, rx: 46, ry: 54 };
+   HOW each one is turned is no longer written out per app, and that is the change
+   the wheel required. A fixed ring can afford six hand-set attitudes — this one leans
+   left, that one leans further, the far ones sit flatter — because each panel only ever
+   occupies its own point. A turning ring cannot: every panel passes through every point,
+   so a panel carrying its own lean would arrive at the front still wearing the attitude
+   of the back. Angle decides all of it now, and the only thing a panel owns is WHERE ON
+   THE PATH IT STARTS. Those six starting angles are the ones the fixed ring used, so the
+   wheel's first frame is the composition this page already had.
 
-/* Position only. The attitude of each panel lives with the panel. */
-function heroRingPosition(angle: number, radius = 1) {
+   See @keyframes hero-app-orbit in globals.css for the path, and heroRingPosition above
+   for the same arithmetic in TypeScript. */
+const HERO_RING = { cx: 50, cy: 45, rx: 48, ry: 46 };
+
+/* How long one revolution takes. Slow on purpose: this is meant to be noticed
+   the second time you look at the page, not the first. */
+const ORBIT_SECONDS = 44;
+
+/* Where a panel sits, and how it is turned, at a given point on the path.
+ *
+ * This is only ever used for the motion-reduced rendering — with the wheel
+ * turning, the keyframes own all of it. It exists so that the two agree: the
+ * arithmetic here is the same arithmetic that generated the keyframes, so a
+ * stopped wheel is a real frame of the moving one rather than a second
+ * composition that has to be maintained beside it. */
+function heroRingPosition(angle: number) {
   const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  /* 0 at the back of the ellipse, 1 at the front. Everything below reads off
+     this, which is what makes the wheel read as depth rather than as six
+     pictures sliding around a track. */
+  const depth = (1 + sin) / 2;
+  const delta = Math.abs((((angle - 270) % 360) + 540) % 360 - 180);
+  const gate = Math.min(1, Math.max(0, (delta - 15) / 20));
 
   return {
-    left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * radius * Math.cos(rad)).toFixed(2)}%)`,
-    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * radius * Math.sin(rad)).toFixed(2)}%)`,
+    left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * cos).toFixed(2)}%)`,
+    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * sin).toFixed(2)}%)`,
+    transform:
+      `translate(-50%, -50%) perspective(1300px) rotateZ(${(9 * cos).toFixed(1)}deg) ` +
+      `rotateY(${(-15 * cos).toFixed(1)}deg) rotateX(${(2 * sin).toFixed(1)}deg) ` +
+      `scale(${(0.6 + 0.3 * depth).toFixed(3)})`,
+    opacity: ((0.16 + 0.26 * depth) * gate).toFixed(3),
+    z: String(Math.round(depth * 6)),
+    /* Negative, so the panel opens already that far into the revolution. Six
+       delays across one duration is what spaces them round the ring. */
+    delay: `${(-(angle / 360) * ORBIT_SECONDS).toFixed(2)}s`,
   };
 }
 
 const HERO_APPS = [
   {
-    // Upper left, furthest back: flatter and smaller, so it reads as distant.
+    // Enters upper left, on its way down the far side.
     src: "/hero-apps/sofra.webp",
     width: 1147,
     height: 860,
     alt: "Restaurant landing page with a plated steak pasta and a table booking",
     angle: 232,
-    radius: 1,
-    size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[480px]",
-    show: "hidden lg:block",
-    transform: "perspective(1400px) rotateZ(-12deg) rotateY(12deg) rotateX(3deg) scale(0.82)",
-    opacity: 0.38,
-    layer: "z-0",
-    float: { duration: "7.5s", delay: "-2s" },
   },
   {
-    // Far left, mid depth — the strongest rotateY of the set, which is what makes its
-    // outer edge fall away into the screen.
+    // Enters at the far left, the widest point of the ellipse.
     src: "/hero-apps/listingbeam.webp",
     width: 2000,
     height: 1223,
     alt: "Property listings site with a hero search for city and property type",
     angle: 185,
-    radius: 1.04,
-    size: "w-[26vw] max-w-[470px]",
-    show: "hidden lg:block",
-    transform: "perspective(1200px) rotateZ(-6deg) rotateY(15deg) rotateX(-2deg) scale(0.9)",
-    opacity: 0.5,
-    filter: "brightness(0.5) saturate(0.8) contrast(1.03)",
-    layer: "z-0",
-    float: { duration: "7s", delay: "-6s" },
   },
   {
-    // Lower left, nearest the viewer: full scale, brightest, least dimmed.
+    // Enters lower left, already climbing toward the front.
     src: "/hero-apps/aurelia.png",
     width: 720,
     height: 405,
     alt: "Luxury estate agency landing page with a viewing booking and featured villa",
     angle: 131,
-    radius: 1.22,
-    size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
-    show: "hidden lg:block",
-    transform: "perspective(1200px) rotateZ(-9deg) rotateY(13deg) rotateX(2deg) scale(1)",
-    opacity: 0.74,
-    layer: "z-10",
-    float: { duration: "5.6s", delay: "-1s" },
   },
   {
-    // Lower right, also foreground — but rolled the other way, so the two front panels
-    // are not a mirrored pair.
+    // Enters lower right, just past the front of the wheel.
     src: "/hero-apps/food.png",
     width: 860,
     height: 1792,
     alt: "Food ordering app with featured restaurant and nearby listings",
     angle: 49,
-    radius: 1.22,
-    size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
-    show: "hidden lg:block",
-    transform: "perspective(1200px) rotateZ(-7deg) rotateY(-10deg) rotateX(-2deg) scale(0.97)",
-    opacity: 0.68,
-    filter: "brightness(0.66) saturate(0.88) contrast(1.02)",
-    layer: "z-10",
-    float: { duration: "6.3s", delay: "-4s" },
   },
   {
-    // Right, mid depth.
+    // Enters at the right, level with the centre.
     src: "/hero-apps/devue.webp",
     width: 1672,
     height: 940,
     alt: "Bakery landing page with a celebration cake and a tasting reservation",
     angle: 355,
-    radius: 0.99,
-    size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[470px]",
-    show: "hidden lg:block",
-    transform: "perspective(1200px) rotateZ(9deg) rotateY(-12deg) rotateX(2deg) scale(0.92)",
-    opacity: 0.52,
-    filter: "brightness(0.52) saturate(0.84) contrast(1.03)",
-    layer: "z-[5]",
-    float: { duration: "6.6s", delay: "-7s" },
   },
   {
-    // Upper right, furthest back on this side.
+    // Enters upper right, about to pass behind the mark.
     src: "/hero-apps/aesop.png",
     width: 1147,
     height: 860,
     alt: "Skincare shop with a row of amber bottles and an add-to-basket bar",
     angle: 308,
-    radius: 1.05,
-    size: "w-[26vw] max-w-[480px]",
-    show: "hidden lg:block",
-    transform: "perspective(1400px) rotateZ(11deg) rotateY(-13deg) rotateX(3deg) scale(0.84)",
-    opacity: 0.34,
-    filter: "brightness(0.48) saturate(0.8) contrast(1.03)",
-    layer: "z-[5]",
-    float: { duration: "7.3s", delay: "-9s" },
   },
 ] as const;
 
@@ -800,35 +781,36 @@ export default function LandingPage() {
               a viewport and so is never fetched. */}
           <div className="hero-apps pointer-events-none absolute inset-0" aria-hidden="true">
             {HERO_APPS.map((app) => {
-              const place = heroRingPosition(app.angle, app.radius);
+              const place = heroRingPosition(app.angle);
 
               return (
                 <div
                   key={app.src}
-                  className={`hero-app-anchor absolute -translate-x-1/2 -translate-y-1/2 ${app.show} ${app.layer} ${app.size}`}
-                  /* One pair of coordinates, because there is only one width
-                     this is ever drawn at. See the note above. */
+                  className="hero-app-anchor absolute hidden lg:block"
+                  /* The delay is the panel's whole identity on the wheel; the
+                     rest is where it would stand if the wheel were stopped. */
                   style={{
-                    ["--d-left" as string]: place.left,
-                    ["--d-top" as string]: place.top,
+                    ["--orbit-duration" as string]: `${ORBIT_SECONDS}s`,
+                    ["--orbit-delay" as string]: place.delay,
+                    ["--still-left" as string]: place.left,
+                    ["--still-top" as string]: place.top,
+                    ["--still-transform" as string]: place.transform,
+                    ["--still-opacity" as string]: place.opacity,
+                    ["--still-z" as string]: place.z,
                   }}
                 >
-                  <div
-                    className="hero-app"
-                    style={{ animationDuration: app.float.duration, animationDelay: app.float.delay }}
-                  >
+                  {/* The lift runs on its own period, deliberately out of step
+                      with the revolution: two motions sharing one cycle read as
+                      a single mechanism, and the point of this one is that the
+                      panels float rather than being bolted to a rim. */}
+                  <div className="hero-app">
                     <Image
                       src={app.src}
                       alt=""
                       width={app.width}
                       height={app.height}
-                      sizes="(min-width: 1536px) 27vw, 25vw"
-                      className="hero-app-surface h-auto w-full"
-                      style={{
-                        transform: app.transform,
-                        opacity: app.opacity,
-                        ...("filter" in app ? { filter: app.filter } : {}),
-                      }}
+                      sizes="(min-width: 1536px) 520px, 440px"
+                      className="hero-app-surface"
                     />
                   </div>
                 </div>
