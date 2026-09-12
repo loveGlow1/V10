@@ -189,6 +189,27 @@ const SKY_SETTLE =
 /* The same sizes as the scene itself, so the browser fetches one file. */
 const SIZES = `(min-width: ${SCENE_MAX}px) ${SCENE_MAX}px, 100vw`;
 
+/* The artwork at 16x16, which is 499 bytes of inline JPEG and no request.
+ *
+ * The band is built out of two kinds of pixel and they do not arrive together.
+ * The sky columns holding the margins are data URIs — they are in the markup,
+ * so they paint with it. The 880 columns between them are page-scene.jpg over
+ * the network. Reload with this section on screen and for as long as that fetch
+ * takes you are looking at the finished green edges with a black hole where the
+ * picture goes, which reads as the band coming apart rather than loading.
+ *
+ * next/image draws this underneath each <Image>, in that image's own box, and
+ * drops it the moment the real file decodes. So the hole is filled with the
+ * artwork's own colours from the first paint and the JPEG resolves on top of a
+ * field that already matches it. Nothing about the settled band changes: same
+ * geometry, same crops, same sizes — this is only what occupies those boxes
+ * before the file lands.
+ *
+ * Sampled from public/page-scene.jpg, so it tracks the artwork. Regenerate it
+ * if that file is ever replaced. */
+const SCENE_LQIP =
+  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAQABADASIAAhEBAxEB/8QAFgABAQEAAAAAAAAAAAAAAAAABgQF/8QAIxAAAQQBAgcBAAAAAAAAAAAAAQIDBBEABUESExQhMlFxgf/EABQBAQAAAAAAAAAAAAAAAAAAAAP/xAAZEQACAwEAAAAAAAAAAAAAAAAAAQIDETH/2gAMAwEAAhEDEQA/ACU2JTxFb5muMUqqx3qDuizGi8mShl2/AN3vZ7pHr9yeLD0Pg5nVMvygqwhYISPt1eHGxcBWo//Z";
+
 /* The artwork's own colours, sampled off the pixels. */
 const WHITE = "#ffffff";
 const GREEN = "rgb(174,252,106)";
@@ -245,6 +266,8 @@ function Reflection({ side }: { side: "left" | "right" }) {
             width={SCENE_MAX}
             height={SCENE_MAX}
             sizes={SIZES}
+            placeholder="blur"
+            blurDataURL={SCENE_LQIP}
             className="absolute max-w-none"
             /* The file at 1:1, pulled up by the sky crop and in by the side
                crop, so the fold's window is fixed in the file's own pixels. */
@@ -321,6 +344,8 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
           width={SCENE_MAX}
           height={SCENE_MAX}
           sizes={SIZES}
+          placeholder="blur"
+          blurDataURL={SCENE_LQIP}
           className="absolute inset-0 h-full w-full object-cover object-center lg:inset-auto lg:left-[-72px] lg:top-[-156px] lg:h-[1024px] lg:w-[1024px] lg:max-w-none"
           /* eager rather than priority, and never lazy. priority preloads into the
              <head>, which is right for the first screen and wrong for the last thing

@@ -676,16 +676,14 @@ body {
 /* Two placements per panel: the phone one until lg, the ring one from lg up. An inline
    style cannot hold a media query, so the component hands over both points and the choice
    is made here. */
+/* The ring is drawn at one width only — every surface carries `hidden
+   lg:block`, so nothing here exists below 1024px. There used to be a second
+   set of coordinates for narrow screens and a media query to switch between
+   them; with the surfaces gone from those widths entirely, that pair could
+   never apply and only looked like it could. */
 .hero-app-anchor {
-  left: var(--m-left);
-  top: var(--m-top);
-}
-
-@media (min-width: 1024px) {
-  .hero-app-anchor {
-    left: var(--d-left);
-    top: var(--d-top);
-  }
+  left: var(--d-left);
+  top: var(--d-top);
 }
 
 .hero-app {
