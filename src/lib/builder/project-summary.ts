@@ -97,6 +97,14 @@ export type SummaryInput = {
      asked for; this says whether it was created — and a summary that showed the
      first without the second would be describing an intention as a fact. */
   databaseReady: boolean;
+  /* The address the project is actually running at, once there is one. Its
+     presence changes what this document is for: with a live app the summary
+     stops being a substitute for the thing and becomes the notes beside it. */
+  liveUrl?: string | null;
+  /* Why there is no address, when there is not. Shown rather than swallowed —
+     "your app is not hosted" with no reason is the kind of thing people file a
+     support ticket about. */
+  deploymentError?: string | null;
 };
 
 /**
@@ -107,6 +115,8 @@ export type SummaryInput = {
  */
 export function projectSummary(input: SummaryInput): string {
   const { projectName, manifest, tree, model, databaseReady } = input;
+  const liveUrl = input.liveUrl ?? null;
+  const deploymentError = input.deploymentError ?? null;
 
   const name = escape(projectName.trim() || "Your project");
   const kind = KIND_LABEL[manifest.type].toLowerCase();
@@ -200,6 +210,15 @@ export function projectSummary(input: SummaryInput): string {
   h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; color: #c8c8d2; }
   code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfd4e0; }
   .lede { color: #9a9aa6; margin: 0 0 32px; }
+
+  /* The running app, given the weight the rest of the page deliberately does
+     not take. Everything else here is a receipt; this is the thing itself. */
+  .live { border-color: rgba(142,240,138,.35); }
+  .live-link { color: #8ef08a; font-size: 15px; word-break: break-all; }
+  .live-frame {
+    display: block; width: 100%; height: 460px; margin-top: 16px;
+    border: 1px solid rgba(255,255,255,.08); border-radius: 8px; background: #fff;
+  }
   .quiet { color: #8b8b96; font-size: 13.5px; margin: 10px 0 0; }
   .card { border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.025);
           border-radius: 12px; padding: 20px 22px; margin-bottom: 16px; }
@@ -227,7 +246,26 @@ export function projectSummary(input: SummaryInput): string {
 <div class="wrap">
 
   <h1>${name}</h1>
-  <p class="lede">${article} ${escape(kind)} built as a Next.js project — ${tree.length} files. This is a summary rather than the running app: the source has to be built before there is anything to look at, and a preview that showed you a mock-up of it would be telling you something untrue.</p>
+  <p class="lede">${article} ${escape(kind)} built as a Next.js project — ${tree.length} files.${
+    liveUrl
+      ? " It has been built and is running at the address below; everything after that is what went into it."
+      : " This is a summary rather than the running app: the source has to be built before there is anything to look at, and a preview that showed you a mock-up of it would be telling you something untrue."
+  }</p>
+
+  ${
+    liveUrl
+      ? `<section class="card live">
+    <h2>Your app is live</h2>
+    <p><a class="live-link" href="${escape(liveUrl)}" target="_blank" rel="noopener noreferrer">${escape(liveUrl)}</a></p>
+    <iframe class="live-frame" src="${escape(liveUrl)}" title="${name}" loading="lazy" referrerpolicy="no-referrer"></iframe>
+  </section>`
+      : deploymentError
+        ? `<section class="card">
+    <h2>Not hosted yet</h2>
+    <p>${escape(deploymentError)}. The files below are complete either way, and running them locally is at the end of this page.</p>
+  </section>`
+        : ""
+  }
 
   <section class="card">
     <h2>What it is made of</h2>

@@ -35,6 +35,7 @@ import {
   writeProjectIndex,
 } from "@/lib/context/store";
 import { projectSummary } from "@/lib/builder/project-summary";
+import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -396,6 +397,12 @@ export async function POST(request: Request) {
    * which is the failure the blueprints spend paragraphs forbidding. */
   let html: string;
   let synthesised = false;
+  /* Null for a single-page build and for every project this deployment cannot
+     host. Both are stored: the address if there is one, and if there is not,
+     the sentence saying why, so "where is my app" has an answer on the build
+     row rather than only in a log nobody reads. */
+  let deploymentUrl: string | null = null;
+  let deploymentError: string | null = null;
 
   if (sentPage) {
     try {
@@ -411,6 +418,39 @@ export async function POST(request: Request) {
     if (built) {
       html = built;
     } else {
+      /* ── Making it run ──────────────────────────────────────────────────
+       *
+       * This is the step that was missing, and its absence is why a customer
+       * who asked for an app got a description of one. A tree of .tsx has no
+       * HTML in it; the HTML is what `next build` produces, and nothing here
+       * ran `next build`. Vercel does, so the files go there and the address
+       * that comes back is the app itself rather than an account of it.
+       *
+       * It runs here rather than in the orchestrator for the same reason the
+       * save does: nobody is waiting on this request. The chat was answered
+       * minutes ago and the customer is looking at their files, so a minute of
+       * install-and-compile costs them nothing.
+       *
+       * Every failure is survivable and none of them throws. No token, a
+       * refusal, code that does not compile: the summary below is still
+       * written and still stored, and the reason is kept beside it. A
+       * deployment that could not happen must never take down a build that
+       * did — the files are worth having and they were paid for. */
+      if (deploymentsConfigured()) {
+        const deployed = await deployProject(tree, {
+          name: deploymentName((project.name as string | null) ?? "app", project.id as string),
+          supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+          supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+          supabaseSchema: summaryBackend?.schema ?? schemaNameFor(claim.projectId),
+        });
+
+        if (deployed.ok) {
+          deploymentUrl = deployed.url;
+        } else {
+          deploymentError = deployed.reason;
+        }
+      }
+
       html = projectSummary({
         projectName: (project.name as string | null) ?? "Your project",
         manifest: summaryArchitecture,
@@ -421,6 +461,11 @@ export async function POST(request: Request) {
            made, and a summary that showed the first as the second would be
            reporting an intention as a fact. */
         databaseReady: summaryBackendReady,
+        /* The running app, when there is one. The summary changes character
+           completely in that case: it stops being the only thing the customer
+           gets and becomes the notes beside a link to their site. */
+        liveUrl: deploymentUrl,
+        deploymentError,
       });
       synthesised = true;
     }
@@ -567,6 +612,8 @@ export async function POST(request: Request) {
      * live — and it needs an answer that outlives the conversation.
      *
      * Errors only, and at most twenty: this is a record, not a log. */
+    deployment_url: deploymentUrl,
+    deployment_error: deploymentError,
     qa_status: qa.status,
     qa_issues: allIssues(qa)
       .filter((issue) => issue.severity === "error")
