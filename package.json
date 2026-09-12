@@ -22,6 +22,7 @@
     "check:context": "node tools/check-context.mjs",
     "check:contract": "node tools/check-orchestrator-contract.mjs",
     "check:credits": "node tools/check-credits.mjs",
+    "check:deploy-access": "node tools/check-deploy-access.mjs",
     "check:deploy": "node tools/check-deploy.mjs",
     "check:design": "node tools/check-design.mjs",
     "check:edit-plan": "node tools/check-edit-plan.mjs",
