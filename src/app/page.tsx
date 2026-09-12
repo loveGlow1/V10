@@ -366,6 +366,34 @@ const HERO_RING = { cx: 50, cy: 45, rx: 48, ry: 46 };
    the second time you look at the page, not the first. */
 const ORBIT_SECONDS = 44;
 
+/* How far the path tucks under as it crosses the front, in the same units as
+   the ring — a share of the layer's height. The sign-in stack sits exactly
+   where the front of an honest ellipse would run, so without this a panel
+   travels through the Continue buttons twice a minute. With it the path bends
+   down and the panel slides beneath them.
+
+   Shaped to the STACK rather than to the angle, which is the part worth
+   knowing. The obvious version — dip hardest at dead centre, fall away as the
+   sine does — leaves a panel out at 55 degrees still clipping the corner of the
+   buttons, because what decides whether it collides is how far across the ring
+   it sits, not how far round. So the dip is full for as long as the panel is
+   horizontally over the stack and eases out once it has cleared it: a plateau
+   in |cos|, smoothstepped at both edges so the path bends rather than kinks.
+
+   Kept in step with @keyframes hero-app-orbit. */
+const HERO_DIP = 18;
+const HERO_DIP_FULL_UNTIL = 0.62;
+const HERO_DIP_GONE_BY = 0.95;
+
+function heroDip(cos: number, sin: number): number {
+  /* Front half only. Behind the mark a panel is faded out and there is nothing
+     for it to collide with. */
+  if (sin <= 0) return 0;
+  const span = HERO_DIP_GONE_BY - HERO_DIP_FULL_UNTIL;
+  const t = Math.min(1, Math.max(0, (HERO_DIP_GONE_BY - Math.abs(cos)) / span));
+  return HERO_DIP * (t * t * (3 - 2 * t));
+}
+
 /* Where a panel sits, and how it is turned, at a given point on the path.
  *
  * This is only ever used for the motion-reduced rendering — with the wheel
@@ -386,7 +414,8 @@ function heroRingPosition(angle: number) {
 
   return {
     left: `calc(${HERO_RING.cx}% + ${(HERO_RING.rx * cos).toFixed(2)}%)`,
-    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * sin).toFixed(2)}%)`,
+    /* The same tuck the keyframes make. See HERO_DIP. */
+    top: `calc(${HERO_RING.cy}% + ${(HERO_RING.ry * sin + heroDip(cos, sin)).toFixed(2)}%)`,
     transform:
       `translate(-50%, -50%) perspective(1300px) rotateZ(${(9 * cos).toFixed(1)}deg) ` +
       `rotateY(${(-15 * cos).toFixed(1)}deg) rotateX(${(2 * sin).toFixed(1)}deg) ` +
