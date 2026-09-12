@@ -55,7 +55,28 @@ export type ImageSlot = {
 };
 
 /** What a provider gives back for one slot. */
+/* Which photograph this is, so the next slot can avoid it.
+ *
+ * `unsplash:abc123` / `pexels:456`. Namespaced because the two providers
+ * number their own photographs and an unqualified id would collide between
+ * them for no reason anybody would ever find. */
+export type PhotoId = string;
+
+/** What the caller knows that a provider cannot: what this page has used. */
+export type ChoiceOptions = {
+  /* Photo ids already used — by this page, and by this project's earlier
+     builds. A provider skips them rather than handing back the same picture
+     twice. */
+  exclude?: Set<PhotoId>;
+  /* Something stable about this project. Two projects asking the same question
+     get different photographs; the same project rebuilt gets the same ones.
+     See `rotation` in image-providers.ts. */
+  seed?: string;
+};
+
 export type Shot = {
+  /** Namespaced provider id — see PhotoId. */
+  id: PhotoId;
   bytes: Buffer;
   contentType: string;
   /** Attribution, where the source requires it. Unsplash does. */
@@ -66,7 +87,12 @@ export type ImageProvider = {
   name: string;
   /** Real pixels for one slot at roughly this width, or null if none was found.
    *  `context` describes what was actually built — see fillImages. */
-  shotFor(slot: ImageSlot, width: number, context?: string): Promise<Shot | null>;
+  shotFor(
+    slot: ImageSlot,
+    width: number,
+    context?: string,
+    choice?: ChoiceOptions,
+  ): Promise<Shot | null>;
 };
 
 /* How wide a picture is asked for, by where it sits.
@@ -155,6 +181,9 @@ export type FillResult = {
   skipped: number;
   bytes: number;
   credits: { author: string; source: string; url: string }[];
+  /* Every photograph this page ended up with, so the project can remember them
+     and the next build can avoid them. Empty with no provider configured. */
+  used: PhotoId[];
 };
 
 /**
@@ -170,12 +199,22 @@ export type FillResult = {
 export async function fillImages(
   html: string,
   provider: ImageProvider | null,
-  options: { budget?: number; timeoutMs?: number; context?: string } = {},
+  options: {
+    budget?: number;
+    timeoutMs?: number;
+    context?: string;
+    /* Something stable about this project — its id. Two projects asking for
+       the same photograph get different ones; one project rebuilt gets the
+       same. See `rotation` in image-providers.ts. */
+    seed?: string;
+    /* What this project has already used, from earlier builds. */
+    exclude?: Iterable<PhotoId>;
+  } = {},
 ): Promise<FillResult> {
   const slots = readSlots(html);
   const credits: FillResult["credits"] = [];
 
-  if (slots.length === 0) return { html, filled: 0, skipped: 0, bytes: 0, credits };
+  if (slots.length === 0) return { html, filled: 0, skipped: 0, bytes: 0, credits, used: [] };
 
   const budget = options.budget ?? IMAGE_BUDGET_BYTES;
   const timeoutMs = options.timeoutMs ?? 12_000;
@@ -191,6 +230,22 @@ export async function fillImages(
   let spent = 0;
   let filled = 0;
 
+  /* THE SET THAT STOPS ONE PICTURE DOING A CATALOGUE'S WORK.
+   *
+   * Seeded with whatever the project used before and added to as this page
+   * fills, so a slot is never handed a photograph another slot on the same
+   * page already has. Before this, every provider asked for one result and
+   * took it, so two slots with the same subject were the same picture — and
+   * two different projects with the same subject were the same picture too. */
+  const used = new Set<PhotoId>(options.exclude ?? []);
+
+  /* What THIS page took, as distinct from what it was told to avoid. Kept
+     separately because `used` is seeded with the project's history, and
+     reporting that back as "this build used these" would hand the caller its
+     own exclusion list to store again — which reads as a build that reused
+     every picture it was carefully avoiding. */
+  const picked: PhotoId[] = [];
+
   /* The rewrite below runs whatever happens, including with no provider at
      all. That is not a detail: a slot ships with no src — the model is told to
      leave it out, because one it invented would be broken or overwritten — so
@@ -204,7 +259,10 @@ export async function fillImages(
     let shot: Shot | null = null;
     try {
       shot = await withTimeout(
-        provider!.shotFor(slot, WIDTH[slot.weight], options.context),
+        provider!.shotFor(slot, WIDTH[slot.weight], options.context, {
+          exclude: used,
+          seed: options.seed,
+        }),
         timeoutMs,
       );
     } catch {
@@ -219,6 +277,8 @@ export async function fillImages(
 
     spent += encoded.length;
     filled += 1;
+    used.add(shot.id);
+    picked.push(shot.id);
     replacements.set(index, `data:${shot.contentType};base64,${encoded}`);
     if (shot.credit) credits.push(shot.credit);
   }
@@ -241,7 +301,14 @@ export async function fillImages(
     cursor = at + rewritten.length;
   });
 
-  return { html: out, filled, skipped: slots.length - filled, bytes: spent, credits };
+  return {
+    html: out,
+    filled,
+    skipped: slots.length - filled,
+    bytes: spent,
+    credits,
+    used: picked,
+  };
 }
 
 function setAttribute(tag: string, name: string, value: string): string {

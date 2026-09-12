@@ -1,7 +1,7 @@
 import type { GenerationJob, ImageProvider as GeneratingProvider } from "@/lib/builder/assets/asset-generator";
 import { promptFor, widthFor } from "@/lib/builder/assets/asset-generator";
 import type { Quality, VisualSpec } from "@/lib/builder/assets/asset-types";
-import type { ImageProvider, ImageSlot, Shot } from "@/lib/builder/images";
+import type { ChoiceOptions, ImageProvider, ImageSlot, Shot } from "@/lib/builder/images";
 
 /* Where the real pixels come from.
  *
@@ -80,6 +80,60 @@ function query(slot: ImageSlot, context?: string): string {
   return `${usable} ${context}`.trim();
 }
 
+/* ── Which of the results, and why not simply the first ───────────────────
+ *
+ * This asked for `per_page=1` and took `results[0]`, which is the single most
+ * consequential line in the image pipeline and reads like a sensible
+ * simplification.
+ *
+ * Stock search is deterministic. Two bakeries whose slots both reduce to
+ * "bakery counter morning light" were handed THE SAME PHOTOGRAPH — not
+ * sometimes, always, across every project and every account, for as long as
+ * that query ranked that photo first. And two slots on ONE page with the same
+ * subject got the same picture as each other, which is the tell that makes a
+ * generated catalogue look generated.
+ *
+ * So twenty candidates come back and this decides between them, against two
+ * requirements that pull in opposite directions:
+ *
+ *   DIVERSE. A photograph already used on this page, or already used by this
+ *   project, drops out entirely. That is what stops one picture doing a whole
+ *   catalogue's work.
+ *
+ *   AND REPRODUCIBLE. Rebuilding a project should not reshuffle its
+ *   photographs — somebody who liked the hero and asked for a copy change
+ *   should get the same hero. So the starting point is a hash of the project
+ *   id rather than anything random: stable for one project across rebuilds,
+ *   and different between projects asking the same question.
+ */
+function rotation(seed: string | undefined, length: number): number {
+  if (!seed || length <= 1) return 0;
+  let hash = 0;
+  for (let at = 0; at < seed.length; at += 1) {
+    hash = (hash * 31 + seed.charCodeAt(at)) | 0;
+  }
+  return Math.abs(hash) % length;
+}
+
+/** The first candidate this page has not already used, starting from the rotation. */
+function choose<T>(candidates: T[], idOf: (item: T) => string, options?: ChoiceOptions): T | null {
+  if (candidates.length === 0) return null;
+
+  const start = rotation(options?.seed, candidates.length);
+  const used = options?.exclude;
+
+  for (let step = 0; step < candidates.length; step += 1) {
+    const candidate = candidates[(start + step) % candidates.length];
+    if (!used || !used.has(idOf(candidate))) return candidate;
+  }
+
+  /* Every candidate is already on this page. Reusing one beats a hole, and the
+     duplicate is at least the one the rotation would have picked. */
+  return candidates[start];
+}
+
+const CANDIDATES = 20;
+
 function orientation(ratio: string): "landscape" | "portrait" | "squarish" {
   const [a, b] = ratio.split("/").map(Number);
   if (!a || !b) return "landscape";
@@ -90,9 +144,9 @@ function orientation(ratio: string): "landscape" | "portrait" | "squarish" {
 
 const unsplash = (key: string): ImageProvider => ({
   name: "unsplash",
-  async shotFor(slot, width, context) {
+  async shotFor(slot, width, context, choice) {
     const search = await get(
-      `https://api.unsplash.com/search/photos?per_page=1&content_filter=high&orientation=${orientation(
+      `https://api.unsplash.com/search/photos?per_page=${CANDIDATES}&content_filter=high&orientation=${orientation(
         slot.ratio,
       )}&query=${encodeURIComponent(query(slot, context))}`,
       { Authorization: `Client-ID ${key}`, "Accept-Version": "v1" },
@@ -101,14 +155,16 @@ const unsplash = (key: string): ImageProvider => ({
 
     const body = (await search.json()) as {
       results?: {
+        id?: string;
         urls?: { raw?: string };
         links?: { download_location?: string };
         user?: { name?: string; links?: { html?: string } };
       }[];
     };
-    const photo = body.results?.[0];
+    const usable = (body.results ?? []).filter((result) => result?.urls?.raw && result?.id);
+    const photo = choose(usable, (result) => `unsplash:${result.id}`, choice);
     const raw = photo?.urls?.raw;
-    if (!raw) return null;
+    if (!photo || !raw) return null;
 
     /* Their guidelines ask that using a photo registers a download. Fired and
        not awaited on the critical path, and a failure here must not cost the
@@ -121,6 +177,7 @@ const unsplash = (key: string): ImageProvider => ({
     if (!file) return null;
 
     return {
+      id: `unsplash:${photo.id}`,
       bytes: Buffer.from(await file.arrayBuffer()),
       contentType: "image/jpeg",
       credit: {
@@ -134,9 +191,9 @@ const unsplash = (key: string): ImageProvider => ({
 
 const pexels = (key: string): ImageProvider => ({
   name: "pexels",
-  async shotFor(slot, width, context) {
+  async shotFor(slot, width, context, choice) {
     const search = await get(
-      `https://api.pexels.com/v1/search?per_page=1&orientation=${orientation(
+      `https://api.pexels.com/v1/search?per_page=${CANDIDATES}&orientation=${orientation(
         slot.ratio,
       )}&query=${encodeURIComponent(query(slot, context))}`,
       { Authorization: key },
@@ -144,16 +201,18 @@ const pexels = (key: string): ImageProvider => ({
     if (!search) return null;
 
     const body = (await search.json()) as {
-      photos?: { src?: { original?: string }; photographer?: string; url?: string }[];
+      photos?: { id?: number; src?: { original?: string }; photographer?: string; url?: string }[];
     };
-    const photo = body.photos?.[0];
+    const usable = (body.photos ?? []).filter((photo) => photo?.src?.original && photo?.id);
+    const photo = choose(usable, (result) => `pexels:${result.id}`, choice);
     const original = photo?.src?.original;
-    if (!original) return null;
+    if (!photo || !original) return null;
 
     const file = await get(`${original}?auto=compress&cs=tinysrgb&w=${width}`);
     if (!file) return null;
 
     return {
+      id: `pexels:${photo.id}`,
       bytes: Buffer.from(await file.arrayBuffer()),
       contentType: "image/jpeg",
       credit: {

@@ -81,9 +81,15 @@ try {
   const asked = [];
   const stub = {
     name: "stub",
-    async shotFor(slot, width) {
-      asked.push({ shot: slot.shot.slice(0, 24), width });
-      return { bytes: PIXEL, contentType: "image/png", credit: { author: "A Photographer", source: "Stub", url: "https://example.test" } };
+    async shotFor(slot, width, _context, choice) {
+      asked.push({ shot: slot.shot.slice(0, 24), width, choice });
+      /* A stub that behaves like a real provider: it has a catalogue, it is
+         told what is already used, and it must not hand back the same picture
+         twice. A stub that ignored `exclude` would pass the assertions below
+         while the real providers failed them. */
+      const catalogue = ["stub:1", "stub:2", "stub:3", "stub:4", "stub:5", "stub:6", "stub:7", "stub:8"];
+      const id = catalogue.find((candidate) => !choice?.exclude?.has(candidate)) ?? catalogue[0];
+      return { id, bytes: PIXEL, contentType: "image/png", credit: { author: "A Photographer", source: "Stub", url: "https://example.test" } };
     },
   };
 
@@ -125,6 +131,44 @@ try {
   const angry = await fillImages(page, { name: "angry", async shotFor() { throw new Error("429"); } });
   is(angry.filled, 0, "a provider that throws is caught");
   is(angry.html.includes('alt="Depot at dusk"'), true, "and the page keeps its alt text");
+
+  /* ── One picture must not do a catalogue's work ────────────────────────
+   *
+   * The defect these guard was the single most consequential line in the image
+   * pipeline, and it read like a sensible simplification: the providers asked
+   * for `per_page=1` and took `results[0]`.
+   *
+   * Stock search is deterministic. Two slots on one page with the same subject
+   * were handed THE SAME photograph — not sometimes, always — and so were two
+   * entirely different projects whose briefs reduced to the same query. A
+   * catalogue where every product shows the same picture is the clearest
+   * possible tell that nothing on the page is real. */
+  is(new Set(filled.used).size, filled.used.length, "no photograph is used twice on one page");
+  is(filled.used.length, 3, "and every one that was used is reported back");
+  is(
+    asked.every((call) => call.choice && call.choice.exclude instanceof Set),
+    true,
+    "every provider call is told what the page has already used",
+  );
+
+  /* What a rebuild must do: the SAME project gets the same pictures, so
+     somebody who liked the hero and asked for a copy change keeps it. */
+  const again = await fillImages(page, stub, { seed: "project-a" });
+  const once = await fillImages(page, stub, { seed: "project-a" });
+  is(
+    again.used.join() === once.used.join(),
+    true,
+    "the same project rebuilt gets the same photographs",
+  );
+
+  /* And what it must not: a project carrying pictures from an earlier build
+     is not handed them again. */
+  const avoided = await fillImages(page, stub, { exclude: ["stub:1", "stub:2"] });
+  is(
+    avoided.used.includes("stub:1") || avoided.used.includes("stub:2"),
+    false,
+    "photographs this project already used are not handed to it again",
+  );
 
   // ── The placeholder itself ───────────────────────────────────────────────
   const a = placeholderFor(slots[0]);

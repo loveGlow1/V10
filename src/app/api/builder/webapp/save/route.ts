@@ -8,6 +8,7 @@ import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName } from "@/lib/builder/design";
@@ -573,10 +574,28 @@ export async function POST(request: Request) {
   /* Skipped for a summary this route wrote itself. It declares no photograph
      slots, so filling it would search for nothing and find nothing — and
      `synthesised` is a cheaper way to know that than asking a stock provider. */
+  /* What this project's earlier builds already used.
+   *
+   * The other half of the fix in fillImages. Within one page the exclusion set
+   * stops two slots getting the same photograph; this stops the REBUILD
+   * getting the same set again when the person asked for something different,
+   * and it is what makes "seed + exclude" mean the project rather than the
+   * request.
+   *
+   * Read from project_assets, which already exists for the planned-asset
+   * pipeline. Best effort: a read that fails costs variety, not the build. */
+  const usedBefore = await previouslyUsedPhotos(supabase, project.id as string);
+
   const pictures = synthesised
-    ? { html, credits: [], filled: 0, skipped: 0, bytes: 0 }
+    ? { html, credits: [], filled: 0, skipped: 0, bytes: 0, used: [] as string[] }
     : await fillImages(html, providerFromEnv(), {
         context: searchContext(str(body.prompt)),
+        /* Stable for this project and different between projects — see
+           `rotation`. Two bakeries asking for the same photograph used to be
+           handed the identical one, because the search is deterministic and
+           this took the first result. */
+        seed: project.id as string,
+        exclude: usedBefore,
       });
   html = pictures.html;
 
@@ -807,6 +826,21 @@ export async function POST(request: Request) {
       kind: "build_qa",
       /* Keyed on the build, so a retried save does not say it twice. */
       dedupeKey: `qa:${claim.requestId || project.id}`,
+    });
+  }
+
+  /* The photographs this build used, remembered.
+   *
+   * So the next build of this project can avoid them, and so "are this
+   * project's images its own" is a question with an answer rather than an
+   * assurance. Nothing recorded these before: they existed only as base64
+   * inside the stored document, which meant nothing could tell whether two
+   * projects were sharing a picture. */
+  if (pictures.used.length > 0) {
+    await rememberPhotos(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      ids: pictures.used,
     });
   }
 
