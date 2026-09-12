@@ -2276,3 +2276,12 @@ create index if not exists tool_results_project_created_idx
 alter table public.project_builds
   add column if not exists deployment_url text,
   add column if not exists deployment_error text;
+
+-- Why a project's tables are not there.
+--
+-- A provisioning failure was reported once, in the build's step list, in a
+-- conversation that scrolls away. The question it answers is asked hours later
+-- and somewhere else. Null means no failure recorded; it is cleared on the run
+-- that succeeds.
+alter table public.project_backends
+  add column if not exists last_error text;
