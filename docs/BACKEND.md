@@ -20,7 +20,26 @@ Everything here is **server-only**. Nothing in this section may ever be prefixed
 | `NEXT_PUBLIC_SUPABASE_URL` | the shared backend's address, and the platform's own | Supabase → Project Settings → API → Project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the key compiled into generated apps on the shared backend | same page → `anon` `public` |
 | `SUPABASE_SERVICE_ROLE_KEY` | reading and writing `project_backends` at all | same page → `service_role` — **secret** |
-| `SUPABASE_DB_URL` | **creating the tables.** Without it, every build reports its schema as pending | Supabase → Project Settings → Database → Connection string → URI |
+| `SUPABASE_DB_URL` | **creating the tables.** Without it, every build reports its schema as pending | Supabase → Project Settings → Database → Connection string → **Session pooler** (see below) |
+
+### It has to be the POOLER, not the direct connection
+
+This line used to say "Connection string → URI", which is the **direct**
+connection — `db.<ref>.supabase.co:5432`. That host resolves to an IPv6 address
+only, and a Vercel serverless function has no IPv6 egress, so `pg` cannot reach
+it from production at all. The symptom is not an error anybody sees: the build
+carries on by design, the files are still written, and every project just
+quietly reports its schema as pending. Which is exactly what a deployment with
+the variable correctly set looks like.
+
+Take the **Session pooler** string instead — `aws-0-<region>.pooler.supabase.com`,
+port `5432`, with the username in the `postgres.<ref>` form. Session mode rather
+than transaction mode (port `6543`) because this connection runs DDL inside one
+transaction, and session mode is the one that behaves like an ordinary client.
+
+If the tables are still not created after switching, the reason is now recorded
+against the build rather than only spoken once in the chat — see
+`project_builds.database_error`.
 
 `SUPABASE_DB_URL` is the one that is probably missing, and it is the one that
 makes the difference between a store that works and a store whose products table

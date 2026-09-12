@@ -39,6 +39,7 @@
     "check:publish": "node tools/check-publish.mjs",
     "check:qa": "node tools/check-qa.mjs",
     "check:reconcile": "node tools/check-reconcile.mjs",
+    "check:schema": "node tools/check-schema.mjs",
     "check:stack": "node tools/check-stack.mjs",
     "check:standalone": "node tools/check-standalone.mjs",
     "check:stock-query": "node tools/check-stock-query.mjs",

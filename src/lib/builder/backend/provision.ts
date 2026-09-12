@@ -85,6 +85,40 @@ async function connectionStringFor(
   return data?.db_url ?? null;
 }
 
+
+/* Why the tables are not there, written where somebody can find it later.
+ *
+ * A provisioning failure has always been reported — once, in the build's step
+ * list, in a conversation that scrolls away. The question it answers ("my app
+ * says the database is pending, why") is asked hours later and somewhere else,
+ * and until now the honest reply was to rebuild and watch. So the reason is
+ * kept.
+ *
+ * Best effort throughout. This runs on a path that has already failed, and a
+ * failure to record a failure must not become the thing the caller sees. */
+async function recordFailure(
+  service: SupabaseClient,
+  projectId: string,
+  userId: string,
+  connection: BackendConnection,
+  reason: string,
+): Promise<void> {
+  try {
+    await service.from("project_backends").upsert(
+      {
+        project_id: projectId,
+        user_id: userId,
+        kind: connection.kind,
+        schema_name: connection.schema,
+        last_error: reason,
+      },
+      { onConflict: "project_id" },
+    );
+  } catch {
+    /* Deliberately silent. See above. */
+  }
+}
+
 /**
  * Applies this project's schema to its database.
  *
@@ -126,14 +160,12 @@ export async function provision(
 
   const dsn = await connectionStringFor(service, connection, projectId);
   if (!dsn) {
-    return {
-      ok: false,
-      applied: false,
-      reason:
-        connection.kind === "shared"
-          ? "this deployment has no SUPABASE_DB_URL, so it cannot create schemas"
-          : "no connection string was stored for this Supabase, so its tables cannot be created",
-    };
+    const reason =
+      connection.kind === "shared"
+        ? "this deployment has no SUPABASE_DB_URL, so it cannot create schemas"
+        : "no connection string was stored for this Supabase, so its tables cannot be created";
+    await recordFailure(service, projectId, userId, connection, reason);
+    return { ok: false, applied: false, reason };
   }
 
   const started = Date.now();
@@ -181,6 +213,10 @@ export async function provision(
           anon_key: connection.anonKey,
           schema_name: connection.schema,
           applied_at: new Date().toISOString(),
+          /* Cleared, not left. A stale reason beside a schema that now exists
+             is worse than no reason at all — it sends whoever reads it after
+             something that has already been fixed. */
+          last_error: null,
         },
         { onConflict: "project_id" },
       );
@@ -213,11 +249,14 @@ export async function provision(
          error below does not say better. */
     }
 
-    return {
-      ok: false,
-      applied: false,
-      reason: error instanceof Error ? error.message : "the migration could not be applied",
-    };
+    /* The commonest shape of this in production is a connection that never
+       opens: Supabase's DIRECT database host is IPv6-only and a Vercel
+       function has no IPv6 egress, so the pooler is the one that works. See
+       docs/BACKEND.md. Recorded verbatim rather than interpreted — a guess
+       written down as a diagnosis is worse than the driver's own words. */
+    const reason = error instanceof Error ? error.message : "the migration could not be applied";
+    await recordFailure(service, projectId, userId, connection, reason);
+    return { ok: false, applied: false, reason };
   } finally {
     await client.end().catch(() => {});
   }
