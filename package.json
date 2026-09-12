@@ -46,6 +46,7 @@
     "check:stock-query": "node tools/check-stock-query.mjs",
     "check:theme": "node tools/check-theme.mjs",
     "check:tree": "node tools/check-tree.mjs",
+    "check:versions": "node tools/check-versions.mjs",
     "check:validate": "node tools/check-validate.mjs",
     "audit:page": "node tools/audit-page.mjs",
     "qa": "node tools/qa.mjs",
