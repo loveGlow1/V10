@@ -373,10 +373,10 @@ function heroRingPosition(angle: number, radius = 1) {
 const HERO_APPS = [
   {
     // Upper left, furthest back: flatter and smaller, so it reads as distant.
-    src: "/hero-apps/trattoria.png",
-    width: 2480,
-    height: 1580,
-    alt: "Restaurant landing page with a plated spaghetti and a reservation form",
+    src: "/hero-apps/sofra.webp",
+    width: 1147,
+    height: 860,
+    alt: "Restaurant landing page with a plated steak pasta and a table booking",
     angle: 232,
     radius: 1,
     size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[480px]",
@@ -390,10 +390,10 @@ const HERO_APPS = [
   {
     // Far left, mid depth — the strongest rotateY of the set, which is what makes its
     // outer edge fall away into the screen.
-    src: "/hero-apps/store.png",
-    width: 2480,
-    height: 1580,
-    alt: "Fashion storefront with a product grid and promotional banner",
+    src: "/hero-apps/listingbeam.webp",
+    width: 2000,
+    height: 1223,
+    alt: "Property listings site with a hero search for city and property type",
     angle: 185,
     radius: 1.04,
     size: "w-[26vw] max-w-[470px]",
@@ -407,10 +407,10 @@ const HERO_APPS = [
   },
   {
     // Lower left, nearest the viewer: full scale, brightest, least dimmed.
-    src: "/hero-apps/banking.png",
-    width: 780,
-    height: 1688,
-    alt: "Mobile banking app showing balance, spending and recent transactions",
+    src: "/hero-apps/aurelia.png",
+    width: 720,
+    height: 405,
+    alt: "Luxury estate agency landing page with a viewing booking and featured villa",
     angle: 131,
     radius: 1.22,
     size: "w-[22vw] max-w-[112px] lg:w-[12vw] lg:min-w-[132px] lg:max-w-[196px]",
@@ -441,10 +441,10 @@ const HERO_APPS = [
   },
   {
     // Right, mid depth.
-    src: "/hero-apps/pantry.png",
-    width: 2480,
-    height: 1600,
-    alt: "Gourmet food store with a pasta subscription banner and product grid",
+    src: "/hero-apps/devue.webp",
+    width: 1672,
+    height: 940,
+    alt: "Bakery landing page with a celebration cake and a tasting reservation",
     angle: 355,
     radius: 0.99,
     size: "w-[46vw] max-w-[230px] lg:w-[26vw] lg:max-w-[470px]",
@@ -458,10 +458,10 @@ const HERO_APPS = [
   },
   {
     // Upper right, furthest back on this side.
-    src: "/hero-apps/product.png",
-    width: 2480,
-    height: 1560,
-    alt: "Product page for a leather tote with colours, sizes and reviews",
+    src: "/hero-apps/aesop.png",
+    width: 1147,
+    height: 860,
+    alt: "Skincare shop with a row of amber bottles and an add-to-basket bar",
     angle: 308,
     radius: 1.05,
     size: "w-[26vw] max-w-[480px]",
