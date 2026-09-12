@@ -33,12 +33,17 @@ const source = readFileSync(join(process.cwd(), "src/lib/builder/scaffold.ts"), 
    that drifts, and the drift would be silent in exactly the direction that
    matters. */
 function pinned(constant) {
-  const m = source.match(new RegExp(`^const ${constant} = "([^"]+)";`, "m"));
+  /* `export const` as well as `const`: NEXT is exported so the deploy path can
+     force the current framework version into an older tree's package.json, and
+     when that export was added this check failed with "no pinned version
+     found" — which is the right way for it to fail. A version-checker that
+     cannot find a version must never read that as nothing to check. */
+  const m = source.match(new RegExp(`^(?:export )?const ${constant} = "([^"]+)";`, "m"));
   return m ? m[1] : null;
 }
 
 const PACKAGES = [
-  ["next", pinned("NEXT")],
+  ["next", pinned("NEXT_VERSION")],
   ["react", pinned("REACT")],
   ["react-dom", pinned("REACT")],
   ["@types/react", pinned("TYPES_REACT")],
