@@ -169,6 +169,65 @@ const CASES = [
     on: ["backend", "database", "authentication"],
     off: ["payments"],
   },
+
+  /* ── An account, in the words people actually use ──────────────────────
+   *
+   * Every case below was decided WRONG before the AUTH patterns were widened,
+   * and each was wrong in a way nothing could see: no error, no question, a
+   * confident manifest, and a build spent on it.
+   *
+   * The asymmetry that caused it is worth keeping in mind when touching these:
+   * kinds.ts scores a bare "accounts" as evidence of software and routes the
+   * brief to the webapp blueprint, while stack.ts wanted the word next to
+   * "user" or after a verb. So the same word decided what to build and failed
+   * to turn on the thing it needed. */
+  {
+    /* Authentication arrived FALSE here, so a shop with customer accounts got
+       a database and no way for a customer to be anybody. */
+    brief:
+      "an online bakery where customers create accounts, save addresses, order cakes and track their orders",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["admin", "payments"],
+  },
+  {
+    /* Accounts named first in a feature list, which is where they usually are.
+       This produced a Next.js project with no layers at all. */
+    brief: "team project management application with accounts, projects, tasks and permissions",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["payments", "storage"],
+  },
+  {
+    brief: "a members portal where each client can view their own documents",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["payments"],
+  },
+
+  /* ── And what is NOT an account ────────────────────────────────────────
+   *
+   * The other direction, which is the expensive one: widening a pattern to
+   * catch the cases above must not turn a booking form into a users table.
+   * "Sign up" is the word people use for both. */
+  {
+    brief: "a yoga studio site where people can sign up for a class",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    brief: "a landing page for my studio with a form to sign up for the newsletter",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    brief: "a conference page where you can register for the event",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
 ];
 
 console.log("\nThe decision");

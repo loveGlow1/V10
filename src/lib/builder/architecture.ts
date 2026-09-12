@@ -433,6 +433,46 @@ export function isArchitectureChoice(value: unknown): value is "full" | "fronten
 }
 
 /**
+ * The manifest once somebody has answered the question.
+ *
+ * The missing half of this file. `decideArchitecture` has always known when it
+ * was guessing and said so in `certain`, `architectureQuestion` has always had
+ * the words to ask, and `architectureOptions` has always had the two chips —
+ * and nothing anywhere read any of them, so every guess was spent on instead
+ * of asked about. This is what an answer does to the decision.
+ *
+ * FRONTEND is a real answer and not a smaller version of the other one: it
+ * turns every layer off, which is the whole point. Somebody who says they want
+ * the front of a store has said they do not want a schema migrated into a
+ * database, an admin nobody will open, or a Next.js project where a page would
+ * do.
+ *
+ * FULL keeps exactly what was decided, because the question is only ever asked
+ * when layers are already on — see `certain`, which is true whenever
+ * `needsProject` is false. There is no minimum to apply and nothing to invent.
+ *
+ * Both come back `certain: true`. The question has been answered; asking again
+ * on the next message would be the builder forgetting.
+ */
+export function architectureFromChoice(
+  choice: "full" | "frontend",
+  kind: BuildKind,
+  decided: ArchitectureResult,
+): ArchitectureResult {
+  if (choice === "frontend") {
+    return {
+      manifest: frontendOnly(kind),
+      why: ["you chose the front of it, so nothing behind it is built"],
+      needsProject: false,
+      promoted: false,
+      certain: true,
+    };
+  }
+
+  return { ...decided, certain: true };
+}
+
+/**
  * The manifest as the model is shown it.
  *
  * A block rather than a sentence, and the OFF layers are listed as well as the

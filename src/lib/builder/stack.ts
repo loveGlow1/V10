@@ -81,15 +81,72 @@ const AUTH = [
   /\b(authenticat\w+|auth flow|oauth|sso|single sign)\b/i,
   /\b(password|forgot password|reset password|magic link|2fa|two[- ]factor)\b/i,
   /\b(user accounts?|member accounts?|create an account|my account|account page)\b/i,
+  /* ── An account, said the way people say it ─────────────────────────────
+   *
+   * The line above requires the words to be adjacent, so it reads "create an
+   * account" and misses "customers create accounts", "let people set up an
+   * account", "each shopper makes their own account". That is not a rare
+   * phrasing — it is the commonest one, and the gap had a measurable cost:
+   * kinds.ts scores a bare "accounts" as evidence of software, so a brief
+   * saying "customers create accounts" was routed to the webapp blueprint by
+   * one file and read as needing no authentication by this one. The word that
+   * decided what to build was the same word that failed to turn auth on.
+   *
+   * Still narrow. The verb has to be there: an account somebody CREATES, SETS
+   * UP, MAKES or REGISTERS. "Account" on its own stays out, because "your
+   * account manager will call you" is a sentence on a thousand landing pages. */
+  /\b(?:creat\w+|make|makes|making|open|opens|set ?up|sets ?up|register|registers|registering)\s+(?:an?\s+|their\s+|his\s+|her\s+|your\s+|my\s+|own\s+)*(?:new\s+)?accounts?\b/i,
+  /* Whose accounts they are. "Customer accounts", "client accounts", "student
+     accounts" — the same shape as "user accounts" above, which was written for
+     two nouns and meets every other kind of customer there is. */
+  /\b(customers?|clients?|shoppers?|buyers?|students?|patients?|staff|employees?|guests?|subscribers?|tenants?) accounts?\b/i,
+  /* ── Data that belongs to somebody ──────────────────────────────────────
+   *
+   * The other half of what an account IS, and the half a brief is more likely
+   * to describe than the sign-in itself. "Customers can track their orders",
+   * "save their addresses", "see their booking history" — every one of those
+   * needs the page to know who is asking, and none of them contains a word the
+   * patterns above would catch.
+   *
+   * The possessive is doing the work, so it is required: "track orders" is a
+   * shop's own back office and is ADMIN's business, while "track THEIR orders"
+   * is a customer looking at their own. The nouns are listed rather than left
+   * open for the same reason the rest of this file lists things — "their
+   * favourite recipe" is not a session. */
+  /\b(?:track|tracks|tracking|save|saves|saving|store|stores|view|views|see|sees|manage|manages|access|accesses|re-?order)\s+(?:their|his|her|my|your)\s+(?:own\s+)?(?:orders?|order history|bookings?|reservations?|appointments?|addresses|profiles?|history|favou?rites?|wish ?lists?|saved items?|purchases?|subscriptions?|documents?|files?|data|progress)\b/i,
   /\b(members? (?:area|only|portal|dashboard)|logged[- ]in users?)\b/i,
   /\b(user (?:profiles?|roles?|permissions?)|role[- ]based)\b/i,
+  /* Roles and permissions named as a pair. Either word alone is too common —
+     "file permissions", "role" as a job title — but the pair is only ever one
+     thing, and it is a thing that cannot exist without knowing who is asking. */
+  /\b(?:roles?\s*(?:,|and|&)\s*permissions?|permissions?\s*(?:,|and|&)\s*roles?)\b/i,
+  /* Accounts listed as a feature of the thing being built.
+   *
+   * "Team project management application with accounts, projects, tasks and
+   * permissions" named accounts first and was read as needing no
+   * authentication, because every pattern above wants either an adjective in
+   * front of the word or a verb before it, and a feature list has neither.
+   * kinds.ts scores a bare "accounts" as evidence of software; this is the
+   * same reading, held to the one position where the word cannot mean
+   * anything else. */
+  /\b(?:with|and|plus|including|featuring|supports?|offers?)\s+(?:user |customer |member |client )?accounts?\b/i,
   /\b(protected (?:routes?|pages?)|require sign|gated content)\b/i,
 ];
 
 /* "Sign up" and "register" mean an account ONLY when they are not the thing
    every landing page on earth says. A waitlist is not a users table. */
 const SIGNUP = /\b(sign ?-?up|signup|register|registration)\b/i;
-const NOT_REALLY_SIGNUP = /\b(newsletter|mailing list|waitlist|wait list|early access|updates|launch list|subscribe|email list|beta list)\b/i;
+/* What people sign up FOR that is not an account.
+ *
+ * The list began as mailing lists, which is the commonest of these and not the
+ * only one. "Sign up for a class", "sign up for the workshop", "register for
+ * the event" are a booking form and a confirmation email — there is no session
+ * afterwards and nothing to log back into, and reading them as accounts is how
+ * a yoga studio's one-page site arrives with a users table and a schema
+ * migrated into a database. Every entry here is a thing somebody signs up for
+ * ONCE, at a time, rather than an identity they keep. */
+const NOT_REALLY_SIGNUP =
+  /\b(newsletter|mailing list|waitlist|wait list|early access|updates|launch list|subscribe|email list|beta list|your interest|class(?:es)?|courses?|workshops?|sessions?|webinars?|events?|trials?|demos?|tours?|consultations?|a table|a slot|a spot|a place)\b/i;
 
 /* Data that has to outlive the request. A form that emails somebody is fine on
    a page; a form whose answers are LOOKED AT LATER is not. */
