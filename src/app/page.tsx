@@ -13,7 +13,6 @@ import {
   getMissingSupabaseEnvVars,
   isSupabaseConfigured,
 } from "@/lib/supabase";
-import { useMediaQuery } from "@/hooks/use-media-query";
 /* Prices come from the credit economy, so the page and the billing modal cannot
    quote different figures for the same plan. */
 import { PLANS } from "./dashboard/credits";
@@ -33,17 +32,30 @@ import {
   Slack,
 } from "lucide-react";
 
+/* Arms the scroll reveal — and only ever for something the visitor cannot see.
+ *
+ * `pending` is false on the server and on the first client render, so the two
+ * agree and the markup React hydrates is the finished page. The effect then
+ * hides the ones that are below the fold, which costs nothing to look at
+ * because nobody is looking at them, and releases each as it scrolls up.
+ *
+ * Anything already on screen when this runs is skipped outright. That is the
+ * part that matters on a reload part-way down the page: the section under the
+ * viewport is correct in the very first paint and is never touched. */
 function useReveal() {
-  const ref = useRef(null);
-  const [active, setActive] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (el.getBoundingClientRect().top < window.innerHeight) return;
+
+    setPending(true);
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setActive(true);
+          setPending(false);
           observer.unobserve(el);
         }
       },
@@ -53,12 +65,12 @@ function useReveal() {
     return () => observer.disconnect();
   }, []);
 
-  return [ref, active] as const;
+  return [ref, pending] as const;
 }
 
 function Reveal({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  const [ref, active] = useReveal();
-  return <div ref={ref} className={`reveal-element ${active ? "active" : ""} ${className}`}>{children}</div>;
+  const [ref, pending] = useReveal();
+  return <div ref={ref} className={`reveal-element ${pending ? "reveal-pending" : ""} ${className}`}>{children}</div>;
 }
 
 function ParticleCanvas() {
@@ -473,11 +485,6 @@ export default function LandingPage() {
   const [showGetStartedButton, setShowGetStartedButton] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  /* The floating surfaces are a desktop composition: on a handset they crowd
-     the mark and the auth stack, so the ring is not drawn there at all. Not
-     mounting rather than hiding keeps the six screenshots off a phone's
-     connection entirely — a hidden <img> is still downloaded. */
-  const wideEnoughForHeroApps = useMediaQuery("(min-width: 1024px)");
   /* Billing period is tracked per tier rather than for the section as a whole: each paid
      card carries its own Annual switch, so a visitor can price one plan yearly while
      leaving the others on the monthly rate they are comparing against. */
@@ -779,8 +786,19 @@ export default function LandingPage() {
               buttons. Three elements each: the anchor pins the app to its point on the
               ring, the middle one drifts, and the image carries the ring's perspective —
               one element cannot hold both the drift and the rotation, since animating a
-              transform would wipe the other out. See HERO_APPS for the ring itself. */}
-          {wideEnoughForHeroApps && (
+              transform would wipe the other out. See HERO_APPS for the ring itself.
+
+              Which of them appear at which width is each surface's own `show`
+              classes and nothing else. It used to be gated on a matchMedia read
+              as well, which could not be answered on the server: the hero was
+              therefore sent out with no surfaces at all and grew six of them
+              once JavaScript ran. The classes also disagreed with the gate —
+              two of these are written to appear from 375px up and the gate hid
+              them below 1024 — so the markup was never doing what it said.
+
+              A phone still does not pay for the ones it does not show: they are
+              display:none, their images are lazy, and a lazy image inside a box
+              with no layout is never in a viewport and so is never fetched. */}
           <div className="hero-apps pointer-events-none absolute inset-0" aria-hidden="true">
             {HERO_APPS.map((app) => {
               const place = heroRingPosition(app.angle, app.radius);
@@ -818,7 +836,6 @@ export default function LandingPage() {
               );
             })}
           </div>
-          )}
 
           {/* 3D logo with oval spotlight backdrop */}
           <div className="q-logo-block relative flex items-center justify-center overflow-visible">
@@ -832,7 +849,7 @@ export default function LandingPage() {
           </div>
 
           {/* Headline */}
-          <div className="max-w-4xl lg:max-w-6xl 3xl:max-w-[96rem] text-center mx-auto hero-lede z-20 reveal-element active">
+          <div className="max-w-4xl lg:max-w-6xl 3xl:max-w-[96rem] text-center mx-auto hero-lede z-20 reveal-element">
             {/* Each line is its own block so `text-balance` can even out its wrap on its own.
                 With the previous <br /> the browser treated both lines as one inline flow and
                 balancing was skipped, which left "Minutes" orphaned on a third line. The size
@@ -844,7 +861,7 @@ export default function LandingPage() {
           </div>
 
           {/* Auth area — ref on this div so sticky header CTA appears once it scrolls out of view */}
-          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element active">
+          <div id="signup" ref={heroAuthButtonsRowRef} className="w-full max-w-md sm:max-w-lg 3xl:max-w-2xl mx-auto z-20 reveal-element">
             <div className="hero-auth-stack">
               <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Google" className="w-full inline-flex items-center justify-center gap-2 bg-solid text-onSolid py-4 px-6 rounded-pill text-base font-semibold transition-all duration-300 hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-black/30 shadow-lg group">
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
@@ -1241,18 +1258,6 @@ export default function LandingPage() {
         onPhoneVerify={handlePhoneVerify}
         initialStep={authModalInitialStep}
       />
-
-      <style>{`
-        .noise-bg { position: fixed; top: -50%; left: -50%; right: -50%; bottom: -50%; width: 200%; height: 200%; opacity: 0.8; pointer-events: none; z-index: 999; animation: noise-anim 0.2s infinite; }
-        @keyframes noise-anim { 0% { transform: translate(0,0) } 10% { transform: translate(-1%,-1%) } 20% { transform: translate(-2%,1%) } 30% { transform: translate(1%,-2%) } 40% { transform: translate(-1%,3%) } 50% { transform: translate(-1%,1%) } 60% { transform: translate(3%,-1%) } 70% { transform: translate(2%,1%) } 80% { transform: translate(-2%,-1%) } 90% { transform: translate(1%,3%) } 100% { transform: translate(1%,-2%) } }
-        .radial-vignette { position: fixed; inset: 0; background: radial-gradient(circle at center, transparent 30%, rgba(9, 9, 9, 0.9) 100%); pointer-events: none; z-index: 10; }
-        .ambient-glow-1 { position: absolute; top: 15%; left: 20%; width: 45vw; height: 45vw; background: radial-gradient(circle, rgba(142, 240, 138, 0.03) 0%, transparent 70%); pointer-events: none; filter: blur(80px); z-index: 1; animation: slow-drift-1 25s infinite alternate ease-in-out; }
-        .ambient-glow-2 { position: absolute; bottom: 20%; right: 15%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(255, 255, 255, 0.02) 0%, transparent 75%); pointer-events: none; filter: blur(100px); z-index: 1; animation: slow-drift-2 30s infinite alternate ease-in-out; }
-        @keyframes slow-drift-1 { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(50px, -40px) scale(1.1); } }
-        @keyframes slow-drift-2 { 0% { transform: translate(0, 0) scale(1.1); } 100% { transform: translate(-60px, 50px) scale(0.9); } }
-        .reveal-element { opacity: 0; transform: translateY(30px) scale(0.97); filter: blur(8px); transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), filter 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
-        .reveal-element.active { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-      `}</style>
     </div>
   );
 }

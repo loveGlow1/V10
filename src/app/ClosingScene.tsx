@@ -122,6 +122,10 @@ const SCENE_MAX = 1024;
 const SCENE_W = 880;
 const CROP = (SCENE_MAX - SCENE_W) / 2;
 
+/* Rows of sky taken off the top. Written out in the classes below too, where
+   Tailwind needs it as literal text. */
+const SKY_CROP = 156;
+
 /* How far the reflection runs before it folds back. Under 229, the mark's
    clearance from the cropped edge (the mark spans columns 372 to 722). */
 const FOLD = 220;
@@ -150,9 +154,10 @@ const FOLDS = [0, 1, 2, 3, 4, 5];
 const SKY_LEFT = "data:image/png;base64,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";
 const SKY_RIGHT = "data:image/png;base64,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";
 
-/* Where the held sky hands over to the reflection: the cloud line is row 560 of
-   the file, and the panel is the file's full height. */
-const SKY_MASK = "linear-gradient(180deg,#000 0 48%,transparent 58%)";
+/* Where the held sky hands over to the reflection. The cloud line is row 560 of
+   the file; the panel spans rows SKY_CROP to SKY_CROP + BAND, so in the panel's
+   own terms that lands a little past halfway. */
+const SKY_MASK = "linear-gradient(180deg,#000 0 50%,transparent 62%)";
 
 /* How the left margin settles into the same sky the right one holds.
  *
@@ -197,32 +202,37 @@ function u(n: number) {
 
 /* One margin, built from the scene reflected back on itself.
  *
- * object-cover on a square source in a tall FOLD-wide box is a 1:1 crop, so
- * object-left / object-right pick out the scene's own outermost columns at
- * their painted size. Every other fold is flipped, which is what makes
- * consecutive folds meet on a shared column. */
+ * Every measurement here is in pixels of the file, and nothing is derived from
+ * the size of the box it sits in. That is deliberate, and it is a bug fix.
+ *
+ * The folds used to be object-fit: cover, which scales the image to fill its
+ * box — so the slice of the file a fold showed depended on how tall the panel
+ * was. A fold shows columns CROP/s to (CROP+FOLD)/s for s = panelHeight/1024,
+ * and the mark starts at column 372, so any panel shorter than about 804px
+ * reaches it: at 776 a fold runs to column 385 and the margin fills with
+ * mirrored copies of the Q. It only took one stylesheet not applying, or one
+ * change to the band's height, to turn the reflection into a hall of mirrors.
+ *
+ * Positioned outright, the window is columns 72 to 292 whatever happens to the
+ * box, and the mark cannot be reached from either side. The flip is on the fold
+ * rather than the image so the window does not move with it: mirroring a
+ * 220-wide box swaps its own two edges and leaves the slice alone. */
 function Reflection({ side }: { side: "left" | "right" }) {
   const isLeft = side === "left";
   const edge = `calc(50% + ${SCENE_W / 2}px)`;
-  /* Where the reflection takes its axis: CROP columns in from the file's edge,
-     which is exactly the column the cropped scene ends on. */
-  const from = isLeft ? `-${CROP}px center` : `calc(100% + ${CROP}px) center`;
 
   return (
     <div
       aria-hidden
       /* Hidden below 1024, where there is no margin to fill: the scene already
          spans the screen there. */
-      /* A full scene tall and pulled up by the crop, so the reflection keeps
-         1:1 — object-cover in a box shorter than the file would shrink it —
-         and the band's own overflow does the cropping. */
-      className="pointer-events-none absolute top-0 hidden h-full overflow-hidden lg:block lg:h-[1024px] lg:-top-[156px]"
+      className="pointer-events-none absolute inset-y-0 hidden overflow-hidden lg:block"
       style={isLeft ? { left: 0, right: edge } : { right: 0, left: edge }}
     >
       {FOLDS.map((fold) => (
         <div
           key={fold}
-          className="absolute inset-y-0 overflow-hidden"
+          className={`absolute inset-y-0 overflow-hidden${fold % 2 === 0 ? " -scale-x-100" : ""}`}
           style={
             isLeft
               ? { width: FOLD, right: fold * FOLD }
@@ -232,17 +242,26 @@ function Reflection({ side }: { side: "left" | "right" }) {
           <Image
             src="/page-scene.jpg"
             alt=""
-            fill
+            width={SCENE_MAX}
+            height={SCENE_MAX}
             sizes={SIZES}
-            className={["object-cover", fold % 2 === 0 ? "-scale-x-100" : ""].join(" ")}
-            style={{ objectPosition: from }}
+            className="absolute max-w-none"
+            /* The file at 1:1, pulled up by the sky crop and in by the side
+               crop, so the fold's window is fixed in the file's own pixels. */
+            style={{
+              top: -SKY_CROP,
+              width: SCENE_MAX,
+              height: SCENE_MAX,
+              ...(isLeft ? { left: -CROP } : { right: -CROP }),
+            }}
             loading="eager"
           />
         </div>
       ))}
 
       {/* The held sky. Two layers on the left, one on the right — the right
-          edge column is already the tone both sides settle on. */}
+          edge column is already the tone both sides settle on. Sized to the
+          file and offset by the same crop, for the same reason as above. */}
       <div
         className="absolute inset-0"
         style={{ WebkitMaskImage: SKY_MASK, maskImage: SKY_MASK }}
@@ -252,7 +271,8 @@ function Reflection({ side }: { side: "left" | "right" }) {
           style={{
             backgroundImage: `url("${SKY_RIGHT}")`,
             backgroundRepeat: "no-repeat",
-            backgroundSize: "100% 100%",
+            backgroundSize: `100% ${SCENE_MAX}px`,
+            backgroundPosition: `0 -${SKY_CROP}px`,
           }}
         />
         {isLeft && (
@@ -261,7 +281,8 @@ function Reflection({ side }: { side: "left" | "right" }) {
             style={{
               backgroundImage: `url("${SKY_LEFT}")`,
               backgroundRepeat: "no-repeat",
-              backgroundSize: "100% 100%",
+              backgroundSize: `100% ${SCENE_MAX}px`,
+              backgroundPosition: `0 -${SKY_CROP}px`,
               WebkitMaskImage: SKY_SETTLE,
               maskImage: SKY_SETTLE,
             }}
@@ -284,19 +305,23 @@ export default function ClosingScene({ onStart }: { onStart: () => void }) {
       <Reflection side="left" />
       <Reflection side="right" />
 
-      {/* The scene, centred and never past its own resolution. A full scene
-          tall and pulled up by the crop for the same reason the reflections
-          are: object-cover has to have the file's own height to keep 1:1. */}
+      {/* The scene, centred and never past its own resolution.
+          
+          Positioned in the file's own pixels above 1024, exactly as the folds
+          are, so the two cannot disagree at the join whatever the band's height
+          happens to be. Below 1024 it falls back to covering the box, which is
+          the square a phone has always shown. */}
       <div
-        className="relative mx-auto h-full w-full lg:h-[1024px] lg:-mt-[156px]"
+        className="relative mx-auto h-full w-full overflow-hidden"
         style={{ maxWidth: `${SCENE_W}px` }}
       >
         <Image
           src="/page-scene.jpg"
           alt=""
-          fill
+          width={SCENE_MAX}
+          height={SCENE_MAX}
           sizes={SIZES}
-          className="object-cover object-center"
+          className="absolute inset-0 h-full w-full object-cover object-center lg:inset-auto lg:left-[-72px] lg:top-[-156px] lg:h-[1024px] lg:w-[1024px] lg:max-w-none"
           /* eager rather than priority, and never lazy. priority preloads into the
              <head>, which is right for the first screen and wrong for the last thing
              on the page. Lazy would leave this blank at the moment somebody arrives
