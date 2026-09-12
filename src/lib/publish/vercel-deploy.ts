@@ -316,16 +316,20 @@ async function waitForBuild(
       if (state === "READY") return { ok: true, url: `https://${url}`, deploymentId: id };
 
       if (state === "ERROR" || state === "CANCELED") {
-        /* The compile failed, which is a fact about the generated code rather
-           than about Vercel, and the customer needs it said that way — with the
-           compiler's own words, which are the only part anybody can act on. */
+        /* NOT necessarily a compile failure, and this used to say it was.
+         *
+         * The first real deployment reported ERROR with a log that ended
+         * "Build Completed in /vercel/output [39s]" — the compile had
+         * succeeded and the message blamed the generated code anyway. A
+         * deployment can be refused after a clean build: the last line before
+         * that one was Vercel's own "Vulnerable version of Next.js detected".
+         *
+         * So the state is reported as what it is — Vercel would not finish the
+         * deployment — and the log says why. Guessing at a cause and being
+         * wrong sent an hour looking for a type error that was never there. */
         const log = await buildLog(id, creds);
-        return {
-          ok: false,
-          reason: log
-            ? `the project did not compile:\n${log}`
-            : "the project did not compile — its build failed on Vercel",
-        };
+        const what = state === "CANCELED" ? "the deployment was cancelled" : "Vercel could not finish the deployment";
+        return { ok: false, reason: log ? `${what}:\n${log}` : `${what} — its build reported ${state}` };
       }
     }
 
