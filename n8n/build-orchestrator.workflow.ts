@@ -33,6 +33,14 @@
    `notes` on live nodes describe the deleted classifier, and the note on
    `Generate With Claude` still says "ten-minute timeout".
 
+   Changed in the canvas on 2026-09-12 and recorded here in the same hour:
+   `Say What Failed` and `Tell The Customer` now sit between the four error
+   outputs and `Flag Build Failure`, which until then wrote status Failed and a
+   timestamp and no reason at all. Three builds that day ended as "Your build is
+   underway" followed by silence, and this workflow reported SUCCESS for each of
+   them, because flagging the failure HAD worked — there was simply nothing in
+   the flag. Published as version 2fc79ff4; the version before it is 3a40141a.
+
    The shape, in one line: the app decides everything, this workflow answers the
    chat immediately, and then generates the page after the answer has already
    gone out. No model runs before generation. */
@@ -803,12 +811,159 @@ const savePage = node({
    travel in the response. It is written to the project row instead — the same
    row the workspace is polling — so the chat can say the build did not finish
    rather than waiting out its timeout in silence. */
+/* The body of Say What Failed, kept here exactly as it runs on the canvas.
+   A mirror that paraphrases is a mirror that misleads — this file has
+   already caused one wrong diagnosis by describing an edge the canvas did
+   not have. */
+const SAY_WHAT_FAILED =
+  "/* The sentence a failed build is owed.\n" +
+  " *\n" +
+  " * Four error outputs arrive here \u2014 the three generation nodes and Save Page \u2014\n" +
+  " * and until now all four went straight to Flag Build Failure, which writes\n" +
+  " * status Failed and a timestamp and NOTHING ELSE. Three builds on 2026-09-12\n" +
+  " * ended that way: \"Your build is underway\", then silence, then a project row\n" +
+  " * saying Failed with no reason in the thread and no build to look at. The\n" +
+  " * workflow reported SUCCESS for every one of them, because from its point of\n" +
+  " * view flagging the failure had worked.\n" +
+  " *\n" +
+  " * This turns whatever arrived into one sentence a person can read.\n" +
+  " */\n" +
+  "const request = $('Normalize Build Request').first().json;\n" +
+  "const item = $input.first().json || {};\n" +
+  "\n" +
+  "const details = item.details || {};\n" +
+  "const body = details.body || {};\n" +
+  "const error = item.error || {};\n" +
+  "\n" +
+  "/* A stack trace is not a sentence. n8n attaches one to most errors, and it\n" +
+  "   names absolute paths inside the n8n container \u2014 so it is cut at the first\n" +
+  "   frame, BEFORE the newlines are collapsed away and the frames stop being\n" +
+  "   recognisable. What survives is the line a human wrote. */\n" +
+  "const sayable = (text) => {\n" +
+  "  const lines = String(text == null ? '' : text).split('\\n');\n" +
+  "  const upto = lines.findIndex((line) => /^\\s*at\\s/.test(line));\n" +
+  "  return (upto === -1 ? lines : lines.slice(0, upto)).join(' ');\n" +
+  "};\n" +
+  "\n" +
+  "/* Trimmed hard. A vendor error can carry a page of JSON, and a chat message\n" +
+  "   is not where it belongs. */\n" +
+  "const clip = (text, max) => {\n" +
+  "  const one = sayable(text).replace(/\\s+/g, ' ').trim();\n" +
+  "  return one.length > max ? one.slice(0, max - 1) + '\u2026' : one;\n" +
+  "};\n" +
+  "\n" +
+  "/* The app's own words, when the app is what answered.\n" +
+  "   /api/builder/webapp/save replies { message } on every refusal it makes, and\n" +
+  "   those sentences are written to be read by the person they happen to \u2014 \"The\n" +
+  "   page came out longer than one build allows\", \"The project came back\n" +
+  "   unfinished\". When one is here it is already the best answer available and\n" +
+  "   nothing this node could add would improve it. */\n" +
+  "const fromApp = typeof body.message === 'string' ? body.message.trim() : '';\n" +
+  "\n" +
+  "/* Otherwise a model API refused, timed out or fell over, and the useful part\n" +
+  "   is whatever the vendor said. All three spell it differently. */\n" +
+  "const fromVendor =\n" +
+  "  (body.error && typeof body.error.message === 'string' && body.error.message) ||\n" +
+  "  (typeof body.error === 'string' && body.error) ||\n" +
+  "  (typeof details.description === 'string' && details.description) ||\n" +
+  "  (typeof error.message === 'string' && error.message) ||\n" +
+  "  '';\n" +
+  "\n" +
+  "const message = fromApp\n" +
+  "  ? fromApp\n" +
+  "  : fromVendor\n" +
+  "    ? 'The build could not be finished: ' + clip(fromVendor, 300)\n" +
+  "    : 'The build could not be finished, and the step that stopped it gave no reason. Nothing has been stored. Try again, and if it happens twice the model may be the thing that is down.';\n" +
+  "\n" +
+  "return [\n" +
+  "  {\n" +
+  "    json: {\n" +
+  "      projectId: request.projectId,\n" +
+  "      userId: request.userId,\n" +
+  "      message: clip(message, 600),\n" +
+  "      /* THE SAME KEY /api/builder/webapp/save USES for its own failure\n" +
+  "         message, and that is the entire duplicate-suppression mechanism.\n" +
+  "         project_messages carries a UNIQUE index on (project_id, dedupe_key),\n" +
+  "         so when the save route already told this customer what went wrong,\n" +
+  "         the insert downstream is rejected by the database and the app's\n" +
+  "         better sentence stands alone. When it never got the chance \u2014 killed\n" +
+  "         mid-request, or never reached \u2014 this one lands instead. No\n" +
+  "         coordination between the app and this workflow, and none needed. */\n" +
+  "      dedupeKey: 'save-failed:' + (request.requestId || request.projectId),\n" +
+  "    },\n" +
+  "    /* Kept so Flag Build Failure's existing $('Normalize Build Request').item\n" +
+  "       expressions still resolve through this node. */\n" +
+  "    pairedItem: { item: 0 },\n" +
+  "  },\n" +
+  "];\n";
+
+/* ── The reason, before the flag ───────────────────────────────────────────
+ *
+ * Flag Build Failure writes status Failed and a timestamp and NOTHING ELSE, so
+ * any failure that happened outside /api/builder/webapp/save was silent: three
+ * builds on 2026-09-12 logged "Your build is underway" and then nothing, while
+ * this workflow reported SUCCESS for every one of them — from its point of
+ * view, flagging the failure had worked.
+ *
+ * These two now sit in front of it. */
+const sayWhatFailed = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Say What Failed',
+    position: [2592, 800],
+    notes:
+      "One sentence out of whichever error arrived. The save route's own { message } is preferred verbatim when it is there — those sentences are written for the person reading them. Otherwise the vendor's text, cut at the first stack frame so container paths do not reach a chat.",
+    parameters: { jsCode: SAY_WHAT_FAILED },
+  },
+});
+
+/* The insert that the UNIQUE index on (project_id, dedupe_key) polices.
+ *
+ * Using the same dedupe key the save route uses is the whole duplicate
+ * suppression: when the app already reported the reason itself, this insert is
+ * rejected by the database and the app's more specific sentence stands alone;
+ * when the app never got the chance, this one lands. Nothing coordinates the
+ * two, and nothing needs to.
+ *
+ * A rejected duplicate must not stop Flag Build Failure from marking the row,
+ * which is why onError continues rather than stopping. It is the same rule
+ * recordMessage() follows in src/lib/thread-server.ts, where 23505 is read as
+ * "the message is in the thread", not as a failure. */
+const tellTheCustomer = node({
+  type: 'n8n-nodes-base.supabase',
+  version: 1,
+  config: {
+    name: 'Tell The Customer',
+    position: [2816, 800],
+    onError: 'continueRegularOutput',
+    alwaysOutputData: true,
+    parameters: {
+      operation: 'create',
+      tableId: 'project_messages',
+      dataToSend: 'defineBelow',
+      fieldsUi: {
+        fieldValues: [
+          { fieldId: 'project_id', fieldValue: expr('{{ $json.projectId }}') },
+          { fieldId: 'user_id', fieldValue: expr('{{ $json.userId }}') },
+          { fieldId: 'role', fieldValue: 'system' },
+          { fieldId: 'body', fieldValue: expr('{{ $json.message }}') },
+          { fieldId: 'tone', fieldValue: 'error' },
+          { fieldId: 'kind', fieldValue: 'build_failed' },
+          { fieldId: 'dedupe_key', fieldValue: expr('{{ $json.dedupeKey }}') },
+        ],
+      },
+    },
+    credentials: { supabaseApi: newCredential('Supabase account') },
+  },
+});
+
 const flagBuildFailure = node({
   type: 'n8n-nodes-base.supabase',
   version: 1,
   config: {
     name: 'Flag Build Failure',
-    position: [2368, 608],
+    position: [3040, 800],
     parameters: {
       operation: 'update',
       tableId: 'projects',
@@ -885,17 +1040,22 @@ export default workflow('quickstark-build-orchestrator', 'QuickStark.Ai — Buil
      for some time. */
   .add(routeByProvider.output(0).to(generateWithClaude))
   .add(generateWithClaude.output(0).to(collectGeneration.input(0)))
-  .add(generateWithClaude.output(1).to(flagBuildFailure))
+  .add(generateWithClaude.output(1).to(sayWhatFailed))
   .add(routeByProvider.output(1).to(generateWithOpenAi))
   .add(generateWithOpenAi.output(0).to(collectGeneration.input(1)))
-  .add(generateWithOpenAi.output(1).to(flagBuildFailure))
+  .add(generateWithOpenAi.output(1).to(sayWhatFailed))
   .add(routeByProvider.output(2).to(generateWithGemini))
   .add(generateWithGemini.output(0).to(collectGeneration.input(2)))
-  .add(generateWithGemini.output(1).to(flagBuildFailure))
+  .add(generateWithGemini.output(1).to(sayWhatFailed))
   .add(collectGeneration.to(extractPage.to(savePage)))
   /* Save Page's success output goes nowhere: the app owns everything after the
      document lands. Only its error output is wired. */
-  .add(savePage.output(1).to(flagBuildFailure))
+  .add(savePage.output(1).to(sayWhatFailed))
+  /* One chain for all four error outputs: say why, tell the customer, then
+     mark the row. The message is written BEFORE the status flips, because the
+     workspace watches last_build_at to know the run is over — so by the time
+     it reads Failed, the reason is already in the thread. */
+  .add(sayWhatFailed.to(tellTheCustomer.to(flagBuildFailure)))
   .add(entryNote)
   .add(kindNote)
   .add(branchNote)

@@ -344,6 +344,45 @@ try {
     }
   }
 
+  /* ── A project is allowed less deliberation than a page ─────────────────
+   *
+   * Thinking is billed as output and spends the SAME max_tokens the answer
+   * does, so on one call the two compete and only one of them is visible to
+   * whoever paid. Measured on execution 698, an ecommerce project on Sonnet 5:
+   * output_tokens 64000, thinking_tokens 41936, stop_reason max_tokens. Two
+   * thirds of the ceiling went on deliberation and the project was cut off
+   * inside its twelfth file, having never reached app/page.tsx.
+   *
+   * There is no second lever. budget_tokens is REJECTED WITH A 400 on Sonnet 5
+   * and every 4.7-and-later model, and the ceiling cannot simply rise — 64k is
+   * already eleven minutes at ~100 tokens/second against a fifteen-minute node
+   * timeout. Effort is it.
+   *
+   * If these two ever read the same, a project is thinking like a page again
+   * and the build that produced nothing is back. */
+  for (const model of models.MODELS.filter(
+    (entry) => entry.provider === "claude" && entry.reasoning !== "none",
+  )) {
+    const page = wire.generationRequest(model, SYSTEM, USER, [], "page").body;
+    const project = wire.generationRequest(model, SYSTEM, USER, [], "project").body;
+    has(
+      page.output_config?.effort !== project.output_config?.effort,
+      `${model.name}: a project is not given a page's effort`,
+      `both are "${page.output_config?.effort}"`,
+    );
+    has(project.output_config?.effort === "low",
+      `${model.name}: a project leaves its budget to the files`,
+      `effort is "${project.output_config?.effort}"`);
+    /* The default is the page, so nothing that predates the second stack
+       changes by having this parameter added underneath it. */
+    has(wire.generationRequest(model, SYSTEM, USER).body.output_config?.effort
+        === page.output_config?.effort,
+      `${model.name}: omitting the shape still asks for a page`);
+    /* Whatever the split, the ceiling itself is untouched — raising it means
+       raising the orchestrator's timeout in the same change. */
+    is(project.max_tokens, model.maxOutput, `${model.name}: a project gets the whole ceiling`);
+  }
+
   // ── Anthropic's shape ───────────────────────────────────────────────────
   const claude = wire.generationRequest(models.resolveModel("claude-opus-5"), SYSTEM, USER, IMAGES);
   is(claude.shape, "anthropic", "Claude uses the anthropic shape");

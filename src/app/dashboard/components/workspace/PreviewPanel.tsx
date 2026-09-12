@@ -126,9 +126,13 @@ export default function PreviewPanel({
 
     fetch(`/api/projects/${id}/deploy`)
       .then((response) => (response.ok ? response.json() : { available: false }))
-      .then((body: { available?: boolean; ready?: boolean; reason?: string | null }) => {
+      .then((body: { available?: boolean; ready?: boolean; url?: string | null; reason?: string | null }) => {
         if (!current) return;
         setCanRun(body.available === true);
+        /* Straight into the pane. This runs when the workspace opens, so a
+           project that was deployed an hour ago is showing its app before
+           anybody presses anything. */
+        if (body.url) setDeployed(body.url);
         /* Carried before anything is pressed. If hosting is not configured, the
            account that can configure it should be able to read that from the
            button rather than from a failed attempt. */
@@ -433,7 +437,25 @@ export default function PreviewPanel({
               Open
             </a>
           </div>
-          {pageHtml !== null ? (
+          {/* The running app wins over the receipt.
+           *
+           * A project build's stored page is a written summary of its files —
+           * honest, and not the app. Once the project has been built and hosted
+           * there is a real address, and showing the summary beside it would be
+           * describing something the visitor could simply be looking at.
+           *
+           * `src` rather than `srcDoc`: this is a real site on its own origin,
+           * which is a stronger boundary than the opaque one srcDoc gets, and
+           * the app needs its own origin anyway to hold a Supabase session. */}
+          {deployed ? (
+            <iframe
+              key={`${deployed}#${reloads}`}
+              src={deployed}
+              title={`${project?.name ?? "App"} — live`}
+              sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+              className="min-h-0 flex-1 border-0 bg-white"
+            />
+          ) : pageHtml !== null ? (
             <iframe
               key={`${previewUrl}#${reloads}`}
               srcDoc={pageHtml}

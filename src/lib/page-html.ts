@@ -31,6 +31,50 @@ function markupBytes(html: string): number {
   return Buffer.byteLength(html.replace(/data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+/gi, ""), "utf8");
 }
 
+/* A path as a generated tree spells one: `app/page.tsx`, `components/Cart.tsx`.
+   Deliberately the same shape the orchestrator's Extract Page node tests for,
+   because the two are deciding the same thing about the same string — that one
+   routes a COMPLETE tree to `files`, and this one recognises the wreckage of
+   an incomplete one. A dot is required: it is what separates a filename from a
+   JSON object that merely has short keys.
+
+   Not preceded by a backslash, which is the difference between a key and a
+   sentence about one. Inside a file's contents every quote arrives escaped, so
+   a generated .ts file containing its own `{"app/page.tsx": "..."}` literal
+   reads as `\"app/page.tsx\": \"` — close enough to fool a count, and excluded
+   by one lookbehind. */
+const TREE_KEY = /(?<!\\)"([\w./[\]()-]+\.[a-z]+)"\s*:\s*"/g;
+
+/**
+ * How many files a cut-off project got through, or null if this is not one.
+ *
+ * Null for anything that parses, however odd — a complete tree is not this
+ * function's business (the orchestrator routes those to `files` before they
+ * ever reach here) and neither is a page. Null too for JSON that happens to be
+ * unfinished but has no file paths in it, because calling that a project would
+ * be inventing a diagnosis out of a brace.
+ *
+ * The count is of files that arrived WHOLE. The one it died inside is not
+ * counted, which is why the message says "partway through the next one".
+ */
+function unfinishedTree(text: string): number | null {
+  if (!text.startsWith("{")) return null;
+
+  /* It parses, so nothing is missing and this is not the failure. */
+  try {
+    JSON.parse(text);
+    return null;
+  } catch {
+    /* Fall through: unparseable is the necessary condition, not the
+       sufficient one. */
+  }
+
+  /* Every `"path": "` in the text opens a file. The last one opens the file
+     that never closed, so it is the count of the others that is true. */
+  const opened = [...text.matchAll(TREE_KEY)].length;
+  return opened > 0 ? opened - 1 : null;
+}
+
 export class PageHtmlError extends Error {
   constructor(
     message: string,
@@ -55,8 +99,58 @@ export function readGeneratedDocument(value: unknown): string {
   }
 
   const trimmed = value.trim();
-  const fenced = trimmed.match(/^```(?:html)?\s*\n([\s\S]*?)\n?```$/i);
-  const html = (fenced ? fenced[1] : trimmed).trim();
+  /* `json` as well as `html`: a build of the second stack answers with a JSON
+     object of files, and a model that fences its answer labels that fence for
+     what is inside it. Unwrapping only ```html meant a fenced tree arrived
+     here still wearing its backticks. */
+  const fenced = trimmed.match(/^```(?:json|html)?\s*\n([\s\S]*?)\n?```$/i);
+  const unfenced = (fenced ? fenced[1] : trimmed).trim();
+
+  /* ── A project, arriving where a page was expected ──────────────────────
+   *
+   * Before anything is said about HTML, because on a file-tree build this is
+   * not an HTML document and never was, and saying so is a non-sequitur that
+   * sent the wrong person looking in the wrong place.
+   *
+   * What happened: the model was asked for a Next.js project and answered with
+   * a JSON object of paths to file contents, which is correct. It ran out of
+   * output tokens partway through and the JSON arrived with no closing brace.
+   * The orchestrator's Extract Page node parses that object to decide whether
+   * to send `files` or `html`; the parse threw, so the raw text fell through
+   * as `html`, and the page reader reported the only thing it knows how to
+   * report — "What came back was not an HTML document."
+   *
+   * Every word of that is true and all of it is useless. The build did not
+   * return the wrong KIND of thing. It returned the right thing, unfinished,
+   * and the person reading it is owed that sentence instead. */
+  const cutOff = unfinishedTree(unfenced);
+  if (cutOff !== null) {
+    throw new PageHtmlError(
+      cutOff === 0
+        ? "The project came back unfinished — it ran out of room before the first file was complete. Try asking for something smaller."
+        : `The project came back unfinished — it ran out of room after ${cutOff} ${cutOff === 1 ? "file" : "files"}, partway through the next one. Try asking for something smaller, or for one part at a time.`,
+      422,
+    );
+  }
+
+  /* The document is FOUND in the answer rather than required to be the whole of
+     it, and that is the same judgement the fenced-block unwrap above already
+     makes: failing an entire build over a pair of backticks would be its own
+     kind of wrong, and so is failing one over a sentence.
+     
+     Four builds died this way in twenty minutes — "What came back was not an
+     HTML document" — on prompts that opened `CREATE — index.html`. A model
+     handed that echoes the filename, or writes a line about what it built,
+     before the doctype. The page after it was fine and was thrown away.
+     
+     From the first doctype to the LAST closing tag: anything the model said
+     before or after the document is commentary, and a build is not the place
+     to insist on a format nobody would notice was wrong. */
+  const opens = unfenced.search(/<!doctype html|<html[\s>]/i);
+  const closes = unfenced.toLowerCase().lastIndexOf("</html>");
+  const html = opens >= 0 && closes > opens
+    ? unfenced.slice(opens, closes + "</html>".length).trim()
+    : unfenced;
 
   if (!/^<!doctype html/i.test(html) && !/^<html/i.test(html)) {
     throw new PageHtmlError("What came back was not an HTML document.", 422);

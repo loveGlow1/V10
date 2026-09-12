@@ -75,18 +75,31 @@ export const ENDPOINTS: Record<Exclude<Provider, "auto">, string> = {
   google: "https://generativelanguage.googleapis.com/v1beta/models",
 };
 
+/* What the model has been asked to produce, which is not the same question as
+ * what it has been asked to build.
+ *
+ * A PAGE is one document. A PROJECT is a JSON object of thirty files — the
+ * same brief, the same blueprint, several times the volume of text. They are
+ * one API call with one output budget, and that budget is why this distinction
+ * has to reach the request: see the effort note below. */
+export type AnswerShape = "page" | "project";
+
 /**
  * The request that builds a page, in the shape the chosen model's API expects.
  *
  * `system` is the composed blueprint; `user` is the brief; `images` are the
  * signed reference URLs somebody attached, which are art direction rather than
  * assets — the asset pipeline handles the pictures that end up in the page.
+ *
+ * `answer` is how much there is to write. It defaults to a page, which is what
+ * every caller before the second stack existed was asking for.
  */
 export function generationRequest(
   model: Model,
   system: string,
   user: string,
   images: ImageRef[] = [],
+  answer: AnswerShape = "page",
 ): GenerationRequest {
   const apiId = model.apiId;
   const maxOutput = model.maxOutput;
@@ -120,10 +133,57 @@ export function generationRequest(
        budget — which is what somebody who has just been told their build does
        not fit actually wants. It is one word, and "high" is the thing to try
        first if generated pages start looking less considered. */
+    /* ── Why a project thinks less than a page ──────────────────────────
+     *
+     * "medium" for a page is the number the note above arrived at, and it
+     * stands. A PROJECT is a different problem with the same budget, and it
+     * was measured rather than guessed.
+     *
+     * Execution 698, an ecommerce project on Sonnet 5:
+     *
+     *     stop_reason      max_tokens
+     *     output_tokens    64000   ← the entire ceiling
+     *     thinking_tokens  41936   ← 65% of it, before a file was written
+     *
+     * Twenty-two thousand tokens were left to write a thirty-file Next.js
+     * app. It finished eleven files — globals.css, lib/data.ts and nine
+     * components — and was cut off inside the tenth component, having never
+     * reached app/page.tsx or app/layout.tsx at all. Ten minutes and a
+     * customer's credits for a JSON object with no closing brace.
+     *
+     * Thinking is billed as output and comes out of the SAME max_tokens the
+     * files do, so deliberation and delivery are in direct competition and
+     * only one of them is visible to the person who paid. There is no way to
+     * cap one without the other: budget_tokens is REJECTED WITH A 400 on
+     * Sonnet 5 and every 4.7-and-later model — adaptive thinking replaced it,
+     * and `effort` is the only lever left.
+     *
+     * Nor can the ceiling simply go up. 64k is already eleven minutes at the
+     * measured ~100 tokens/second (this build: 64000 tokens in 617s), against
+     * a fifteen-minute node timeout. Raising maxOutput means raising that
+     * timeout in the same change — see the note on maxOutput in
+     * dashboard/models.ts, which says exactly this and is why it is not being
+     * done here.
+     *
+     * So: low. Not because a project deserves less care than a page, but
+     * because by the time this call is made the care has already been taken
+     * somewhere else. The kind, the architecture manifest, the data model,
+     * the design system and the file-by-file tree brief are all decided by
+     * the app and handed over in the system prompt (see treeBrief). The model
+     * is writing out a specification it has been given, not choosing one —
+     * and forty thousand tokens of deliberation over which components to
+     * write, when the brief already lists them, is budget that had to come
+     * from somewhere. It came from the files.
+     *
+     * If generated projects start looking thoughtless rather than merely
+     * complete, "medium" is the thing to try — but raise the ceiling and the
+     * node timeout together in the same change, or this failure comes back. */
+    const effort = answer === "project" ? "low" : "medium";
+
     const reasoning =
       model.reasoning === "none"
         ? {}
-        : { thinking: { type: "adaptive" }, output_config: { effort: "medium" } };
+        : { thinking: { type: "adaptive" }, output_config: { effort } };
 
     return {
       provider: "claude",
