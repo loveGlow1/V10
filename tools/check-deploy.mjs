@@ -23,38 +23,49 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 
-const out = join(process.cwd(), "node_modules", ".cache", "quickstark-deploy");
+const root = process.cwd();
+const out = join(root, "node_modules", ".cache", "quickstark-deploy");
 mkdirSync(out, { recursive: true });
 
 /* Compiled through the project's own tsconfig rather than a handful of CLI
-   flags, because the module under test imports a type across the `@/` alias
-   and is written for strict mode. A looser standalone compile does not just
-   fail to resolve the path — it widens the `ok: true | false` discriminants to
-   boolean and stops narrowing the result union, so the file would be checked
-   under rules it is not written against. */
+   flags, because the module is written for strict mode: a looser compile
+   widens the `ok: true | false` discriminants to boolean and stops narrowing
+   the result union, so the file would be checked under rules it is not
+   written against. */
+/* CommonJS, not ESM. vercel-deploy.ts now imports a VALUE from scaffold.ts —
+   the framework version the platform stands behind — so this is a real runtime
+   import graph rather than one file, and tsc does not rewrite `@/lib/...` or
+   `./design` to anything Node can resolve when it emits ES modules. CommonJS
+   requires do resolve them. */
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
-  extends: join(process.cwd(), "tsconfig.json"),
+  extends: join(root, "tsconfig.json"),
   compilerOptions: {
-    noEmit: false,
-    outDir: out,
-    rootDir: join(process.cwd(), "src"),
-    module: "esnext",
-    moduleResolution: "bundler",
-    declaration: false,
-    incremental: false,
-    plugins: [],
+    noEmit: false, outDir: out, rootDir: join(root, "src"),
+    module: "commonjs", moduleResolution: "node",
+    declaration: false, incremental: false, plugins: [],
+    baseUrl: root, paths: { "@/*": ["src/*"] },
   },
-  include: [join(process.cwd(), "src/lib/publish/vercel-deploy.ts")],
+  include: [join(root, "src/lib/publish/vercel-deploy.ts")],
 }, null, 2));
-
 execFileSync("npx", ["tsc", "-p", config], { stdio: ["ignore", "ignore", "inherit"] });
 
+writeFileSync(join(out, "package.json"), JSON.stringify({ type: "commonjs" }));
+
+/* tsc does not rewrite the `@/` alias in what it emits, so the compiled file
+   still requires "@/lib/builder/scaffold" literally. Node resolves that as a
+   package named `@`, so pointing one at the emitted root makes it resolvable
+   without touching the source for the sake of a test. */
+const shim = join(out, "node_modules");
+mkdirSync(shim, { recursive: true });
+try { symlinkSync(out, join(shim, "@"), "dir"); } catch { /* already there */ }
+const require = createRequire(import.meta.url);
 const { deploymentFiles, deploymentName, deploymentsConfigured } =
-  await import(join(out, "lib/publish/vercel-deploy.js"));
+  require(join(out, "lib/publish/vercel-deploy.js"));
 
 let failed = 0;
 const ok = (t, d) => console.log(`ok    ${t}${d !== undefined ? ` — ${d}` : ""}`);
@@ -129,6 +140,37 @@ has(envs.length === 1 && envs[0].data.includes(TARGET.supabaseUrl),
 has(deploymentFiles([...TREE, { path: ".env.local", content: "X=1" }], TARGET)
   .every((f) => f.file !== ".env.local"),
   "a generated .env.local never ships");
+
+// ── The framework version ─────────────────────────────────────────────────
+//
+// A stored tree pinning next@15.5.4 could not be deployed at all: Vercel
+// refuses a vulnerable framework AFTER a clean compile, so the build succeeds
+// and the deployment fails. The tree is not rewritten in the database — the
+// current pin is carried at deploy time, so an old build becomes deployable
+// without regenerating it and charging for it twice.
+
+const stale = deploymentFiles(
+  [{ path: "package.json", content: JSON.stringify({
+      name: "shop",
+      dependencies: { next: "15.5.4", react: "19.1.0" },
+      devDependencies: { typescript: "5.6.3" },
+    }) }],
+  TARGET,
+);
+const manifest = JSON.parse(stale.find((f) => f.file === "package.json").data);
+
+has(manifest.dependencies.next !== "15.5.4", "a deprecated framework pin is not uploaded");
+has(/^\d+\.\d+\.\d+$/.test(manifest.dependencies.next),
+  "it is replaced with an exact version", manifest.dependencies.next);
+has(manifest.dependencies.react === "19.1.0", "every other dependency is left alone");
+has(manifest.devDependencies.typescript === "5.6.3", "devDependencies are left alone");
+has(manifest.name === "shop", "the rest of the manifest is untouched");
+
+/* A manifest that is not JSON fails the build loudly, which is the right
+   failure. A deploy step that silently repairs one hides a real problem. */
+const broken = deploymentFiles([{ path: "package.json", content: "{ not json" }], TARGET);
+has(broken.find((f) => f.file === "package.json").data === "{ not json",
+  "an unparseable manifest is left exactly as it is");
 
 // ── What the site is called ───────────────────────────────────────────────
 
