@@ -34,15 +34,34 @@ const { canDeploy, deploysAreOpen } = await import(join(out, "lib/publish/deploy
 let bad = 0;
 const t = (cond, label) => { console.log(`${cond ? "ok   " : "FAIL "} ${label}`); if(!cond) bad++; };
 
+/* ── Open by default ──────────────────────────────────────────────────────
+ *
+ * These four used to assert the opposite: a list of one address, everybody
+ * else refused. That was right while the deploy path had never run, and it
+ * stopped being right the day it ran twenty-seven files through a real Vercel
+ * build — at which point the only thing the list still did was hide the
+ * control from the people who had generated the projects, including the
+ * account that pays for the deployments.
+ *
+ * So the default is now everybody, and what these assert is that "everybody"
+ * means every signed-in ACCOUNT rather than every REQUEST. The line below
+ * about an address that is not there is the one that still guards something. */
 delete process.env.DEPLOY_ALLOWLIST;
-t(canDeploy("micheledallida@gmail.com") === true, "the rollout account may deploy");
+t(deploysAreOpen() === true, "deploys are open by default — THE ROLLOUT IS OVER");
+t(canDeploy("micheledallida@gmail.com") === true, "the original rollout account still may");
+t(canDeploy("jephthahkofi@gmail.com") === true, "the owner account may");
+t(canDeploy("bradscot221@gmail.com") === true, "any other signed-up account may");
+t(canDeploy("someone@example.com") === true, "an account this test has never heard of may");
 t(canDeploy("MicheleDallida@Gmail.com") === true, "case does not matter");
 t(canDeploy("  micheledallida@gmail.com  ") === true, "surrounding space does not matter");
-t(canDeploy("jephthahkofi@gmail.com") === false, "another real account may not");
-t(canDeploy("someone@example.com") === false, "a stranger may not");
-t(canDeploy(null) === false, "no address may not");
-t(canDeploy("") === false, "an empty address may not");
-t(deploysAreOpen() === false, "deploys are not open by default");
+
+/* Signed IN is still the floor, and it is the whole floor this file guards.
+   Ownership of the project is settled before this is ever consulted — see
+   ownedProject() in the deploy route — so what must never pass here is a
+   request carrying no identity at all. */
+t(canDeploy(null) === false, "no address is still nobody, open or not");
+t(canDeploy("") === false, "an empty address is still nobody");
+t(canDeploy(undefined) === false, "a missing address is still nobody");
 
 process.env.DEPLOY_ALLOWLIST = "a@b.com, C@D.com";
 t(canDeploy("a@b.com") === true && canDeploy("c@d.com") === true, "an explicit list is honoured");
