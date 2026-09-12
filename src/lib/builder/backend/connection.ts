@@ -102,11 +102,30 @@ export async function resolveBackend(
   service: SupabaseClient,
   projectId: string,
 ): Promise<BackendConnection | null> {
-  const { data } = await service
+  const { data, error } = await service
     .from("project_backends")
     .select("project_id, kind, url, anon_key, schema_name, applied_at")
     .eq("project_id", projectId)
     .maybeSingle<BackendRow>();
+
+  /* ── A read that FAILED is not a project with no link ──────────────────
+   *
+   * The error used to be discarded, so the two were indistinguishable and both
+   * fell through to the shared instance below. That is the quiet version of
+   * the worst thing this module can do: a transient failure reading
+   * project_backends silently moved somebody's project off their own Supabase
+   * and onto ours for the length of one build — provisioning their schema
+   * here, and deploying their app against our database.
+   *
+   * Null instead, which every caller already handles as "no database this
+   * time": the build carries on, the migration is skipped and said to be
+   * pending, and no .env.production is written. A build that does less is
+   * recoverable. A build that quietly points at the wrong database is not. */
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error(`resolveBackend: could not read the backend for ${projectId}:`, error.message);
+    return null;
+  }
 
   if (data && data.kind === "own" && data.url && data.anon_key) {
     return {
