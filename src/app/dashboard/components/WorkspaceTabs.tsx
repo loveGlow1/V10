@@ -61,6 +61,15 @@ export default function WorkspaceTabs() {
      only thing on it. */
   const resting =
     "border-line/[0.07] bg-layer/[0.03] text-muted hover:bg-layer/[0.07] hover:text-ink";
+  /* The open tab is a fill and an edge, with no coloured marker on top of it.
+     There used to be a green hairline along its top; it read as a highlight
+     laid over the tab rather than as part of it, and it was not carrying any
+     weight — `bg-canvas` against the resting tabs' near-transparent fill, the
+     brighter ink, and `border-b-canvas` merging the tab into the panel below
+     already say which one is open. Removed from Home as well as from the
+     project tabs, because half a strip marking itself one way is worse than
+     either way. The dot keeps the app's own colour, which is a different job:
+     it says WHICH app, not which tab is open. */
   const open =
     "border-line/[0.08] border-b-canvas bg-canvas text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]";
 
@@ -77,7 +86,6 @@ export default function WorkspaceTabs() {
       {/* Home is a tab rather than a button beside them: it is the screen you
           switch back to, so it behaves like the others and sits in their row. */}
       <div ref={home ? activeRef : undefined} className={`${shape} ${home ? open : resting}`}>
-        {home && <span aria-hidden className="absolute inset-x-2 top-0 h-px rounded-full bg-accent/60" />}
         <button
           onClick={() => router.push("/dashboard")}
           aria-current={home ? "page" : undefined}
@@ -97,10 +105,6 @@ export default function WorkspaceTabs() {
             ref={current ? activeRef : undefined}
             className={`${shape} ${current ? open : resting}`}
           >
-            {current && (
-              <span aria-hidden className="absolute inset-x-2 top-0 h-px rounded-full bg-accent/60" />
-            )}
-
             <button
               onClick={() => router.push(`/dashboard/project/${tab.id}`)}
               aria-current={current ? "page" : undefined}
