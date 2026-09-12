@@ -1026,7 +1026,7 @@ export function toTypes(model: DataModel): string {
     "",
     "export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];",
     "",
-    "export type Database = {",
+    "type Schemas = {",
     `  ${model.schema === "public" ? "public" : model.schema}: {`,
     "    Tables: {",
   ];
@@ -1057,15 +1057,53 @@ export function toTypes(model: DataModel): string {
   lines.push("};");
   lines.push("");
 
-  /* One alias per table, because `Database["app_x"]["Tables"]["products"]["Row"]`
+  /* ── Two names for one schema ─────────────────────────────────────────────
+   *
+   * `public` is where a Supabase project's tables live, in every example,
+   * every tutorial and every generated types file anybody has ever seen. On
+   * the shared instance they are NOT there — each project gets a schema of its
+   * own, app_<projectid>, so that two customers' apps cannot read each other's
+   * rows — and this file used to say so and nothing else.
+   *
+   * That cost a whole deployment. A generated admin page opened with
+   *
+   *     type MediaRow = Database["public"]["Tables"]["media"]["Row"];
+   *
+   * which is the obvious line to write and the right line everywhere else in
+   * the world, and `next build` stopped on it:
+   *
+   *     Type error: Property 'public' does not exist on type 'Database'.
+   *
+   * Twenty-seven files compiled and the deployment failed on a naming
+   * convention. Telling the model harder is not the fix — it is being asked to
+   * remember that this one project is unlike every Supabase project it has
+   * ever seen, in a file it did not write and cannot see.
+   *
+   * So both names exist and mean the same thing. The real one is what
+   * lib/supabase.ts casts `db.schema` to and has to keep existing; `public` is
+   * what anybody writing a query will reach for. Neither is a lie: these are
+   * two names for one set of tables, and on somebody's OWN Supabase they are
+   * the same string anyway. */
+  const real = model.schema === "public" ? "public" : model.schema;
+  if (real === "public") {
+    lines.push("export type Database = Schemas;");
+  } else {
+    lines.push("export type Database = {");
+    lines.push(`  "${real}": Schemas["${real}"];`);
+    lines.push("  /* The same tables under the name every Supabase codebase uses. */");
+    lines.push(`  public: Schemas["${real}"];`);
+    lines.push("};");
+  }
+  lines.push("");
+
+  /* One alias per table, because `Database["public"]["Tables"]["products"]["Row"]`
      in a component's props is unreadable and nobody writes it twice. */
   for (const table of model.tables) {
     const name = table.name
       .split("_")
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join("");
-    const schema = model.schema === "public" ? "public" : model.schema;
-    lines.push(`export type ${name} = Database["${schema}"]["Tables"]["${table.name}"]["Row"];`);
+    lines.push(`export type ${name} = Database["public"]["Tables"]["${table.name}"]["Row"];`);
   }
 
   return `${lines.join("\n")}\n`;
