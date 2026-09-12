@@ -130,10 +130,23 @@ const SKY_CROP = 156;
    clearance from the cropped edge (the mark spans columns 372 to 722). */
 const FOLD = 220;
 
-/* Six folds a side is 1320px of reflected scene, which is the margin on a
-   3500px screen. Each is one <img>, and every copy on the section resolves to
-   the same URL, so it stays one download and one decode. */
-const FOLDS = [0, 1, 2, 3, 4, 5];
+/* How wide a screen this band can still reach the edges of.
+ *
+ * Six folds was 1320px a side, so the band spanned 880 + 2640 = 3520px and
+ * stopped. On a 4K television — 3840 CSS pixels — that is 160px of black down
+ * each edge with a hard line where the sky ends, on the one section of the page
+ * whose whole point is that it runs edge to edge. The screen was simply wider
+ * than anybody had checked.
+ *
+ * Sized to the widest display somebody might plausibly open this on rather than
+ * to the next one that failed: twelve folds is 2640px a side and a band that
+ * spans 6160px, which covers 4K, 5K and an ultrawide with room over.
+ *
+ * The extra copies are close to free. Every fold on the section resolves to the
+ * same URL as the scene itself, so it is still one download and one decode; what
+ * they cost is DOM nodes and compositing, and both are small next to a band that
+ * does not reach the edge of the screen. */
+const FOLDS = Array.from({ length: 12 }, (_, index) => index);
 
 /* The sky at the crop edge, one pixel wide and the file's full height.
  *
