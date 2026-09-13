@@ -86,6 +86,76 @@ async function connectionStringFor(
 }
 
 
+/* ── Turning the driver's words into something actionable ──────────────────
+ *
+ * This used to record the driver's message verbatim and nothing else, on the
+ * stated principle that a guess written down as a diagnosis is worse than the
+ * driver's own words. That principle is right and it is kept: everything below
+ * APPENDS to the raw message, never replaces it.
+ *
+ * What was wrong was calling this a guess. For a whole day the answer to "why
+ * are my app's tables missing" was:
+ *
+ *     getaddrinfo ENOTFOUND db.esuatccbicekcohzgcvd.supabase.co
+ *
+ * which is true, unreadable, and — this is the part that matters — NOT
+ * ambiguous. The hostname is in the connection string we were handed. A
+ * `db.<ref>.supabase.co` that does not resolve is Supabase's direct endpoint,
+ * which publishes only an IPv6 address, from a platform with no IPv6 egress.
+ * There is one cause and one fix, both derivable from the string without
+ * connecting to anything, and neither was ever said.
+ *
+ * Every branch here is keyed on something certain: a hostname we can read, or
+ * an error code Postgres defines. Where nothing is certain, nothing is added.
+ */
+export function diagnose(dsn: string, message: string): string {
+  /* The host, without parsing credentials out of a string that contains a
+     password. A URL constructor throws on some legal DSNs; a match does not. */
+  const host = dsn.match(/@([^/:?]+)/)?.[1] ?? "";
+  const direct = /^db\.[a-z0-9]+\.supabase\.co$/i.test(host);
+  const pooled = /\.pooler\.supabase\.com$/i.test(host);
+  const ref = host.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1] ?? "<project-ref>";
+
+  if (/ENOTFOUND|EAI_AGAIN/i.test(message) && direct) {
+    return (
+      `\n\nThis is Supabase's DIRECT database endpoint, which publishes only an ` +
+      `IPv6 address. Serverless functions have no IPv6 egress, so the name cannot ` +
+      `resolve and no connection is attempted — the password is never reached. ` +
+      `Use the Session pooler instead: in Supabase, Connect → Session pooler. It ` +
+      `looks like ` +
+      `postgresql://postgres.${ref}:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres — ` +
+      `note the username is postgres.${ref}, not postgres. Then set SUPABASE_DB_URL ` +
+      `to it and redeploy.`
+    );
+  }
+
+  if (/ENOTFOUND|EAI_AGAIN/i.test(message)) {
+    return `\n\nThe host ${host || "in SUPABASE_DB_URL"} does not resolve. Check the connection string.`;
+  }
+
+  /* 28P01. The likeliest reason to see this is having just moved to the
+     pooler and kept the old username, which is the one thing that changes
+     besides the hostname. */
+  if (/password authentication failed|28P01/i.test(message)) {
+    return pooled
+      ? `\n\nOn the pooler the username is postgres.<project-ref>, not postgres. ` +
+        `If the password is right, that is usually what this is.`
+      : `\n\nThe password in SUPABASE_DB_URL was not accepted. If it contains ` +
+        `@ : / ? # or %, it has to be percent-encoded inside the URL.`;
+  }
+
+  /* The transaction pooler is port 6543 and cannot run DDL — which is all this
+     migration is — so it fails in a way that reads like a syntax problem. */
+  if (/:6543(\/|$)/.test(dsn)) {
+    return (
+      `\n\nPort 6543 is the TRANSACTION pooler, which cannot run the statements ` +
+      `a migration is made of. Use the Session pooler on port 5432.`
+    );
+  }
+
+  return "";
+}
+
 /* Why the tables are not there, written where somebody can find it later.
  *
  * A provisioning failure has always been reported — once, in the build's step
@@ -249,12 +319,10 @@ export async function provision(
          error below does not say better. */
     }
 
-    /* The commonest shape of this in production is a connection that never
-       opens: Supabase's DIRECT database host is IPv6-only and a Vercel
-       function has no IPv6 egress, so the pooler is the one that works. See
-       docs/BACKEND.md. Recorded verbatim rather than interpreted — a guess
-       written down as a diagnosis is worse than the driver's own words. */
-    const reason = error instanceof Error ? error.message : "the migration could not be applied";
+    /* The driver's own words, and then — only when the string itself settles
+       it — what they mean. See `diagnose`. */
+    const raw = error instanceof Error ? error.message : "the migration could not be applied";
+    const reason = `${raw}${diagnose(dsn, raw)}`;
     await recordFailure(service, projectId, userId, connection, reason);
     return { ok: false, applied: false, reason };
   } finally {
