@@ -36,14 +36,50 @@ import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "l
  * project, an offline laptop, a browser extension eating the request all look
  * the same from here — so it says what it saw and offers to link anyway. */
 
+/* One of four, and the reason this is not a boolean.
+ *
+ *   none                no database. The commonest right answer, and the one
+ *                       that used to be unrepresentable — it was the ABSENCE
+ *                       of a row, indistinguishable from a row that failed to
+ *                       write, so a brochure site and a bookkeeping failure
+ *                       both came out as "put it on the shared instance".
+ *   quickstark_managed  a Supabase project of its own.
+ *   shared              a schema on ours. A preview, and named as one.
+ *   own                 the owner's Supabase.
+ */
+type Mode = "none" | "quickstark_managed" | "shared" | "own";
+
+type Option = {
+  mode: Mode;
+  label: string;
+  blurb: string;
+  /** False where this deployment cannot provision. A button that always fails is worse than no button. */
+  available: boolean;
+  unavailableBecause: string | null;
+};
+
 type Backend = {
-  kind: "shared" | "own";
-  url: string;
-  schema: string;
+  kind: "shared" | "own" | null;
+  mode: Mode | null;
+  managedRef: string | null;
+  url: string | null;
+  schema: string | null;
   /** Whether the migration has actually been applied to it. */
   ready: boolean;
+  /* When THIS SERVER last reached that Supabase and was answered. Not the
+     browser's pre-flight, which runs on the customer's network and can fail
+     while the database is perfectly reachable from where the builds run. */
+  verifiedAt: string | null;
+  /** Whether it is fit to put real customer data in. */
+  productionGrade: boolean;
+  /** Whether the last build decided this product has a data layer at all. */
+  needsDatabase: boolean;
+  /** Where it should live, proposed from that. Nothing is applied until somebody chooses. */
+  recommended: Mode;
+  options: Option[];
   /** Whether a connection string is stored — never the string itself. */
   hasDbUrl: boolean;
+  problem?: string | null;
 };
 
 type Checked =
@@ -82,6 +118,18 @@ const TROUBLE: Record<Exclude<Checked["state"], "ok">, string> = {
     "That Supabase didn't answer. It may be paused, the URL may have a typo, or your connection may have blocked the request.",
 };
 
+/* What the card calls each mode. Said as the owner's fact rather than as our
+   arrangement: "Your Supabase" and "This app's own database" are things they
+   have; "an isolated project provisioned via the Management API" is a thing
+   we do. */
+const MODE_TITLE: Record<Mode | "unset", string> = {
+  none: "No database",
+  quickstark_managed: "This app's own database",
+  shared: "QuickStark's shared preview",
+  own: "Your Supabase",
+  unset: "No database yet",
+};
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-start gap-3 border-b border-line/[0.06] py-2 last:border-b-0">
@@ -112,6 +160,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
   const [overridable, setOverridable] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  /* Which mode is being switched to, or null. Creating a Supabase project is a
+     slow call — a database is really being made — so the button that started it
+     says so rather than appearing to have done nothing. */
+  const [choosing, setChoosing] = useState<Mode | null>(null);
 
   /* The migration, fetched only when asked for. It is a few hundred lines of
      SQL that most people never need — with a connection string stored the next
@@ -145,6 +197,39 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* Picking one of the two modes that need no credentials. "Connect your own"
+     is the third and goes through link(), because it takes a URL and a key.
+
+     Nothing is chosen for somebody here: the server proposes `recommended` and
+     this is where a person decides. A managed database costs real money per
+     project, and a project marked "no database" must not be quietly given one
+     by a later build whose brief happened to mention accounts. */
+  async function choose(mode: Mode) {
+    if (!projectId || choosing) return;
+    setChoosing(mode);
+    setProblem(null);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/backend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setProblem(body.error ?? "That couldn't be changed.");
+        return;
+      }
+      /* Re-read rather than patching what is on screen. Creating a database is
+         the one action here that changes several fields at once — and one of
+         them, whether the tables exist, is still false afterwards. */
+      await load();
+    } catch {
+      setProblem("That didn't get through. Try again.");
+    } finally {
+      setChoosing(null);
+    }
+  }
 
   async function link(skipCheck: boolean) {
     if (!projectId || saving) return;
@@ -188,13 +273,11 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
         return;
       }
 
-      setBackend({
-        kind: "own",
-        url: body.url,
-        schema: body.schema,
-        ready: Boolean(body.ready),
-        hasDbUrl: Boolean(body.hasDbUrl),
-      });
+      /* Re-read instead of assembling the new state here. The link response
+         does not carry needsDatabase, the options or the recommendation, and
+         half-filling them would put a panel on screen that disagrees with the
+         server about what this project is. */
+      await load();
       setOpen(false);
       setOverridable(false);
       setUrl("");
@@ -292,48 +375,152 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
           <div className="mt-4 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
             <p className="flex items-center gap-2 text-[14px] font-medium text-ink">
               <Database className="h-4 w-4 text-muted" />
-              {backend.kind === "own" ? "Your Supabase" : "QuickStark's Supabase"}
+              {MODE_TITLE[backend.mode ?? "unset"]}
             </p>
 
-            <div className="mt-2.5">
-              <Row label="Instance">{backend.url}</Row>
-              <Row label="Schema">
-                <span className="font-mono">{backend.schema}</span>
-              </Row>
-              <Row label="Tables">
-                {backend.ready ? (
-                  <span className="text-emerald-400">Created</span>
-                ) : backend.kind === "own" && !backend.hasDbUrl ? (
-                  <span className="text-amber-400">Yours to create — no connection string stored</span>
-                ) : (
-                  <span className="text-amber-400">Not created yet — the next build makes them</span>
-                )}
-              </Row>
-            </div>
+            {/* No database, decided. Not a broken panel, and not an absence —
+                which is what this used to look like, because "no database" had
+                no way of being said. */}
+            {backend.mode === "none" && (
+              <p className="mt-2 text-[12px] leading-relaxed text-muted">
+                Nothing is provisioned for this app and nothing is charged for it. A site people
+                read — a brochure, a menu, a landing page — needs no database, and giving it one
+                anyway is the commonest way these things get expensive.
+              </p>
+            )}
 
-            {backend.kind === "shared" && (
+            {backend.mode === null && (
+              <p className="mt-2 text-[12px] leading-relaxed text-amber-400">
+                {backend.problem ?? "This project has nowhere to keep data yet."}
+              </p>
+            )}
+
+            {backend.mode !== "none" && backend.mode !== null && (
+              <div className="mt-2.5">
+                <Row label="Instance">{backend.url}</Row>
+                <Row label="Schema">
+                  <span className="font-mono">{backend.schema}</span>
+                </Row>
+                <Row label="Tables">
+                  {backend.ready ? (
+                    <span className="text-emerald-400">Created</span>
+                  ) : backend.mode === "own" && !backend.hasDbUrl ? (
+                    <span className="text-amber-400">Yours to create — no connection string stored</span>
+                  ) : (
+                    <span className="text-amber-400">Not created yet — the next build makes them</span>
+                  )}
+                </Row>
+                {/* Distinct from Tables, and worth its own line. "Reached" is
+                    about the database answering us; "Created" is about the
+                    migration. A project can be perfectly reachable with no
+                    tables in it, and the two used to be reported as one. */}
+                <Row label="Reached">
+                  {backend.verifiedAt ? (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-400">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Checked from our servers on {new Date(backend.verifiedAt).toLocaleDateString()}
+                    </span>
+                  ) : (
+                    <span className="text-muted">Not checked from our servers yet</span>
+                  )}
+                </Row>
+              </div>
+            )}
+
+            {backend.mode === "shared" && (
               /* Said here rather than in a help page, because this is the
                  moment it matters: the ceiling is not the storage, it is that
-                 the accounts and the data are not the owner's. */
-              <p className="mt-3 text-[12px] leading-relaxed text-muted">
-                Fine for building and previewing. For a real business, the data sits in someone
-                else&apos;s account and the sign-ins come from a pool shared with every other app
-                here — so exporting, backing up or leaving are not yours to do.
+                 the accounts and the data are not the owner's. auth.users is
+                 one table per Supabase PROJECT, so every app on this instance
+                 draws its sign-ins from the same pool. */
+              <p className="mt-3 text-[12px] leading-relaxed text-amber-400">
+                A preview, not a place for real customers. The data sits in someone else&apos;s
+                account and the sign-ins come from a pool shared with every other app here — so
+                exporting, backing up or leaving are not yours to do.
+              </p>
+            )}
+          </div>
+
+          {/* ── The three options ───────────────────────────────────────────
+              A custom domain, a Vercel deployment and a database are three
+              different layers, and this is only the third. Choosing here
+              changes where the data goes and nothing else — not the address
+              the site answers on, not where it is hosted. */}
+          <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
+            <p className="text-[13px] font-medium text-ink">Where this app keeps its data</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted">
+              {backend.needsDatabase
+                ? "The last build decided this app has accounts or data to store."
+                : "The last build decided this app stores nothing. You can still give it a database."}
+            </p>
+
+            <div className="mt-3 flex flex-col gap-2">
+              {backend.options.map((option) => {
+                const current = option.mode === backend.mode;
+                const suggested = option.mode === backend.recommended && !current;
+                return (
+                  <button
+                    key={option.mode}
+                    onClick={() => {
+                      if (current || !option.available) return;
+                      if (option.mode === "own") {
+                        setOpen(true);
+                        setProblem(null);
+                        setOverridable(false);
+                        return;
+                      }
+                      void choose(option.mode);
+                    }}
+                    disabled={current || !option.available || choosing !== null}
+                    className={`rounded-xl border p-3 text-left transition-colors md:rounded-lg ${
+                      current
+                        ? "border-line/20 bg-layer/[0.06]"
+                        : option.available
+                          ? "border-line/[0.09] hover:bg-layer/[0.05]"
+                          : "border-line/[0.05] opacity-55"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                      {option.label}
+                      {current && <span className="text-[11px] font-normal text-emerald-400">Current</span>}
+                      {suggested && option.available && (
+                        <span className="text-[11px] font-normal text-muted">Suggested</span>
+                      )}
+                      {choosing === option.mode && <Loader2 className="h-3 w-3 animate-spin text-muted" />}
+                    </span>
+                    <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
+                      {/* The reason it cannot be picked, where there is one.
+                          "Unavailable" on its own sends somebody to support
+                          for a missing environment variable. */}
+                      {option.available ? option.blurb : option.unavailableBecause ?? option.blurb}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {choosing === "quickstark_managed" && (
+              <p className="mt-2 text-[12px] leading-relaxed text-muted">
+                Creating a Supabase project. This takes a moment — a real database is being made.
               </p>
             )}
           </div>
 
           {/* ── Running the migration yourself ──────────────────────────
-              Offered for a linked Supabase whether or not a connection string
-              is stored: with one, this is what the next build will run and
-              somebody is entitled to read it first; without one, it is the
-              only way the tables ever appear, and the link endpoint has
-              already told them to run it. */}
-          {backend.kind === "own" && (
+              Offered for any Supabase this project has to itself, whether we
+              made it or they linked it: with a connection string this is what
+              the next build will run and somebody is entitled to read it
+              first; without one it is the only way the tables ever appear, and
+              the link endpoint has already told them to run it. */}
+          {(backend.mode === "own" || backend.mode === "quickstark_managed") && (
             <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
               <p className="text-[13px] font-medium text-ink">This app&apos;s tables, as SQL</p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
-                {backend.hasDbUrl
+                {/* A managed project is reached over a connection string that
+                    is fetched when a migration needs to run and dropped
+                    afterwards — so hasDbUrl is false for it and would read as
+                    "yours to create", which is the opposite of true. */}
+                {backend.mode === "quickstark_managed" || backend.hasDbUrl
                   ? "The next build runs this for you. Here it is if you would rather read it first, or run it now."
                   : "No connection string is stored, so these are yours to create — paste this into your Supabase SQL editor."}
               </p>
@@ -393,7 +580,7 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
             </div>
           )}
 
-          {backend.kind === "own" && !confirming && (
+          {backend.mode === "own" && !confirming && (
             <div className="mt-3 flex gap-2">
               <button
                 onClick={() => { setOpen(true); setProblem(null); setOverridable(false); }}
@@ -411,7 +598,7 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
             </div>
           )}
 
-          {backend.kind === "own" && confirming && (
+          {backend.mode === "own" && confirming && (
             <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
               <p className="text-[12px] leading-relaxed text-muted">
                 The next build goes back to QuickStark&apos;s Supabase. Nothing is deleted from
@@ -434,15 +621,6 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 </button>
               </div>
             </div>
-          )}
-
-          {backend.kind === "shared" && !open && (
-            <button
-              onClick={() => { setOpen(true); setProblem(null); setOverridable(false); }}
-              className="mt-3 h-10 rounded-xl bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-opacity hover:bg-layer/90 md:h-8 md:rounded-lg"
-            >
-              Connect your own Supabase
-            </button>
           )}
 
           {open && (

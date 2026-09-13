@@ -50,11 +50,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { schemaNameFor } from "@/lib/builder/schema";
+import { type BackendMode, isBackendMode } from "@/lib/builder/backend/modes";
 
+/* Kept as the column's old name and meaning. `mode` is the one to read — see
+   modes.ts, which has the value this could never express ("none") and the one
+   it conflated with a schema on our instance ("quickstark_managed"). */
 export type BackendKind = "shared" | "own";
 
 export type BackendConnection = {
   kind: BackendKind;
+  /* Which of the four this is. The field every caller should branch on: `kind`
+     cannot distinguish a database of the project's own from a schema on ours,
+     and has no way at all to say there is no database. */
+  mode: BackendMode;
+  /* Supabase's own project ref, for a managed backend. Null for every other
+     mode — a schema on the shared instance is not a project and does not have
+     one. */
+  managedRef: string | null;
+  /* When this server last reached that Supabase and was answered. Null means
+     nobody has ever checked, which is not the same as broken and is exactly
+     what "connected" used to mean. See verify.ts. */
+  verifiedAt: string | null;
   /** The Supabase project URL the generated app is built against. */
   url: string;
   /** Public by design — it identifies the project, it authorises nothing. */
@@ -71,10 +87,13 @@ export type BackendConnection = {
 type BackendRow = {
   project_id: string;
   kind: string | null;
+  mode: string | null;
+  managed_ref: string | null;
   url: string | null;
   anon_key: string | null;
   schema_name: string | null;
   applied_at: string | null;
+  verified_at: string | null;
 };
 
 /* The shared instance, from the environment this app already runs on.
@@ -104,7 +123,9 @@ export async function resolveBackend(
 ): Promise<BackendConnection | null> {
   const { data, error } = await service
     .from("project_backends")
-    .select("project_id, kind, url, anon_key, schema_name, applied_at")
+    .select(
+      "project_id, kind, mode, managed_ref, url, anon_key, schema_name, applied_at, verified_at",
+    )
     .eq("project_id", projectId)
     .maybeSingle<BackendRow>();
 
@@ -127,25 +148,61 @@ export async function resolveBackend(
     return null;
   }
 
-  if (data && data.kind === "own" && data.url && data.anon_key) {
+  const stored = isBackendMode(data?.mode) ? data.mode : null;
+
+  /* No database at all, decided and written down. Previously this was the
+     ABSENCE of a row, which is indistinguishable from a row that failed to
+     write — so a frontend-only project and a bookkeeping failure produced the
+     same answer, and that answer was "put it on the shared instance". */
+  if (stored === "none") return null;
+
+  /* A database of this project's own, or the customer's. Both are real Supabase
+     projects with `public` as their schema, and both are read the same way —
+     the difference is whose account pays for it, which matters everywhere
+     except here. */
+  if ((stored === "own" || stored === "quickstark_managed") && data?.url && data.anon_key) {
     return {
-      kind: "own",
+      kind: stored === "own" ? "own" : "shared",
+      mode: stored,
+      managedRef: data.managed_ref ?? null,
       url: data.url,
       anonKey: data.anon_key,
       schema: data.schema_name?.trim() || "public",
       ready: Boolean(data.applied_at),
+      verifiedAt: data.verified_at ?? null,
+    };
+  }
+
+  /* Rows written before `mode` existed. `kind` is all there is, and it means
+     what it always meant. */
+  if (!stored && data?.kind === "own" && data.url && data.anon_key) {
+    return {
+      kind: "own",
+      mode: "own",
+      managedRef: null,
+      url: data.url,
+      anonKey: data.anon_key,
+      schema: data.schema_name?.trim() || "public",
+      ready: Boolean(data.applied_at),
+      verifiedAt: data.verified_at ?? null,
     };
   }
 
   const shared = sharedCredentials();
   if (!shared) return null;
 
+  /* The transitional preview instance. Reached by saying nothing, which is why
+     it is still the fallback — but it is a preview, and isProductionGrade is
+     what the interface asks before somebody publishes a shop onto it. */
   return {
     kind: "shared",
+    mode: "shared",
+    managedRef: null,
     url: shared.url,
     anonKey: shared.anonKey,
     schema: schemaNameFor(projectId),
     ready: Boolean(data?.applied_at),
+    verifiedAt: data?.verified_at ?? null,
   };
 }
 
@@ -268,9 +325,11 @@ export function isAnonKey(value: unknown): value is string {
  */
 export function describeBackend(connection: BackendConnection): string {
   const where =
-    connection.kind === "own"
+    connection.mode === "own"
       ? `your own Supabase (${new URL(connection.url).hostname})`
-      : "QuickStark's Supabase";
+      : connection.mode === "quickstark_managed"
+        ? `a Supabase project of its own (${new URL(connection.url).hostname})`
+        : "QuickStark's shared preview Supabase";
 
   return connection.ready
     ? `Data lives in ${where}, schema ${connection.schema}.`

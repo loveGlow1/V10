@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { DOMAIN_PROBLEM, isApex, normaliseDomain, recordName } from "@/lib/publish/naming";
 import { addDomain, domainConfig, domainsConfigured, removeDomain } from "@/lib/publish/vercel-domains";
+import { latestDeployment } from "@/lib/publish/deployment-store";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -34,6 +35,12 @@ type Row = {
   ssl_status: string;
   last_error: string | null;
   verified_at: string | null;
+  /* The Vercel project this domain was ATTACHED to, which is not always the
+     platform's. A generated app deployed to its own Vercel project holds its
+     domain there, and every later question about that domain — is the DNS
+     right, take it off — has to be asked of the same project. Null on every
+     row written before this column existed, meaning the platform project. */
+  vercel_project: string | null;
 };
 
 function said(row: Row) {
@@ -74,7 +81,7 @@ export async function GET(request: Request) {
      invisible rather than a check written here. */
   const { data } = await auth.supabase
     .from("project_domains")
-    .select("id, domain, status, dns_record, ssl_status, last_error, verified_at")
+    .select("id, domain, status, dns_record, ssl_status, last_error, verified_at, vercel_project")
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
 
@@ -88,7 +95,16 @@ export async function GET(request: Request) {
     rows.map(async (row) => {
       if (row.status === "live" || row.status === "failed") return said(row);
 
-      const config = await domainConfig(row.domain, isApex(row.domain), recordName(row.domain));
+      /* Asked of the project the domain is on. Polling the platform project
+         about a domain that lives on a generated app's project answers "not
+         found" forever, so the domain would sit at awaiting_dns no matter what
+         the owner did to their DNS. */
+      const config = await domainConfig(
+        row.domain,
+        isApex(row.domain),
+        recordName(row.domain),
+        row.vercel_project,
+      );
 
       if (config.state === "unavailable") {
         /* Vercel is unreachable. The domain's stored state is not changed —
@@ -147,12 +163,46 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!project) return NextResponse.json({ error: "That project could not be found." }, { status: 404 });
-  if (!project.published_version_id) {
+
+  /* ── Which of the two things this domain points at ──────────────────────
+   *
+   * A custom domain, a Vercel deployment and a database are three different
+   * layers, and this route had two of them fused: every domain was added to
+   * the platform's own Vercel project, and a domain was refused unless the
+   * project had a PUBLISHED SNAPSHOT — which only the single-page flow ever
+   * writes.
+   *
+   * So a generated Next.js app, deployed to a Vercel project of its own, could
+   * not be given a domain at all. Not "it was fiddly": there was no path. The
+   * domain would have resolved to this platform, which would have looked the
+   * hostname up and served a publication that does not exist.
+   *
+   *   app       the project has its own Vercel deployment. The domain goes on
+   *             THAT project and Vercel routes straight to it; nothing touches
+   *             this platform at request time.
+   *   platform  a published page, served here out of project_publications.
+   *
+   * Deployment first, because it is the stronger claim: a project that has
+   * both a live deployment and an old publication is an app, and pointing a
+   * domain at the snapshot would serve the customer their own history. */
+  const deployment = await latestDeployment(auth.service, projectId);
+  const appTarget = deployment?.state === "ready" && deployment.vercelProject
+    ? deployment
+    : null;
+
+  if (!appTarget && !project.published_version_id) {
     return NextResponse.json(
-      { error: "Publish the project first — a domain needs something to point at." },
+      {
+        error:
+          "There's nothing at this project yet for a domain to point at. " +
+          "Publish the page, or deploy the app, and then connect the domain.",
+      },
       { status: 422 },
     );
   }
+
+  const target = appTarget ? "app" : "platform";
+  const vercelProject = appTarget?.vercelProject ?? null;
 
   if (!domainsConfigured()) {
     return NextResponse.json({ error: "Custom domains aren't set up on this workspace yet." }, { status: 503 });
@@ -164,7 +214,17 @@ export async function POST(request: Request) {
      row saying whose it is. */
   const { data: claimed, error: claimError } = await auth.service
     .from("project_domains")
-    .insert({ project_id: projectId, user_id: auth.user.id, domain, status: "pending" })
+    .insert({
+      project_id: projectId,
+      user_id: auth.user.id,
+      domain,
+      status: "pending",
+      target,
+      /* Recorded rather than re-derived on removal. A project that changes
+         shape later must not leave a domain behind on a Vercel project nobody
+         is looking at. */
+      vercel_project: vercelProject,
+    })
     .select("id, domain, status, dns_record, ssl_status, last_error, verified_at")
     .single();
 
@@ -178,7 +238,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "That domain couldn't be saved. Try again." }, { status: 502 });
   }
 
-  const added = await addDomain(domain);
+  const added = await addDomain(domain, vercelProject);
 
   if (added.state !== "added") {
     /* Vercel would not take it. The claim is released rather than left behind
@@ -191,7 +251,7 @@ export async function POST(request: Request) {
   /* What DNS this domain needs, from Vercel. Asked immediately: the person is
      looking at the screen now, and this is the whole reason they pressed the
      button. */
-  const config = await domainConfig(domain, isApex(domain), recordName(domain));
+  const config = await domainConfig(domain, isApex(domain), recordName(domain), vercelProject);
 
   const next =
     config.state === "live"
@@ -221,7 +281,7 @@ export async function DELETE(request: Request) {
 
   const { data: row } = await auth.supabase
     .from("project_domains")
-    .select("id, domain")
+    .select("id, domain, vercel_project")
     .eq("id", id)
     .maybeSingle();
 
@@ -232,7 +292,14 @@ export async function DELETE(request: Request) {
      once no row claims it, whereas a row left behind would keep the hostname
      reserved against its owner. */
   await auth.service.from("project_domains").delete().eq("id", id).eq("user_id", auth.user.id);
-  await removeDomain(row.domain as string);
+
+  /* Where it was ATTACHED, not where it would be attached now. The stored
+     vercel_project is the project this domain was actually added to, and a
+     project that has changed shape since — a single page that became an app, an
+     app redeployed somewhere else — must not leave the hostname behind on a
+     Vercel project nobody is looking at. Null means the platform project, which
+     is where every domain added before this column existed went. */
+  await removeDomain(row.domain as string, row.vercel_project as string | null);
 
   return NextResponse.json({ removed: true });
 }
