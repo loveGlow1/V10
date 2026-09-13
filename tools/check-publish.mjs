@@ -391,5 +391,45 @@ has(recordName("customer.com") === "@", "an apex record is named @", recordName(
 has(recordName("www.customer.co.uk") === "www", "and www on a two-label suffix", recordName("www.customer.co.uk"));
 has(recordName("shop.eu.customer.com") === "shop.eu", "a deep subdomain keeps its labels", recordName("shop.eu.customer.com"));
 
+/* ── Rolling back ──────────────────────────────────────────────────────────
+ *
+ * The history has always existed: every publish writes an immutable
+ * project_publications row with a version number, and published_version_id is
+ * a pointer at one of them. So "go back to Tuesday's" has been one UPDATE away
+ * since publishing was written, and there was no way to ask for it — somebody
+ * who published a bad edit could unpublish, or publish again over the top, and
+ * neither of those is what they wanted.
+ *
+ * Source assertions, because the properties that matter here are about what
+ * the route does NOT do. */
+const publishRoute = readFileSync(join(process.cwd(), "src/app/api/publish/route.ts"), "utf8");
+
+console.log("\nRolling back to a version that was already published:");
+
+has(/export async function PUT\(/.test(publishRoute), "there is a way to ask for it");
+
+has(
+  !/chargeCredits\([\s\S]{0,400}rolledBack/.test(publishRoute) &&
+    /rolledBack: true/.test(publishRoute),
+  "it is free",
+  "a rollback is the customer correcting something we served them",
+);
+
+has(
+  !/from\("project_publications"\)[\s\S]{0,200}\.delete\(/.test(publishRoute),
+  "the versions after it are kept",
+  "rolling back is 'serve this one', not 'destroy the ones after it'",
+);
+
+has(
+  /published_version_id: target\.id/.test(publishRoute),
+  "it moves the pointer rather than copying a snapshot",
+);
+
+has(
+  /\.eq\("user_id", user\.id\)/.test(publishRoute.slice(publishRoute.indexOf("export async function PUT("))),
+  "and only ever on the caller's own project",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

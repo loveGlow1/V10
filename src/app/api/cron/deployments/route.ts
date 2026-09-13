@@ -28,7 +28,8 @@
 
 import { NextResponse } from "next/server";
 
-import { advance, readJob } from "@/lib/jobs/store";
+import { canRetry } from "@/lib/jobs/state";
+import { advance, noteAttempt, readJob } from "@/lib/jobs/store";
 import {
   pendingDeployments,
   settleDeployment,
@@ -109,6 +110,7 @@ export async function GET(request: Request) {
   const pending = await pendingDeployments(service, PER_RUN);
   let settled = 0;
   let stillBuilding = 0;
+  let retried = 0;
 
   for (const record of pending) {
     const state = await deploymentState(record.deploymentId);
@@ -139,6 +141,40 @@ export async function GET(request: Request) {
     }
 
     if (state.state === "error" || state.state === "cancelled") {
+      /* ── Worth another go? ───────────────────────────────────────────────
+       *
+       * Only where a second attempt is a genuinely different attempt, which
+       * for a deployment it can be: an upload that raced a Vercel incident, a
+       * build that ran out of a shared resource. canRetry answers it and stops
+       * at MAX_ATTEMPTS, because a job failing the same way three times is not
+       * unlucky — it is broken, and retrying it forever spends somebody's
+       * Vercel quota to keep reaching the same answer.
+       *
+       * Deliberately NOT retried: a deployment Vercel refused for a reason in
+       * the code. That is what the build log in `reason` is for, and re-running
+       * a compile that does not compile is a slower way to print it again. The
+       * cheap signal for the difference is whether the log mentions the
+       * compiler; anything that looks like a type error or a missing module is
+       * the customer's project rather than the platform's day. */
+      const codeFault = /error TS\d+|Module not found|Cannot find module|Type error|SyntaxError/i.test(
+        state.state === "error" ? state.reason : "",
+      );
+
+      if (!codeFault && record.jobId) {
+        const job = await readJob(service, record.jobId);
+        if (job && canRetry("deploying", job.attempts)) {
+          await settleDeployment(service, record, state);
+          await noteAttempt(service, job);
+          retried += 1;
+          /* The job stays in `deploying` and the next build of this project
+             will redeploy. Nothing is re-uploaded from here: this route has a
+             deployment id and no files, and inventing a way for it to reach
+             them would put the tree behind a cron. The customer's own
+             redeploy button is free and does exactly this. */
+          continue;
+        }
+      }
+
       await settleDeployment(service, record, state);
       await settleJob(service, record, state);
       settled += 1;
@@ -175,6 +211,7 @@ export async function GET(request: Request) {
     checked: pending.length,
     settled,
     stillBuilding,
+    retried,
     abandoned: abandoned?.length ?? 0,
   });
 }

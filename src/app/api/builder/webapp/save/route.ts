@@ -43,6 +43,7 @@ import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/pag
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
+import { advance as advanceJob, failJob, liveJob } from "@/lib/jobs/store";
 
 /* Where a finished page is put away.
  *
@@ -234,6 +235,12 @@ async function reportFailure(
   message: string,
   status: number,
 ) {
+  /* The job, closed with the reason. Terminal is terminal, so whichever of
+     this and n8n's own 120-second timeout gets here first is the answer and
+     the second is refused — which is the Failed-then-Built race, made
+     impossible rather than merely unlikely. See src/lib/jobs/state.ts. */
+  const job = await liveJob(supabase, claim.projectId);
+  if (job) await failJob(supabase, job.id, message);
   await recordMessage(supabase, {
     projectId: claim.projectId,
     userId: claim.userId,
@@ -1050,6 +1057,26 @@ export async function POST(request: Request) {
      does not need a third guess on top of it. */
   const sentArchitectureType = (body.architecture as { type?: unknown } | undefined)?.type;
   const builtKind = isBuildKind(sentArchitectureType) ? sentArchitectureType : null;
+
+  /* ── And the job, finished ─────────────────────────────────────────────
+   *
+   * "ready" when the page is the artefact, "deploying" when a Vercel build is
+   * still running — /api/cron/deployments closes that one when it hears back.
+   * Either way this is the writer that got here first, and terminal states
+   * have no outgoing transitions, so a late "Failed" from anywhere else is
+   * refused rather than overwriting a build somebody has already been told
+   * about. */
+  const liveBuildJob = await liveJob(supabase, project.id as string);
+  if (liveBuildJob) {
+    await advanceJob(supabase, liveBuildJob.id, { to: "assembling" });
+    await advanceJob(
+      supabase,
+      liveBuildJob.id,
+      pendingDeployment
+        ? { to: "deploying", detail: { deploymentId: pendingDeployment.deploymentId } }
+        : { to: "ready", detail: { previewUrl } },
+    );
+  }
 
   const { error: updateError } = await supabase
     .from("projects")

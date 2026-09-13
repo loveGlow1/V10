@@ -130,6 +130,12 @@ import {
 } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
+import {
+  advance as advanceJob,
+  failJob,
+  recordStep,
+  startJob,
+} from "@/lib/jobs/store";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
 import { validatePage } from "@/lib/builder/validate";
@@ -2806,6 +2812,51 @@ async function handle(
   /* Only a full build reaches here, and a full build is a fresh page: whatever
      was there is being replaced, deliberately and with the person's say-so, so
      the orchestrator is given nothing to edit. */
+  /* ── The job, opened before the work leaves this request ────────────────
+   *
+   * Everything above here is fast and synchronous: if it fails, this route is
+   * still alive to say so. Everything below is not — generation runs in the
+   * orchestrator for minutes, the page lands through a webhook, and the
+   * deployment is settled by a cron. From this line on, the thing that knows
+   * what is happening is not the thing anybody is connected to.
+   *
+   * That is exactly the gap `projects.status` could not cover. A function
+   * killed here wrote nothing, so the row said "Building" and the workspace
+   * polled it for twenty-five minutes; and the detailed timeline was streamed
+   * over NDJSON and then discarded, so closing the tab lost it entirely.
+   *
+   * So the job is opened here, and the steps that got us this far are written
+   * down with it. Best effort throughout — a build must not fail because its
+   * own progress note did not save — but from here a reopened workspace can
+   * say which stage a build reached rather than only that it started. */
+  const job = service
+    ? await startJob(service, {
+        projectId: project.id,
+        userId: user.id,
+        requestId,
+        detail: { kind: kind.kind, stack: needs.stack, model: model.id },
+      })
+    : null;
+
+  if (job && service) {
+    await advanceJob(service, job.id, { to: "planning" });
+    await Promise.all(
+      steps.list().map((step) =>
+        recordStep(service, {
+          jobId: job.id,
+          projectId: project.id,
+          userId: user.id,
+          step: step.id,
+          label: step.label,
+          detail: step.detail,
+          state: "done",
+          ms: step.ms,
+        }),
+      ),
+    );
+    await advanceJob(service, job.id, { to: "generating" });
+  }
+
   let result: BuildResult;
   try {
     steps.running(
@@ -3019,6 +3070,7 @@ async function handle(
       /* The row was moved to Building a moment ago; leaving it there would show
          a build that is not running. */
       await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+      if (job && service) await failJob(service, job.id, error.message);
       /* Stored as well as returned. This one matters on reopening: without it a
          workspace whose tab was closed on a failed start shows a build that
          never finishes and never explains itself. */
@@ -3062,6 +3114,7 @@ async function handle(
    * been skipped if the run got this far. */
   if (result.status === "Failed" || !result.ok) {
     await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+    if (job && service) await failJob(service, job.id, result.message);
 
     const stored = await deliver(result.message, {
       kind: "build_failed",

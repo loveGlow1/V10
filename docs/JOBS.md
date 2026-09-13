@@ -128,3 +128,51 @@ and a QA pass are not work that can be cut into sixty-second pieces and resumed.
 
 The tables, the state machine and the store are in place for that; what is
 missing is the process that calls them.
+
+## What is done, and what needs infrastructure
+
+Phases 0–9 of the architecture direction are implemented. Phase 10 is
+infrastructure maturity, and it splits cleanly into what code could finish and
+what needs something provisioned.
+
+### Done
+
+| | |
+|---|---|
+| Deployment history | `project_deployments` — every deployment by its real Vercel id, plus the Vercel project id, so a rename no longer orphans a site |
+| Rollback | `PUT /api/publish` re-points `published_version_id` at an earlier `project_publications` row. Free, keeps every later version, moves a pointer rather than copying a snapshot |
+| Retry policy | `canRetry` in the state machine, bounded at `MAX_ATTEMPTS = 3`, wired into the deployment worker. A deployment Vercel refused for a reason **in the code** is deliberately not retried — re-running a compile that does not compile is a slower way to print the same error |
+| Observability | `build_jobs` + `build_steps` are written by `/api/build` and closed by the save route and the deployment worker. `GET /api/projects/[id]/build` reads them, so a reopened workspace can say which stage a build reached |
+
+### Not done, and why
+
+**Isolated Supabase project per generated app.** This is the right long-term
+answer and the repo has argued for it since `docs/BACKEND.md` was written. It
+needs the Supabase **Management API** — an organisation access token, a billing
+plan that permits programmatic project creation, and a decision about who pays
+for each project. None of that is a code change, and a half-built version that
+creates projects it cannot pay for or delete would be worse than the honest
+shared instance.
+
+Until then the shared instance should be described to owners as **preview
+only**, which is what `docs/BACKEND.md` option 3 recommends and what the
+`PGRST106` problem forces: a shared-instance app is pointed at `app_<projectid>`,
+which is not on PostgREST's exposed-schemas list and cannot be added in advance,
+so its queries fail. **This is still the outstanding P0.** Nothing in the code
+can fix it; it is a product decision between the three options that file lists.
+
+**Worker scaling, and the two stages that need a browser.** The QA repair loop
+(`runQaLoop`) and the measured half of screenshot grounding both need headless
+Chromium — fifty megabytes that cannot live in a serverless function. The
+machinery is written and tested (`qa/render.ts`, `qa/repair.ts`,
+`tools/qa.mjs`), and the state machine has `validating` and `repairing` states
+waiting for it. What is missing is a process to call them.
+
+The recommendation is a small always-on container polling `build_jobs` — the
+same shape every builder in this class runs. `/api/cron/deployments` is a slice
+of that and deliberately only does the part that can be cut into
+sixty-second pieces.
+
+**Provisioning, asset resolution and the save pipeline are still inline.** They
+can still exceed their ceilings. They belong on the same worker: a migration and
+a QA pass are not work that can be resumed halfway.
