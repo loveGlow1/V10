@@ -648,7 +648,44 @@ async function handle(
    *
      With no page there is nothing to edit and nothing to ask about, so the
      value is unused; EDIT_MODEL is the harmless default. */
-  const editModel = leanHtml ? editModelFor(stageRequest ?? prompt, leanHtml) : EDIT_MODEL;
+  /* ── The model this account picked, for the edit path ──────────────────
+   *
+   * The picker settled builds and nothing else. An edit, a question and a
+   * clarification all ran on whatever editModelFor guessed, so somebody who
+   * selected Opus and then asked for a change got Haiku — a control that
+   * visibly did nothing, which is worse than not offering one.
+   *
+   * Honoured here on the same two conditions a build is honoured on, and no
+   * others: the plan includes the model, and the balance covers an edit on it.
+   * Those are the limits somebody agreed to. Anything else — this function's
+   * own opinion about how big the job looks — is a guess, and a guess does not
+   * outrank a person who has said what they want.
+   *
+   * Null for "auto" and for no choice at all, and the heuristics then decide
+   * exactly as they did before. Auto is still the default and still the thing
+   * most people should leave it on. */
+  const pickedEditModel = (() => {
+    const asked = typeof body.model === "string" ? body.model.trim() : "";
+    if (!asked || asked === "auto") return null;
+
+    const picked = resolveModel(asked);
+    if (!picked) return null;
+
+    const plan = balance?.planId ?? "free";
+    if (!modelAllowedOnPlan(picked, plan)) return null;
+
+    /* Priced as what an edit actually is — a chat action, which is how this
+       route charges for one everywhere else. Gating it behind a BUILD's door
+       would refuse a model somebody can comfortably afford to make one small
+       change with, which is the rigidity again wearing a different hat. */
+    if (balance && !canAfford(balance, creditCostOf("chat", { modelId: picked.id }))) return null;
+
+    return picked.id;
+  })();
+
+  const editModel = leanHtml
+    ? editModelFor(stageRequest ?? prompt, leanHtml, pickedEditModel)
+    : pickedEditModel ?? EDIT_MODEL;
 
   steps.mark(
     "page",
@@ -1527,6 +1564,10 @@ async function handle(
         ]
           .filter(Boolean)
           .join("\n\n"),
+        /* The model this account picked, when they picked one their plan and
+           balance allow. Null is Auto, and editPage then decides as it always
+           has. See pickedEditModel above. */
+        pickedEditModel,
       );
 
       /* The photographs that were lifted out so the page could be read, put

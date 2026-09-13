@@ -124,6 +124,58 @@ routes("make it nicer", true, "a page too large for the small model",
   `<html>${"x".repeat(500_000)}</html>`);
 routes("make it nicer", false, "the same ask against a small page");
 
+// ── A model somebody picked ───────────────────────────────────────────────
+//
+// The picker settled builds and nothing else. An edit, a question and a
+// clarification all ran on whatever editModelFor guessed, so selecting Opus
+// and then asking for a change got Haiku — a control that visibly did nothing.
+//
+// An explicit pick now outranks every heuristic below it. Whether the account
+// MAY have that model is decided before this function is reached (plan and
+// balance, in api/build/route.ts); what arrives here has already been allowed,
+// so honouring it is the whole job.
+
+console.log("\n— a picked model outranks the guess —");
+
+function picks(prompt, chosen, want, label, page = SMALL) {
+  const got = editModelFor(prompt, page, chosen);
+  if (got === want) ok(`picked · ${label}`);
+  else fail(`picked · ${label}`, `${JSON.stringify(prompt)} with ${chosen} went to ${got}, wanted ${want}`);
+}
+
+/* Up: the ask looks small and they asked for the strong one anyway. */
+picks("Change the button text", EDIT_MODEL_STRONG, EDIT_MODEL_STRONG,
+  "THE ONE: a tiny edit on the model they chose");
+picks("Update the price", EDIT_MODEL_STRONG, EDIT_MODEL_STRONG, "another small one");
+
+/* Down: the ask looks structural and they asked for the cheap one. This is
+   the direction that used to be impossible, and it is the point — somebody
+   experimenting, or watching their balance, is allowed to. */
+picks("Add authentication, database, roles and payments.", EDIT_MODEL, EDIT_MODEL,
+  "THE OTHER ONE: structural work on the cheap model, because they said so");
+picks("Redesign the entire landing page.", EDIT_MODEL, EDIT_MODEL,
+  "a redesign on the cheap model, because they said so");
+
+/* A pick beats the size signals too, in both directions. */
+picks(`make it nicer ${"and nicer ".repeat(200)}`, EDIT_MODEL, EDIT_MODEL,
+  "a very long instruction on the model they chose");
+picks("make it nicer", EDIT_MODEL, EDIT_MODEL, "a huge page on the model they chose",
+  `<html>${"x".repeat(500_000)}</html>`);
+
+/* Auto, and nothing at all, leave the heuristics exactly as they were — which
+   is what most people will be on and must not change. */
+routes("Add authentication and roles", true, "no pick: the guess still decides");
+if (editModelFor("Add authentication and roles", SMALL, null) === EDIT_MODEL_STRONG) {
+  ok("picked · null is Auto — the guess decides");
+} else {
+  fail("picked · null is Auto — the guess decides");
+}
+if (editModelFor("Change the button text", SMALL, "") === EDIT_MODEL) {
+  ok("picked · an empty pick is no pick");
+} else {
+  fail("picked · an empty pick is no pick");
+}
+
 /* And the two models are actually different, or none of this means
    anything. */
 if (EDIT_MODEL === EDIT_MODEL_STRONG) {
