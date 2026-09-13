@@ -2318,6 +2318,36 @@ async function handle(
     });
   }
 
+  /* ── A build that stops to ask ───────────────────────────────────────────
+   *
+   * Four questions can halt a build before a penny is spent: nothing to build
+   * from, which kind of thing this is, whether it is a site or software, and
+   * whether it has a back half at all. Each one returns from this route with a
+   * sentence and some chips, and each one used to leave NO trace that a build
+   * was in progress — the job was opened further down, past all of them, so a
+   * project waiting on an answer had no job and `needs_input` was a state the
+   * machine defined and nothing could be in.
+   *
+   * That is the state most worth surviving a browser refresh. Somebody asked a
+   * question and is waiting for the answer to do something; coming back to a
+   * workspace that has forgotten it was asking is worse than never asking.
+   *
+   * So the job is opened here, on the way out, and parked. startJob is
+   * idempotent on the project — the answer arrives as a new request and finds
+   * the same job rather than starting a second one — and `claimable` excludes
+   * needs_input, so a question nobody answers is not work any worker picks up.
+   * It costs one insert on a path that is about to return anyway. */
+  const parkForAnswer = async (asking: string) => {
+    if (!service) return;
+    const waiting = await startJob(service, {
+      projectId: project.id,
+      userId: user.id,
+      requestId,
+      detail: { asking },
+    });
+    if (waiting) await advanceJob(service, waiting.id, { to: "needs_input", detail: { asking } });
+  };
+
   /* ── What is actually being built ────────────────────────────────────────
      "Rebuild" is a real thing people type, and on its own it describes nothing.
      It used to be handed to the orchestrator as the design brief, which built
@@ -2377,6 +2407,8 @@ async function handle(
       : "I do not have anything to build from yet. Describe what you want — what it is for, who it is for, " +
         "and roughly what should be on it — and I will build it.";
     const stored = await deliver(asked, { key: "nothing-to-build-from" });
+
+    await parkForAnswer("a description to build from");
 
     return NextResponse.json({
       stored,
@@ -2451,6 +2483,8 @@ async function handle(
       "I can build this a few different ways and I would rather ask than guess. Which is it?";
     const stored = await deliver(asked, { key: "which-kind" });
     const leading = bestKindGuess(brief.text);
+
+    await parkForAnswer("which kind of thing this is");
 
     return NextResponse.json({
       stored,
@@ -2557,6 +2591,8 @@ async function handle(
     const asked = architectureQuestion(kind.kind, architecture.manifest);
     const stored = await deliver(asked, { key: "which-architecture" });
 
+    await parkForAnswer("whether it has a back half");
+
     return NextResponse.json({
       stored,
       steps: steps.list(),
@@ -2590,6 +2626,8 @@ async function handle(
   if (!needs.certain && ASK_WHEN_UNSURE) {
     const asked = stackQuestion(needs);
     const stored = await deliver(asked, { key: "which-stack" });
+
+    await parkForAnswer("a site, or software");
 
     return NextResponse.json({
       stored,
@@ -2637,6 +2675,60 @@ async function handle(
     architecture.why[0],
   );
 
+  /* ── The job, opened before anything is provisioned ────────────────────
+   *
+   * Here rather than further down, and the position is the point. Everything
+   * above this line is deciding; everything below it is DOING — a migration
+   * against a real database, requests to an image provider, a generation that
+   * runs for minutes in a process nobody is connected to.
+   *
+   * It used to be opened just before the orchestrator call, which is why
+   * `provisioning` was a state the machine defined and nothing could ever be
+   * in: by the time a job existed, the schema had already been applied. A
+   * state that cannot be reached is worse than a missing one — it reads as
+   * coverage.
+   *
+   * Best effort throughout. A build must not fail because its own bookkeeping
+   * did not write, and a deployment with no service key has no job and behaves
+   * exactly as it did before any of this existed. */
+  const job = service
+    ? await startJob(service, {
+        projectId: project.id,
+        userId: user.id,
+        requestId,
+        detail: {
+          kind: kind.kind,
+          stack: needs.stack,
+          model: model.id,
+          layers: Object.entries(architecture.manifest)
+            .filter(([, on]) => on === true)
+            .map(([layer]) => layer),
+        },
+      })
+    : null;
+
+  /* The two deciding stages are one state, because a build does not pause
+     between working out what the product is and working out what it needs —
+     see PIPELINE in src/lib/builder/pipeline.ts. The timeline written here is
+     what a reopened workspace reads instead of the word "Building". */
+  if (job && service) {
+    await advanceJob(service, job.id, { to: "planning" });
+    await Promise.all(
+      steps.list().map((step) =>
+        recordStep(service, {
+          jobId: job.id,
+          projectId: project.id,
+          userId: user.id,
+          step: step.id,
+          label: step.label,
+          detail: step.detail,
+          state: "done",
+          ms: step.ms,
+        }),
+      ),
+    );
+  }
+
   /* ── The database, made real before the code that queries it is written ──
    *
    * Order matters here for the same reason it does for the imagery: the model
@@ -2666,6 +2758,12 @@ async function handle(
   );
 
   if (service && backend && dataModel.tables.length > 0) {
+    /* The stage is entered only when there is something to provision. A
+       project with no database layer never reaches this branch at all, which
+       is what "provision only what is needed" means in code rather than in a
+       prompt — no connection opened, no schema named, no migration written. */
+    if (job) await advanceJob(service, job.id, { to: "provisioning" });
+
     steps.begin("database", "Creating the database", `${dataModel.tables.length} tables…`);
     const provisioned = await provision(service, backend, dataModel, project.id, user.id);
     steps.mark(
@@ -2673,6 +2771,22 @@ async function handle(
       provisioned.applied ? "Database created" : "Database not created",
       describeProvision(provisioned),
     );
+
+    if (job) {
+      await recordStep(service, {
+        jobId: job.id,
+        projectId: project.id,
+        userId: user.id,
+        step: "database",
+        label: provisioned.applied ? "Database created" : "Database not created",
+        detail: describeProvision(provisioned),
+        /* A migration that did not apply does not fail the build — a project
+           whose schema is pending is still worth previewing — so the STEP is
+           failed and the job carries on. The reason lives in
+           project_backends.last_error either way. */
+        state: provisioned.applied ? "done" : "failed",
+      });
+    }
   }
 
   /* ── And where it is set ────────────────────────────────────────────────
@@ -2812,50 +2926,10 @@ async function handle(
   /* Only a full build reaches here, and a full build is a fresh page: whatever
      was there is being replaced, deliberately and with the person's say-so, so
      the orchestrator is given nothing to edit. */
-  /* ── The job, opened before the work leaves this request ────────────────
-   *
-   * Everything above here is fast and synchronous: if it fails, this route is
-   * still alive to say so. Everything below is not — generation runs in the
-   * orchestrator for minutes, the page lands through a webhook, and the
-   * deployment is settled by a cron. From this line on, the thing that knows
-   * what is happening is not the thing anybody is connected to.
-   *
-   * That is exactly the gap `projects.status` could not cover. A function
-   * killed here wrote nothing, so the row said "Building" and the workspace
-   * polled it for twenty-five minutes; and the detailed timeline was streamed
-   * over NDJSON and then discarded, so closing the tab lost it entirely.
-   *
-   * So the job is opened here, and the steps that got us this far are written
-   * down with it. Best effort throughout — a build must not fail because its
-   * own progress note did not save — but from here a reopened workspace can
-   * say which stage a build reached rather than only that it started. */
-  const job = service
-    ? await startJob(service, {
-        projectId: project.id,
-        userId: user.id,
-        requestId,
-        detail: { kind: kind.kind, stack: needs.stack, model: model.id },
-      })
-    : null;
-
-  if (job && service) {
-    await advanceJob(service, job.id, { to: "planning" });
-    await Promise.all(
-      steps.list().map((step) =>
-        recordStep(service, {
-          jobId: job.id,
-          projectId: project.id,
-          userId: user.id,
-          step: step.id,
-          label: step.label,
-          detail: step.detail,
-          state: "done",
-          ms: step.ms,
-        }),
-      ),
-    );
-    await advanceJob(service, job.id, { to: "generating" });
-  }
+  /* Handed over. The job was opened before provisioning — see above — and this
+     is the stage it enters as the work leaves this request for the
+     orchestrator. */
+  if (job && service) await advanceJob(service, job.id, { to: "generating" });
 
   let result: BuildResult;
   try {

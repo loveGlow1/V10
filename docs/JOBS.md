@@ -1,5 +1,35 @@
 # Build jobs, and the work that does not fit in a request
 
+## The pipeline
+
+```
+user prompt → understand product → decide capabilities →
+provision only what is needed → generate → inspect → repair → deploy
+```
+
+`src/lib/builder/pipeline.ts` is that sentence as data: each stage naming the
+modules that own it, the job state a build is in while it runs, and when it may
+legitimately be skipped. `npm run check:pipeline` asserts the code still matches
+it.
+
+The check earns its place. Writing it found four stages that were words in a
+type and nothing else:
+
+| | |
+|---|---|
+| `provisioning` | the job was opened **after** the migration ran, so no build was ever in it |
+| `validating` | the save route went `assembling → ready`, while QA ran twenty lines above and put its verdict in a chat message |
+| `repairing` | same — and `autofix` ran **before** the gates, so whatever they found was never repaired by anything |
+| `needs_input` | the four questions return before the job is opened, so a project waiting on an answer had no job at all |
+
+An unreachable state is worse than a missing one: it reads as coverage. So the
+check asserts that every state the machine defines is passed to `advance()`
+somewhere, that the order holds where the order is the argument (capabilities
+before provisioning, provisioning before generation, inspection before repair),
+and that each state can actually follow the one before it — which is what
+caught `assembling` belonging to no stage.
+
+
 ## What this replaced
 
 `projects.status`, as the authority on what a build was doing. One free-text
