@@ -30,7 +30,8 @@ import { NextResponse } from "next/server";
 
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { loadTree } from "@/lib/builder/store-tree";
-import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
+import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -205,27 +206,52 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
   const backend = await resolveBackend(service, owned.projectId);
   const env = backend ? envFor(backend) : null;
 
-  const deployed = await deployProject(tree, {
-    name: deploymentName(project?.name ?? "app", owned.projectId),
+  /* The Vercel project this one already deploys to, read rather than derived.
+     deploymentName folds in the project's TITLE, so a rename used to create a
+     second Vercel project and leave the first orphaned and still serving. */
+  const vercelProject =
+    (await existingVercelProject(service, owned.projectId)) ??
+    deploymentName(project?.name ?? "app", owned.projectId);
+
+  /* Started, not waited for — see the note in vercel-deploy.ts. This route asks
+     for 300 seconds and gets 60, and a Next.js build takes longer than either
+     with any regularity, so waiting here was how a deployment came to be
+     created successfully and then lost. The address comes back from the upload
+     itself; whether the build SUCCEEDS is settled by /api/cron/deployments. */
+  const started = await startDeployment(tree, {
+    name: vercelProject,
     supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
   });
 
-  /* Recorded either way, and against the build rather than the project: a
-     deployment is of a particular set of files, and the next build's outcome
-     is its own. */
-  await service
-    .from("project_builds")
-    .update({
-      deployment_url: deployed.ok ? deployed.url : null,
-      deployment_error: deployed.ok ? null : deployed.reason,
-    })
-    .eq("id", build.id);
-
-  if (!deployed.ok) {
-    return NextResponse.json({ error: deployed.reason, url: null }, { status: 502 });
+  if (!started.ok) {
+    await service
+      .from("project_builds")
+      .update({ deployment_url: null, deployment_error: started.reason })
+      .eq("id", build.id);
+    return NextResponse.json({ error: started.reason, url: null }, { status: 502 });
   }
 
-  return NextResponse.json({ url: deployed.url, buildId: build.id, files: tree.length });
+  await recordDeployment(service, {
+    projectId: owned.projectId,
+    userId: owned.userId,
+    buildId: build.id,
+    deploymentId: started.deploymentId,
+    vercelProject,
+    url: started.url,
+    inspectUrl: started.inspect,
+  });
+
+  /* `building: true` rather than a bare URL, because the difference is now
+     real: the address exists and the site behind it does not yet. A caller that
+     showed this as "live" would be making the same promise the old blocking
+     version at least waited to keep. */
+  return NextResponse.json({
+    url: started.url,
+    building: true,
+    deploymentId: started.deploymentId,
+    buildId: build.id,
+    files: tree.length,
+  });
 }

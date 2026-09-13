@@ -44,6 +44,8 @@ import {
   askClarifying,
   editModelFor,
   editPage,
+  editSource,
+  pickFile,
   type OnProgress,
 } from "@/lib/builder/edit";
 import { estimateTokens } from "@/lib/context/budget";
@@ -51,7 +53,7 @@ import { extractRequirements } from "@/lib/context/compress";
 import { decompose, describeDecomposition } from "@/lib/context/decompose";
 import { describeExpansion, expandContext } from "@/lib/context/expand";
 import { describePlan } from "@/lib/context/fit";
-import { fitEdit } from "@/lib/context/requests";
+import { fitBrief, fitEdit } from "@/lib/context/requests";
 import {
   advance,
   currentStage,
@@ -68,6 +70,7 @@ import {
   readProjectIndex,
   recordCheckpoint,
   saveContext,
+  writeProjectIndex,
 } from "@/lib/context/store";
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
@@ -88,10 +91,20 @@ import {
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
+import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
-import { resolveBackend } from "@/lib/builder/backend/connection";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
+import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { treeBrief } from "@/lib/builder/scaffold";
+import { currentTree, storeTree } from "@/lib/builder/store-tree";
+import { indexTree } from "@/lib/context/project-index";
+import {
+  deploymentName,
+  deploymentsConfigured,
+  startDeployment,
+} from "@/lib/publish/vercel-deploy";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
@@ -117,6 +130,12 @@ import {
 } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
+import {
+  advance as advanceJob,
+  failJob,
+  recordStep,
+  startJob,
+} from "@/lib/jobs/store";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
 import { validatePage } from "@/lib/builder/validate";
@@ -1251,6 +1270,302 @@ async function handle(
     });
   }
 
+  /* ── EDITING A PROJECT, rather than the receipt for one ──────────────────
+   *
+   * The largest defect in the edit pipeline, and it was completely silent.
+   *
+   * A build of the Next.js stack stores its .tsx in project_files and puts a
+   * SUMMARY of the project in the html column — the routes, the tables, the
+   * files — because nothing here runs `next build` and a tree of source cannot
+   * be shown to anybody. Everything below this point read that html column and
+   * nothing else. So every edit to a project edited the summary: blocks
+   * matched, the patch applied, validation passed, a new version was stored and
+   * charged for, and the customer's actual application was never touched. Their
+   * source was frozen from the first build, and redeploying redeployed it.
+   *
+   * pickFile, which chooses which file an instruction belongs in and has been
+   * written and tested this whole time, had no caller anywhere.
+   *
+   * Kept ahead of the page path rather than folded into it because they are
+   * different artefacts with different rules: a component has no <html> to
+   * balance, no stashed images, and neighbours that import it. See editSource.
+   */
+  if (intent === "edit" && service) {
+    const project_ = await currentTree(service, project.id);
+
+    if (project_.tree.length > 0 && project_.buildId) {
+      steps.begin("file", "Finding the file", "reading the project's own listing…");
+
+      const picked = await pickFile(stageRequest ?? prompt, project_.tree);
+      const target = picked
+        ? project_.tree.find((file) => file.path === picked.path)
+        : undefined;
+
+      if (!picked || !target) {
+        const said =
+          "I couldn't work out which file that belongs in. Name the page or the component — or the words on screen — and I'll find it.";
+        const stored = await deliver(said, { tone: "error", key: "edit-no-file" });
+        return NextResponse.json(
+          { error: said, intent: "edit", code: "edit_no_file", stored },
+          { status: 422 },
+        );
+      }
+
+      steps.mark(
+        "file",
+        `Editing ${picked.path}`,
+        picked.why === "named"
+          ? "you named it"
+          : picked.why === "only-one"
+            ? "it is the only file this could be"
+            : picked.why === "convention"
+              ? "that is where this lives in a Next.js project"
+              : "chosen by reading the file listing",
+      );
+
+      const plan = planEdit(stageRequest ?? prompt, knownArchitecture);
+      steps.mark("plan", describeEdit(plan), plan.why[0]);
+
+      /* ── The capability this edit needs, made real before it is written ──
+       *
+       * planEdit has always been able to work out that "add customer accounts"
+       * reaches authentication, backend and database. Nothing acted on it: the
+       * edit changed markup, the manifest still said authentication was off,
+       * no schema was ever created, and every later edit was planned against a
+       * record that had become wrong.
+       *
+       * So the only route to a capability the first build missed was a new
+       * build, which throws the page away — which is the real reason this
+       * system leans toward giving every project everything up front. Fix the
+       * ratchet and that pressure goes with it.
+       *
+       * Additive only, always: a message that does not mention the database is
+       * not a request to delete it. */
+      const upgrade = await upgradeCapabilities(service, {
+        projectId: project.id,
+        userId: user.id,
+        current: knownArchitecture,
+        touches: plan.touches,
+        stack: "nextjs",
+      });
+
+      if (upgrade.kind === "raised") {
+        steps.mark(
+          "upgrade",
+          `Added ${upgrade.added.join(", ")}`,
+          upgrade.provisionNote || "recorded against the project",
+        );
+        await deliver(upgrade.said, { key: "capability" });
+      }
+
+      let source;
+      try {
+        steps.begin("edit", "Making the change", `reading ${picked.path}…`);
+        source = await editSource(
+          stageRequest ?? prompt,
+          target,
+          picked.why,
+          project_.tree,
+          prior,
+          narrate("edit", "Making the change"),
+          editPlanBrief(
+            plan,
+            upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture,
+            architectureRow?.design_system as string | null,
+          ),
+        );
+        steps.mark(
+          "edit",
+          `Applied ${source.applied} ${source.applied === 1 ? "change" : "changes"} to ${picked.path}`,
+          `${source.model}, ${source.outputTokens} output tokens${source.retried ? ", retried once" : ""}`,
+        );
+      } catch (error) {
+        if (error instanceof EditError) {
+          const stored = await deliver(error.message, { tone: "error", key: "edit-failed" });
+          return NextResponse.json(
+            { error: error.message, intent: "edit", code: "edit_failed", stored },
+            { status: error.status },
+          );
+        }
+        throw error;
+      }
+
+      /* The whole tree, with one file replaced. Stored as a NEW build rather
+         than as an update to the old one, for the same reason a page edit is:
+         undo is a version, never a deletion. */
+      const edited = project_.tree.map((file) =>
+        file.path === source.path ? { ...file, content: source.contents } : file,
+      );
+
+      steps.begin("version", "Saving the new version", "storing the project so you can undo back to this…");
+      const { data: newBuild, error: buildError } = await service
+        .from("project_builds")
+        .insert({
+          project_id: project.id,
+          user_id: user.id,
+          request_id: requestId,
+          prompt,
+          /* The summary is carried forward unchanged. It describes the project
+             — its routes and tables — and editing one component does not make
+             it wrong. What it is NOT is the thing that was edited, which is the
+             confusion this whole branch exists to end. */
+          html: currentHtml ?? "",
+          model: `${source.model} (${source.path})`,
+          files_touched: 1,
+        })
+        .select("id")
+        .single();
+
+      if (buildError || !newBuild) {
+        // eslint-disable-next-line no-console
+        console.error("edit: the project version could not be stored:", buildError);
+        const said = "I made the change but couldn't save it. Nothing was altered — this one is at our end.";
+        const stored = await deliver(said, { tone: "error", key: "edit-store-failed" });
+        return NextResponse.json({ error: said, intent: "edit", stored }, { status: 500 });
+      }
+
+      try {
+        await storeTree(
+          service,
+          { buildId: newBuild.id as string, projectId: project.id, userId: user.id },
+          edited,
+        );
+      } catch (error) {
+        /* A build row with no files is worse than no build row: it claims a
+           version that does not exist. Taken back out, exactly as the save
+           route does when its own tree fails to store. */
+        await service.from("project_builds").delete().eq("id", newBuild.id as string);
+        // eslint-disable-next-line no-console
+        console.error("edit: the project's files could not be stored:", error);
+        const said = "I made the change but couldn't save the project's files, so nothing was altered.";
+        const stored = await deliver(said, { tone: "error", key: "edit-store-failed" });
+        return NextResponse.json({ error: said, intent: "edit", stored }, { status: 500 });
+      }
+      steps.mark("version", "Saved a new version of the project");
+
+      /* The index, so the next edit can retrieve against what the project now
+         IS rather than against what it was. Best effort, like the save route's:
+         a build whose index fails to write is a build whose next edit retrieves
+         nothing, which is where it already was. */
+      try {
+        await writeProjectIndex(service, {
+          projectId: project.id,
+          userId: user.id,
+          entries: indexTree(edited),
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("edit: the project index was not updated:", error);
+      }
+
+      await service
+        .from("projects")
+        .update({
+          prompt,
+          status: "Built",
+          preview_url: previewUrl,
+          last_build_at: new Date().toISOString(),
+        })
+        .eq("id", project.id)
+        .eq("user_id", user.id);
+
+      /* ── And put it back online ────────────────────────────────────────
+       *
+       * The half that makes this an edit to an APPLICATION rather than to a
+       * row. Source that is changed and not deployed is source nobody can look
+       * at: the customer's site is still serving the build before this one.
+       *
+       * Started, never waited for — see startDeployment. This route has sixty
+       * seconds and a Next.js build takes minutes, so the deployment is
+       * recorded and /api/cron/deployments settles it. Every failure here is
+       * survivable: the edit is stored and paid for whatever Vercel does, and
+       * redeploying costs nothing. */
+      let deploying = false;
+      if (deploymentsConfigured()) {
+        const backendForDeploy = knownArchitecture?.database
+          ? await resolveBackend(service, project.id)
+          : null;
+        const deployEnv = backendForDeploy ? envFor(backendForDeploy) : null;
+        const vercelProject =
+          (await existingVercelProject(service, project.id)) ??
+          deploymentName(project.name as string, project.id);
+
+        steps.begin("deploy", "Putting the change online", "uploading the project to be built…");
+        const started = await startDeployment(edited, {
+          name: vercelProject,
+          supabaseUrl: deployEnv?.NEXT_PUBLIC_SUPABASE_URL,
+          supabaseAnonKey: deployEnv?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+          supabaseSchema: deployEnv?.NEXT_PUBLIC_SUPABASE_SCHEMA,
+        });
+
+        if (started.ok) {
+          deploying = true;
+          await recordDeployment(service, {
+            projectId: project.id,
+            userId: user.id,
+            buildId: newBuild.id as string,
+            deploymentId: started.deploymentId,
+            vercelProject,
+            url: started.url,
+            inspectUrl: started.inspect,
+          });
+          steps.mark("deploy", "Building it now", "you will be told when it is live");
+        } else {
+          steps.mark("deploy", "Not put online", started.reason);
+        }
+      }
+
+      const said = [
+        `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`,
+        source.failures.length > 0
+          ? `${source.failures.length} part of that could not be matched in the file.`
+          : null,
+        deploying ? "It is building now, and I'll tell you when it is live." : null,
+        source.note ? `Next: ${source.note}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const storedEdit = await deliver(said, { key: "edit" });
+
+      const editCost = creditCostOf(BUILD_ACTION, { filesTouched: 1, modelId: source.model });
+      const charge = await chargeCredits(service, {
+        userId: user.id,
+        action: BUILD_ACTION,
+        cost: roundCredits(editCost + contextCost),
+        description: `Edit: ${project.name} — ${source.path}`,
+        projectId: project.id,
+        filesTouched: 1,
+        dedupeKey: `edit:${requestId}`,
+      });
+      if (charge) steps.mark("charge", `Charged ${formatCredits(charge.charged)} credits`);
+
+      const { data: afterTree } = await supabase
+        .from("projects")
+        .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+        .eq("id", project.id)
+        .maybeSingle();
+
+      return NextResponse.json({
+        stored: storedEdit,
+        steps: steps.list(),
+        intent: "edit",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: previewUrl, repo: "", admin: "" },
+          configKeys: {},
+          artifacts: { applied: source.applied, file: source.path },
+          message: said,
+        },
+        project: afterTree ?? null,
+      });
+    }
+  }
+
   // ── EDIT ─────────────────────────────────────────────────────────────────
   if (intent === "edit" && currentHtml) {
     if (!service) {
@@ -1508,6 +1823,47 @@ async function handle(
       const plan = planEdit(editPrompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
 
+      /* ── And whether this page can hold what is being asked of it ────────
+       *
+       * The same upgrade as the project path above, and on a single page it
+       * usually answers "no". A page has no server, no environment and no
+       * second route, so "add accounts" cannot be done by patching it however
+       * convincingly the form is written — and a sign-in that looks right and
+       * cannot work is the failure worth refusing rather than shipping.
+       *
+       * Said before anything is spent, with the way forward in the same
+       * sentence, and the page they have is left exactly as it is. */
+      const pageUpgrade = await upgradeCapabilities(service, {
+        projectId: project.id,
+        userId: user.id,
+        current: knownArchitecture,
+        touches: plan.touches,
+        stack: (architectureRow?.stack as string | null) ?? "standalone-html",
+      });
+
+      if (pageUpgrade.kind === "needs-rebuild") {
+        const stored = await deliver(pageUpgrade.said, { key: "needs-rebuild" });
+        return NextResponse.json(
+          {
+            error: pageUpgrade.said,
+            intent: "edit",
+            code: "needs_rebuild",
+            needsRebuild: true,
+            stored,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (pageUpgrade.kind === "raised") {
+        steps.mark(
+          "upgrade",
+          `Added ${pageUpgrade.added.join(", ")}`,
+          pageUpgrade.provisionNote || "recorded against the project",
+        );
+        await deliver(pageUpgrade.said, { key: "capability" });
+      }
+
       steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
       edited = await editPage(
         editPrompt,
@@ -1524,6 +1880,27 @@ async function handle(
            above. */
         [
           editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* ── Somewhere to look, when the message carries a picture ───────
+           *
+           * The hardest request this builder gets is "use this screenshot and
+           * change that bit", and the reason has never been the model. It is
+           * handed a photograph of a RENDERED page and, separately, the page's
+           * SOURCE, and asked to do the visual-to-source mapping with nothing
+           * in between.
+           *
+           * Worse, the two do not match: stashImages has replaced every
+           * photograph with `stashed-image-N` so the document fits, so the
+           * most distinctive thing in the screenshot is exactly what is
+           * missing from the text being matched against it.
+           *
+           * This is the map — the sections in order, what each is called, its
+           * id, and the pictures in it. A screenshot plus this is a lookup
+           * rather than a guess. Only when a picture actually arrived: it is
+           * several hundred tokens and it answers a question nobody without
+           * one is asking. */
+          files.blocks.some((block) => block.type === "image")
+            ? landmarkBrief(leanHtml ?? currentHtml)
+            : "",
           /* What the attached pictures are FOR, when any came with the message.
              The system prompt already says a screenshot is direction and a
              photograph is content; this is the composition half — that a
@@ -2435,6 +2812,51 @@ async function handle(
   /* Only a full build reaches here, and a full build is a fresh page: whatever
      was there is being replaced, deliberately and with the person's say-so, so
      the orchestrator is given nothing to edit. */
+  /* ── The job, opened before the work leaves this request ────────────────
+   *
+   * Everything above here is fast and synchronous: if it fails, this route is
+   * still alive to say so. Everything below is not — generation runs in the
+   * orchestrator for minutes, the page lands through a webhook, and the
+   * deployment is settled by a cron. From this line on, the thing that knows
+   * what is happening is not the thing anybody is connected to.
+   *
+   * That is exactly the gap `projects.status` could not cover. A function
+   * killed here wrote nothing, so the row said "Building" and the workspace
+   * polled it for twenty-five minutes; and the detailed timeline was streamed
+   * over NDJSON and then discarded, so closing the tab lost it entirely.
+   *
+   * So the job is opened here, and the steps that got us this far are written
+   * down with it. Best effort throughout — a build must not fail because its
+   * own progress note did not save — but from here a reopened workspace can
+   * say which stage a build reached rather than only that it started. */
+  const job = service
+    ? await startJob(service, {
+        projectId: project.id,
+        userId: user.id,
+        requestId,
+        detail: { kind: kind.kind, stack: needs.stack, model: model.id },
+      })
+    : null;
+
+  if (job && service) {
+    await advanceJob(service, job.id, { to: "planning" });
+    await Promise.all(
+      steps.list().map((step) =>
+        recordStep(service, {
+          jobId: job.id,
+          projectId: project.id,
+          userId: user.id,
+          step: step.id,
+          label: step.label,
+          detail: step.detail,
+          state: "done",
+          ms: step.ms,
+        }),
+      ),
+    );
+    await advanceJob(service, job.id, { to: "generating" });
+  }
+
   let result: BuildResult;
   try {
     steps.running(
@@ -2500,7 +2922,10 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
-    const systemPrompt = composeBuildPrompt(kind.kind, brief.text, {
+    /* Held as a value rather than inlined, because the brief may have to be
+       restructured below and the prompt recomposed around it — and two
+       literals are two chances for the second one to differ from the first. */
+    const promptContext = {
       projectName: project.name,
       attachmentText: attachedText,
       imageCount: imageUrls.length,
@@ -2525,12 +2950,61 @@ async function handle(
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
       stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
+    };
+
+    const systemPrompt = composeBuildPrompt(kind.kind, brief.text, promptContext);
+
+    /* ── Does all of this fit? ───────────────────────────────────────────
+     *
+     * Measured here, against the window of the model that is about to be
+     * called, and measured on the COMPOSED prompt rather than on the brief.
+     *
+     * Nothing measured anything before. The only limit on this path was
+     * MAX_PROMPT — 600,000 CHARACTERS, a number that corresponds to no model's
+     * context window — and everything else went in uncounted: the base rules,
+     * the blueprint, the architecture and design briefs, the asset manifest,
+     * the locale block and the reference spec. Against Haiku's 200k that is a
+     * hard API error; against a million-token window it silently degrades.
+     *
+     * fitBrief has existed this whole time and had no caller. It restructures
+     * rather than refuses — every sentence that constrains the outcome is
+     * lifted out and carried word for word as a numbered requirement, and only
+     * the prose between them is condensed. A brief cut at a word count loses
+     * its acceptance criteria, because that is where people put them.
+     *
+     * The prompt is composed a second time when that happens. Composing it
+     * against the original brief and then sending a different one would send a
+     * model a specification and a contradiction of it. */
+    const fitted = fitBrief({
+      brief: brief.text,
+      modelId: model.id,
+      systemTokens: estimateTokens(systemPrompt),
+      images: imageUrls.length,
     });
+
+    if (fitted.restructured) {
+      // eslint-disable-next-line no-console
+      console.log(describePlan(fitted.plan));
+      steps.mark(
+        "fit",
+        "Restructured your brief to fit",
+        `${fitted.requirements.length} requirements carried word for word, the prose around them condensed`,
+      );
+      await deliver(
+        `That brief is longer than ${model.name} can read in one go, so I have kept every requirement in it exactly as you wrote them and shortened the prose around them. Nothing that specifies the outcome was dropped.`,
+        { key: "brief-restructured" },
+      );
+    }
+
+    const buildBrief = fitted.brief;
+    const buildPrompt = fitted.restructured
+      ? composeBuildPrompt(kind.kind, buildBrief, promptContext)
+      : systemPrompt;
 
     const request = generationRequest(
       model,
-      systemPrompt,
-      userMessage(project.name, brief.text, attachedText, imageUrls.length),
+      buildPrompt,
+      userMessage(project.name, buildBrief, attachedText, imageUrls.length),
       imageUrls.map((url) => ({ url })),
       /* The same condition that decided treeInstructions above, because it is
          the same fact: this build's answer is a file tree rather than a
@@ -2541,7 +3015,7 @@ async function handle(
     );
 
     result = await startBuild({
-      prompt: brief.text,
+      prompt: buildBrief,
       projectName: project.name,
       userId: user.id,
       projectId: project.id,
@@ -2589,13 +3063,14 @@ async function handle(
       generationHeaders: request.headers,
       generationBody: request.body,
       responseShape: request.shape,
-      systemPrompt,
+      systemPrompt: buildPrompt,
     });
   } catch (error) {
     if (error instanceof BuilderError) {
       /* The row was moved to Building a moment ago; leaving it there would show
          a build that is not running. */
       await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+      if (job && service) await failJob(service, job.id, error.message);
       /* Stored as well as returned. This one matters on reopening: without it a
          workspace whose tab was closed on a failed start shows a build that
          never finishes and never explains itself. */
@@ -2639,6 +3114,7 @@ async function handle(
    * been skipped if the run got this far. */
   if (result.status === "Failed" || !result.ok) {
     await supabase.from("projects").update({ status: "Failed" }).eq("id", project.id);
+    if (job && service) await failJob(service, job.id, result.message);
 
     const stored = await deliver(result.message, {
       kind: "build_failed",

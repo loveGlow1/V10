@@ -105,11 +105,11 @@ export type Blueprint = {
 export const BASE = `HOW ANYTHING IS BUILT HERE:
 - One file. Inline all CSS in a <style> tag and all JavaScript in a <script> tag. No build step, no imports, no bundler.
 - Tailwind is available: <script src="https://cdn.tailwindcss.com"></script>. Prefer it over long hand-written stylesheets — it is far shorter, which is what leaves room to finish.
-- No other external scripts, and never an image URL: you cannot know one that works, and every stock-photo address you invent is a broken image.
+- No other external scripts. NEVER INVENT AN IMAGE URL — you cannot know one that works, and every stock-photo address you make up is a broken image. The only addresses you may use are ones given to you below under THE ASSETS FOR THIS BUILD, if that section is present; where it is not, every photograph is declared rather than addressed, as follows.
 
 PHOTOGRAPHS — do not draw them, declare them:
 - Anywhere the design wants a PHOTOGRAPH — a product, a person, a room, a plate of food, a hero shot — write an <img> that describes the picture instead of an SVG that imitates it. A vector drawing of fabric reads as clip art; that is the single thing that makes a generated page look generated.
-- The tag carries the art direction and nothing else. Leave src out entirely — it is filled in with a real photograph after you finish, and a src you write yourself would be overwritten or broken:
+- The tag carries the art direction and nothing else. Leave src out entirely — it is filled in with a real photograph after you finish, and a src you write yourself would be overwritten or broken. (Where an ASSETS section below gives a URL for a slot, use that URL as the src for that slot and declare the rest this way.):
 
   <img data-shot="folded ochre wax print fabric, raking light, neutral seamless background"
        data-ratio="4/5" data-weight="thumb" alt="Ochre Adire wax print, six yards">

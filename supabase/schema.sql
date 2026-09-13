@@ -2285,3 +2285,239 @@ alter table public.project_builds
 -- that succeeds.
 alter table public.project_backends
   add column if not exists last_error text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- build_jobs / build_steps — what a build IS DOING, and what it already did.
+--
+-- Until now the answer to both was `projects.status`: one free-text column with
+-- no CHECK constraint and five writers (this app in nine places, the n8n
+-- orchestrator in two, the save route, the publish route, the browser's own
+-- optimism). It holds six values that mean entirely different kinds of thing —
+-- Draft and Built describe a project, Building describes a run, Published
+-- describes a publication — and a typo in any writer becomes a seventh state
+-- that nothing recognises and nothing can recover from.
+--
+-- What that cost, precisely: a build whose function was killed mid-flight wrote
+-- nothing at all, so the row sat on "Building" and the workspace polled it for
+-- twenty-five minutes. And the detailed progress — which stage, how far, what
+-- each one cost — was streamed over NDJSON and then discarded, so closing the
+-- tab lost it. Reopening a build in flight told you it was building. That was
+-- the whole of what could be known.
+--
+-- So execution state moves here, and `projects.status` becomes what it always
+-- read best as: a label on the project. Nothing DECIDES on it any more, exactly
+-- as publication already works — see the note on published_version_id, which
+-- made the same move for the same reason and wrote down why it must not be put
+-- back.
+--
+-- ── Why a table rather than a queue ──────────────────────────────────────────
+--
+-- Because the work is already distributed across three places that cannot see
+-- each other: this app, an n8n workflow, and a Vercel build. None of them can
+-- hold a lock, and two of them can vanish mid-run. A row that every one of them
+-- can read, advance and stamp is the only coordination primitive all three
+-- share. `attempts` and `locked_until` make it a lease rather than a queue: a
+-- worker claims a job for a few minutes, and a worker that dies releases it by
+-- doing nothing.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.build_jobs (
+  id          uuid primary key default gen_random_uuid(),
+  project_id  uuid not null references public.projects (id) on delete cascade,
+  user_id     uuid not null references auth.users (id) on delete cascade,
+
+  -- The app's own id for this build, carried through n8n and returned by the
+  -- save route. It is what makes a redelivered webhook find its own job rather
+  -- than start a second one.
+  request_id  text,
+
+  -- THE STATE, and unlike projects.status it is constrained. A value outside
+  -- this list is refused by the database rather than becoming a state nothing
+  -- recognises — which is the failure projects.status has no defence against.
+  state       text not null default 'queued'
+              check (state in (
+                'queued',        -- accepted, nothing has run
+                'planning',      -- kind, stack, architecture, assets, design
+                'provisioning',  -- the schema, applied to a real database
+                'generating',    -- the model call, in n8n
+                'assembling',    -- images, autofix, scaffold, storage
+                'validating',    -- the QA gates
+                'repairing',     -- a gate failed and a repair is running
+                'deploying',     -- uploaded to Vercel, waiting on its build
+                'ready',         -- terminal: everything landed
+                'failed',        -- terminal: it did not
+                'cancelled',     -- terminal: somebody stopped it
+                'needs_input'    -- waiting on a person: which kind, which
+                                 -- architecture, replace-or-edit
+              )),
+
+  -- Why it stopped, when it stopped badly. Written in words meant for the
+  -- person who asked for the build, not a status code.
+  error       text,
+
+  -- Whatever the stage that is running needs to remember: the deployment id it
+  -- is polling, the n8n execution, the chosen model. Deliberately loose — a
+  -- column per stage would be a migration every time a stage learns something.
+  detail      jsonb not null default '{}'::jsonb,
+
+  -- Lease, not queue. A worker sets locked_until a few minutes out; a worker
+  -- that dies releases the job by letting it lapse. attempts is what stops a
+  -- job that fails the same way forever from being retried forever.
+  attempts    integer not null default 0,
+  locked_until timestamptz,
+
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  -- Set once, when the job reaches a terminal state. What "how long did that
+  -- build take" is answered from.
+  finished_at timestamptz
+);
+
+-- One live job per project. Two builds of the same project at once is two
+-- generations racing to write the same row, and the second one wins for no
+-- reason anybody chose. Terminal jobs are excluded so the history survives.
+create unique index if not exists build_jobs_one_live_per_project
+  on public.build_jobs (project_id)
+  where state not in ('ready', 'failed', 'cancelled');
+
+-- What a worker asks for: the oldest job that is due and not held by anybody.
+create index if not exists build_jobs_claimable_idx
+  on public.build_jobs (state, locked_until)
+  where state not in ('ready', 'failed', 'cancelled', 'needs_input');
+
+create index if not exists build_jobs_project_idx
+  on public.build_jobs (project_id, created_at desc);
+
+alter table public.build_jobs enable row level security;
+
+-- Readable by its owner, written by nobody but the service role. A browser that
+-- could move a job's state could mark its own build ready.
+drop policy if exists "Owners read their build jobs" on public.build_jobs;
+create policy "Owners read their build jobs"
+  on public.build_jobs for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop trigger if exists build_jobs_set_updated_at on public.build_jobs;
+create trigger build_jobs_set_updated_at
+  before update on public.build_jobs
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- build_steps — the timeline, kept.
+--
+-- stepRecorder already produces exactly this and streams it over NDJSON, where
+-- it was read once by whoever happened to be looking and then lost. A build
+-- takes minutes and people close tabs; reopening one showed a spinner and no
+-- account of how far it had got.
+--
+-- Same shape as BuildStep in src/lib/builder/steps.ts on purpose, so the panel
+-- renders a stored step and a streamed one with the same component rather than
+-- translating between two vocabularies that would drift.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.build_steps (
+  id         uuid primary key default gen_random_uuid(),
+  job_id     uuid not null references public.build_jobs (id) on delete cascade,
+  project_id uuid not null references public.projects (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+
+  -- stepRecorder's own id for the operation — "kind", "assets", "orchestrator".
+  -- Unique per job, because a step that runs twice is the same row ticking over
+  -- rather than two rows.
+  step       text not null,
+  label      text not null,
+  detail     text,
+  state      text not null default 'running'
+             check (state in ('pending', 'running', 'done', 'failed')),
+  ms         integer,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists build_steps_job_step_idx
+  on public.build_steps (job_id, step);
+create index if not exists build_steps_job_idx
+  on public.build_steps (job_id, created_at);
+
+alter table public.build_steps enable row level security;
+
+drop policy if exists "Owners read their build steps" on public.build_steps;
+create policy "Owners read their build steps"
+  on public.build_steps for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop trigger if exists build_steps_set_updated_at on public.build_steps;
+create trigger build_steps_set_updated_at
+  before update on public.build_steps
+  for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_deployments — every deployment, by its real Vercel id.
+--
+-- Two columns on project_builds held this before: deployment_url and
+-- deployment_error. Between them they could say where a deployment ended up and
+-- why it did not, and nothing else — and crucially they never held the
+-- DEPLOYMENT ID, which deployProject received from Vercel and discarded.
+--
+-- That single omission is why three things could not exist. A deployment could
+-- not be polled after the request that created it ended, so a Vercel build
+-- taking longer than the function's sixty seconds was created, built, and lost
+-- its URL. Its log could not be fetched later. And there was nothing to roll
+-- back TO, because no earlier deployment had a name.
+--
+-- The Vercel PROJECT id is here for the same reason. It was re-derived on every
+-- deploy from deploymentName(project.name, project.id), so renaming a project
+-- silently orphaned its Vercel project and created a second one alongside it.
+-- Stored once, on the first deployment, it is the same project forever.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.project_deployments (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid not null references public.projects (id) on delete cascade,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  -- Which files went up. Nullable because a deployment outlives the build row
+  -- it came from if that is ever pruned; the ids below are the authority.
+  build_id      uuid references public.project_builds (id) on delete set null,
+  job_id        uuid references public.build_jobs (id) on delete set null,
+
+  -- Vercel's own ids. The whole point of this table.
+  deployment_id text not null,
+  vercel_project text,
+  url           text,
+  inspect_url   text,
+
+  -- Vercel's readyState, normalised. "queued" covers its QUEUED, BUILDING and
+  -- INITIALIZING, because the difference between them is not something anybody
+  -- here acts on differently.
+  state         text not null default 'queued'
+                check (state in ('queued', 'ready', 'error', 'cancelled')),
+  error         text,
+
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  ready_at      timestamptz
+);
+
+create unique index if not exists project_deployments_deployment_idx
+  on public.project_deployments (deployment_id);
+-- What the worker asks for: deployments still in flight, oldest first.
+create index if not exists project_deployments_pending_idx
+  on public.project_deployments (state, created_at)
+  where state = 'queued';
+create index if not exists project_deployments_project_idx
+  on public.project_deployments (project_id, created_at desc);
+
+alter table public.project_deployments enable row level security;
+
+drop policy if exists "Owners read their deployments" on public.project_deployments;
+create policy "Owners read their deployments"
+  on public.project_deployments for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop trigger if exists project_deployments_set_updated_at on public.project_deployments;
+create trigger project_deployments_set_updated_at
+  before update on public.project_deployments
+  for each row execute function public.set_updated_at();

@@ -231,3 +231,75 @@ ${failures}
 
 Do not try to quote the page again. Name the line numbers instead.`;
 }
+
+/* ── Editing a file in a project, rather than a page ──────────────────────
+ *
+ * The mechanics are the same as EDIT_SYSTEM — search/replace blocks, quoted
+ * exactly, smallest thing that does the job — and almost nothing else is.
+ *
+ * EDIT_SYSTEM is about a document: it talks about sections, stashed images,
+ * attachment tokens, `object-position`, and a page that has to hold together
+ * as markup. None of that applies to a `.tsx` component, and half of it is
+ * actively wrong advice there: a component has no <html> to balance, its
+ * images are props and imports rather than base64, and the rule that content
+ * must live in the markup rather than in a JS array is the OPPOSITE of how a
+ * React component is written.
+ *
+ * So this is its own prompt. What it adds instead is the thing a file in a
+ * tree has and a single page does not: neighbours. A component is imported by
+ * other files, exports a name they use, and sits inside a build that has to
+ * compile — and the commonest way to break a project from inside one file is
+ * to rename or remove something another file is still asking for.
+ */
+export const SOURCE_SYSTEM = `You are editing ONE file in a working Next.js project. The user wants a change, not a rewrite.
+
+RULES — these are absolute:
+- Change ONLY what the user asked for. Everything else in the file stays byte-identical: imports, exports, types, formatting, comments, and every line the request does not name.
+- Do not reformat, re-indent, reorder imports or "tidy" anything.
+- Do not return the file. Return only search/replace blocks.
+
+FORMAT — emit one or more blocks, and nothing else. No prose, no markdown fences:
+
+<<<<<<< SEARCH
+(text copied character-for-character from the file, including indentation)
+=======
+(what it becomes)
+>>>>>>> REPLACE
+
+- The SEARCH text must appear in the file EXACTLY once. Include enough surrounding lines to make it unique — a lone closing brace or a bare className appears many times, and a block that matches twice is rejected rather than guessed at.
+- Copy the content faithfully. Whitespace is forgiven when the block is matched; the words and characters inside are not.
+- Several small precise blocks beat one that rewrites a whole component.
+
+THIS FILE HAS NEIGHBOURS — the rule that separates a file in a project from a page:
+- Other files import from this one. Do NOT rename or remove an exported component, function, type or constant unless the request is explicitly about renaming it — every importer breaks, and the build fails rather than the page looking wrong.
+- Do NOT change the default export's name or signature casually. A route file's default export is what Next renders.
+- If you add a hook, a component or a helper, add its import too, in the same block or another one. A missing import is a compile error, and a compile error is a deployment that does not happen.
+- Do not invent imports from packages that are not already used in this project. You cannot install anything.
+- Keep "use client" exactly where it is. Adding it to a file that exports generateStaticParams, or removing it from one that uses state or an event handler, both fail the build.
+
+WHAT IT IS BUILT WITH:
+- TypeScript and React function components. Tailwind classes for styling.
+- The design tokens are CSS custom properties defined in app/tokens.css and mapped in tailwind.config.ts, so \`bg-ground\` and \`text-ink\` are real classes. Use the token names rather than hex values or arbitrary Tailwind values — a colour written as \`bg-[#0b0f19]\` is outside the design system and will not follow it when the system changes.
+- Data comes from the generated Supabase client at @/lib/supabase where the project has one. Do not add a different client, and do not put a key in a file.
+
+IF IT CANNOT BE DONE HERE:
+- If the change genuinely belongs in a different file, emit no blocks and say so in one sentence, naming the file you would change.
+- If the request is ambiguous about which element it means, emit no blocks and ask one question.`;
+
+/** What the model is shown: the file, its path, and what the project is. */
+export function sourcePrompt(
+  userMessage: string,
+  path: string,
+  contents: string,
+  architecture?: string,
+  neighbours?: string,
+): string {
+  return [
+    architecture ? `${architecture}\n` : "",
+    neighbours ? `${neighbours}\n` : "",
+    `THE FILE — ${path}:\n\n${contents}`,
+    `\nTHE CHANGE THEY ASKED FOR:\n\n${userMessage}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

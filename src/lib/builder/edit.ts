@@ -6,6 +6,7 @@ import {
   PICK_SYSTEM,
   type FilePick,
   homePageOf,
+  neighbourBrief,
   pickFileLocally,
   pickPrompt,
   readPick,
@@ -24,11 +25,13 @@ import {
   EDIT_SYSTEM,
   LINES_SYSTEM,
   QUESTION_SYSTEM,
+  SOURCE_SYSTEM,
   clarifyPrompt,
   editPrompt,
   linesPrompt,
   questionPrompt,
   retryPrompt,
+  sourcePrompt,
 } from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
@@ -930,4 +933,155 @@ export async function answerQuestion(
      page sends the whole page, and it is a real model call whatever the answer
      ends up looking like. */
   return { text: answer, outputTokens: message.usage?.output_tokens ?? 0 };
+}
+
+/* ── Editing a project rather than a page ─────────────────────────────────
+ *
+ * The defect this closes is the largest one in the edit pipeline and it was
+ * completely silent.
+ *
+ * A build of the Next.js stack stores its `.tsx` in project_files and puts a
+ * SUMMARY of the project in the `html` column — a page listing the routes, the
+ * tables and the files, written by projectSummary because nothing here runs
+ * `next build` and a tree of source cannot be shown to anybody. The edit path
+ * read `project_builds.html` and nothing else. So every edit to a project
+ * edited the summary: the search blocks matched, the patch applied, the
+ * validation passed, a new version was stored and charged for, and the
+ * customer's actual application was not touched. Their source was frozen from
+ * the first build onwards, and redeploying redeployed the original tree.
+ *
+ * pickFile — which chooses which file an instruction is about, and which has
+ * existed and been tested this whole time — had no caller anywhere.
+ *
+ * This is the other half of it: the file it picked, edited.
+ */
+export type SourceEdit = {
+  path: string;
+  /** Why that file, for the step line — see FilePick. */
+  why: FilePick["why"];
+  contents: string;
+  applied: number;
+  failures: PatchFailure[];
+  note: string | null;
+  outputTokens: number;
+  model: string;
+  retried: boolean;
+};
+
+/**
+ * Makes a change to one file of a project.
+ *
+ * Same patch mechanics as editPage and a different prompt, because a component
+ * is not a document — see SOURCE_SYSTEM. No image stashing and no attachment
+ * tokens: those are properties of a single self-contained page, and a project's
+ * images are imports and props.
+ *
+ * Throws EditError for the cases the caller has to report rather than store: a
+ * refusal, nothing placed, or a change too large to finish in the time a
+ * request has.
+ */
+export async function editSource(
+  userMessage: string,
+  file: { path: string; content: string },
+  why: FilePick["why"],
+  tree: FileTree,
+  prior: Anthropic.MessageParam[] = [],
+  onProgress?: OnProgress,
+  architecture?: string,
+): Promise<SourceEdit> {
+  /* Sized on the file rather than on the project: what goes into the window is
+     this one file, and a forty-file project whose every file is small is not a
+     large edit. */
+  const model = editModelFor(userMessage, file.content);
+  const deadlineAt = Date.now() + EDIT_DEADLINE_MS;
+
+  const first = await ask(
+    SOURCE_SYSTEM,
+    sourcePrompt(userMessage, file.path, file.content, architecture, neighbourBrief(tree, file.path)),
+    PATCH_TOKENS,
+    [],
+    prior,
+    onProgress,
+    false,
+    model,
+    deadlineAt,
+  );
+
+  if (first.stop_reason === "refusal") {
+    throw new EditError(
+      `I wasn't able to make that change to ${file.path}. If you can say which part you mean, I'll try again.`,
+      422,
+    );
+  }
+
+  let output = textOf(first);
+  let result = applyPatches(file.content, output);
+  let outputTokens = first.usage?.output_tokens ?? 0;
+  let retried = false;
+
+  /* Out of time is its own answer and not a reason to start again — there is by
+     definition no budget left. What landed is kept; if nothing landed, the
+     honest sentence is about the size of the change rather than about our
+     inability to place it. */
+  if (ranOutOfTime(first) && result.applied === 0) {
+    throw new EditError(
+      `That change is bigger than I can make to ${file.path} in one go. Ask for it a piece at a time and each one will land.`,
+      422,
+    );
+  }
+
+  /* One retry, and only when nothing at all landed — a partial success left
+     alone, because re-running it would apply the blocks that already worked a
+     second time against a file they have already changed. */
+  if (result.applied === 0 && !ranOutOfTime(first)) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `That didn't place cleanly in ${file.path}. Reading it again with ${EDIT_MODEL_STRONG}…`,
+    });
+
+    const second = await ask(
+      SOURCE_SYSTEM,
+      retryPrompt(
+        userMessage,
+        file.content,
+        result.failures.length > 0
+          ? describeFailures(result.failures)
+          : "no blocks were returned at all",
+      ),
+      PATCH_TOKENS,
+      [],
+      prior,
+      onProgress,
+      false,
+      EDIT_MODEL_STRONG,
+      deadlineAt,
+    );
+
+    retried = true;
+    output = textOf(second);
+    outputTokens += second.usage?.output_tokens ?? 0;
+    result = applyPatches(file.content, output);
+  }
+
+  if (result.applied === 0) {
+    /* Named, and the file is named with it. "I couldn't place that change" over
+       a project is a sentence about the person's words; naming the file we were
+       looking in is at least a fact they can correct. */
+    throw new EditError(
+      `I couldn't place that change in ${file.path}, so nothing was altered. Naming the component or quoting a line from it usually gets a clean result — or tell me which file you meant.`,
+      422,
+    );
+  }
+
+  return {
+    path: file.path,
+    why,
+    contents: result.html,
+    applied: result.applied,
+    failures: result.failures,
+    note: noteAfterPatches(output),
+    outputTokens,
+    model: retried ? EDIT_MODEL_STRONG : model,
+    retried,
+  };
 }

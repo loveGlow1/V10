@@ -287,12 +287,131 @@ function readDeployment(
   };
 }
 
+export type Started =
+  | { ok: true; deploymentId: string; url: string; inspect: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * Uploads a generated project and returns as soon as Vercel has accepted it.
+ *
+ * THE HALF THAT DOES NOT WAIT, and the reason it exists is arithmetic. A
+ * Next.js install-and-compile takes one to three minutes; `deployProject`
+ * below polls for up to 180 seconds; and both call sites run in a serverless
+ * function that this account's plan stops at 60. So any project slow enough to
+ * be interesting was created, built and hosted correctly, and then lost its
+ * address — because the function holding the poll was killed and nothing had
+ * written the deployment id down.
+ *
+ * Vercel gives the id and the hostname in the response to the upload itself,
+ * before a line of the build has run. Both are recorded here, and something
+ * that is not on the end of an HTTP request finds out how it went. See
+ * deploymentState below and /api/cron/deployments.
+ */
+export async function startDeployment(tree: FileTree, target: DeployTarget): Promise<Started> {
+  const creds = credentials();
+  if (!creds) {
+    return { ok: false, reason: "this deployment has no VERCEL_API_TOKEN, so it cannot build projects" };
+  }
+  if (tree.length === 0) return { ok: false, reason: "there are no files to deploy" };
+
+  const created = await call(
+    `/v13/deployments${creds.teamQuery}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: target.name,
+        files: deploymentFiles(tree, target),
+        projectSettings: {
+          framework: "nextjs",
+          buildCommand: null,
+          installCommand: null,
+          outputDirectory: null,
+          devCommand: null,
+        },
+        target: "production",
+      }),
+    },
+    creds.token,
+  );
+
+  if (!created.ok) return { ok: false, reason: created.reason };
+  if (created.status >= 400) return { ok: false, reason: refusal(created.body, created.status) };
+
+  const deployment = readDeployment(created.body);
+  if (!deployment) {
+    return { ok: false, reason: "Vercel accepted the upload but did not say where it went" };
+  }
+
+  return {
+    ok: true,
+    deploymentId: deployment.id,
+    url: `https://${deployment.url}`,
+    inspect: deployment.inspect,
+  };
+}
+
+export type DeploymentState =
+  | { state: "queued" }
+  | { state: "ready"; url: string }
+  | { state: "error" | "cancelled"; reason: string }
+  /* Vercel could not be reached. Distinct from "error" on purpose: a
+     deployment whose STATUS could not be read has not failed, and marking it
+     failed would take down a site that is very likely live. The caller leaves
+     it pending and asks again. */
+  | { state: "unknown"; reason: string };
+
+/**
+ * How a deployment is getting on, asked from anywhere and at any time.
+ *
+ * The other half of the split. Takes an id rather than a closure over a
+ * request, so the thing that started a deployment and the thing that finds out
+ * how it went do not have to be the same process — which is the whole point,
+ * because on this platform the first one is usually gone.
+ */
+export async function deploymentState(id: string): Promise<DeploymentState> {
+  const creds = credentials();
+  if (!creds) return { state: "unknown", reason: "no VERCEL_API_TOKEN" };
+
+  const polled = await call(
+    `/v13/deployments/${encodeURIComponent(id)}${creds.teamQuery}`,
+    {},
+    creds.token,
+  );
+
+  if (!polled.ok) return { state: "unknown", reason: polled.reason };
+  if (polled.status >= 400) return { state: "unknown", reason: refusal(polled.body, polled.status) };
+
+  const deployment = readDeployment(polled.body);
+  if (!deployment) return { state: "unknown", reason: "Vercel answered with no deployment in it" };
+
+  if (deployment.state === "READY") return { state: "ready", url: `https://${deployment.url}` };
+
+  if (deployment.state === "ERROR" || deployment.state === "CANCELED") {
+    const log = await settledLog(id, creds);
+    const what =
+      deployment.state === "CANCELED"
+        ? "the deployment was cancelled"
+        : "Vercel could not finish the deployment";
+    const tail = log ? `${what}:\n${log}` : `${what} — its build reported ${deployment.state}`;
+    return {
+      state: deployment.state === "CANCELED" ? "cancelled" : "error",
+      reason: deployment.inspect ? `${tail}\n\nFull build log: ${deployment.inspect}` : tail,
+    };
+  }
+
+  return { state: "queued" };
+}
+
 /**
  * Uploads a generated project and waits for Vercel to build it.
  *
  * Resolves with the deployment's URL once it is READY, or with a reason. Never
  * throws: see the note at the top of the file about why a failed deployment
  * must not be able to fail the build it came from.
+ *
+ * KEPT FOR CALLERS THAT GENUINELY WAIT — the CLI, a test, anything with no
+ * sixty-second ceiling over it. Everything on a request path should use
+ * startDeployment and let the worker do the waiting.
  */
 export async function deployProject(tree: FileTree, target: DeployTarget): Promise<DeployOutcome> {
   const creds = credentials();
