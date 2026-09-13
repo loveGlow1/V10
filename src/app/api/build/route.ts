@@ -53,7 +53,7 @@ import { extractRequirements } from "@/lib/context/compress";
 import { decompose, describeDecomposition } from "@/lib/context/decompose";
 import { describeExpansion, expandContext } from "@/lib/context/expand";
 import { describePlan } from "@/lib/context/fit";
-import { fitEdit } from "@/lib/context/requests";
+import { fitBrief, fitEdit } from "@/lib/context/requests";
 import {
   advance,
   currentStage,
@@ -91,6 +91,7 @@ import {
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
+import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
@@ -1873,6 +1874,27 @@ async function handle(
            above. */
         [
           editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* ── Somewhere to look, when the message carries a picture ───────
+           *
+           * The hardest request this builder gets is "use this screenshot and
+           * change that bit", and the reason has never been the model. It is
+           * handed a photograph of a RENDERED page and, separately, the page's
+           * SOURCE, and asked to do the visual-to-source mapping with nothing
+           * in between.
+           *
+           * Worse, the two do not match: stashImages has replaced every
+           * photograph with `stashed-image-N` so the document fits, so the
+           * most distinctive thing in the screenshot is exactly what is
+           * missing from the text being matched against it.
+           *
+           * This is the map — the sections in order, what each is called, its
+           * id, and the pictures in it. A screenshot plus this is a lookup
+           * rather than a guess. Only when a picture actually arrived: it is
+           * several hundred tokens and it answers a question nobody without
+           * one is asking. */
+          files.blocks.some((block) => block.type === "image")
+            ? landmarkBrief(leanHtml ?? currentHtml)
+            : "",
           /* What the attached pictures are FOR, when any came with the message.
              The system prompt already says a screenshot is direction and a
              photograph is content; this is the composition half — that a
@@ -2849,7 +2871,10 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
-    const systemPrompt = composeBuildPrompt(kind.kind, brief.text, {
+    /* Held as a value rather than inlined, because the brief may have to be
+       restructured below and the prompt recomposed around it — and two
+       literals are two chances for the second one to differ from the first. */
+    const promptContext = {
       projectName: project.name,
       attachmentText: attachedText,
       imageCount: imageUrls.length,
@@ -2874,12 +2899,61 @@ async function handle(
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
       stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
+    };
+
+    const systemPrompt = composeBuildPrompt(kind.kind, brief.text, promptContext);
+
+    /* ── Does all of this fit? ───────────────────────────────────────────
+     *
+     * Measured here, against the window of the model that is about to be
+     * called, and measured on the COMPOSED prompt rather than on the brief.
+     *
+     * Nothing measured anything before. The only limit on this path was
+     * MAX_PROMPT — 600,000 CHARACTERS, a number that corresponds to no model's
+     * context window — and everything else went in uncounted: the base rules,
+     * the blueprint, the architecture and design briefs, the asset manifest,
+     * the locale block and the reference spec. Against Haiku's 200k that is a
+     * hard API error; against a million-token window it silently degrades.
+     *
+     * fitBrief has existed this whole time and had no caller. It restructures
+     * rather than refuses — every sentence that constrains the outcome is
+     * lifted out and carried word for word as a numbered requirement, and only
+     * the prose between them is condensed. A brief cut at a word count loses
+     * its acceptance criteria, because that is where people put them.
+     *
+     * The prompt is composed a second time when that happens. Composing it
+     * against the original brief and then sending a different one would send a
+     * model a specification and a contradiction of it. */
+    const fitted = fitBrief({
+      brief: brief.text,
+      modelId: model.id,
+      systemTokens: estimateTokens(systemPrompt),
+      images: imageUrls.length,
     });
+
+    if (fitted.restructured) {
+      // eslint-disable-next-line no-console
+      console.log(describePlan(fitted.plan));
+      steps.mark(
+        "fit",
+        "Restructured your brief to fit",
+        `${fitted.requirements.length} requirements carried word for word, the prose around them condensed`,
+      );
+      await deliver(
+        `That brief is longer than ${model.name} can read in one go, so I have kept every requirement in it exactly as you wrote them and shortened the prose around them. Nothing that specifies the outcome was dropped.`,
+        { key: "brief-restructured" },
+      );
+    }
+
+    const buildBrief = fitted.brief;
+    const buildPrompt = fitted.restructured
+      ? composeBuildPrompt(kind.kind, buildBrief, promptContext)
+      : systemPrompt;
 
     const request = generationRequest(
       model,
-      systemPrompt,
-      userMessage(project.name, brief.text, attachedText, imageUrls.length),
+      buildPrompt,
+      userMessage(project.name, buildBrief, attachedText, imageUrls.length),
       imageUrls.map((url) => ({ url })),
       /* The same condition that decided treeInstructions above, because it is
          the same fact: this build's answer is a file tree rather than a
@@ -2890,7 +2964,7 @@ async function handle(
     );
 
     result = await startBuild({
-      prompt: brief.text,
+      prompt: buildBrief,
       projectName: project.name,
       userId: user.id,
       projectId: project.id,
@@ -2938,7 +3012,7 @@ async function handle(
       generationHeaders: request.headers,
       generationBody: request.body,
       responseShape: request.shape,
-      systemPrompt,
+      systemPrompt: buildPrompt,
     });
   } catch (error) {
     if (error instanceof BuilderError) {

@@ -342,6 +342,63 @@ try {
   const built = requests.fitBrief({ brief: huge, modelId: "claude-haiku-4-5" });
   has(built.requirements.length > 0, "a build brief keeps its requirements", `${built.requirements.length}`);
 
+  /* ── And the build path actually calls it ───────────────────────────────
+   *
+   * fitBrief has been correct and uncalled. The only limit on the build path
+   * was MAX_PROMPT — 600,000 CHARACTERS, a number that corresponds to no
+   * model's context window — and everything else went in uncounted: the base
+   * rules, the blueprint, the architecture and design briefs, the asset
+   * manifest, the locale block, the reference spec.
+   *
+   * Against Haiku's 200k that is a hard API error. Against a million-token
+   * window it degrades silently, which is worse. */
+  const SPEC =
+    "Build a booking system for a dental practice. It must support three practitioners. " +
+    "Appointments should never overlap. The confirmation email has to include the practitioner's name. " +
+    "Some descriptive prose about the practice and its history. ".repeat(12000);
+
+  const roomy = requests.fitBrief({ brief: "a landing page for a bakery", modelId: "claude-sonnet-5" });
+  has(!roomy.restructured, "an ordinary brief is passed through untouched");
+  has(roomy.brief === "a landing page for a bakery", "byte for byte");
+
+  const squeezed = requests.fitBrief({
+    brief: SPEC,
+    modelId: "claude-haiku-4-5",
+    systemTokens: 8000,
+  });
+  has(squeezed.restructured, "a brief past the window is restructured rather than refused");
+  has(
+    budget.estimateTokens(squeezed.brief) < budget.estimateTokens(SPEC),
+    "and comes out smaller than it went in",
+    `${budget.estimateTokens(SPEC)} -> ${budget.estimateTokens(squeezed.brief)}`,
+  );
+
+  /* THE ONE THAT MATTERS. A brief cut at a word count loses its acceptance
+     criteria, because that is exactly where people put them. */
+  has(
+    /never overlap/i.test(squeezed.brief),
+    "every constraint survives word for word",
+    "a requirement dropped in fitting is a build that does the wrong thing and passes every check",
+  );
+  has(/three practitioners/i.test(squeezed.brief), "including the ones stated as numbers");
+
+  /* The system prompt is part of what has to fit. A fit measured on the brief
+     alone would pass a prompt that does not. */
+  const ignoringSystem = requests.fitBrief({ brief: SPEC, modelId: "claude-haiku-4-5", systemTokens: 0 });
+  has(
+    budget.estimateTokens(squeezed.brief) <= budget.estimateTokens(ignoringSystem.brief),
+    "a larger system prompt leaves less room for the brief",
+    "the composed prompt is what is sent, so it is what must be measured",
+  );
+
+  const buildRoute = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+  has(/fitBrief\(/.test(buildRoute), "the build route calls it at all");
+  has(
+    /prompt: buildBrief/.test(buildRoute) && /systemPrompt: buildPrompt/.test(buildRoute),
+    "and sends the fitted brief with the prompt composed around it",
+    "composing against the original and sending a different one hands the model a spec and a contradiction of it",
+  );
+
   /* ── The index: what a project contains ────────────────────────────────
    *
    * Retrieval is only as good as what was written down. These are the entries
