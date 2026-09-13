@@ -12,7 +12,7 @@ import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName, withTokens } from "@/lib/builder/design";
-import { allIssues, autofix, describeQa, evidenceFrom, runQa } from "@/lib/builder/qa";
+import { allIssues, autofix, describeQa, evidenceFrom, runQaLoop } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -651,6 +651,12 @@ export async function POST(request: Request) {
    * Only documents. A project of .tsx files carries the same defects in
    * Tailwind classes, where a regex is a liability; those go to the gates and
    * the edit path like anything else. See src/lib/builder/qa/autofix.ts. */
+  /* The mechanical repairs used to run HERE, before the gates, which is why
+     nothing ever repaired what the gates found. They run inside the inspection
+     loop below now — see runQaLoop — so the order is inspect, repair,
+     re-inspect, which is what the architecture asked for. `repaired` is kept
+     as the record of the FIRST pass, because qa_fixes on the build row is
+     about what the document arrived needing. */
   const repaired = autofix(html);
   html = repaired.html;
 
@@ -703,7 +709,40 @@ export async function POST(request: Request) {
    * for and can fix in one edit. The result is recorded and reported, which is
    * what makes it actionable — a gate that deletes the thing it was judging is
    * a gate people disable. */
-  const qa = await runQa({
+  /* ── Inspect, then repair, then inspect again ──────────────────────────
+   *
+   * This ran backwards. autofix repaired the document above and THEN the gates
+   * looked at it, so anything the gates found was never repaired by anything —
+   * the verdict went into a chat message asking the customer to ask for a fix.
+   * `inspect → repair` was the order the architecture called for and the code
+   * had it the other way round.
+   *
+   * runQaLoop is the loop that was written for this and had no production
+   * caller: inspect, repair what is repairable, inspect again, capped at three
+   * rounds, and never return a passing verdict it did not measure.
+   *
+   * THE REPAIRER HERE IS MECHANICAL, and that is the whole reason this can run
+   * on a request at all. autofix is regexes over markup — a missing viewport
+   * tag, `width: 1200px`, `100vw` — each with exactly one correct fix and no
+   * opinion required. It costs milliseconds and no model call, so the loop
+   * finishes well inside the ceiling.
+   *
+   * A MODEL repair, for the defects that need judgement, is the same loop with
+   * a different callback and it still waits on the worker: the edit path is a
+   * model call of its own and there is no room for three of them here. That is
+   * a missing repairer rather than a missing loop, which is a much smaller gap
+   * than the one this closes. See docs/JOBS.md.
+   *
+   * Neither half blocks the save. The build is finished and paid for; refusing
+   * to store it over a missing alt attribute would throw away work somebody
+   * waited for and can fix in one edit. */
+  const jobForQa = await liveJob(supabase, project.id as string);
+  if (jobForQa) {
+    await advanceJob(supabase, jobForQa.id, { to: "assembling" });
+    await advanceJob(supabase, jobForQa.id, { to: "validating" });
+  }
+
+  const inspection = await runQaLoop({
     html,
     tree,
     manifest: sentArchitecture ? summaryArchitecture : null,
@@ -713,7 +752,38 @@ export async function POST(request: Request) {
        and nothing else, because everything else on the page came from a model
        and is exactly what is being judged. */
     evidence: await evidenceForProject(supabase, project.id, str(body.prompt)),
+    /* Documents only. A project of .tsx carries the same defects in Tailwind
+       classes, where a regex is a liability — those go to the gates and the
+       edit path like anything else. */
+    repair:
+      tree.length > 0
+        ? undefined
+        : async (candidate) => {
+            const fixed = autofix(candidate);
+            /* Null means "nothing left to do", which is what stops the loop.
+               Returning the same document would spend two more rounds
+               reaching the same verdict. */
+            return fixed.applied.length > 0 ? fixed.html : null;
+          },
+    onPass: (result, attempt) => {
+      if (attempt > 0) {
+        // eslint-disable-next-line no-console
+        console.info(`save: repair round ${attempt} left the page ${result.status}`);
+      }
+    },
   });
+
+  /* The repaired document is the one that gets stored. A loop whose output was
+     discarded would be an expensive way to produce a report. */
+  html = inspection.html;
+  const qa = inspection.result;
+
+  if (jobForQa && inspection.attempted.length > 0) {
+    await advanceJob(supabase, jobForQa.id, {
+      to: "repairing",
+      detail: { repaired: [...new Set(inspection.attempted.map((fix) => fix.rule))] },
+    });
+  }
 
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
 
@@ -1066,9 +1136,10 @@ export async function POST(request: Request) {
    * have no outgoing transitions, so a late "Failed" from anywhere else is
    * refused rather than overwriting a build somebody has already been told
    * about. */
+  /* Finished. `assembling` and `validating` were entered up at the inspection,
+     which is where they actually happen — this is only the last move. */
   const liveBuildJob = await liveJob(supabase, project.id as string);
   if (liveBuildJob) {
-    await advanceJob(supabase, liveBuildJob.id, { to: "assembling" });
     await advanceJob(
       supabase,
       liveBuildJob.id,
