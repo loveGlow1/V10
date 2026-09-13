@@ -95,24 +95,87 @@ const SIMPLE_EDIT_WORDS = 300;
  * This is the case that reads as simple and is not. */
 const SIMPLE_EDIT_PAGE_CHARS = 400_000;
 
+/* ── What the ask is, as opposed to how long it is ─────────────────────────
+ *
+ * The two size signals below are necessary and they are not sufficient, and
+ * the gap between those is measurable: of ten worked examples in the routing
+ * brief, SIX routed to the cheap model against its own judgement. Every one of
+ * the six was a short sentence asking for something structural.
+ *
+ *     "Add authentication, database, roles and payments."          6 words
+ *     "Convert this app into a multi-tenant SaaS with roles."      10 words
+ *     "Redesign the entire landing page."                          5 words
+ *
+ * A word counter cannot tell those from "change the button text", and the page
+ * they run against is often small, so both existing signals stay quiet. The
+ * work is enormous and every signal reads zero.
+ *
+ * ── Why a verb AND an object ──────────────────────────────────────────────
+ *
+ * Matching the nouns alone would escalate "change the login button text",
+ * which is a text edit that happens to contain the word login — and paying
+ * for the strong model on those is how a routing rule stops being worth
+ * having. So infrastructure counts only when something is being DONE to it.
+ * "Add authentication" escalates; "make the sign-in button bigger" does not.
+ *
+ * Scope words need no verb, because they are already the verb's object: an
+ * ask naming the entire page, every page, or a rebuild is a many-file change
+ * whatever else it says.
+ *
+ * ── Which way to be wrong ─────────────────────────────────────────────────
+ *
+ * Towards the strong model, on the reasoning this function already carried:
+ * routing a big edit to the cheap one does not save the money, it spends it on
+ * an edit that half-lands and a person asking again — and that second ask
+ * retries on the strong model anyway, having already paid for the first. A
+ * false escalation costs one price difference. A false economy costs two calls
+ * and the customer's patience. */
+
+/* Something is being DONE, not merely mentioned. `replace` is here and is
+   safe: it only escalates when its object is infrastructure, so "replace the
+   hero image" stays cheap. */
+const STRUCTURAL_VERB =
+  /\b(add|create|build|implement|set ?up|introduce|wire|hook|integrate|connect|convert|migrate|refactor|restructure|remove|delete|replace|enable|support)\b/i;
+
+/* The things that are expensive to be wrong about: they touch more than one
+   file, they usually touch the database, and a half-landed change to any of
+   them leaves an app that compiles and does not work. */
+const INFRASTRUCTURE =
+  /\b(auth|auths|authentication|authorisation|authorization|sign[- ]?(in|up)|log[- ]?(in|out)|sso|oauth|session|passwords?|user accounts?|accounts? system|database|schemas?|tables?|migrations?|supabase|postgres|sql|payments?|stripe|checkout|billing|subscriptions?|roles?|permissions?|multi[- ]?tenant|tenancy|backend|server|apis?|endpoints?|webhooks?|admin (panel|area|dashboard)|cms)\b/i;
+
+/* Scope that is its own argument. No verb needed — "the entire page" is a
+   many-file change however politely it is phrased. */
+const WHOLESALE =
+  /\b(entire|whole|every (page|section|component)|all (the )?(pages|sections|components)|from scratch|ground up|rebuild|re-?design|overhaul|revamp|rewrite|start over)\b/i;
+
+/* Reconstructing from a reference. An ATTACHED picture already escalates in
+   editPage — see `looking` — but a message that refers to one sent earlier
+   arrives with no attachment and the same amount of work in it. */
+const RECONSTRUCT =
+  /\b(screen ?shots?|mock-?ups?|figma|wireframes?|this design|match (this|the) (design|layout|screenshot))\b/i;
+
 /**
- * Which model makes this change, on the size of the job.
+ * Which model makes this change, on the size AND the shape of the job.
  *
- * A third reason to reach for the strong one, alongside the two editPage
+ * Three reasons to reach for the strong one, alongside the two editPage
  * already had — a picture in the message, and a first attempt that placed
- * nothing. Those two are about what the work IS; this one is about how much of
- * it there is, and it is the only one of the three that can be known before any
- * call is made.
+ * nothing.
  *
- * The bias is deliberate. Routing a large edit to the cheaper model does not
- * save the money; it spends it on an edit that half-lands and a person asking
- * again — and on this path that second ask is a retry that goes to the strong
- * model anyway, having already paid for the first.
+ * SIZE: a long instruction, or a page too big for the small model to hold.
+ * SHAPE: an ask that names structural work, however short the sentence.
+ *
+ * All of them are knowable before any call is made, which is the point: the
+ * alternative is discovering it from a failed edit the customer has paid for.
  */
 export function editModelFor(prompt: string, html: string): string {
   const words = prompt.trim().split(/\s+/).filter(Boolean).length;
   if (words > SIMPLE_EDIT_WORDS) return EDIT_MODEL_STRONG;
   if (html.length > SIMPLE_EDIT_PAGE_CHARS) return EDIT_MODEL_STRONG;
+
+  if (WHOLESALE.test(prompt)) return EDIT_MODEL_STRONG;
+  if (RECONSTRUCT.test(prompt)) return EDIT_MODEL_STRONG;
+  if (STRUCTURAL_VERB.test(prompt) && INFRASTRUCTURE.test(prompt)) return EDIT_MODEL_STRONG;
+
   return EDIT_MODEL;
 }
 
