@@ -11,7 +11,7 @@ import { providerFromEnv } from "@/lib/builder/image-providers";
 import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
-import { systemByName } from "@/lib/builder/design";
+import { systemByName, withTokens } from "@/lib/builder/design";
 import { allIssues, autofix, describeQa, evidenceFrom, runQa } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
@@ -646,6 +646,29 @@ export async function POST(request: Request) {
    * the edit path like anything else. See src/lib/builder/qa/autofix.ts. */
   const repaired = autofix(html);
   html = repaired.html;
+
+  /* ── The design system, made real for a single page ────────────────────
+   *
+   * tokensCss had one caller — the scaffold, writing app/tokens.css into a
+   * Next.js tree. So a PROJECT got a design system it could not deviate from
+   * and a PAGE, which is most of what this builder makes, got a paragraph in
+   * the prompt describing one. designGate could only check the page against
+   * values the model had chosen to honour.
+   *
+   * The same tokens, in both shapes. Inserted at the top of <head>, so a page
+   * that defined its own value later still wins — what this guarantees is that
+   * every token NAME resolves, not that the platform overrules the design. */
+  if (tree.length === 0) {
+    const design = systemByName(body.designSystem);
+    if (design) {
+      const withTokensApplied = withTokens(html, design);
+      if (withTokensApplied !== html) {
+        html = withTokensApplied;
+        // eslint-disable-next-line no-console
+        console.info(`save: compiled the ${design.name} tokens into the page`);
+      }
+    }
+  }
 
   if (repaired.applied.length > 0) {
     // eslint-disable-next-line no-console
