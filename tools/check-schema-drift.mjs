@@ -102,5 +102,47 @@ for (const table of ["build_jobs", "build_steps", "project_deployments"]) {
   has(used.has(table), `${table} is actually used, so declaring it is not decoration`);
 }
 
+/* ── What the audit found once it went the other way ──────────────────────
+ *
+ * The checks above ask "is everything the code uses written down". Auditing
+ * the live database against this file asked the reverse — "is everything the
+ * database does written down" — and turned up four things that were not, all
+ * of them real and two of them load-bearing:
+ *
+ *   project_assets            a table in production since the asset pipeline
+ *                             shipped, absent from the file entirely
+ *   its read policy           the rule deciding who can see an asset row
+ *   rls_auto_enable           an event trigger that switches RLS on for every
+ *                             new table in public — the backstop that makes
+ *                             "every table has RLS" true even when a runtime-
+ *                             created schema forgets
+ *   sweep_crypto_payments     a pg_cron function that makes an OUTBOUND HTTP
+ *                             call from inside the database
+ *
+ * None could be found by reading src/, which is why they are pinned by name
+ * here: a file that omits its own security controls is not a description of
+ * the database, and a file nobody can trust is the cover three tables went
+ * missing from production under. */
+console.log("");
+for (const [needle, what] of [
+  ['create table if not exists public.project_assets', "project_assets is declared"],
+  ['create policy "Owners read their project assets"', "and who may read an asset row"],
+  ["create or replace function public.rls_auto_enable", "rls_auto_enable is declared"],
+  ["create event trigger ensure_rls", "and the event trigger that runs it on every new table"],
+  ["create or replace function public.sweep_crypto_payments", "sweep_crypto_payments is declared"],
+  ["create trigger project_files_set_updated_at", "project_files keeps its updated_at trigger"],
+]) {
+  has(schema.includes(needle), what, `missing from supabase/schema.sql: ${needle}`);
+}
+
+/* The sweep reads its bearer token from Vault at call time. The token must
+   never be in this repository, and writing the function down is exactly the
+   moment somebody might paste one in beside it. */
+has(
+  /vault\.decrypted_secrets/.test(schema) && !/Bearer [A-Za-z0-9_.-]{12,}/.test(schema),
+  "and reads its token from Vault rather than carrying one",
+  "a secret has been written into supabase/schema.sql",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

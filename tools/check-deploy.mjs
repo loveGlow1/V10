@@ -23,7 +23,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -270,6 +270,46 @@ const had = process.env.VERCEL_API_TOKEN;
 delete process.env.VERCEL_API_TOKEN;
 has(deploymentsConfigured() === false, "without a token, deployment reports itself unconfigured");
 if (had !== undefined) process.env.VERCEL_API_TOKEN = had;
+
+/* ── Whose address it is ───────────────────────────────────────────────────
+ *
+ * A deployment belongs to the PROJECT. It is a site that is up, and it stays
+ * up whatever happens in the workspace afterwards.
+ *
+ * The workspace asked the newest BUILD row for it, and took whatever address
+ * was on that row. The newest build is very often not the one that deployed —
+ * an edit that changed source without redeploying, a build that failed, a
+ * stage of a longer plan — and every one of those rows carries a null. So a
+ * project that was live went dark in its own workspace because somebody sent
+ * it a message: the preview fell back to the stored document, which for a
+ * Next.js project is the SUMMARY, and the customer was shown a receipt where
+ * their application had been, with nothing saying the site was still up.
+ *
+ * Read from source. The query cannot be run here without a database, but the
+ * shape of it is the defect, and the shape is visible. */
+const deployRoute = readFileSync(
+  join(root, "src/app/api/projects/[id]/deploy/route.ts"),
+  "utf8",
+);
+
+has(
+  /\.not\(\s*"deployment_url"\s*,\s*"is"\s*,\s*null\s*\)/.test(deployRoute),
+  "the live address is the newest build that HAS one, not the newest build",
+  "without the filter, any build after a deployment blanks the address of a project that is still up",
+);
+
+has(
+  /const url = live\?\.deployment_url/.test(deployRoute),
+  "and that is what the workspace is handed",
+);
+
+/* The failure is still the LAST attempt's, not the last deployment's — those
+   are different questions and reading one for the other would report a reason
+   from before the deployment that succeeded. */
+has(
+  /const failure = url \? null : \(latest\?\.deployment_error/.test(deployRoute),
+  "a reason is only offered when there is no live address to offer instead",
+);
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
