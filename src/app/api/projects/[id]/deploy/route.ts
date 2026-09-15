@@ -93,16 +93,49 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
      that succeeded an hour ago is still live, and the preview should be showing
      it the moment the workspace opens rather than the receipt it replaced. */
   const service = createSupabaseServiceClient();
+
+  /* ── Asked of the project, not of its latest build ─────────────────────
+   *
+   * This used to read the newest build row and take whatever address was on
+   * it. The intent above is right and the query was wrong, because a
+   * deployment belongs to the PROJECT: it is a site that is up. The newest
+   * build is very often not the one that put it there — an edit that changed
+   * source without redeploying, a build that failed, a stage of a longer plan
+   * — and every one of those rows carries a null here.
+   *
+   * So a project that was live went dark in its own workspace because
+   * somebody sent it a message. The preview fell back to the stored document,
+   * which for a Next.js project is the SUMMARY — the routes, the tables, the
+   * files — and the customer was shown a receipt where their application had
+   * been, with nothing anywhere saying the site was still up. Nova Estates is
+   * exactly this: deployed at 15:50, and two builds later its own workspace
+   * could not find it.
+   *
+   * The newest build that actually HAS an address is the answer. */
+  const { data: live } = service
+    ? await service
+        .from("project_builds")
+        .select("deployment_url")
+        .eq("project_id", owned.projectId)
+        .not("deployment_url", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ deployment_url: string | null }>()
+    : { data: null };
+
+  /* The last attempt's reason, read separately and only consulted when there
+     is no live address at all — see `failure` below. */
   const { data: latest } = service
     ? await service
         .from("project_builds")
-        .select("deployment_url, deployment_error")
+        .select("deployment_error")
         .eq("project_id", owned.projectId)
         .order("created_at", { ascending: false })
         .limit(1)
-        .maybeSingle<{ deployment_url: string | null; deployment_error: string | null }>()
+        .maybeSingle<{ deployment_error: string | null }>()
     : { data: null };
-  const url = latest?.deployment_url ?? null;
+
+  const url = live?.deployment_url ?? null;
   /* Why the last attempt did not produce one, carried back so the workspace
      can say it on load rather than only in the session where it happened.
      Without this the diagnosis — Deployment Protection, a type error, the tail
