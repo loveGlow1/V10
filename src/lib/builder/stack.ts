@@ -212,6 +212,31 @@ function firstMatch(patterns: RegExp[], text: string): string | null {
  * page, which is the safe half of a wrong answer: a page that should have been
  * an app can be rebuilt, and it previews in the meantime.
  */
+/**
+ * The words somebody used to say they want one page, or null if they did not.
+ *
+ * Exported because architecture.ts needs the same answer and must not have its
+ * own copy of it. That file used to hold a deliberately narrower list, on the
+ * reasoning that "one-pager" is a statement about the STACK rather than about
+ * the layers — and that reasoning is wrong, which cost a real customer a real
+ * build.
+ *
+ * "Build a simple one page site for my barber shop" contains the word "shop",
+ * so kinds.ts read it as a storefront; the ecommerce defaults switched on a
+ * database, accounts, an admin area and a storage bucket; that made it a
+ * project rather than a page; and the promotion overruled the answer THIS file
+ * had already given with certainty — "one page site" — because architecture.ts
+ * could not see the phrase. A barber who asked for one page was quoted a
+ * back office.
+ *
+ * A one-page site cannot have an admin area. Saying "one page" is therefore a
+ * statement about the layers as well as the stack, and both files now read it
+ * from here.
+ */
+export function asksForPage(brief: string): string | null {
+  return firstMatch(ASKS_FOR_PAGE, brief ?? "");
+}
+
 export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
   const text = brief ?? "";
   const why: string[] = [];
@@ -273,7 +298,7 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
      the opposite of it — a negation this is not going to parse, and does not
      have to: naming the thing you want beats a phrase that only looks like
      naming the thing you don't. */
-  const pagePhrase = askedPhrase ? null : firstMatch(ASKS_FOR_PAGE, text);
+  const pagePhrase = askedPhrase ? null : asksForPage(text);
   if (pagePhrase && !auth) {
     return {
       stack: "standalone-html",

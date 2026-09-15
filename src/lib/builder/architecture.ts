@@ -54,7 +54,7 @@
  */
 
 import type { BuildKind } from "./kinds";
-import type { StackNeeds } from "./stack";
+import { asksForPage, type StackNeeds } from "./stack";
 
 /* The layers, in the order they are built and the order they are read. Frontend
    is first because everything has one; payments is last because almost nothing
@@ -267,6 +267,41 @@ export function decideArchitecture(
     return {
       manifest: frontendOnly(kind),
       why: [`"${refused}" — the front end is what was asked for`],
+      needsProject: false,
+      promoted: false,
+      certain: true,
+    };
+  }
+
+  /* ── And somebody saying, in as many words, that they want ONE PAGE ─────
+   *
+   * Held at the same height as the refusal above, because it is the same
+   * statement said differently: a single page cannot have an admin area, a
+   * database or a sign-in, so asking for one page IS declining all of them.
+   *
+   * This file used to reason otherwise — that "one-pager" was a statement
+   * about the stack and not about the layers — and the cost of that was:
+   *
+   *     "Build a simple one page site for my barber shop"
+   *
+   * The word "shop" scored as commerce in kinds.ts, so the kind came back
+   * `ecommerce`; the ecommerce defaults below switched on backend, database,
+   * authentication, admin and storage; needsProject became true; and because
+   * stack.ts had (correctly, and with certainty) answered "standalone-html",
+   * `promoted` came back true and the build route raised it to a Next.js
+   * project. A barber who asked for one page got a storefront with a users
+   * table — the exact failure the DEFAULTS comment at the top of this file
+   * says must never happen, arriving through the one door it did not watch.
+   *
+   * Read from stack.ts rather than re-listed here, so the two files cannot
+   * drift apart again. Auth is the one thing that overrules it, for the reason
+   * stack.ts gives: "a one-page site with a members login" is a contradiction,
+   * and the login is the half that cannot be faked. */
+  const wantsPage = asksForPage(text);
+  if (wantsPage && !needs.auth) {
+    return {
+      manifest: frontendOnly(kind),
+      why: [`"${wantsPage}" — one page is what was asked for, so there is no back half to build`],
       needsProject: false,
       promoted: false,
       certain: true,

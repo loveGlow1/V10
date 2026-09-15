@@ -144,6 +144,47 @@ const CASES = [
     off: ["backend", "database", "authentication", "admin", "storage", "payments"],
   },
   {
+    /* ── The barber ───────────────────────────────────────────────────────
+     *
+     * A real build, and the reason asksForPage is read here at all. The word
+     * "shop" in "barber shop" scored as commerce, so the kind arrived as
+     * `ecommerce` — and the kind's defaults then switched on a database,
+     * accounts, an admin area and a storage bucket for somebody who had asked,
+     * in as many words, for ONE PAGE.
+     *
+     * The kind is deliberately still `ecommerce` in this case: it is passed in
+     * rather than classified, so this tests the layer that has to hold even
+     * when the classifier upstream has already got it wrong. A single page
+     * cannot have an admin area, whatever kind the brief was filed under. */
+    brief: "Build a simple one page site for my barber shop",
+    kind: "ecommerce",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+    promoted: false,
+  },
+  {
+    /* The same statement in the other spellings people use for it. */
+    brief: "a one-pager for my coffee shop",
+    kind: "ecommerce",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    brief: "just a page for my flower shop",
+    kind: "ecommerce",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    /* And the one thing that still overrules it, for the reason stack.ts
+       gives: a one-page site with a members login is a contradiction, and the
+       login is the half that cannot be faked. */
+    brief: "a single page site for my gym where members log in to see their bookings",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: [],
+  },
+  {
     brief: "a wordpress-style blog where I can write and publish posts",
     kind: "blog",
     on: ["backend", "database", "authentication", "admin", "storage"],

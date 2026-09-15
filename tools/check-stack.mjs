@@ -65,6 +65,14 @@ has(login.backend === true, "and that accounts imply somewhere to keep them");
 
 page("a single page html site for my barber shop");
 
+/* The same sentence without the word "html", which is how people actually
+   write it — and the one that reached production as a Next.js project with an
+   admin area, because architecture.ts could not see the phrase this file reads.
+   Both files read it from asksForPage now. */
+page("Build a simple one page site for my barber shop");
+page("a one-pager for my coffee shop");
+page("just a page for my flower shop");
+
 // ── Signing in, in the words people use ───────────────────────────────────
 
 for (const brief of [
