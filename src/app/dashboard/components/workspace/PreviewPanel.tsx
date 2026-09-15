@@ -108,6 +108,15 @@ export default function PreviewPanel({
    * The frame must show the newest SOURCE in that case, not the older site.
    * See the note on `current` in /api/projects/[id]/deploy. */
   const [liveIsCurrent, setLiveIsCurrent] = useState(true);
+  /* Whether the live site can be displayed in this pane at all.
+   *
+   * Up and framable are different questions. A deployment behind Vercel's
+   * Deployment Protection opens perfectly in a tab — the team's cookie goes
+   * with it — and answers 401 in a cross-site frame, where it does not. The
+   * browser's only feedback is a blank rectangle. Asked of the server, which
+   * can go and look. See lib/publish/framable.ts. */
+  const [liveViewable, setLiveViewable] = useState(true);
+  const [liveBlockedReason, setLiveBlockedReason] = useState<string | null>(null);
   /* The address exists and the site behind it does not, yet.
    *
    * Vercel answers as soon as it has ACCEPTED the upload; installing and
@@ -156,6 +165,8 @@ export default function PreviewPanel({
     setHostingReady(true);
     setDeployed(null);
     setLiveIsCurrent(true);
+    setLiveViewable(true);
+    setLiveBlockedReason(null);
     setBuilding(false);
     setDeployError(null);
     setDiagnosis(null);
@@ -169,6 +180,9 @@ export default function PreviewPanel({
         url?: string | null;
         /* Whether that address is serving the newest build. */
         current?: boolean;
+        /* Whether it can be shown in this pane, and why not when it cannot. */
+        viewable?: boolean;
+        viewableReason?: string | null;
         /* Why the last attempt produced no address. Distinct from `reason`,
            which is about this DEPLOYMENT's configuration rather than about
            this project's last build. */
@@ -185,6 +199,8 @@ export default function PreviewPanel({
            anybody presses anything. */
         if (body.url) setDeployed(body.url);
         setLiveIsCurrent(body.current !== false);
+        setLiveViewable(body.viewable !== false);
+        setLiveBlockedReason(body.viewableReason ?? null);
         /* Carried before anything is pressed. If hosting is not configured, the
            account that can configure it should be able to read that from the
            button rather than from a failed attempt. */
@@ -663,6 +679,42 @@ export default function PreviewPanel({
            * the thing on screen is what visitors get. So both facts are on
            * screen: this is your project, that is your site, and Publish is
            * what closes the gap. */}
+          {/* ── The live site is up, and cannot be shown here ─────────────
+           *
+           * The one that reads as a broken product when it is not. The address
+           * opens cleanly in a tab and refuses to be framed, so the pane used
+           * to hold a blank white rectangle with nothing anywhere saying why —
+           * and the customer's reasonable conclusion was that the app this
+           * platform built them is broken. It is not: it is running, and the
+           * browser is declining to display somebody else's page inside ours.
+           *
+           * The frame below now shows the project rendered from its own source
+           * instead, so there is something real to look at either way. This
+           * says what happened and gives them the link, because opening it in
+           * a tab is the one thing that definitely works. */}
+          {deployed && !building && !liveViewable ? (
+            <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
+              <p className="text-[12px] font-medium text-ink">Your site is live, but cannot be shown here</p>
+              <p className="mt-1 break-words text-[12px] leading-relaxed text-muted">
+                {liveBlockedReason ??
+                  "The site refuses to be displayed inside another page, which is a setting on the host rather than a problem with your project."}
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                It opens normally in its own tab, and the preview below is your project rendered
+                from its own files.
+              </p>
+              <a
+                href={deployed}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
+              >
+                Open it in a tab
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </div>
+          ) : null}
+
           {deployed && !building && !liveIsCurrent ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="text-[12px] font-medium text-ink">Your live site is behind this preview</p>
@@ -727,7 +779,7 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {deployed && !building && liveIsCurrent ? (
+          {deployed && !building && liveIsCurrent && liveViewable ? (
             <iframe
               key={`${deployed}#${reloads}`}
               src={deployed}

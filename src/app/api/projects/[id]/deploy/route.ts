@@ -31,6 +31,7 @@ import { NextResponse } from "next/server";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
+import { canBeFramed } from "@/lib/publish/framable";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
@@ -73,7 +74,7 @@ async function callerEmail(): Promise<string | null> {
  * not shown a control whose only possible answer is a refusal. This is a
  * courtesy: POST re-checks everything and is the actual gate.
  */
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const owned = await ownedProject(id);
   if ("error" in owned) return owned.error;
@@ -160,6 +161,26 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
    * is still handed over either way: the site is still up, it is still theirs,
    * and it is still worth linking to. */
   const current = Boolean(live?.id && latest?.id && live.id === latest.id);
+
+  /* ── And whether the workspace can actually SHOW that address ───────────
+   *
+   * "The site is up" and "the site can be put in an iframe" are different
+   * questions, and the pane was only asking the first. A deployment behind
+   * Vercel's Deployment Protection opens perfectly in a tab — the team cookie
+   * goes with it — and answers 401 in a cross-site frame, where that cookie is
+   * not sent. The browser's only feedback is a blank rectangle, and nothing on
+   * the server ever hears about it.
+   *
+   * So the pane asks first, and falls back to rendering the project from
+   * source when the answer is no. The in-builder renderer needs nothing from
+   * Vercel, so the customer sees their project either way; the difference is
+   * whether they are also told why the live site is not showing here.
+   *
+   * Only when there IS an address, and generous by default — see
+   * lib/publish/framable.ts. */
+  const framable = url ? await canBeFramed(url, new URL(request.url).origin) : { ok: true as const };
+  const viewable = framable.ok;
+  const viewableReason = framable.ok ? null : framable.reason;
   /* Why the last attempt did not produce one, carried back so the workspace
      can say it on load rather than only in the session where it happened.
      Without this the diagnosis — Deployment Protection, a type error, the tail
@@ -179,7 +200,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, current, failure, diagnosis, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, current, viewable, viewableReason, failure, diagnosis, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
@@ -187,6 +208,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       ready: false,
       url,
       current,
+      viewable,
+      viewableReason,
       failure,
       diagnosis,
       reason:
@@ -194,7 +217,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, current, failure, diagnosis, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, current, viewable, viewableReason, failure, diagnosis, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
