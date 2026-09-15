@@ -27,11 +27,13 @@ import {
 } from "@/lib/builder/attachments";
 import { readPage, regressions } from "@/lib/builder/brain";
 import {
+  advancesStage,
   carryBrief,
   conversational,
   countWords,
   describesNothing,
   isContinuation,
+  isWholeRebuild,
   priorTurns,
 } from "@/lib/builder/brief";
 import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
@@ -641,7 +643,17 @@ async function handle(
    * classifier reads the word "continue" and has no idea a plan exists, and the
    * model routing below sizes the work from the instruction — a stage is a
    * paragraph, not a word, and it belongs on the model that can hold it. */
-  const stageAsk = activePlan && isContinuation(prompt) ? currentStage(activePlan) : null;
+  /* advancesStage, not isContinuation, and the difference is a real failure.
+   *
+     isContinuation answers "does this message describe anything new" — and it
+     counts the whole restart family, rerun and rebuild included, because for
+     carrying a brief forward those ARE continuations. For advancing a plan they
+     are the opposite: "continue" means go on to stage two, "rebuild it" means
+     do stage one again. Asking one predicate both questions sent somebody who
+     typed "Rebuild it" into stage two of seven, applied as an edit, which
+     over-closed a <section> — so they were told their change had broken the
+     layout when they had not asked for a change. See brief.ts. */
+  const stageAsk = activePlan && advancesStage(prompt) ? currentStage(activePlan) : null;
 
   /* What the model is actually asked for on a staged turn: the stage, what
      already exists, and the brief it is all part of. The person's own message
@@ -1132,6 +1144,42 @@ async function handle(
       },
       project: null,
     });
+  }
+
+  /* ── "Rebuild it", which is a question rather than an instruction ────────
+   *
+   * It names no target, and every way of guessing one has been wrong. Read as
+   * a continuation it advanced a seven-stage plan and applied stage two to the
+   * page as an edit. Read as an edit it produced a patch against a page nobody
+   * had asked to change. Both cost a charge and neither was what the word
+   * means.
+   *
+   * So it is answered rather than acted on, and answered from what this
+   * project ACTUALLY has: the stages it is partway through, when there is a
+   * plan, otherwise its own areas. Deterministic and free — no model runs, and
+   * nothing is charged, because asking somebody what they meant is not work
+   * they should pay for.
+   *
+   * A message that names a target — "rebuild the dashboard", "rebuild
+   * everything" — is not this. It is an instruction, and it goes on to be
+   * handled as one. */
+  if (isWholeRebuild(prompt)) {
+    const parts = activePlan
+      ? activePlan.steps.map((step, index) => {
+          const done = activePlan.completed.includes(step.order ?? index + 1);
+          return `- ${step.title}${done ? " (built)" : " (not built yet)"}`;
+        })
+      : [];
+
+    const said = parts.length > 0
+      ? `Which part would you like rebuilt? This project is being built in ${parts.length} stages:\n\n${parts.join("\n")}\n\nName one of those and I'll rebuild just that, or say "rebuild everything" to start the whole project again from your original brief. "Continue" builds the next stage instead of repeating one.`
+      : `Which part would you like rebuilt? Name the page or the section — the dashboard, the listings, the sign-in — and I'll rebuild that and leave the rest alone. Say "rebuild everything" if you want the whole project generated again from your original brief.`;
+
+    const stored = await deliver(said, { key: "rebuild-target" });
+    return NextResponse.json(
+      { error: null, intent: "clarify", code: "rebuild_needs_target", stored },
+      { status: 200 },
+    );
   }
 
   // ── CLARIFY ──────────────────────────────────────────────────────────────

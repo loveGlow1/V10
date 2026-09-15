@@ -74,7 +74,7 @@ const rewrite = (dir) => {
   }
 };
 rewrite(out);
-const { carryBrief, conversational, priorTurns, isContinuation, describesNothing, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
+const { carryBrief, conversational, priorTurns, isContinuation, advancesStage, isWholeRebuild, describesNothing, countWords, trimToWords, carriedContextWords, MAX_CONTEXT_WORDS } =
   await import(join(out, "lib/builder/brief.js"));
 const { wantsDownload } = await import(join(out, "lib/builder/download.js"));
 const { resumableFrom, RESUME_WINDOW_MS } = await import(
@@ -613,4 +613,67 @@ console.log(
     CASES.length + THREADS.length + RESUMES.length + CARDS.length + DOWNLOADS.length + WORDS.length + TRIMS.length + NOTHING.length + 6
   } checks · ${wrong} wrong`,
 );
+/* ── Forward is not the same as again ──────────────────────────────────────
+ *
+ * Reported from production, and the message the person got was about the wrong
+ * thing entirely. A project midway through a seven-stage build; they typed
+ * "Rebuild it"; isContinuation said yes — it lists the whole restart family,
+ * because for CARRYING A BRIEF those really are continuations — and the route
+ * read that as "build the next stage". Stage two was applied to the page as an
+ * edit, the edit over-closed a <section>, and the answer was "that change
+ * didn't come out right". They had not asked for a change.
+ *
+ * Two questions, two predicates. isContinuation keeps the generous list; only
+ * the words that mean GO ON may advance a plan. */
+console.log("\nForward, as opposed to again:");
+let stageWrong = 0;
+const stage = (message, want) => {
+  const got = advancesStage(message);
+  if (got === want) console.log(`ok    "${message}" ${want ? "advances" : "does not advance"} a plan`);
+  else { stageWrong++; console.log(`FAIL  "${message}" — expected ${want}, got ${got}`); }
+};
+
+for (const forward of ["continue", "Continue", "carry on", "keep going", "proceed", "go on", "next", "yes", "ok", "resume", "go ahead"]) {
+  stage(forward, true);
+}
+
+/* THE ONES THAT BROKE IT. Every one of these is a continuation as far as
+   carrying a brief is concerned, and none of them means "move forward". */
+for (const again of ["Rebuild it", "rebuild", "rerun it", "redo it", "regenerate", "start over", "try again", "retry", "once more", "one more time", "again", "same again"]) {
+  stage(again, false);
+  if (!isContinuation(again)) {
+    stageWrong++;
+    console.log(`FAIL  "${again}" stopped being a continuation — carrying a brief needs it to stay one`);
+  }
+}
+
+console.log("\nAsking for it again, without saying which part:");
+let rebuildWrong = 0;
+const rebuild = (message, want) => {
+  const got = isWholeRebuild(message);
+  if (got === want) console.log(`ok    "${message}" ${want ? "asks which part" : "is an instruction, not a question"}`);
+  else { rebuildWrong++; console.log(`FAIL  "${message}" — expected ${want}, got ${got}`); }
+};
+
+/* The two that were actually typed, and their neighbours. */
+rebuild("Rebuild it", true);
+rebuild("Rebuild this app", true);
+rebuild("rebuild", true);
+rebuild("rebuild everything", true);
+rebuild("please rebuild the whole thing", true);
+rebuild("regenerate it", true);
+rebuild("start over", true);
+
+/* AND WHERE IT MUST STOP. A rebuild that names its target is an instruction,
+   and stopping to ask which part would be asking a question already answered. */
+rebuild("rebuild the dashboard", false);
+rebuild("rebuild the listings page with bigger cards", false);
+rebuild("redo the hero in green", false);
+rebuild("continue", false);
+rebuild("make the nav darker", false);
+rebuild("build me a bakery site", false);
+
+wrong += stageWrong + rebuildWrong;
+console.log(stageWrong + rebuildWrong === 0 ? "\nrouting: all good" : `\nrouting: ${stageWrong + rebuildWrong} wrong`);
+
 process.exit(wrong === 0 ? 0 : 1);
