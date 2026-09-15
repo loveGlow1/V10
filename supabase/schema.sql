@@ -1360,6 +1360,78 @@ create policy "Owners delete their attachments"
   on storage.objects for delete
   using (bucket_id = 'attachments' and (storage.foldername(name))[1] = auth.uid()::text);
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- project_assets — the pictures a project has, and where each came from.
+--
+-- TRANSCRIBED FROM THE LIVE TABLE rather than written fresh, and that is the
+-- point of the entry. This table has existed in production since the planned-
+-- asset pipeline shipped and was never written down here, so schema.sql — the
+-- file that is supposed to BE the schema — described a database that was
+-- missing one of its tables. Drift in the opposite direction from the usual
+-- one, and just as bad: a file nobody can trust is a file nobody reads, and
+-- three tables went missing from production under exactly that cover.
+--
+-- check:schema-drift compares this file against every table the application
+-- reaches, which is what found it.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+create table if not exists public.project_assets (
+  id                 uuid primary key default gen_random_uuid(),
+  project_id         uuid not null references public.projects (id) on delete cascade,
+
+  -- What it is and where it came from — see AssetType and the provider ids in
+  -- src/lib/builder/assets/. Unconstrained text on the live table, and left
+  -- that way here: adding a CHECK to a column with rows in it is a migration
+  -- to make deliberately, not a side effect of writing the schema down.
+  type               text not null,
+  source             text not null,
+  status             text not null default 'pending',
+
+  url                text not null default '',
+  thumbnail_url      text,
+  width              integer,
+  height             integer,
+  format             text,
+  quality            text not null default 'premium',
+
+  -- What was asked for, and who answered. `prompt` is also the reuse key: the
+  -- same request on the same project answers from here rather than being paid
+  -- for twice.
+  prompt             text,
+  provider           text,
+  alt_text           text,
+  tags               text[],
+
+  -- A derived asset points at the one it came from — a crop, a resize.
+  parent_asset_id    uuid references public.project_assets (id) on delete set null,
+  generation_version integer default 1,
+
+  -- The registry: what this picture is FOR, which is what makes "are this
+  -- project's images its own" a question with an answer. See asset-registry.ts.
+  slot               text,
+  purpose            text,
+  subject            text,
+  style              text,
+  placement          text,
+
+  -- The identity of the PICTURE itself, stable across projects, so two
+  -- customers asking for a bakery are not handed the same photograph.
+  content_key        text,
+
+  created_at         timestamptz not null default now()
+);
+
+create index if not exists project_assets_project_idx
+  on public.project_assets (project_id, created_at desc);
+-- Deliberately NOT unique: it exists to find what has already been used, not
+-- to stop a picture being used twice.
+create index if not exists project_assets_content_key_idx
+  on public.project_assets (content_key) where content_key is not null;
+create index if not exists project_assets_reuse_idx
+  on public.project_assets (project_id, prompt, status) where prompt is not null;
+
+alter table public.project_assets enable row level security;
+
 create table if not exists public.project_attachments (
   id         uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id) on delete cascade,

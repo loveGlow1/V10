@@ -359,6 +359,51 @@ has(
   "and it loads the tree rather than reading the html column",
 );
 
+/* ── And when the source is not there ──────────────────────────────────────
+ *
+ * The same defect's second half, reported from production and worth writing
+ * down in full because the failure was addressed to the customer in their own
+ * words.
+ *
+ * currentTree falls back to treeFromPage when a build has no stored files,
+ * which is right for a single-page build and wrong for a project: a project's
+ * html column holds the SUMMARY. So a project whose files were missing came
+ * back as a one-file tree whose single file was our own receipt. pickFile
+ * chose it — unambiguously, there being one — the blocks matched nothing, and
+ * the person was told:
+ *
+ *   "I couldn't place that change in the page, so I've left it exactly as it
+ *    was. Try naming the section — this page has "Nova Estates", "Your app is
+ *    live", "What it is made of", "Routes 9", "Database created", "Files"."
+ *
+ * Those are the headings of OUR receipt, offered as their page's sections to
+ * somebody asking us to change their dashboard. Nothing they could have typed
+ * would have worked, and their real source was never opened. */
+const summary = readFileSync(join(process.cwd(), "src/lib/builder/project-summary.ts"), "utf8");
+const store = readFileSync(join(process.cwd(), "src/lib/builder/store-tree.ts"), "utf8");
+
+has(
+  /content="project-summary"/.test(summary) && /export function isProjectSummary/.test(summary),
+  "a summary says in itself that it is one",
+  "a heuristic would drift; the marker is written into the document and travels with it",
+);
+
+has(
+  /isProjectSummary\(html\)/.test(store) && /sourceMissing: true/.test(store),
+  "currentTree refuses to pass a summary off as the project's source",
+);
+
+has(
+  /sourceMissing/.test(route) && /edit_source_missing/.test(route),
+  "and the edit path stops on it rather than editing the receipt",
+  "editing the receipt freezes the customer's real source while charging for changes to a description of it",
+);
+
+has(
+  route.indexOf("project_.sourceMissing") < route.indexOf("const picked = await pickFile("),
+  "checked before a file is picked, since the file it would pick is the receipt",
+);
+
 has(
   route.indexOf("if (intent === \"edit\" && service) {") <
     route.indexOf("if (intent === \"edit\" && currentHtml) {"),

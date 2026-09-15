@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isProjectSummary } from "./project-summary";
 import { type FileTree, treeFromPage } from "./tree";
 
 /**
@@ -82,7 +83,16 @@ export async function loadTree(
 export async function currentTree(
   service: SupabaseClient,
   projectId: string,
-): Promise<{ tree: FileTree; buildId: string | null; html: string | null }> {
+): Promise<{
+  tree: FileTree;
+  buildId: string | null;
+  html: string | null;
+  /* True when this project was built as a file tree and its files are not
+     there. Distinct from an empty tree, which is the ordinary answer for a
+     single-page build, and it has to be: the caller's correct response to one
+     is "edit the page" and to the other is "stop". See below. */
+  sourceMissing: boolean;
+}> {
   const { data: build } = await service
     .from("project_builds")
     .select("id, html")
@@ -91,15 +101,40 @@ export async function currentTree(
     .limit(1)
     .maybeSingle();
 
-  if (!build) return { tree: [], buildId: null, html: null };
+  if (!build) return { tree: [], buildId: null, html: null, sourceMissing: false };
 
   const buildId = build.id as string;
   const html = (build.html as string | null) ?? null;
   const stored = await loadTree(service, buildId);
 
+  /* ── The fallback that had to learn what it was falling back to ─────────
+   *
+   * treeFromPage turns the html column into a tree of one file, so a
+   * single-page build and a file-tree build look the same to everything
+   * downstream. That is right for a page and wrong for a receipt.
+   *
+   * A file-tree build stores a SUMMARY in that column — the routes, the
+   * tables, the files — because nothing here runs `next build`. So when such a
+   * project's files are absent, this handed back a one-file tree whose single
+   * file was our own description of the project, and the edit path went to
+   * work on it: it picked that file (the only one), failed to match anything,
+   * and told the customer "I couldn't place that change in the page — try
+   * naming the section", listing "Routes 9", "Database created", "Files". Our
+   * headings, read back to somebody asking us to change their dashboard. Their
+   * real source was never opened, and would have stayed frozen however many
+   * times they rephrased.
+   *
+   * Reported rather than repaired, because it cannot be repaired from here:
+   * the files are gone and no amount of editing a receipt brings them back.
+   * The caller's job is to say so. */
+  if (stored.length === 0 && isProjectSummary(html)) {
+    return { tree: [], buildId, html, sourceMissing: true };
+  }
+
   return {
     tree: stored.length > 0 ? stored : html ? treeFromPage(html) : [],
     buildId,
     html,
+    sourceMissing: false,
   };
 }

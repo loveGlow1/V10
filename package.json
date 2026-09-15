@@ -61,7 +61,8 @@
     "check:generated-types": "node tools/check-generated-types.mjs",
     "check:provision-diagnosis": "node tools/check-provision-diagnosis.mjs",
     "check:edit-routing": "node tools/check-edit-routing.mjs",
-    "check:popover": "node tools/check-popover.mjs"
+    "check:popover": "node tools/check-popover.mjs",
+    "check:schema-drift": "node tools/check-schema-drift.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

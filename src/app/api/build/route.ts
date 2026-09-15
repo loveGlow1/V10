@@ -1330,6 +1330,34 @@ async function handle(
   if (intent === "edit" && service) {
     const project_ = await currentTree(service, project.id);
 
+    /* ── Built as a project, and its source is not here ──────────────────
+     *
+     * Refused, loudly, rather than handled. The alternative is what this used
+     * to do and it is the worst outcome available: the html column of a
+     * file-tree build holds a SUMMARY of the project, currentTree used to hand
+     * that back as a one-file tree, and the edit went to work on it. The pick
+     * was unambiguous (one file), the blocks matched nothing, and the customer
+     * was told "I couldn't place that change in the page. Try naming the
+     * section — this page has 'Routes 9', 'Database created', 'Files'."
+     *
+     * Every word of that was wrong. It is not their page, those are not their
+     * sections, and nothing they could have typed would have worked. Their
+     * application's real source was untouched and stayed untouched however
+     * often they rephrased — which is exactly how it was reported to us: "it
+     * still can't change anything".
+     *
+     * So this stops here, says which of the two things is true, and charges
+     * nothing. Rebuilding is the only route back, and it is named. */
+    if (project_.sourceMissing) {
+      const said =
+        "This project's source files aren't in our store, so there's nothing for me to change — and I'm not going to edit the summary page and call it an edit. That's a fault at our end, not something you can phrase around. Rebuilding the project will store them properly; ask for it again and I'll do a fresh build.";
+      const stored = await deliver(said, { tone: "error", key: "edit-source-missing" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_source_missing", stored },
+        { status: 409 },
+      );
+    }
+
     if (project_.tree.length > 0 && project_.buildId) {
       steps.begin("file", "Finding the file", "reading the project's own listing…");
 
