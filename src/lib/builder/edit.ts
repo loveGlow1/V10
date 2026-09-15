@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { modelById } from "@/app/dashboard/models";
+import { creditMultiplierFor, modelById } from "@/app/dashboard/models";
 
 import {
   PICK_SYSTEM,
@@ -170,7 +170,20 @@ const RECONSTRUCT =
  * All of them are knowable before any call is made, which is the point: the
  * alternative is discovering it from a failed edit the customer has paid for.
  */
-export function editModelFor(prompt: string, html: string): string {
+export function editModelFor(prompt: string, html: string, chosen?: string | null): string {
+  /* A model somebody picked is an instruction, not a hint.
+   *
+   * Everything below this line is the system guessing, and it guesses because
+   * usually nobody has said. When somebody HAS said, guessing over the top of
+   * them is the rigidity worth removing: a person who selected Opus and got
+   * Haiku on every edit was given a control that did nothing, which is worse
+   * than not offering one.
+   *
+   * Affordability and plan are settled before this is called — see the edit
+   * path in api/build/route.ts, which only passes a model the account may
+   * actually use. What arrives here has already been allowed. */
+  if (chosen) return chosen;
+
   const words = prompt.trim().split(/\s+/).filter(Boolean).length;
   if (words > SIMPLE_EDIT_WORDS) return EDIT_MODEL_STRONG;
   if (html.length > SIMPLE_EDIT_PAGE_CHARS) return EDIT_MODEL_STRONG;
@@ -685,6 +698,10 @@ export async function editPage(
      project built before the architecture was recorded: the edit then behaves
      exactly as it did, which is the correct fallback when nothing is known. */
   architecture?: string,
+  /* The model this account asked for, already checked against their plan and
+     balance by the caller. Null or absent means Auto, and the heuristics below
+     decide as they always have. */
+  chosen?: string | null,
 ): Promise<EditOutcome> {
   /* A picture in the message changes what this call is. The model has to read
      the photograph, find the markup behind what it shows, and copy that markup
@@ -693,8 +710,24 @@ export async function editPage(
   const looking = attachments.some((block) => block.type === "image");
   /* Or the job is simply large — a brief of several paragraphs, or a page too
      big to leave the fast model room to work in. Either reason is enough on its
-     own; see editModelFor. */
-  const model = looking ? EDIT_MODEL_STRONG : editModelFor(userMessage, html);
+     own; see editModelFor.
+   *
+     A picked model outranks both, including the picture rule: `looking`
+     escalates because nobody said otherwise, and somebody has. */
+  const model = chosen ?? (looking ? EDIT_MODEL_STRONG : editModelFor(userMessage, html));
+
+  /* Where the retry goes when the first attempt places nothing.
+   *
+     Normally up, to EDIT_MODEL_STRONG. But a person who picked something
+     DEARER than that — Opus, Fable — must not have their retry quietly
+     demoted to Sonnet, which is the same disregard for the picker in the
+     other direction. So the retry takes whichever of the two is dearer, and
+     price is the honest proxy for strength here because that is exactly what
+     creditMultiplierFor measures. */
+  const retryModel =
+    chosen && creditMultiplierFor(chosen) > creditMultiplierFor(EDIT_MODEL_STRONG)
+      ? chosen
+      : EDIT_MODEL_STRONG;
 
   /* One clock for the whole edit, started before the first call and inherited
      by the retries. See EDIT_DEADLINE_MS. */
@@ -778,7 +811,7 @@ export async function editPage(
        that their change could not be placed. */
     onProgress?.({
       kind: "reasoning",
-      text: `That didn't place cleanly. Reading the page again with ${EDIT_MODEL_STRONG}…`,
+      text: `That didn't place cleanly. Reading the page again with ${retryModel}…`,
     });
 
     const second = await ask(
@@ -789,7 +822,7 @@ export async function editPage(
       prior,
       onProgress,
       false,
-      EDIT_MODEL_STRONG,
+      retryModel,
       deadlineAt,
     );
     output = textOf(second);
@@ -818,7 +851,7 @@ export async function editPage(
         outputTokens,
         retried: true,
         ranOutOfTime: true,
-        model: EDIT_MODEL_STRONG,
+        model: retryModel,
         route: "patch",
       };
     }
@@ -857,7 +890,7 @@ export async function editPage(
         prior,
         onProgress,
         false,
-        EDIT_MODEL_STRONG,
+        retryModel,
         deadlineAt,
       );
 
@@ -873,7 +906,7 @@ export async function editPage(
           outputTokens,
           retried: true,
           ranOutOfTime: ranOutOfTime(third),
-          model: EDIT_MODEL_STRONG,
+          model: retryModel,
           route: "lines",
         };
       }
@@ -912,9 +945,9 @@ export async function editPage(
     outputTokens,
     retried,
     ranOutOfTime: false,
-    /* The retry always runs on the stronger model, so a retried edit was
-       finished by it whatever the first attempt used. */
-    model: retried ? EDIT_MODEL_STRONG : model,
+    /* The retry runs on retryModel, so a retried edit was finished by that
+       whatever the first attempt used — and the charge follows it. */
+    model: retried ? retryModel : model,
     route: "patch",
   };
 }

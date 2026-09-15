@@ -182,9 +182,22 @@ const CLINICAL: DesignDNA = {
   intent:
     "Calm and exact. Cool neutrals, one trustworthy blue, hairline rules and small radii. Nothing decorative — every element is legible before it is anything else.",
   type: {
-    display: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    display: '"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
     body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
-    webfont: null,
+    /* Inter, and it is the reason this register is not the two below.
+       Clinical precision, Technical and Modern commercial all had
+       `ui-sans-serif` for BOTH display and body, so all three rendered in
+       whatever sans the visitor's operating system happens to use — the same
+       one. They differed by heading weight alone, 650 against 600 against
+       700, which a system stack usually snaps to the same rendered weight
+       anyway. Three of the six design systems were one design system.
+
+       Inter is the interface typeface this register is describing: even,
+       unshowy, legible at small sizes before it is anything else. */
+    webfont: {
+      family: "Inter",
+      href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap",
+    },
     ratio: 1.2,
     base: 16,
     displayLeading: 1.2,
@@ -213,9 +226,15 @@ const TECHNICAL: DesignDNA = {
   intent:
     "Built, not styled. Near-neutral surfaces, a monospace accent for data and labels, sharp corners and dense information. Confidence comes from precision rather than from colour.",
   type: {
-    display: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    display: '"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
     body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
-    webfont: null,
+    /* Geist. Drawn for developer tooling, which is exactly what this
+       register is for — slightly narrow, mechanical, and unmistakably not
+       the system sans it used to fall back to. */
+    webfont: {
+      family: "Geist",
+      href: "https://fonts.googleapis.com/css2?family=Geist:wght@400;600;700&display=swap",
+    },
     ratio: 1.2,
     base: 15,
     displayLeading: 1.15,
@@ -244,9 +263,16 @@ const COMMERCIAL: DesignDNA = {
   intent:
     "Contemporary and direct. A crisp neutral ground, one confident accent used sparingly, medium radii and soft shadows. The default when nothing in the brief asks for a stronger point of view.",
   type: {
-    display: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    display: '"Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
     body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
-    webfont: null,
+    /* Manrope. The semi-rounded terminals are what make this read as a
+       product being sold rather than a document being filed, and they are
+       the whole distance between this register and Clinical precision — a
+       distance that did not exist while both were the system sans. */
+    webfont: {
+      family: "Manrope",
+      href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap",
+    },
     ratio: 1.25,
     base: 16,
     displayLeading: 1.1,
