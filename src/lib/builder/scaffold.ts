@@ -606,6 +606,11 @@ export function treeBrief(
   manifest: ArchitectureManifest,
   model: DataModel,
   design?: DesignDNA,
+  /* How many photographs the asset pipeline actually resolved for this build.
+     Zero is a real and common answer, and the rule below changes completely on
+     it — see the note there. Defaulted so an older caller keeps the behaviour
+     it had. */
+  photographs = 0,
 ): string {
   const routes = ROUTES[kind] ?? [];
   const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
@@ -674,8 +679,24 @@ export function treeBrief(
        disagreed — this one said next/image, that one said <img> — over a flat
        list of slots with no file named for any of them. Half the projects built
        under that contradiction contain no photograph at all. */
-    "- The photographs for this build are listed further up. Put their URLs in lib/images.ts as exported constants with their alt text, import them with `@/lib/images`, and use every one of them. A project with no photographs in it is not finished, whatever else is right about it.",
-  ];
+    /* ── Two rules, and which one depends on whether there ARE any ───────
+     *
+     * This line used to be unconditional. It told every project "the
+     * photographs for this build are listed further up" — including the
+     * builds where the asset pipeline had resolved none, and nothing was
+     * listed anywhere. A model told to use a list that is not there does the
+     * reasonable thing and draws a neutral panel where a photograph belongs,
+     * and that grey rounded rectangle is what customers report as "images
+     * show as blank placeholders".
+     *
+     * There was no second chance for it either: fillImages runs on the single
+     * HTML document and a project build skips it, so whatever the model wrote
+     * was final. See tree-images.ts, which is the other half of this fix and
+     * the pass that makes the slots below worth declaring. */
+    photographs > 0
+      ? "- The photographs for this build are listed further up. Put their URLs in lib/images.ts as exported constants with their alt text, import them with `@/lib/images`, and use every one of them. A project with no photographs in it is not finished, whatever else is right about it."
+      : '- PHOTOGRAPHS ARE DECLARED, NOT DRAWN. No pictures were resolved ahead of this build, so write each one as a slot and real pixels are put in afterwards: `<img data-shot="folded ochre linen, raking light, neutral seamless" data-ratio="4/5" data-weight="hero" alt="Ochre linen throw">` — art direction in data-shot, no src attribute at all. NEVER invent an image URL; every one of those is a broken picture. NEVER substitute a grey box, a coloured div or an empty placeholder for a photograph that belongs there. Use data-weight="hero" for the one picture that carries a page, "feature" for a section, "thumb" for a card.',
+  ].filter((rule): rule is string => typeof rule === "string");
 
   if (manifest.database) {
     rules.push(

@@ -328,6 +328,47 @@ has(
   /generateStaticParams/.test(scaffold.treeBrief("blog", manifestFor("blog", false), modelFor("blog", false))),
   "a kind with dynamic routes is told what export needs from them",
 );
+/* ── The photographs, and the rule that changes when there are none ──────
+ *
+ * This line used to be unconditional: every project was told "the photographs
+ * for this build are listed further up", including the builds where the asset
+ * pipeline had resolved none and nothing was listed anywhere. A model pointed
+ * at a list that is not there does the reasonable thing and draws a neutral
+ * panel where a photograph belongs — the grey rounded rectangle customers
+ * report as "images show as blank placeholders" — and nothing filled it
+ * afterwards, because the fill pass ran only on the single HTML document.
+ *
+ * With none resolved the brief must ask for SLOTS, which tree-images.ts then
+ * fills. With some resolved it must point at them, exactly as before. */
+{
+  const m = manifestFor("landing", false);
+  const d = modelFor("landing", false);
+
+  const none = scaffold.treeBrief("landing", m, d, undefined, 0);
+  has(/data-shot/.test(none), "with no photographs resolved, the brief asks for fillable slots");
+  has(
+    /never invent an image url/i.test(none),
+    "and forbids inventing a URL, which is always a broken picture",
+  );
+  has(
+    /never substitute a grey box/i.test(none),
+    "and forbids the grey panel this whole fix is about",
+  );
+  has(
+    !/listed further up/i.test(none),
+    "and does not point at a list of photographs that does not exist",
+  );
+
+  const some = scaffold.treeBrief("landing", m, d, undefined, 6);
+  has(/listed further up/i.test(some), "with photographs resolved, the brief points at them");
+  has(/lib\/images/.test(some), "and names the file they belong in");
+  has(!/data-shot/.test(some), "and does not also ask for slots, which would be two instructions");
+
+  /* An older caller that passes no count keeps the behaviour it had. */
+  const defaulted = scaffold.treeBrief("landing", m, d);
+  has(/data-shot/.test(defaulted), "a caller that says nothing gets the safe half of the answer");
+}
+
 has(
   !/supabase/i.test(scaffold.treeBrief("landing", manifestFor("landing", false), modelFor("landing", false))),
   "and a project with no backend is not told to talk to one",

@@ -3156,7 +3156,19 @@ async function handle(
          the shape of the answer changes. */
       treeInstructions:
         needs.stack === "nextjs"
-          ? treeBrief(kind.kind, architecture.manifest, dataModel, design.dna)
+          ? treeBrief(
+              kind.kind,
+              architecture.manifest,
+              dataModel,
+              design.dna,
+              /* How many photographs actually resolved. Zero changes the rule
+                 completely: the brief stops pointing at a list that is not
+                 there and tells the model to declare fillable slots instead,
+                 which tree-images.ts then fills after generation. Passing this
+                 is what stops a project shipping grey panels where photographs
+                 belong. */
+              imageUrls.length,
+            )
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
