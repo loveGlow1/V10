@@ -62,6 +62,14 @@ export type BuildReply = {
      the same reading of the brief that produced the question. */
   needsStack?: boolean;
   stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  /* Whether this project has a back half — asked when the planner reports its
+     own answer as a guess. The costliest of the three questions: it decides
+     whether a database is provisioned. See lib/builder/architecture.ts. */
+  needsArchitecture?: boolean;
+  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  /* The stack that reading of the brief implied, returned with the question so
+     the answer does not re-derive it. */
+  stack?: "standalone-html" | "nextjs";
   buildKind?: BuildKind;
   outcome?: BuildOutcome;
   /** Set when nothing was changed. The page is exactly as it was. */
@@ -86,6 +94,14 @@ type BuildPayload = {
      the same reading of the brief that produced the question. */
   needsStack?: boolean;
   stackOptions?: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
+  /* Whether this project has a back half — asked when the planner reports its
+     own answer as a guess. The costliest of the three questions: it decides
+     whether a database is provisioned. See lib/builder/architecture.ts. */
+  needsArchitecture?: boolean;
+  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  /* The stack that reading of the brief implied, returned with the question so
+     the answer does not re-derive it. */
+  stack?: "standalone-html" | "nextjs";
   buildKind?: BuildKind;
   build?: BuildOutcome;
   project?: Project | null;
@@ -126,6 +142,17 @@ export type BuildOptions = {
    * a question stops being worth reading. See lib/builder/stack.ts.
    */
   stack?: "standalone-html" | "nextjs" | null;
+  /**
+   * Whether this project has a back half — "full" or "frontend" — when the
+   * person has been asked and has answered.
+   *
+   * The broader of the two questions, and the expensive one: it decides
+   * whether a schema is migrated into a database, whether an admin is built,
+   * and whether anybody signs in. Left off, the server decides and asks only
+   * when its own planner reports the decision as a guess. See
+   * lib/builder/architecture.ts.
+   */
+  architecture?: "full" | "frontend" | null;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -393,6 +420,19 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           confirmNewProject: options.confirmNewProject === true,
           attachmentIds: options.attachmentIds ?? [],
           buildKind: options.buildKind ?? null,
+          /* BOTH ANSWERS, AND stack WAS NOT BEING SENT AT ALL.
+           *
+           * BuildOptions has carried `stack` since the question was written,
+           * ChatPanel has always passed it, and this body never included it —
+           * so answering "a site people look at" re-sent the same brief with
+           * the answer dropped on the floor, the server re-read it as
+           * uncertain, and asked again. The chips were a loop.
+           *
+           * `architecture` is the same shape of answer one level up: whether
+           * this project has a database and a back office at all. See
+           * lib/builder/architecture.ts. */
+          stack: options.stack ?? null,
+          architecture: options.architecture ?? null,
           model: options.model ?? null,
         }),
       });
@@ -492,6 +532,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         kindOptions: payload.kindOptions,
         needsStack: payload.needsStack === true,
         stackOptions: payload.stackOptions,
+        needsArchitecture: payload.needsArchitecture === true,
+        architectureOptions: payload.architectureOptions,
+        stack: payload.stack,
         buildKind: payload.buildKind,
         outcome: payload.build,
         stored: payload.stored === true,

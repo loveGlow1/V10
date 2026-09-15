@@ -298,6 +298,115 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ slug: wanted, url: publishedUrl(wanted) });
 }
 
+/**
+ * Puts an earlier published version back.
+ *
+ * The history has always been there. Every publish writes an immutable
+ * `project_publications` row with a version number, and `published_version_id`
+ * is a pointer at one of them — so "go back to last Tuesday's" has been one
+ * UPDATE away since publishing was written, and there was no way to ask for it.
+ * Somebody who published a bad edit could unpublish, or publish again over the
+ * top; neither of those is what they wanted.
+ *
+ * It is a pointer move and nothing else: the snapshot is not copied, nothing
+ * is regenerated, and no model runs. So it is FREE, and that is a decision
+ * rather than an oversight — a rollback is the customer correcting something
+ * we served them, and charging for it would be charging for our own mistake.
+ *
+ * The newer versions stay. Rolling back is "serve this one", not "destroy the
+ * ones after it", and rolling forward again is the same call with a different
+ * number.
+ */
+export async function PUT(request: Request) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return fail("Publishing is unavailable.", 503, "config");
+
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user;
+  if (!user) return fail("Sign in first.", 401, "auth");
+
+  const body = (await request.json().catch(() => ({}))) as {
+    projectId?: unknown;
+    version?: unknown;
+  };
+  const projectId = typeof body.projectId === "string" ? body.projectId : null;
+  if (!projectId) return fail("No project was named.", 400, "request");
+
+  const service = createSupabaseServiceClient();
+  if (!service) return fail("Publishing is unavailable.", 503, "config");
+
+  /* Read under the caller's own session, so RLS answers whether this project is
+     theirs before the service key is used to move anything. */
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, name, published_version_id")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (!project) return fail("That project could not be found.", 404, "validate");
+  if (!project.published_version_id) {
+    return fail("That project isn't published, so there's nothing to roll back to.", 409, "validate");
+  }
+
+  /* Which version. Named explicitly, or the one before whatever is live —
+     "put it back" is the request people actually have, and making them look up
+     a number first is asking them to do the system's job. */
+  const wanted = typeof body.version === "number" ? body.version : null;
+
+  const { data: versions } = await service
+    .from("project_publications")
+    .select("id, version, published_at")
+    .eq("project_id", projectId)
+    .order("version", { ascending: false })
+    .limit(50);
+
+  const history = (versions ?? []) as { id: string; version: number; published_at: string }[];
+  const liveAt = history.findIndex((entry) => entry.id === project.published_version_id);
+
+  const target =
+    wanted !== null
+      ? history.find((entry) => entry.version === wanted)
+      : history[liveAt >= 0 ? liveAt + 1 : 1];
+
+  if (!target) {
+    return fail(
+      wanted !== null
+        ? `There's no version ${wanted} of this project.`
+        : "This is the first version that was published, so there's nothing behind it.",
+      404,
+      "validate",
+    );
+  }
+
+  if (target.id === project.published_version_id) {
+    return fail("That version is already the one being served.", 409, "validate");
+  }
+
+  const { error } = await service
+    .from("projects")
+    .update({ published_version_id: target.id, published_at: target.published_at })
+    .eq("id", projectId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    /* Nothing moved. The version that was live is still live, which is the
+       safe half of failing here. */
+    // eslint-disable-next-line no-console
+    console.error("publish: the rollback could not be applied:", error);
+    return fail("That couldn't be rolled back just now. Nothing has changed — try again.", 502, "live");
+  }
+
+  return NextResponse.json({
+    published: true,
+    rolledBack: true,
+    version: target.version,
+    publishedAt: target.published_at,
+    /* What they can go back to from here, so the interface does not have to
+       ask a second time to draw the control. */
+    versions: history.map((entry) => ({ version: entry.version, publishedAt: entry.published_at })),
+  });
+}
+
 /** Takes a project off the web, leaving its history intact. */
 export async function DELETE(request: Request) {
   const supabase = await createSupabaseServerClient();

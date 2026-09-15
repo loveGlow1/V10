@@ -63,7 +63,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib/builder/qa")]) {
  }
 }
 
-const { SYSTEMS, decideDesign, designBrief, systemByName, tokensCss, typeScale, isDark } =
+const { SYSTEMS, withTokens, decideDesign, designBrief, systemByName, tokensCss, typeScale, isDark } =
   await import(join(out, "lib/builder/design.js"));
 
 let failures = 0;
@@ -319,5 +319,52 @@ if (failures > 0) {
   console.error(`${failures} ${failures === 1 ? "failure" : "failures"}.\n`);
   process.exit(1);
 }
+
+/* ── The tokens, compiled into a page ──────────────────────────────────────
+ *
+ * tokensCss had exactly one caller — the scaffold, writing app/tokens.css into
+ * a NEXT.JS TREE. So a project got a design system it could not deviate from,
+ * and a page — which is the overwhelming majority of what this builder makes —
+ * got a paragraph in the prompt describing one and nothing that enforced it.
+ * designGate could only ever check the page against values the model had
+ * chosen to honour.
+ */
+console.log("\nThe design system, for a single page:");
+
+const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>x</title></head><body><h1>Hi</h1></body></html>`;
+const dna = SYSTEMS[0];
+const tokened = withTokens(PAGE, dna);
+
+tokened !== PAGE
+  ? pass("a page gets the tokens compiled into it")
+  : fail("a page gets the tokens compiled into it", "tokensCss reached only the Next.js scaffold");
+
+/--ground:/.test(tokened)
+  ? pass("with the colours as custom properties")
+  : fail("with the colours as custom properties", tokened.slice(0, 120));
+
+/--text-base:/.test(tokened)
+  ? pass("and the type scale")
+  : fail("and the type scale", tokened.slice(0, 120));
+
+/* Custom properties cascade, so a page that defines its own value LATER still
+   wins. What this guarantees is that every token name resolves — not that the
+   platform overrules the design somebody generated. */
+tokened.indexOf("<style") < tokened.indexOf("<h1>")
+  ? pass("before anything the page itself wrote")
+  : fail("before anything the page itself wrote", "a token defined after its use resolves to nothing");
+
+/* A page goes round the edit loop many times and is re-saved each time. A
+   second :root block per edit is a document that grows a design system. */
+(withTokens(tokened, dna) === tokened) ? pass("and never twice, however many times the page is saved") : fail("and never twice, however many times the page is saved", "");
+
+(withTokens(PAGE, null) === PAGE) ? pass("a build with no design system is untouched") : fail("a build with no design system is untouched", "");
+(withTokens("", dna) === "") ? pass("and so is an empty document") : fail("and so is an empty document", "");
+
+/* Never the thing that fails a build. A page is worth storing whether or not
+   its tokens went in. */
+const headless = withTokens("<body><p>no head here</p></body>", dna);
+(/--ground:/.test(headless)) ? pass("a document with no <head> still gets them") : fail("a document with no <head> still gets them", "");
+(headless.indexOf("<style") < headless.indexOf("<body")) ? pass("still ahead of the content") : fail("still ahead of the content") ? pass("") : fail("", "");
 
 console.log("All good.\n");

@@ -66,10 +66,27 @@ const MAX_NAME_LENGTH = 52;
 export type DeployTarget = {
   /** Names the Vercel project. One per generated project, stable across builds. */
   name: string;
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  /* THE GENERATED APP'S OWN BACKEND, and never this platform's.
+   *
+   * These three were read straight off `process.env` at both call sites, which
+   * is the bug that made "connect your own Supabase" a lie: the schema came
+   * from the project's resolved backend and the URL and key came from
+   * QuickStark's, so a customer who linked their own database was deployed
+   * pointing at OURS, with schema `public`, querying the platform's own
+   * tables with the platform's anon key.
+   *
+   * They are supplied by the caller now, from envFor(resolveBackend(...)) —
+   * see src/lib/builder/backend/connection.ts, which is the one place that
+   * knows whether a project is on the shared instance or its owner's.
+   *
+   * Absent means the project HAS NO BACKEND, which is the ordinary case for
+   * every frontend-only build. No .env.production is written at all then,
+   * rather than one carrying credentials the app has no client to use and no
+   * business holding. */
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
   /** The generated app's own Postgres schema. */
-  supabaseSchema: string;
+  supabaseSchema?: string;
 };
 
 export type DeployOutcome =
@@ -163,13 +180,22 @@ function withCurrentFramework(file: { file: string; data: string; encoding: "utf
 export function deploymentFiles(tree: FileTree, target: DeployTarget) {
   /* Written rather than appended to whatever the generator emitted: a
      generated .env.production would be the model's guess at these values, and
-     the platform's own are the correct ones. Last writer wins below. */
-  const env = [
-    `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
-    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
-    `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
-    "",
-  ].join("\n");
+     the project's resolved backend is the correct one. Last writer wins below.
+
+     Null when this project has no backend. The generated tree then has no
+     lib/supabase.ts either — scaffold.ts writes one only when the manifest
+     says database — so there is nothing to configure, and writing a file full
+     of somebody else's credentials to satisfy a template would be handing them
+     to every visitor of a site that never asked for a database. */
+  const env =
+    target.supabaseUrl && target.supabaseAnonKey && target.supabaseSchema
+      ? [
+          `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
+          `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
+          `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
+          "",
+        ].join("\n")
+      : null;
 
   /* Repaired on the way out, for the same reason the framework pin is: every
      project ever generated is still sitting in the database, and a tree stored
@@ -182,7 +208,7 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
     .filter((file) => file.path !== ".env.production" && file.path !== ".env.local")
     .map((file) => ({ file: file.path, data: file.content, encoding: "utf-8" as const }));
 
-  files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
+  if (env) files.push({ file: ".env.production", data: env, encoding: "utf-8" as const });
   return files.map(withCurrentFramework);
 }
 
@@ -307,12 +333,151 @@ export function stableHost(aliases: string[], deploymentHost: string): string {
   return vercel ?? deploymentHost;
 }
 
+export type Started =
+  | { ok: true; deploymentId: string; url: string; inspect: string | null }
+  | { ok: false; reason: string };
+
+/**
+ * Uploads a generated project and returns as soon as Vercel has accepted it.
+ *
+ * THE HALF THAT DOES NOT WAIT, and the reason it exists is arithmetic. A
+ * Next.js install-and-compile takes one to three minutes; `deployProject`
+ * below polls for up to 180 seconds; and both call sites run in a serverless
+ * function that this account's plan stops at 60. So any project slow enough to
+ * be interesting was created, built and hosted correctly, and then lost its
+ * address — because the function holding the poll was killed and nothing had
+ * written the deployment id down.
+ *
+ * Vercel gives the id and the hostname in the response to the upload itself,
+ * before a line of the build has run. Both are recorded here, and something
+ * that is not on the end of an HTTP request finds out how it went. See
+ * deploymentState below and /api/cron/deployments.
+ */
+export async function startDeployment(tree: FileTree, target: DeployTarget): Promise<Started> {
+  const creds = credentials();
+  if (!creds) {
+    return { ok: false, reason: "this deployment has no VERCEL_API_TOKEN, so it cannot build projects" };
+  }
+  if (tree.length === 0) return { ok: false, reason: "there are no files to deploy" };
+
+  const created = await call(
+    `/v13/deployments${creds.teamQuery}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: target.name,
+        files: deploymentFiles(tree, target),
+        projectSettings: {
+          framework: "nextjs",
+          buildCommand: null,
+          installCommand: null,
+          outputDirectory: null,
+          devCommand: null,
+        },
+        target: "production",
+      }),
+    },
+    creds.token,
+  );
+
+  if (!created.ok) return { ok: false, reason: created.reason };
+  if (created.status >= 400) return { ok: false, reason: refusal(created.body, created.status) };
+
+  const deployment = readDeployment(created.body);
+  if (!deployment) {
+    return { ok: false, reason: "Vercel accepted the upload but did not say where it went" };
+  }
+
+  return {
+    ok: true,
+    deploymentId: deployment.id,
+    url: `https://${deployment.url}`,
+    inspect: deployment.inspect,
+  };
+}
+
+export type DeploymentState =
+  | { state: "queued" }
+  | { state: "ready"; url: string }
+  | { state: "error" | "cancelled"; reason: string }
+  /* Vercel could not be reached. Distinct from "error" on purpose: a
+     deployment whose STATUS could not be read has not failed, and marking it
+     failed would take down a site that is very likely live. The caller leaves
+     it pending and asks again. */
+  | { state: "unknown"; reason: string };
+
+/**
+ * How a deployment is getting on, asked from anywhere and at any time.
+ *
+ * The other half of the split. Takes an id rather than a closure over a
+ * request, so the thing that started a deployment and the thing that finds out
+ * how it went do not have to be the same process — which is the whole point,
+ * because on this platform the first one is usually gone.
+ */
+export async function deploymentState(id: string): Promise<DeploymentState> {
+  const creds = credentials();
+  if (!creds) return { state: "unknown", reason: "no VERCEL_API_TOKEN" };
+
+  const polled = await call(
+    `/v13/deployments/${encodeURIComponent(id)}${creds.teamQuery}`,
+    {},
+    creds.token,
+  );
+
+  if (!polled.ok) return { state: "unknown", reason: polled.reason };
+  if (polled.status >= 400) return { state: "unknown", reason: refusal(polled.body, polled.status) };
+
+  const deployment = readDeployment(polled.body);
+  if (!deployment) return { state: "unknown", reason: "Vercel answered with no deployment in it" };
+
+  if (deployment.state === "READY") {
+    /* The stable alias, not the hostname this one build was born with. The
+       split flow arrived alongside stableHost and reached READY by its own
+       route, so it had its own copy of the same mistake: `deployment.url`
+       carries a build hash and stops being the customer's app after the next
+       deploy. See stableHost. */
+    const address = `https://${stableHost(deployment.aliases, deployment.url)}`;
+
+    /* And built is still not reachable. A deployment behind Vercel's
+       Deployment Protection is READY, correct, and answers every stranger
+       with a sign-in wall — which is the white rectangle in the preview pane.
+       Checked here as well as in waitForBuild because on this platform this
+       is the path that usually gets there: the function that started the
+       deployment is long gone and the cron is what finds it finished. */
+    const reached = await reachable(address);
+    if (!reached.ok) {
+      return { state: "error", reason: `${reached.reason}\n\nThe build itself succeeded: ${address}` };
+    }
+
+    return { state: "ready", url: address };
+  }
+
+  if (deployment.state === "ERROR" || deployment.state === "CANCELED") {
+    const log = await settledLog(id, creds);
+    const what =
+      deployment.state === "CANCELED"
+        ? "the deployment was cancelled"
+        : "Vercel could not finish the deployment";
+    const tail = log ? `${what}:\n${log}` : `${what} — its build reported ${deployment.state}`;
+    return {
+      state: deployment.state === "CANCELED" ? "cancelled" : "error",
+      reason: deployment.inspect ? `${tail}\n\nFull build log: ${deployment.inspect}` : tail,
+    };
+  }
+
+  return { state: "queued" };
+}
+
 /**
  * Uploads a generated project and waits for Vercel to build it.
  *
  * Resolves with the deployment's URL once it is READY, or with a reason. Never
  * throws: see the note at the top of the file about why a failed deployment
  * must not be able to fail the build it came from.
+ *
+ * KEPT FOR CALLERS THAT GENUINELY WAIT — the CLI, a test, anything with no
+ * sixty-second ceiling over it. Everything on a request path should use
+ * startDeployment and let the worker do the waiting.
  */
 export async function deployProject(tree: FileTree, target: DeployTarget): Promise<DeployOutcome> {
   const creds = credentials();

@@ -33,6 +33,11 @@ import type { ContextItem } from "./layers";
  * high costs a little window, while being wrong low costs a refused request. */
 const ASSUMED_EDIT_SYSTEM_TOKENS = 4_000;
 
+/* Below this there is no room for prose worth sending, so the requirement
+   ledger goes on its own. A few hundred tokens of truncated description above
+   a list of constraints is not context, it is an interrupted sentence. */
+const MIN_PROSE_TOKENS = 200;
+
 export type EditFit = {
   /** The instruction to send. Identical to what was passed unless `restructured`. */
   prompt: string;
@@ -203,17 +208,55 @@ export function fitBrief(input: {
   const ledger = requirementBlock(requirements);
   const proseRoom = budget.usableInput - estimateTokens(ledger);
   const prose = proseRoom > 100 ? condense(input.brief, proseRoom) : null;
-  const rebuilt = [prose?.text ?? "", ledger].filter(Boolean).join("\n\n");
+  let rebuilt = [prose?.text ?? "", ledger].filter(Boolean).join("\n\n");
+
+  /* ── And then check that it actually fits ───────────────────────────────
+   *
+   * fitEdit has always done this and this had not, which made the difference
+   * between a fit and an intention. condense works to a budget and cannot
+   * always reach it — a brief that is one sentence repeated ten thousand times
+   * has nothing it can usefully drop — and the requirement ledger is added
+   * AFTERWARDS, so a brief with many constraints can come back LARGER than it
+   * went in. Measured: 202,338 tokens in, 202,389 out, still over a window it
+   * was called to fit inside.
+   *
+   * So the prose is cut to what is left, by characters, and the ledger is
+   * never touched. That order is the whole point of restructuring rather than
+   * trimming: the requirements are what the build is judged against, and prose
+   * is the part somebody can afford to lose.
+   *
+   * `~3.5 chars per token` is budget.ts's own ratio — see CHARS_PER_TOKEN.
+   * Approximate is fine here because it is a second pass over something
+   * already condensed, and the safety margin in the budget absorbs the
+   * difference. */
+  if (estimateTokens(rebuilt) > budget.usableInput) {
+    const ledgerTokens = estimateTokens(ledger);
+    const room = Math.max(0, budget.usableInput - ledgerTokens);
+
+    if (room < MIN_PROSE_TOKENS) {
+      /* The constraints alone fill the window. Prose would be noise on top of
+         a list nobody can read to the end of, so the ledger goes on its own —
+         it is the half that decides whether the build is right. */
+      rebuilt = ledger;
+    } else {
+      const kept = (prose?.text ?? input.brief).slice(0, room * 3.5);
+      rebuilt = [kept, ledger].filter(Boolean).join("\n\n");
+    }
+  }
+
+  /* Never larger than what arrived. Handing a model MORE than it was given to
+     make it fit is a failure of the thing rather than an imperfect result. */
+  const fitted = estimateTokens(rebuilt) < estimateTokens(input.brief) ? rebuilt : input.brief;
 
   const plan = planContext(
-    [{ id: "brief", layer: "request", text: rebuilt || input.brief, lossless: true, relevance: 1 }],
+    [{ id: "brief", layer: "request", text: fitted, lossless: true, relevance: 1 }],
     budget,
     "build",
   );
 
   return {
-    brief: rebuilt || input.brief,
-    restructured: Boolean(rebuilt) && rebuilt !== input.brief,
+    brief: fitted,
+    restructured: fitted !== input.brief,
     requirements,
     plan,
     budget,

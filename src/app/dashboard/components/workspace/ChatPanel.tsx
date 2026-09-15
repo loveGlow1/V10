@@ -205,6 +205,21 @@ export default function ChatPanel({
       options: { stack: "standalone-html" | "nextjs"; label: string; blurb: string }[];
     } | null
   >(null);
+  /* And the question above both of those: does this project have a back half
+     at all. Asked only when the planner reports its own answer as a guess —
+     "build me a shop" names no database, no login and no second route, and a
+     shop without them is a picture of a shop, so the layers come from the KIND
+     rather than from anything the person wrote. Spending a build on that guess
+     migrates a schema into a database and builds an admin nobody asked for.
+     See lib/builder/architecture.ts. */
+  const [pendingArchitecture, setPendingArchitecture] = useState<
+    {
+      text: string;
+      kind?: BuildKind;
+      stack?: "standalone-html" | "nextjs";
+      options: { value: "full" | "frontend"; label: string; blurb: string }[];
+    } | null
+  >(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -826,6 +841,9 @@ export default function ChatPanel({
       buildKind?: BuildKind | null;
       /* The answer to "a site, or software" — see pendingStack. */
       stack?: "standalone-html" | "nextjs";
+      /* And to "the real thing, or the front of it" — see pendingArchitecture.
+         The broader of the two: it decides whether there is a database at all. */
+      architecture?: "full" | "frontend";
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -932,6 +950,9 @@ export default function ChatPanel({
            Absent means the server reads it from the brief — see stack.ts — and
            asks if the brief did not say. */
         stack: options.stack ?? null,
+        /* The answer to the architecture question, when one was given. Absent
+           on every ordinary message, which is nearly all of them. */
+        architecture: options.architecture ?? null,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -1007,6 +1028,22 @@ export default function ChatPanel({
       if (reply.needsKind && reply.kindOptions) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingKind({ text, options: reply.kindOptions });
+        setAttached(sent);
+        return;
+      }
+
+      /* The expensive one, and it is asked before the stack question because it
+         subsumes it: answering "the front of it" settles the artefact too, and
+         asking both would be two questions about one decision. Nothing has run
+         and nothing has been charged. */
+      if (reply.needsArchitecture && reply.architectureOptions) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingArchitecture({
+          text,
+          kind: reply.buildKind,
+          stack: reply.stack,
+          options: reply.architectureOptions,
+        });
         setAttached(sent);
         return;
       }
@@ -1698,6 +1735,44 @@ export default function ChatPanel({
             <button
               type="button"
               onClick={() => setPendingKind(null)}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* The real thing, or the front of it. The costliest question here and
+            the last one that is free: past this the schema is created and the
+            build runs. Only ever shown when the planner said it was guessing —
+            a brief that names a database, an admin or a checkout never reaches
+            it, and neither does one that says "no backend". */}
+        {pendingArchitecture && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            {pendingArchitecture.options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                title={option.blurb}
+                onClick={() => {
+                  const { text, kind, stack } = pendingArchitecture;
+                  setPendingArchitecture(null);
+                  setMode("auto");
+                  void send(text, {
+                    architecture: option.value,
+                    buildKind: kind,
+                    stack,
+                    silent: true,
+                  });
+                }}
+                className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+              >
+                {option.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPendingArchitecture(null)}
               className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
             >
               Cancel

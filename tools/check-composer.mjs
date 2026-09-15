@@ -26,7 +26,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 let failed = 0;
-const ok = (t) => console.log(`ok    ${t}`);
+let passed = 0;
+const ok = (t) => { passed++; console.log(`ok    ${t}`); };
 function fail(t, d) { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); }
 const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
 
@@ -89,5 +90,59 @@ has(
   "a page replaced without a confirmation is the failure that whole path exists to prevent",
 );
 
-console.log(failed ? `\n${failed} failed.` : "\nAll 8 passed.");
+
+/* ── An answered question must not be asked again ──────────────────────────
+ *
+ * Source assertions for the same reason as everything above: this failed
+ * silently and rendered perfectly.
+ *
+ * `stack` was in BuildOptions, ChatPanel passed it on every chip press, and
+ * the request body in ProjectsContext never included it. So the server got the
+ * same brief with no answer attached, read it as uncertain again, and asked
+ * again — the chips were a loop with no way out except Cancel. Nothing threw,
+ * nothing logged, and the only symptom was a question that would not go away.
+ *
+ * `architecture` is the same wiring one level up and would fail the same way,
+ * so both are asserted end to end: the panel sends it, the context forwards
+ * it, and the route reads it.
+ */
+const context = readFileSync(
+  join(process.cwd(), "src/app/dashboard/ProjectsContext.tsx"),
+  "utf8",
+);
+const buildRoute = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+
+console.log("\nAn answer reaches the server:");
+
+for (const field of ["stack", "architecture", "buildKind"]) {
+  has(
+    new RegExp(`${field}:\\s*options\\.${field}\\s*\\?\\?\\s*null`).test(context),
+    `the ${field} answer is in the request body`,
+    "ChatPanel passes it and the body drops it — the chips become a loop",
+  );
+}
+
+has(
+  /isArchitectureChoice\(body\.architecture\)/.test(buildRoute),
+  "and the route reads the architecture answer through its own validator",
+);
+
+has(
+  /needsArchitecture:\s*true/.test(buildRoute) && /architectureOptions\(/.test(buildRoute),
+  "the route offers the architecture question rather than spending the guess",
+  "decideArchitecture reports `certain: false` and nothing asked — see architecture.ts",
+);
+
+has(
+  buildRoute.indexOf("needsArchitecture: true") < buildRoute.indexOf("needsStack: true"),
+  "and it is asked before the stack question, which it subsumes",
+  "answering 'the front of it' settles the artefact too",
+);
+
+has(
+  /setPendingArchitecture\(/.test(panel) && /reply\.needsArchitecture/.test(panel),
+  "the panel renders it as chips, like the two questions beside it",
+);
+
+console.log(failed ? `\n${failed} failed.` : `\nAll ${passed} passed.`);
 process.exit(failed ? 1 : 0);

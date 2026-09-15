@@ -579,3 +579,59 @@ RHYTHM — this is what separates a designed page from a stack of sections.
   Vary the sections deliberately: alternate their height, their density, their background (var(--ground) against var(--surface)), whether they are full-bleed or held to the container, and where the emphasis sits. Two adjacent sections with the same padding, the same grid and the same background read as one long section.
   Do not repeat hero → three cards → testimonials → call to action. That shape is the default a generator falls into, and every visitor has seen it.`;
 }
+
+/* A marker rather than a guess at whether the tokens are already there.
+ *
+ * A page goes round the edit loop many times and is re-saved on each one, and
+ * a second :root block appended each time would be a document that grows a
+ * design system per edit. Searching for "--ground" instead would match a page
+ * that merely USES the tokens, which is every page this works on. */
+const TOKENS_MARK = "data-quickstark-tokens";
+
+/**
+ * The design system, compiled into a single-page build.
+ *
+ * The gap this closes is the one that made the design system prose. tokensCss
+ * had exactly one caller — scaffold.ts, writing app/tokens.css into a NEXT.JS
+ * TREE — so a project got real tokens and a page, which is the overwhelming
+ * majority of what this builder produces, got a paragraph in the prompt
+ * describing them and nothing that enforced anything. designGate could only
+ * ever check the page against values the model had chosen to honour.
+ *
+ * Now the same tokens are the same tokens in both shapes. The model is told to
+ * use the names; this is what makes the names resolve.
+ *
+ * ── Inserted first, not last ──────────────────────────────────────────────
+ *
+ * At the top of <head>, before anything the model wrote. CSS custom properties
+ * cascade like any other declaration, so a page that defines its own
+ * `--ground` later WINS — which is deliberate. A generated page that took the
+ * trouble to define a value has made a decision, and the platform overwriting
+ * it would be the reverse of what the tokens are for. What this guarantees is
+ * that every token NAME resolves to something sensible, so a class or a
+ * `var(--space-4)` the model reached for cannot compile to nothing.
+ *
+ * Idempotent, and never throws: a document this cannot find a head in is
+ * returned exactly as it arrived. A page is worth storing whether or not its
+ * tokens were injected.
+ */
+export function withTokens(html: string, dna: DesignDNA | null | undefined): string {
+  if (!dna || !html) return html;
+  if (html.includes(TOKENS_MARK)) return html;
+
+  const block = `<style ${TOKENS_MARK}>\n${tokensCss(dna)}\n</style>`;
+
+  const head = html.match(/<head\b[^>]*>/i);
+  if (head?.index !== undefined) {
+    const at = head.index + head[0].length;
+    return `${html.slice(0, at)}\n${block}${html.slice(at)}`;
+  }
+
+  /* No <head>. A fragment, or a document the model opened differently — put
+     the tokens before the first style or the first body, whichever comes
+     first, so they still precede anything that uses them. */
+  const anchor = html.search(/<style\b|<body\b/i);
+  if (anchor >= 0) return `${html.slice(0, anchor)}${block}\n${html.slice(anchor)}`;
+
+  return `${block}\n${html}`;
+}

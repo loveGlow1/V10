@@ -8,10 +8,11 @@ import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
-import { resolveBackend } from "@/lib/builder/backend/connection";
-import { systemByName } from "@/lib/builder/design";
-import { allIssues, autofix, describeQa, evidenceFrom, runQa } from "@/lib/builder/qa";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { systemByName, withTokens } from "@/lib/builder/design";
+import { allIssues, autofix, describeQa, evidenceFrom, runQaLoop } from "@/lib/builder/qa";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -35,12 +36,14 @@ import {
   writeProjectIndex,
 } from "@/lib/context/store";
 import { projectSummary } from "@/lib/builder/project-summary";
-import { deployProject, deploymentName, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
+import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
+import { advance as advanceJob, failJob, liveJob } from "@/lib/jobs/store";
 
 /* Where a finished page is put away.
  *
@@ -232,6 +235,12 @@ async function reportFailure(
   message: string,
   status: number,
 ) {
+  /* The job, closed with the reason. Terminal is terminal, so whichever of
+     this and n8n's own 120-second timeout gets here first is the answer and
+     the second is refused — which is the Failed-then-Built race, made
+     impossible rather than merely unlikely. See src/lib/jobs/state.ts. */
+  const job = await liveJob(supabase, claim.projectId);
+  if (job) await failJob(supabase, job.id, message);
   await recordMessage(supabase, {
     projectId: claim.projectId,
     userId: claim.userId,
@@ -427,6 +436,14 @@ export async function POST(request: Request) {
      row rather than only in a log nobody reads. */
   let deploymentUrl: string | null = null;
   let deploymentError: string | null = null;
+  /* Recorded after the build row exists, because a deployment belongs to the
+     build whose files went up, and that row is written further down. */
+  let pendingDeployment: {
+    deploymentId: string;
+    vercelProject: string;
+    url: string;
+    inspectUrl: string | null;
+  } | null = null;
 
   if (sentPage) {
     try {
@@ -461,17 +478,56 @@ export async function POST(request: Request) {
        * deployment that could not happen must never take down a build that
        * did — the files are worth having and they were paid for. */
       if (deploymentsConfigured()) {
-        const deployed = await deployProject(tree, {
-          name: deploymentName((project.name as string | null) ?? "app", project.id as string),
-          supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-          supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-          supabaseSchema: summaryBackend?.schema ?? schemaNameFor(claim.projectId),
+        /* The project's OWN backend, not this platform's.
+         *
+         * This used to read NEXT_PUBLIC_SUPABASE_URL and _ANON_KEY off the
+         * environment while taking the schema from summaryBackend — so a
+         * project linked to its owner's Supabase was deployed carrying
+         * QuickStark's address and QuickStark's anon key against a schema
+         * belonging to neither. envFor is the function that has always known
+         * the right answer; it simply had no caller. */
+        const env = summaryBackend ? envFor(summaryBackend) : null;
+
+        /* ── Started, not waited for ─────────────────────────────────────
+         *
+         * This used to call deployProject, which polls Vercel for up to 180
+         * seconds inside a route the platform stops at 60. A project slow
+         * enough to be interesting was therefore created, built and hosted
+         * perfectly, and then lost its address — because the function holding
+         * the poll was killed and nothing had written the id down.
+         *
+         * Vercel returns the id and the hostname when it ACCEPTS the upload,
+         * before a line of the build has run. Both are recorded here, and
+         * /api/cron/deployments finds out how it went. The URL below is
+         * therefore where the app WILL be rather than where it already is,
+         * which is the honest thing to put in the summary while it builds.
+         *
+         * The Vercel project is read before it is derived. deploymentName
+         * folds in the project's TITLE, so renaming a project used to create a
+         * second Vercel project beside the first and leave the original
+         * orphaned and still serving. The first deployment's name is kept and
+         * answers forever. */
+        const vercelProject =
+          (await existingVercelProject(supabase, project.id as string)) ??
+          deploymentName((project.name as string | null) ?? "app", project.id as string);
+
+        const started = await startDeployment(tree, {
+          name: vercelProject,
+          supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
+          supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+          supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
         });
 
-        if (deployed.ok) {
-          deploymentUrl = deployed.url;
+        if (started.ok) {
+          deploymentUrl = started.url;
+          pendingDeployment = {
+            deploymentId: started.deploymentId,
+            vercelProject,
+            url: started.url,
+            inspectUrl: started.inspect,
+          };
         } else {
-          deploymentError = deployed.reason;
+          deploymentError = started.reason;
         }
       }
 
@@ -525,10 +581,28 @@ export async function POST(request: Request) {
   /* Skipped for a summary this route wrote itself. It declares no photograph
      slots, so filling it would search for nothing and find nothing — and
      `synthesised` is a cheaper way to know that than asking a stock provider. */
+  /* What this project's earlier builds already used.
+   *
+   * The other half of the fix in fillImages. Within one page the exclusion set
+   * stops two slots getting the same photograph; this stops the REBUILD
+   * getting the same set again when the person asked for something different,
+   * and it is what makes "seed + exclude" mean the project rather than the
+   * request.
+   *
+   * Read from project_assets, which already exists for the planned-asset
+   * pipeline. Best effort: a read that fails costs variety, not the build. */
+  const usedBefore = await previouslyUsedPhotos(supabase, project.id as string);
+
   const pictures = synthesised
-    ? { html, credits: [], filled: 0, skipped: 0, bytes: 0 }
+    ? { html, credits: [], filled: 0, skipped: 0, bytes: 0, used: [] as string[] }
     : await fillImages(html, providerFromEnv(), {
         context: searchContext(str(body.prompt)),
+        /* Stable for this project and different between projects — see
+           `rotation`. Two bakeries asking for the same photograph used to be
+           handed the identical one, because the search is deterministic and
+           this took the first result. */
+        seed: project.id as string,
+        exclude: usedBefore,
       });
   html = pictures.html;
 
@@ -577,8 +651,37 @@ export async function POST(request: Request) {
    * Only documents. A project of .tsx files carries the same defects in
    * Tailwind classes, where a regex is a liability; those go to the gates and
    * the edit path like anything else. See src/lib/builder/qa/autofix.ts. */
+  /* The mechanical repairs used to run HERE, before the gates, which is why
+     nothing ever repaired what the gates found. They run inside the inspection
+     loop below now — see runQaLoop — so the order is inspect, repair,
+     re-inspect, which is what the architecture asked for. `repaired` is kept
+     as the record of the FIRST pass, because qa_fixes on the build row is
+     about what the document arrived needing. */
   const repaired = autofix(html);
   html = repaired.html;
+
+  /* ── The design system, made real for a single page ────────────────────
+   *
+   * tokensCss had one caller — the scaffold, writing app/tokens.css into a
+   * Next.js tree. So a PROJECT got a design system it could not deviate from
+   * and a PAGE, which is most of what this builder makes, got a paragraph in
+   * the prompt describing one. designGate could only check the page against
+   * values the model had chosen to honour.
+   *
+   * The same tokens, in both shapes. Inserted at the top of <head>, so a page
+   * that defined its own value later still wins — what this guarantees is that
+   * every token NAME resolves, not that the platform overrules the design. */
+  if (tree.length === 0) {
+    const design = systemByName(body.designSystem);
+    if (design) {
+      const withTokensApplied = withTokens(html, design);
+      if (withTokensApplied !== html) {
+        html = withTokensApplied;
+        // eslint-disable-next-line no-console
+        console.info(`save: compiled the ${design.name} tokens into the page`);
+      }
+    }
+  }
 
   if (repaired.applied.length > 0) {
     // eslint-disable-next-line no-console
@@ -606,7 +709,40 @@ export async function POST(request: Request) {
    * for and can fix in one edit. The result is recorded and reported, which is
    * what makes it actionable — a gate that deletes the thing it was judging is
    * a gate people disable. */
-  const qa = await runQa({
+  /* ── Inspect, then repair, then inspect again ──────────────────────────
+   *
+   * This ran backwards. autofix repaired the document above and THEN the gates
+   * looked at it, so anything the gates found was never repaired by anything —
+   * the verdict went into a chat message asking the customer to ask for a fix.
+   * `inspect → repair` was the order the architecture called for and the code
+   * had it the other way round.
+   *
+   * runQaLoop is the loop that was written for this and had no production
+   * caller: inspect, repair what is repairable, inspect again, capped at three
+   * rounds, and never return a passing verdict it did not measure.
+   *
+   * THE REPAIRER HERE IS MECHANICAL, and that is the whole reason this can run
+   * on a request at all. autofix is regexes over markup — a missing viewport
+   * tag, `width: 1200px`, `100vw` — each with exactly one correct fix and no
+   * opinion required. It costs milliseconds and no model call, so the loop
+   * finishes well inside the ceiling.
+   *
+   * A MODEL repair, for the defects that need judgement, is the same loop with
+   * a different callback and it still waits on the worker: the edit path is a
+   * model call of its own and there is no room for three of them here. That is
+   * a missing repairer rather than a missing loop, which is a much smaller gap
+   * than the one this closes. See docs/JOBS.md.
+   *
+   * Neither half blocks the save. The build is finished and paid for; refusing
+   * to store it over a missing alt attribute would throw away work somebody
+   * waited for and can fix in one edit. */
+  const jobForQa = await liveJob(supabase, project.id as string);
+  if (jobForQa) {
+    await advanceJob(supabase, jobForQa.id, { to: "assembling" });
+    await advanceJob(supabase, jobForQa.id, { to: "validating" });
+  }
+
+  const inspection = await runQaLoop({
     html,
     tree,
     manifest: sentArchitecture ? summaryArchitecture : null,
@@ -616,7 +752,38 @@ export async function POST(request: Request) {
        and nothing else, because everything else on the page came from a model
        and is exactly what is being judged. */
     evidence: await evidenceForProject(supabase, project.id, str(body.prompt)),
+    /* Documents only. A project of .tsx carries the same defects in Tailwind
+       classes, where a regex is a liability — those go to the gates and the
+       edit path like anything else. */
+    repair:
+      tree.length > 0
+        ? undefined
+        : async (candidate) => {
+            const fixed = autofix(candidate);
+            /* Null means "nothing left to do", which is what stops the loop.
+               Returning the same document would spend two more rounds
+               reaching the same verdict. */
+            return fixed.applied.length > 0 ? fixed.html : null;
+          },
+    onPass: (result, attempt) => {
+      if (attempt > 0) {
+        // eslint-disable-next-line no-console
+        console.info(`save: repair round ${attempt} left the page ${result.status}`);
+      }
+    },
   });
+
+  /* The repaired document is the one that gets stored. A loop whose output was
+     discarded would be an expensive way to produce a report. */
+  html = inspection.html;
+  const qa = inspection.result;
+
+  if (jobForQa && inspection.attempted.length > 0) {
+    await advanceJob(supabase, jobForQa.id, {
+      to: "repairing",
+      detail: { repaired: [...new Set(inspection.attempted.map((fix) => fix.rule))] },
+    });
+  }
 
   const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
 
@@ -689,6 +856,23 @@ export async function POST(request: Request) {
     }
   }
 
+  /* The deployment, against the build whose files it is. After the build row
+     rather than before it, for the same reason storeTree is: a deployment is
+     of a particular set of files, and those files only have an id from here
+     on. Best effort — a deployment that is running is running whatever this
+     table says, and losing the row costs the poll rather than the site. */
+  if (pendingDeployment) {
+    await recordDeployment(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      buildId: inserted.id as string,
+      deploymentId: pendingDeployment.deploymentId,
+      vercelProject: pendingDeployment.vercelProject,
+      url: pendingDeployment.url,
+      inspectUrl: pendingDeployment.inspectUrl,
+    });
+  }
+
   /* ── Saying what the gates found ───────────────────────────────────────
    *
    * Only when something is actually wrong. A message on every build saying
@@ -742,6 +926,21 @@ export async function POST(request: Request) {
       kind: "build_qa",
       /* Keyed on the build, so a retried save does not say it twice. */
       dedupeKey: `qa:${claim.requestId || project.id}`,
+    });
+  }
+
+  /* The photographs this build used, remembered.
+   *
+   * So the next build of this project can avoid them, and so "are this
+   * project's images its own" is a question with an answer rather than an
+   * assurance. Nothing recorded these before: they existed only as base64
+   * inside the stored document, which meant nothing could tell whether two
+   * projects were sharing a picture. */
+  if (pictures.used.length > 0) {
+    await rememberPhotos(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      ids: pictures.used,
     });
   }
 
@@ -928,6 +1127,27 @@ export async function POST(request: Request) {
      does not need a third guess on top of it. */
   const sentArchitectureType = (body.architecture as { type?: unknown } | undefined)?.type;
   const builtKind = isBuildKind(sentArchitectureType) ? sentArchitectureType : null;
+
+  /* ── And the job, finished ─────────────────────────────────────────────
+   *
+   * "ready" when the page is the artefact, "deploying" when a Vercel build is
+   * still running — /api/cron/deployments closes that one when it hears back.
+   * Either way this is the writer that got here first, and terminal states
+   * have no outgoing transitions, so a late "Failed" from anywhere else is
+   * refused rather than overwriting a build somebody has already been told
+   * about. */
+  /* Finished. `assembling` and `validating` were entered up at the inspection,
+     which is where they actually happen — this is only the last move. */
+  const liveBuildJob = await liveJob(supabase, project.id as string);
+  if (liveBuildJob) {
+    await advanceJob(
+      supabase,
+      liveBuildJob.id,
+      pendingDeployment
+        ? { to: "deploying", detail: { deploymentId: pendingDeployment.deploymentId } }
+        : { to: "ready", detail: { previewUrl } },
+    );
+  }
 
   const { error: updateError } = await supabase
     .from("projects")

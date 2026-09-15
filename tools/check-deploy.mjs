@@ -141,6 +141,31 @@ has(deploymentFiles([...TREE, { path: ".env.local", content: "X=1" }], TARGET)
   .every((f) => f.file !== ".env.local"),
   "a generated .env.local never ships");
 
+/* ── A project with no backend gets no credentials ────────────────────────
+ *
+ * The three fields used to be read off process.env at both call sites, so
+ * EVERY deployment carried the platform's own Supabase address and anon key —
+ * including a frontend-only project that has no client to use them and no
+ * business holding them, and including a project linked to its owner's
+ * database, which got ours instead of theirs.
+ *
+ * The caller supplies them now, from envFor(resolveBackend(...)), and absent
+ * means absent. */
+const noBackend = deploymentFiles(TREE, { name: TARGET.name });
+has(noBackend.every((f) => f.file !== ".env.production"),
+  "a project with no backend ships no environment file at all",
+  noBackend.find((f) => f.file === ".env.production")?.data);
+
+has(!JSON.stringify(noBackend).includes("supabase.co"),
+  "and no Supabase address reaches it by any other route");
+
+/* Half a connection is not a connection. A target missing any one of the three
+   must not produce a file with `undefined` in it, which would compile into the
+   bundle and fail at runtime in somebody's browser. */
+const partial = deploymentFiles(TREE, { name: TARGET.name, supabaseUrl: TARGET.supabaseUrl });
+has(partial.every((f) => f.file !== ".env.production"),
+  "a partial connection is refused rather than half-written");
+
 // ── The framework version ─────────────────────────────────────────────────
 //
 // A stored tree pinning next@15.5.4 could not be deployed at all: Vercel

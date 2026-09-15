@@ -433,6 +433,46 @@ export function isArchitectureChoice(value: unknown): value is "full" | "fronten
 }
 
 /**
+ * The manifest once somebody has answered the question.
+ *
+ * The missing half of this file. `decideArchitecture` has always known when it
+ * was guessing and said so in `certain`, `architectureQuestion` has always had
+ * the words to ask, and `architectureOptions` has always had the two chips —
+ * and nothing anywhere read any of them, so every guess was spent on instead
+ * of asked about. This is what an answer does to the decision.
+ *
+ * FRONTEND is a real answer and not a smaller version of the other one: it
+ * turns every layer off, which is the whole point. Somebody who says they want
+ * the front of a store has said they do not want a schema migrated into a
+ * database, an admin nobody will open, or a Next.js project where a page would
+ * do.
+ *
+ * FULL keeps exactly what was decided, because the question is only ever asked
+ * when layers are already on — see `certain`, which is true whenever
+ * `needsProject` is false. There is no minimum to apply and nothing to invent.
+ *
+ * Both come back `certain: true`. The question has been answered; asking again
+ * on the next message would be the builder forgetting.
+ */
+export function architectureFromChoice(
+  choice: "full" | "frontend",
+  kind: BuildKind,
+  decided: ArchitectureResult,
+): ArchitectureResult {
+  if (choice === "frontend") {
+    return {
+      manifest: frontendOnly(kind),
+      why: ["you chose the front of it, so nothing behind it is built"],
+      needsProject: false,
+      promoted: false,
+      certain: true,
+    };
+  }
+
+  return { ...decided, certain: true };
+}
+
+/**
  * The manifest as the model is shown it.
  *
  * A block rather than a sentence, and the OFF layers are listed as well as the
@@ -460,4 +500,61 @@ export function architectureBrief(manifest: ArchitectureManifest): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * The manifest with layers added, and never with any taken away.
+ *
+ * Capability was decided once, at build time, and was immutable thereafter.
+ * That is the reason this system leans toward giving every project everything
+ * up front: if the first build guesses low there is no way back except a full
+ * rebuild, which discards the page somebody has been working on. Make it
+ * additive and the pressure to over-provision goes with it — a project can
+ * start as the front of a shop and become a shop.
+ *
+ * ADDITIVE IS A RULE, not an implementation detail. A later message that does
+ * not mention the database must never be read as a request to remove it: a
+ * customer's tables, their rows and their auth users are not something a
+ * classifier gets to decide about. Removal is a separate, explicit act.
+ *
+ * The implication chains from decideArchitecture are applied again here, for
+ * the same reasons they exist there — an admin nobody can sign into is a public
+ * back office, and payments with no database is a checkout that charges a card
+ * and forgets the sale.
+ */
+export function raiseArchitecture(
+  current: ArchitectureManifest,
+  add: readonly Layer[],
+): { manifest: ArchitectureManifest; added: Layer[] } {
+  const manifest: ArchitectureManifest = { ...current, frontend: true };
+
+  for (const layer of add) {
+    if (layer === "frontend") continue;
+    manifest[layer] = true;
+  }
+
+  if (manifest.payments) manifest.database = true;
+  if (manifest.admin) manifest.authentication = true;
+  if (manifest.authentication || manifest.admin || manifest.storage) manifest.backend = true;
+  if (manifest.backend && (manifest.authentication || manifest.admin)) manifest.database = true;
+
+  const added = LAYERS.filter((layer) => manifest[layer] && !current[layer]);
+  return { manifest, added };
+}
+
+/**
+ * What a capability upgrade is called where somebody reads it.
+ *
+ * Named as the thing they asked for rather than as the layers, because "adding
+ * accounts, which needs a database behind them" is a sentence somebody can
+ * agree or disagree with, and "authentication, backend, database" is a list
+ * they have to translate first.
+ */
+export function describeUpgrade(added: readonly Layer[]): string {
+  const names = added.map((layer) => LAYER_LABEL[layer].toLowerCase());
+  if (names.length === 0) return "";
+  if (names.length === 1) return `adding ${names[0]}`;
+
+  const last = names[names.length - 1];
+  return `adding ${names.slice(0, -1).join(", ")} and ${last}`;
 }

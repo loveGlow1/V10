@@ -81,7 +81,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib")]) {
   }
 }
 
-const { decideArchitecture, describeArchitecture } = await import(
+const { decideArchitecture, describeArchitecture, raiseArchitecture } = await import(
   join(out, "lib/builder/architecture.js")
 );
 const { dataModelFor, schemaNameFor, toSql, toTypes } = await import(
@@ -168,6 +168,65 @@ const CASES = [
     kind: "webapp",
     on: ["backend", "database", "authentication"],
     off: ["payments"],
+  },
+
+  /* ── An account, in the words people actually use ──────────────────────
+   *
+   * Every case below was decided WRONG before the AUTH patterns were widened,
+   * and each was wrong in a way nothing could see: no error, no question, a
+   * confident manifest, and a build spent on it.
+   *
+   * The asymmetry that caused it is worth keeping in mind when touching these:
+   * kinds.ts scores a bare "accounts" as evidence of software and routes the
+   * brief to the webapp blueprint, while stack.ts wanted the word next to
+   * "user" or after a verb. So the same word decided what to build and failed
+   * to turn on the thing it needed. */
+  {
+    /* Authentication arrived FALSE here, so a shop with customer accounts got
+       a database and no way for a customer to be anybody. */
+    brief:
+      "an online bakery where customers create accounts, save addresses, order cakes and track their orders",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["admin", "payments"],
+  },
+  {
+    /* Accounts named first in a feature list, which is where they usually are.
+       This produced a Next.js project with no layers at all. */
+    brief: "team project management application with accounts, projects, tasks and permissions",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["payments", "storage"],
+  },
+  {
+    brief: "a members portal where each client can view their own documents",
+    kind: "webapp",
+    on: ["backend", "database", "authentication"],
+    off: ["payments"],
+  },
+
+  /* ── And what is NOT an account ────────────────────────────────────────
+   *
+   * The other direction, which is the expensive one: widening a pattern to
+   * catch the cases above must not turn a booking form into a users table.
+   * "Sign up" is the word people use for both. */
+  {
+    brief: "a yoga studio site where people can sign up for a class",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    brief: "a landing page for my studio with a form to sign up for the newsletter",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
+  },
+  {
+    brief: "a conference page where you can register for the event",
+    kind: "landing",
+    on: [],
+    off: ["backend", "database", "authentication", "admin", "storage", "payments"],
   },
 ];
 
@@ -583,6 +642,81 @@ console.log("");
 if (failures > 0) {
   console.error(`${failures} ${failures === 1 ? "failure" : "failures"}.\n`);
   process.exit(1);
+}
+
+/* ── Capabilities are additive ─────────────────────────────────────────────
+ *
+ * Capability was decided once at build time and could not change, so the only
+ * route to one the first build missed was a rebuild — which throws the page
+ * away. That is the real reason this system leans toward giving every project
+ * everything up front: guessing low was unrecoverable.
+ *
+ * The rule that makes it safe to relax is that nothing here ever takes a layer
+ * AWAY. A later message that does not mention the database is not a request to
+ * delete somebody's tables.
+ */
+console.log("\nRaising a project's capabilities");
+
+const page = {
+  type: "landing",
+  frontend: true,
+  backend: false,
+  database: false,
+  authentication: false,
+  admin: false,
+  storage: false,
+  payments: false,
+};
+
+const withAuth = raiseArchitecture(page, ["authentication"]);
+if (withAuth.manifest.authentication && withAuth.manifest.backend && withAuth.manifest.database) {
+  pass("adding accounts brings the backend and database with them");
+} else {
+  fail("adding accounts brings the backend and database with them", JSON.stringify(withAuth.manifest));
+}
+
+if (withAuth.added.join() === "backend,database,authentication") {
+  pass("and says which layers were added, in build order");
+} else {
+  fail("and says which layers were added, in build order", withAuth.added.join());
+}
+
+const full = {
+  ...page,
+  type: "ecommerce",
+  backend: true,
+  database: true,
+  authentication: true,
+  admin: true,
+  storage: true,
+};
+const narrowed = raiseArchitecture(full, ["frontend"]);
+const lost = Object.keys(full).filter((k) => full[k] === true && narrowed.manifest[k] !== true);
+
+if (lost.length === 0) {
+  pass("an edit that mentions nothing removes nothing");
+} else {
+  fail("an edit that mentions nothing removes nothing", `lost: ${lost.join(", ")}`);
+}
+
+if (narrowed.added.length === 0) {
+  pass("and reports no change rather than a no-op upgrade");
+} else {
+  fail("and reports no change rather than a no-op upgrade", narrowed.added.join());
+}
+
+const admin = raiseArchitecture(page, ["admin"]);
+if (admin.manifest.authentication) {
+  pass("an admin cannot be added without a way to sign into it");
+} else {
+  fail("an admin cannot be added without a way to sign into it");
+}
+
+const pay = raiseArchitecture(page, ["payments"]);
+if (pay.manifest.database) {
+  pass("payments cannot be added without somewhere to record the sale");
+} else {
+  fail("payments cannot be added without somewhere to record the sale");
 }
 
 console.log("All good.\n");
