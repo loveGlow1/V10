@@ -101,6 +101,13 @@ export default function PreviewPanel({
    * the person who can add it is worth more than a disabled button. */
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState<string | null>(null);
+  /* Whether the site at that address is still this project.
+   *
+   * False means the newest build has not been deployed — which is now the
+   * ordinary state of an edited project, because building is not publishing.
+   * The frame must show the newest SOURCE in that case, not the older site.
+   * See the note on `current` in /api/projects/[id]/deploy. */
+  const [liveIsCurrent, setLiveIsCurrent] = useState(true);
   /* The address exists and the site behind it does not, yet.
    *
    * Vercel answers as soon as it has ACCEPTED the upload; installing and
@@ -148,6 +155,7 @@ export default function PreviewPanel({
     setCanRun(null);
     setHostingReady(true);
     setDeployed(null);
+    setLiveIsCurrent(true);
     setBuilding(false);
     setDeployError(null);
     setDiagnosis(null);
@@ -159,6 +167,8 @@ export default function PreviewPanel({
         available?: boolean;
         ready?: boolean;
         url?: string | null;
+        /* Whether that address is serving the newest build. */
+        current?: boolean;
         /* Why the last attempt produced no address. Distinct from `reason`,
            which is about this DEPLOYMENT's configuration rather than about
            this project's last build. */
@@ -174,6 +184,7 @@ export default function PreviewPanel({
            project that was deployed an hour ago is showing its app before
            anybody presses anything. */
         if (body.url) setDeployed(body.url);
+        setLiveIsCurrent(body.current !== false);
         /* Carried before anything is pressed. If hosting is not configured, the
            account that can configure it should be able to read that from the
            button rather than from a failed attempt. */
@@ -217,6 +228,7 @@ export default function PreviewPanel({
       };
       if (response.ok && body.url) {
         setDeployed(body.url);
+        setLiveIsCurrent(true);
         setBuilding(body.building === true);
       } else {
         setDeployError(body.error ?? "The deployment did not complete.");
@@ -637,6 +649,39 @@ export default function PreviewPanel({
             </div>
           ) : null}
 
+          {/* ── The live site is behind this preview ──────────────────────
+           *
+           * Shown when the project is deployed and the newest build is not the
+           * one that was deployed, which is the ordinary state of an edited
+           * project now that an edit no longer publishes itself.
+           *
+           * The frame below is showing the NEWEST source, which is the true
+           * state of the project and the right thing to show. But the customer
+           * also has a site up at an address they have given people, and that
+           * site is now older than what they are looking at. Leaving that
+           * unsaid would be its own quiet lie — they would reasonably assume
+           * the thing on screen is what visitors get. So both facts are on
+           * screen: this is your project, that is your site, and Publish is
+           * what closes the gap. */}
+          {deployed && !building && !liveIsCurrent ? (
+            <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
+              <p className="text-[12px] font-medium text-ink">Your live site is behind this preview</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                You are looking at the newest version of your project. The site at the address
+                below is still serving the last version you published.
+              </p>
+              <a
+                href={deployed}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
+              >
+                {deployed.replace(/^https?:\/\//, "")}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </div>
+          ) : null}
+
           {/* The address, while the site behind it is still being built.
            *
            * This is the half that was missing. Deploy handed back a real
@@ -682,7 +727,7 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {deployed && !building ? (
+          {deployed && !building && liveIsCurrent ? (
             <iframe
               key={`${deployed}#${reloads}`}
               src={deployed}

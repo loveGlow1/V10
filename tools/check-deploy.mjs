@@ -439,10 +439,44 @@ has(
   "the address is real before the site behind it is",
 );
 
+/* Matched as a PREFIX rather than as the whole condition. What this test is
+   defending is that `!building` guards the frame — pointing it at a site that
+   is still compiling is what turned a working preview into a blank white pane
+   on every deploy. Further conjuncts narrow that further and are fine; the
+   literal-string form of this assertion failed the moment one was added, which
+   made it a test of the spelling rather than of the property. */
 has(
-  /\{deployed && !building \? \(/.test(panel),
+  /\{deployed && !building(?: && \w+)* \? \(/.test(panel),
   "and does not point the frame at a site that is still compiling",
   "this is what turned a working preview into a blank white pane on every deploy",
+);
+
+/* ── And does not point it at a site that is out of date either ──────────
+ *
+ * The other way the frame can lie, and a newer one: an edit no longer
+ * deploys itself, so a project that is live and has since been edited has a
+ * site older than its own source. Framing that site shows somebody the
+ * version BEFORE the change they just made, in the pane whose job is to show
+ * them what they have.
+ *
+ * The frame must prefer the newest source in that case, and the older site
+ * must still be named rather than silently dropped — it is up, it is theirs,
+ * and people have the address. */
+has(
+  /&& liveIsCurrent \? \(/.test(panel),
+  "and does not point the frame at a site that is behind the newest build",
+  "an edit that is stored but not published must not be invisible in the preview",
+);
+
+has(
+  /!liveIsCurrent \? \(/.test(panel) && /live site is behind this preview/i.test(panel),
+  "and says so, rather than quietly hiding the site that is up",
+);
+
+has(
+  /const current = Boolean\(/.test(deployApi) && /\bcurrent,/.test(deployApi),
+  "the server decides whether the live address is current, and reports it",
+  "the browser cannot know which build is deployed",
 );
 
 has(
