@@ -552,5 +552,62 @@ has(
   "source changed and not deployed leaves the customer's site on the previous build",
 );
 
+/* ── And the same fallback's OTHER half: a page is not a file tree ─────────
+ *
+ * treeFromPage is right for reading — the preview and the download should not
+ * each have to ask which of the two kinds of build they are holding. It is
+ * wrong for EDITING, and the edit path is the one place in the codebase that
+ * has to know the difference.
+ *
+ * A page carries its photographs inside it as base64. The page edit path lifts
+ * them out before the document goes near a model (stashImages) and puts them
+ * back after the change applies. The SOURCE edit path has no such step, and
+ * never needed one, because a .tsx component has no embedded photographs. So a
+ * single page claimed by the source path was posted whole:
+ *
+ *     prompt is too long: 1284286 tokens > 1000000 maximum
+ *
+ * on a laundry site whose page is 1,376,012 characters, of which 1,333,066 are
+ * one photograph — 43 kilobytes of markup refused as 1.28 million tokens. Not a
+ * bad day: permanent. Every edit to that page failed the same way from the
+ * moment it got its pictures, and the page path that handles this correctly
+ * never ran, because the source path claimed the build first. */
+const PHOTOGRAPH = `data:image/jpeg;base64,${"QUJDRA".repeat(8000)}`;
+const PHOTO_PAGE =
+  `<!doctype html><html><body><header>Fresh Fold Laundry</header>` +
+  `<img src="${PHOTOGRAPH}" alt="our shop"/>` +
+  `<p>Wash, dry and fold, collected and returned.</p></body></html>`;
+
+const asTree = tree.treeFromPage(PHOTO_PAGE);
+has(
+  tree.isSinglePage(asTree),
+  "a page with its photographs in it is still recognised as a single page",
+  `${asTree.length} file(s), first is ${asTree[0]?.path}`,
+);
+
+has(
+  /isSinglePage\(project_\.tree\)/.test(route),
+  "so the source edit path refuses to claim it",
+  "without this the page is posted to a model as base64 and refused as over a million tokens",
+);
+
+has(
+  /stashImages\(currentHtml\)/.test(route) && /restoreImages\(/.test(route),
+  "and the page path it falls through to lifts the photographs out first",
+);
+
+/* The second line, on the source path itself: a generated .tsx can inline a
+   base64 logo exactly as a page can, and the file that reaches a model must
+   not carry one whichever branch we are in. */
+has(
+  /stashImages\(target\.content\)/.test(route),
+  "the source path stashes what it finds too, rather than trusting the routing",
+);
+has(
+  /restoreImages\(source\.contents/.test(route),
+  "and puts it back before the file is stored",
+  "a file stored with stashed-image-0 in it has lost its photograph for good",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

@@ -101,6 +101,7 @@ import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
+import { isSinglePage } from "@/lib/builder/tree";
 import { indexTree } from "@/lib/context/project-index";
 import {
   deploymentName,
@@ -1410,7 +1411,31 @@ async function handle(
       );
     }
 
-    if (project_.tree.length > 0 && project_.buildId) {
+    /* ── And a single page is NOT a file tree ────────────────────────────
+     *
+     * currentTree hands a single-page build back as a tree of one — the page
+     * itself, under index.html — so that the preview and the download do not
+     * each need to ask which of the two kinds of build they are holding. That
+     * is right for reading and wrong for EDITING, because this branch is the
+     * one thing in the codebase that must know the difference.
+     *
+     * A page carries its photographs inside it as base64. The page path below
+     * lifts them out before the document goes anywhere near a model
+     * (stashImages) and puts them back after the change applies; this path has
+     * no such step, because a .tsx component has no embedded photographs and
+     * never needed one. So a single page arriving here was sent whole:
+     *
+     *     prompt is too long: 1284286 tokens > 1000000 maximum
+     *
+     * on a laundry site whose page is 1,376,012 characters, of which 1,333,066
+     * are one photograph. Forty-three kilobytes of markup, refused as one and a
+     * quarter million tokens. And it is not a bad day — it is permanent: the
+     * moment a page gets its pictures, every edit to it fails this way, which
+     * is exactly what "why so much tokens on little request" is.
+     *
+     * The page path has handled this correctly all along. It simply never ran,
+     * because this branch claimed the build first. */
+    if (project_.tree.length > 0 && project_.buildId && !isSinglePage(project_.tree)) {
       steps.begin("file", "Finding the file", "reading the project's own listing…");
 
       const picked = await pickFile(stageRequest ?? prompt, project_.tree);
@@ -1475,12 +1500,30 @@ async function handle(
         await deliver(upgrade.said, { key: "capability" });
       }
 
+      /* ── The same guard the page path has, on this path too ─────────────
+       *
+       * A single page can no longer reach here (see isSinglePage above), which
+       * is what actually caused a 1,376,012-character document to be posted as
+       * one and a quarter million tokens. This is the second line rather than
+       * the first: a generated .tsx can inline a base64 logo just as a page
+       * can, and nothing that costs a hundred thousand tokens to read and
+       * cannot meaningfully be edited should ever reach a model — whichever
+       * kind of file it is sitting in.
+       *
+       * A no-op on the files this finds nothing in, which is nearly all of
+       * them: same object, same content, not even a copy. */
+      const stashedSource = stashImages(target.content);
+      const leanTarget =
+        stashedSource.images.length > 0
+          ? { ...target, content: stashedSource.lean }
+          : target;
+
       let source;
       try {
         steps.begin("edit", "Making the change", `reading ${picked.path}…`);
         source = await editSource(
           stageRequest ?? prompt,
-          target,
+          leanTarget,
           picked.why,
           project_.tree,
           prior,
@@ -1510,8 +1553,17 @@ async function handle(
       /* The whole tree, with one file replaced. Stored as a NEW build rather
          than as an update to the old one, for the same reason a page edit is:
          undo is a version, never a deletion. */
+      /* The pictures back where they were, before anything is stored. Same
+         order as the page path: apply against the lean text, restore, then
+         write. A file stored with `stashed-image-0` in it is a file whose
+         photograph is gone for good. */
+      const editedContents =
+        stashedSource.images.length > 0
+          ? restoreImages(source.contents, stashedSource.images)
+          : source.contents;
+
       const changed = project_.tree.map((file) =>
-        file.path === source.path ? { ...file, content: source.contents } : file,
+        file.path === source.path ? { ...file, content: editedContents } : file,
       );
 
       /* ── The same repair a fresh build gets ────────────────────────────
