@@ -462,10 +462,33 @@ has(
  * The frame must prefer the newest source in that case, and the older site
  * must still be named rather than silently dropped — it is up, it is theirs,
  * and people have the address. */
+/* Each of these matches the guard ANYWHERE in the frame's condition rather
+   than at the end of it, for the reason the prefix match above exists: the
+   literal-string form of this assertion broke the moment another guard was
+   added beside it, which made it a test of the spelling rather than of the
+   property. The condition may grow; every one of these must stay in it. */
 has(
-  /&& liveIsCurrent \? \(/.test(panel),
+  /\{deployed && !building(?: && \w+)*\b.*?liveIsCurrent/.test(panel),
   "and does not point the frame at a site that is behind the newest build",
   "an edit that is stored but not published must not be invisible in the preview",
+);
+
+/* ── And does not point it at a site the browser will refuse to show ─────
+ *
+ * Up and framable are different questions. A deployment behind Vercel's
+ * Deployment Protection opens perfectly in a tab — the team's cookie goes
+ * with it — and answers 401 in a cross-site frame, where it does not. The
+ * browser's only feedback is a blank rectangle, so the pane must ask before
+ * it frames, and fall back to rendering the project from its own source. */
+has(
+  /\{deployed && !building(?: && \w+)*\b.*?liveViewable/.test(panel),
+  "and does not point the frame at a site that refuses to be framed",
+  "this is the blank white pane that reads as a broken product when nothing is broken",
+);
+
+has(
+  /!liveViewable \? \(/.test(panel) && /cannot be shown here/i.test(panel),
+  "and says so, with the link that does work",
 );
 
 has(
@@ -477,6 +500,12 @@ has(
   /const current = Boolean\(/.test(deployApi) && /\bcurrent,/.test(deployApi),
   "the server decides whether the live address is current, and reports it",
   "the browser cannot know which build is deployed",
+);
+
+has(
+  /canBeFramed\(/.test(deployApi) && /\bviewable,/.test(deployApi),
+  "the server decides whether the live address can be framed, and reports it",
+  "the browser cannot read a cross-origin frame to find out that it failed",
 );
 
 has(
