@@ -86,6 +86,41 @@ function namedIn(message: string, tree: FileTree): string | null {
     if (message.includes(file.path)) return file.path;
   }
 
+  /* A path that is nearly the path. People write the file they mean and get the
+     ROOT of it wrong, constantly and in both directions: `dashboard/page.tsx`
+     with the `app/` left off, `src/app/dashboard/page.tsx` with a `src/` that
+     this tree does not have, `scaffold/dashboard/page.tsx` using the word the
+     interface shows above the listing. Every one of those is somebody naming a
+     file outright, and before this they were read as naming nothing — the
+     message fell through to the bare-filename pass, where `page.tsx` matches
+     five routes and therefore none of them, and then to a model asked to guess
+     among them with "if nothing fits, answer with the home page's path". So a
+     request that could not have been more specific about its target became an
+     edit to the home page, or a new dashboard written over the old one.
+   *
+     Trimmed from the left, most specific first, and the first depth that
+     matches anything is the answer — each shorter suffix matches a superset of
+     the longer one, so nothing is gained by continuing past it and specificity
+     is lost. More than one match at that depth is a genuine ambiguity and goes
+     to the model, which is what the model is for. Never trimmed down to a
+     single segment: that is the pass below, which has its own uniqueness rule
+     and must keep it. */
+  const typed = message.match(/[\w.\-[\]()]+(?:\/[\w.\-[\]()]+)+/g) ?? [];
+  for (const token of typed) {
+    const cleaned = token.replace(/^[./]+/, "").replace(/\/+$/, "");
+    const segments = cleaned.split("/").filter(Boolean);
+
+    for (let start = 0; start <= segments.length - 2; start++) {
+      const suffix = segments.slice(start).join("/");
+      const matches = tree.filter(
+        (file) => file.path.toLowerCase() === suffix.toLowerCase()
+          || file.path.toLowerCase().endsWith(`/${suffix.toLowerCase()}`),
+      );
+      if (matches.length === 1) return matches[0].path;
+      if (matches.length > 1) break;
+    }
+  }
+
   /* A bare filename — "in Nav.tsx", "the globals file". Only when it picks out
      exactly one file, because `page.tsx` in a project with six routes names all
      of them and therefore none. */

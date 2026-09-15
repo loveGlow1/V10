@@ -411,6 +411,21 @@ const PLATFORM_OWNED = new Set([
   "next.config.mjs",
   "postcss.config.mjs",
   "tailwind.config.ts",
+  /* The other half of tailwind.config.ts, and owned for the same reason it is.
+     The config above maps `ground` to var(--ground) and six more like it; this
+     is the file that defines them. A model that writes its own app/tokens.css
+     — which it will, having been told in the brief that the project has one —
+     replaces those definitions with whatever it invented, and every mapped
+     class in the project then resolves to an empty custom property. Nothing
+     fails: Tailwind emits `color: var(--ink)`, the browser finds no --ink, and
+     the page renders in the user agent's own colours. Two white rectangles on
+     black, again, by a different route.
+   *
+     Only owned when there IS a design system, because `owned` is the
+     intersection of this set with what platformFiles actually wrote — with no
+     DesignDNA there is no platform tokens.css and the model's own is all there
+     is, which is the correct outcome. */
+  "app/tokens.css",
   "tsconfig.json",
 ]);
 
@@ -431,6 +446,25 @@ const PLATFORM_OWNED = new Set([
  * After any leading @import, because CSS requires @import to come first and a
  * stylesheet that breaks that rule drops the import silently — which would
  * take the tokens with it. */
+/* The tokens file, guaranteed to be loaded.
+ *
+ * Third part of the same failure, and the quietest of the three. The palette is
+ * written to app/tokens.css by the platform, the names are mapped in
+ * tailwind.config.ts by the platform, and the one line that connects them —
+ * `@import "./tokens.css"` at the top of globals.css — was left to the model
+ * because the brief asks for it. A model that writes a stylesheet of resets and
+ * forgets that line produces a project where all three pieces exist, every file
+ * looks right, and not one colour arrives: the custom properties are defined in
+ * a file nothing ever loads.
+ *
+ * So the import is inserted when it is missing, and only then. Before the
+ * Tailwind directives, because CSS drops an @import that comes after a rule and
+ * dropping this one is the failure being fixed. */
+function withTokenImport(css: string): string {
+  if (/@import\s+["'][^"']*tokens\.css["']/.test(css)) return css;
+  return `@import "./tokens.css";\n${css}`;
+}
+
 function withTailwindDirectives(css: string): string {
   if (/^\s*@tailwind\s+utilities/m.test(css)) return css;
 
@@ -465,7 +499,13 @@ export function completeTree(
 
   const globals = byPath.get("app/globals.css");
   if (globals) {
-    byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(globals.content) });
+    /* Import first, directives second: withTailwindDirectives places itself
+       after any leading @import, so doing it this way round leaves the tokens
+       ahead of the utilities that use them. */
+    const withTokens = byPath.has("app/tokens.css")
+      ? withTokenImport(globals.content)
+      : globals.content;
+    byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(withTokens) });
   }
 
   /* Last, and after everything else has been merged in: a page that is both
@@ -611,6 +651,13 @@ export function treeBrief(
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
+    /* Named here as well as in the asset manifest, and deliberately. This brief
+       is the last thing the model reads before it starts writing files, and
+       until the manifest learned to say "as a project" the two of them
+       disagreed — this one said next/image, that one said <img> — over a flat
+       list of slots with no file named for any of them. Half the projects built
+       under that contradiction contain no photograph at all. */
+    "- The photographs for this build are listed further up. Put their URLs in lib/images.ts as exported constants with their alt text, import them with `@/lib/images`, and use every one of them. A project with no photographs in it is not finished, whatever else is right about it.",
   ];
 
   if (manifest.database) {

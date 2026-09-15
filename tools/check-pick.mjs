@@ -94,6 +94,67 @@ picks("update tailwind.config.ts", "tailwind.config.ts", "named");
    prevent. */
 defers("page.tsx has a typo in it");
 
+/* ── A path that is nearly the path ────────────────────────────────────────
+ *
+ * The one that was silently broken, and the reason it was worth finding: every
+ * message here names its file outright, and every one of them used to resolve
+ * to NOTHING — through the bare-filename pass, where `page.tsx` matches five
+ * routes, and on to a model told "if nothing fits, answer with the home page's
+ * path". Somebody asking for a change to the dashboard by name got the home
+ * page edited, or a second dashboard written over the first. */
+
+/* The root left off, which is how people read a file listing back. */
+picks("edit contact/page.tsx to add a phone number", "app/contact/page.tsx", "named");
+picks("blog/[slug]/page.tsx renders the date wrong", "app/blog/[slug]/page.tsx", "named");
+
+/* THE ONE THAT WAS REPORTED, in the shape it was reported in: a project with a
+   dashboard, and a message naming it under the word the interface shows. */
+const DASHED = [
+  "app/layout.tsx", "app/page.tsx", "app/globals.css",
+  "app/dashboard/page.tsx", "app/dashboard/settings/page.tsx",
+  "components/Nav.tsx",
+].map((path) => ({ path, content: "// x" }));
+has(
+  pickFileLocally("update scaffold/dashboard/page.tsx to add a revenue chart", DASHED)?.path
+    === "app/dashboard/page.tsx",
+  '"scaffold/dashboard/page.tsx" is the dashboard, not the home page',
+  JSON.stringify(pickFileLocally("update scaffold/dashboard/page.tsx to add a revenue chart", DASHED)),
+);
+has(
+  pickFileLocally("dashboard/settings/page.tsx needs a save button", DASHED)?.path
+    === "app/dashboard/settings/page.tsx",
+  "and the deeper route wins over the one above it",
+  JSON.stringify(pickFileLocally("dashboard/settings/page.tsx needs a save button", DASHED)),
+);
+
+/* A root this tree does not have. `src/` because most projects have one;
+   `scaffold/` because that is the word the interface puts above the listing. */
+picks("change src/app/pricing/page.tsx to three columns", "app/pricing/page.tsx", "named");
+picks("update scaffold/app/contact/page.tsx", "app/contact/page.tsx", "named");
+picks("in scaffold/components/Nav.tsx make the links bigger", "components/Nav.tsx", "named");
+
+/* Leading ./ and / are noise around a path, not part of one. */
+picks("./app/blog/page.tsx needs pagination", "app/blog/page.tsx", "named");
+picks("fix /components/Footer.tsx", "components/Footer.tsx", "named");
+
+/* AND WHERE IT MUST STOP. A suffix that names more than one file is a real
+   ambiguity — trimming further only matches more, so the model decides rather
+   than this picking whichever came first. */
+const AMBIGUOUS = [
+  { path: "app/dashboard/page.tsx", content: "// x" },
+  { path: "admin/dashboard/page.tsx", content: "// x" },
+  { path: "app/page.tsx", content: "// x" },
+];
+has(
+  pickFileLocally("update dashboard/page.tsx", AMBIGUOUS) === null,
+  '"dashboard/page.tsx" naming two files is left to the model',
+  JSON.stringify(pickFileLocally("update dashboard/page.tsx", AMBIGUOUS)),
+);
+
+/* A path-shaped thing that is not a path in this project stays not a path. */
+defers("the design is at https://dribbble.com/shots/9421-inspiration.png");
+defers("this broke on 12/05/2025");
+
 // ── What people actually say ──────────────────────────────────────────────
 /* Each of these is a thing said constantly, going to a place the thing
    reliably is. The component beats the layout when the project has one — that
