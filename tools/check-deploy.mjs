@@ -339,5 +339,56 @@ has(
   "a reason is only offered when there is no live address to offer instead",
 );
 
+/* ── Pressing Deploy ───────────────────────────────────────────────────────
+ *
+ * Two separate failures, both of them in the moment somebody presses the
+ * button and expects something to happen.
+ *
+ * THE ADDRESS DID NOT SURVIVE. Only this path skipped writing it: the save
+ * route puts deployment_url on the build row as soon as Vercel accepts an
+ * upload, and the deploy button deferred entirely to settleDeployment in the
+ * cron. So the address lived in one fetch response and was gone on reload —
+ * the workspace asked the build row, found nothing, and went back to showing
+ * the summary as though nothing had been deployed.
+ *
+ * THE PANE WENT BLANK. Vercel answers as soon as it has ACCEPTED the upload;
+ * installing and compiling takes another one to three minutes. The panel
+ * pointed its frame at that address immediately, so pressing Deploy replaced a
+ * working preview of the landing page with a white rectangle for the length of
+ * the build. The app was fine. It simply was not there yet. */
+const deployApi = readFileSync(
+  join(root, "src/app/api/projects/[id]/deploy/route.ts"),
+  "utf8",
+);
+const post = deployApi.slice(deployApi.indexOf("export async function POST"));
+
+has(
+  /deployment_url: started\.url, deployment_error: null/.test(post),
+  "pressing Deploy writes the address where the workspace reads it",
+  "otherwise it lives in one response and the next load shows the summary again",
+);
+
+const panel = readFileSync(
+  join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"),
+  "utf8",
+);
+
+has(
+  /setBuilding\(body\.building === true\)/.test(panel),
+  "the panel keeps `building` apart from `deployed`",
+  "the address is real before the site behind it is",
+);
+
+has(
+  /\{deployed && !building \? \(/.test(panel),
+  "and does not point the frame at a site that is still compiling",
+  "this is what turned a working preview into a blank white pane on every deploy",
+);
+
+has(
+  /deployed && building \?/.test(panel) && /Building your app/.test(panel),
+  "while showing the address, which is the thing somebody wants to copy",
+);
+
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

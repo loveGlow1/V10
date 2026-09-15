@@ -285,6 +285,24 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     inspectUrl: started.inspect,
   });
 
+  /* The address, written where the rest of the app reads it.
+   *
+   * It was not, and only this path skipped it: the save route writes
+   * deployment_url on the build row the moment Vercel accepts an upload, and
+   * the deploy button deferred entirely to settleDeployment in the cron. So
+   * pressing Deploy produced an address that lived in one fetch response and
+   * was gone on reload — the workspace asked the build row, found nothing, and
+   * went back to showing the summary as though nothing had been deployed.
+   *
+   * The failure is cleared with it. A row carrying last week's reason beside
+   * this week's address would report a project as unhosted while it is
+   * hosted. settleDeployment still owns the outcome and will null this again
+   * if the build turns out to have failed. */
+  await service
+    .from("project_builds")
+    .update({ deployment_url: started.url, deployment_error: null })
+    .eq("id", build.id);
+
   /* `building: true` rather than a bare URL, because the difference is now
      real: the address exists and the site behind it does not yet. A caller that
      showed this as "live" would be making the same promise the old blocking
