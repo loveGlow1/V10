@@ -23,12 +23,27 @@
 const API = "https://api.vercel.com";
 const TIMEOUT_MS = 10_000;
 
-function credentials(): { token: string; projectId: string; teamQuery: string } | null {
+/* ── WHICH Vercel project a domain is attached to ─────────────────────────
+ *
+ * This read VERCEL_PROJECT_ID and nothing else, so every custom domain was
+ * added to the project THIS app is deployed as. For a published single page
+ * that is exactly right: the platform serves those itself out of
+ * project_publications, so the domain has to resolve here and be looked up.
+ *
+ * It is wrong for a generated Next.js app. That has a Vercel project of its
+ * own — see vercel-deploy.ts — and a domain pointed at the platform resolves
+ * to a server that goes looking for a publication snapshot which does not
+ * exist. So an app could be deployed, and could not be given a domain at all:
+ * the two halves of "custom domain" and "Vercel deployment" were the same
+ * layer in the code and are different layers in the architecture.
+ *
+ * The caller says which. Null means the platform's own, which is the default
+ * and the case every existing row is in. */
+function credentials(
+  vercelProject?: string | null,
+): { token: string; projectId: string; teamQuery: string } | null {
   const token = process.env.VERCEL_API_TOKEN;
-  /* The Vercel project THIS app is deployed as — the one that must answer for
-     the customer's domain. Not the user's project id: there is no Vercel
-     project per user site, by design. */
-  const projectId = process.env.VERCEL_PROJECT_ID;
+  const projectId = vercelProject || process.env.VERCEL_PROJECT_ID;
   if (!token || !projectId) return null;
 
   const teamId = process.env.VERCEL_TEAM_ID;
@@ -108,8 +123,13 @@ export type AddOutcome =
  * starts caring whether DNS points at it, which is the right order — the person
  * cannot create the DNS record until they have been told what it is.
  */
-export async function addDomain(domain: string): Promise<AddOutcome> {
-  const auth = credentials();
+export async function addDomain(
+  domain: string,
+  /* The generated app's own Vercel project, when this domain belongs to a
+     deployed app rather than to a published page. See the note on credentials. */
+  vercelProject?: string | null,
+): Promise<AddOutcome> {
+  const auth = credentials(vercelProject);
   if (!auth) {
     return { state: "unavailable", message: "Custom domains aren't set up on this workspace yet." };
   }
@@ -173,8 +193,13 @@ export type ConfigOutcome =
  * is wrong and what to set. `misconfigured: false` is the whole answer to "is
  * it live" — Vercel has resolved the domain and is serving it.
  */
-export async function domainConfig(domain: string, apex: boolean, label: string): Promise<ConfigOutcome> {
-  const auth = credentials();
+export async function domainConfig(
+  domain: string,
+  apex: boolean,
+  label: string,
+  vercelProject?: string | null,
+): Promise<ConfigOutcome> {
+  const auth = credentials(vercelProject);
   if (!auth) {
     return { state: "unavailable", message: "Custom domains aren't set up on this workspace yet." };
   }
@@ -243,8 +268,14 @@ function firstIPv4(value: unknown): string {
 }
 
 /** Takes a domain off this app's Vercel project. */
-export async function removeDomain(domain: string): Promise<boolean> {
-  const auth = credentials();
+export async function removeDomain(
+  domain: string,
+  /* Where it was ATTACHED, not where it would be attached now. A project that
+     changed shape since must not leave a domain behind on a Vercel project
+     nobody is looking at. */
+  vercelProject?: string | null,
+): Promise<boolean> {
+  const auth = credentials(vercelProject);
   if (!auth) return false;
 
   const result = await call(
