@@ -2521,3 +2521,96 @@ drop trigger if exists project_deployments_set_updated_at on public.project_depl
 create trigger project_deployments_set_updated_at
   before update on public.project_deployments
   for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THREE LAYERS, THREE MODES — the backend as its own thing.
+--
+-- `project_backends.kind` held two values, 'shared' and 'own', and the second
+-- of those was doing two jobs. "Shared" meant QuickStark's own production
+-- Supabase with a schema per project, which is a preview mechanism wearing a
+-- production architecture's clothes: one auth.users pool for every customer,
+-- one service-role key, one database URL, and a PostgREST exposed-schemas list
+-- that cannot hold a name generated per build.
+--
+-- And there was no value for "this project has no database at all", which is
+-- the commonest correct answer. It was expressed by the absence of a row —
+-- indistinguishable from a row that failed to write.
+--
+--   none                a frontend-only project. Nothing is provisioned, and
+--                       that is a decision the manifest made, not a gap.
+--   quickstark_managed  a backend QuickStark provisions and owns on the
+--                       customer's behalf. `managed_ref` names the Supabase
+--                       PROJECT, not a schema inside ours.
+--   shared              the transitional preview instance. Kept because live
+--                       rows point at it and deleting a value does not migrate
+--                       anything; it is not the long-term production model.
+--   own                 the customer's own Supabase.
+--
+-- ── Verified is not the same as connected ────────────────────────────────────
+--
+-- Storing a URL and a key proved nothing: both were checked for SHAPE and the
+-- first real test was a migration inside a sixty-second build, minutes later
+-- and somewhere else. `verified_at` is set only when this server has actually
+-- reached that Supabase and been answered, and `verification_error` says what
+-- happened when it could not.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table public.project_backends
+  add column if not exists mode text,
+  add column if not exists managed_ref text,
+  add column if not exists verified_at timestamptz,
+  add column if not exists verification_error text;
+
+-- Existing rows carry their meaning across rather than being guessed at later.
+update public.project_backends
+   set mode = case when kind = 'own' then 'own' else 'shared' end
+ where mode is null;
+
+alter table public.project_backends
+  drop constraint if exists project_backends_mode_check;
+alter table public.project_backends
+  add constraint project_backends_mode_check
+  check (mode in ('none', 'quickstark_managed', 'shared', 'own'));
+
+-- The write grants have to cover the new columns or an owner linking their own
+-- Supabase writes a row with no mode. db_url stays absent from every SELECT
+-- grant — settable, replaceable, readable by nobody. That asymmetry is the
+-- whole security property of this table and adding a column must not disturb it.
+grant insert (project_id, user_id, kind, mode, url, anon_key, db_url, schema_name)
+  on public.project_backends to authenticated;
+grant update (kind, mode, url, anon_key, db_url, schema_name)
+  on public.project_backends to authenticated;
+grant select (project_id, user_id, kind, mode, managed_ref, url, anon_key,
+              schema_name, applied_at, verified_at, verification_error,
+              last_error, created_at, updated_at)
+  on public.project_backends to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- A custom domain belongs to the deployment it points at, not to the platform.
+--
+-- Every domain was added to VERCEL_PROJECT_ID — the Vercel project THIS app is
+-- deployed as — which is correct for a published single page, because the
+-- platform serves those itself from project_publications. It is wrong for a
+-- generated Next.js app, which has its own Vercel project: the domain resolved
+-- to the platform, which looked the hostname up in project_domains and served a
+-- published snapshot that did not exist. So an app could be deployed and could
+-- not be given a domain at all.
+--
+--   platform   the domain is served by this app, out of a publication snapshot
+--   app        the domain is attached to the generated project's own Vercel
+--              project, and Vercel routes it straight there
+--
+-- `vercel_project` records which one it was attached to, so removing a domain
+-- knows where to remove it FROM. Deriving that later from the project's current
+-- state would be wrong the moment a project changes shape.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table public.project_domains
+  add column if not exists target text not null default 'platform',
+  add column if not exists vercel_project text;
+
+alter table public.project_domains
+  drop constraint if exists project_domains_target_check;
+alter table public.project_domains
+  add constraint project_domains_target_check
+  check (target in ('platform', 'app'));

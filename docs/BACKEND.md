@@ -1,12 +1,47 @@
 # Giving a generated project a database
 
-A generated project's data lives on **QuickStark's own Supabase** by default, in
-a schema named for the project. That is the shared backend, and it is what a
-project gets by saying nothing. An owner can then point the project at **their
-own Supabase** instead — same files, same schema, different database.
+**Not every project gets one.** That sentence is the architecture, and until
+recently the code could not say it: "no database" was represented by the
+ABSENCE of a row in `project_backends`, which is indistinguishable from a row
+that failed to write — so a brochure site and a bookkeeping failure produced
+the same answer, and that answer was "put it on the shared instance".
 
-The code for both is in `src/lib/builder/backend/`. This file is the
-configuration the platform needs for either to work, and what is still missing.
+There are four modes, in `src/lib/builder/backend/modes.ts`:
+
+| Mode | What it is | Fit for real customer data |
+|---|---|---|
+| `none` | no database. Nothing is provisioned and nothing is charged | — |
+| `quickstark_managed` | a Supabase project of its own, made for this app | yes |
+| `shared` | a schema on QuickStark's instance | **no** — a preview |
+| `own` | the owner's Supabase | yes |
+
+**The manifest decides IF there is a database; the mode decides only WHOSE it
+is.** `architecture.manifest.database` comes out of understanding the product,
+and a project with no data layer never reaches the provisioning stage at all —
+no connection opened, no schema named, no migration written.
+
+## The three layers
+
+A **custom domain**, a **Vercel deployment** and a **database** are three
+different things, and this repository had them fused. Every domain was added to
+the platform's own Vercel project and a domain was refused unless the project
+had a published snapshot — which only the single-page flow ever writes. So a
+generated Next.js app, deployed to a Vercel project of its own, could not be
+given a custom domain at all. Not "it was fiddly": there was no path.
+
+| Layer | Where it lives | Stored as |
+|---|---|---|
+| Domain | Vercel, on the project that serves it | `project_domains.domain`, `.target`, `.vercel_project` |
+| Hosting | a Vercel project, one per generated app | `project_deployments.vercel_project`, `.deployment_id` |
+| Data | one of the four modes above | `project_backends.mode`, `.managed_ref` |
+
+The Vercel project and the deployment are **recorded, not derived**. A name
+derived from the project title is re-derivable only while the title and the
+shape stay the same, and a project that changes either strands its own domain
+on a Vercel project nobody is looking at.
+
+The code is in `src/lib/builder/backend/` and `src/lib/publish/`. Asserted by
+`npm run check:backend-modes`.
 
 ---
 
@@ -21,6 +56,15 @@ Everything here is **server-only**. Nothing in this section may ever be prefixed
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the key compiled into generated apps on the shared backend | same page → `anon` `public` |
 | `SUPABASE_SERVICE_ROLE_KEY` | reading and writing `project_backends` at all | same page → `service_role` — **secret** |
 | `SUPABASE_DB_URL` | **creating the tables.** Without it, every build reports its schema as pending | Supabase → Project Settings → Database → Connection string → **Session pooler** (see below) |
+| `SUPABASE_MANAGEMENT_TOKEN` | **`quickstark_managed`.** Creating a Supabase project per app | Supabase dashboard → Account → Access Tokens — **secret, and it can DELETE projects** |
+| `SUPABASE_ORG_ID` | which organisation the managed projects go in, and therefore which account pays | Supabase → Organization settings → General |
+| `SUPABASE_MANAGED_REGION` | optional. Defaults to `eu-west-2` | a Supabase region slug |
+
+Without the management token and the organisation, `configured()` is false,
+`modeFor()` falls back to the shared preview instance, and the panel marks the
+managed option unavailable **with the reason** rather than offering a button
+that always fails. That fallback is a degradation and is described as one; it
+is not passed off as the same thing.
 
 ### It has to be the POOLER, not the direct connection
 
@@ -74,14 +118,14 @@ and `VERCEL_TEAM_ID` belong to publishing and custom domains
 
 Nothing to do here. Both halves of the table are already live.
 
-### Still to decide — the schema exposure problem
+### Decided — the schema exposure problem
 
-**This is the one thing that is not a checkbox, and the shared backend does not
-work without an answer to it.**
+**This was the one thing that was not a checkbox, and the shared backend does
+not work without an answer to it.** Option 3 below is the one that was taken.
 
-Each project gets its own Postgres schema, `app_<projectid>` — see
-`schemaNameFor()` in `src/lib/builder/schema.ts`. The generated app then
-connects with the schema pinned:
+Each project on the shared instance gets its own Postgres schema,
+`app_<projectid>` — see `schemaNameFor()` in `src/lib/builder/schema.ts`. The
+generated app then connects with the schema pinned:
 
 ```ts
 createClient(url, anonKey, { db: { schema } })
@@ -94,22 +138,72 @@ graphql_public`). A schema that is not on that list answers every query with
 migration applied, and the app still reads nothing.
 
 The list cannot be written in advance, because the schema name contains the
-project's id and a new one appears on every build. Three ways out:
+project's id and a new one appears on every build. Three ways out were open:
 
 1. **Put every project in `public` on the shared instance, prefixed per
-   project.** Loses the clean separation, but needs no per-build configuration.
-2. **Give the shared instance a wildcard-ish list you maintain**, adding each
-   new schema as it is created. Only workable at small numbers.
-3. **Make the shared backend preview-only and route anything real to "own".**
-   The generated app then talks to the owner's instance, where the schema is
-   `public` and already exposed — which is why `connection.ts` uses `public` for
-   own-instance projects and a named schema only for shared ones.
+   project.** Loses the separation, but needs no per-build configuration.
+2. **Maintain the exposed list by hand**, adding each new schema as it is
+   created. Only workable at small numbers.
+3. **Make the shared backend preview-only and give anything real a Supabase
+   project of its own.** ✅
 
-Nothing in the code does any of this yet. Until one is chosen, the shared
-backend will create tables that generated apps cannot read.
+**Option 3, and `quickstark_managed` is it.** A project of its own has nothing
+to share a schema namespace with, so its tables go in `public` — the one schema
+exposed everywhere without anybody configuring anything. PGRST106 cannot happen
+there.
 
-No `app_*` schema exists on the live instance today, so nothing is broken in
-production — the path simply has not run.
+It fixes three things at once, which is why it is the answer rather than a
+tidier version of the same problem:
+
+- `auth.users` is one table per Supabase **project**. A project of its own has
+  an identity pool of its own.
+- `public` is served by PostgREST everywhere, so the app can read its tables.
+- The data is in a project that can be handed over, exported or left.
+
+It costs a real amount of money per project, which is why it is **gated on
+configuration rather than automatic** — see the management token above.
+
+#### Two consequences of a project per app, stated rather than discovered
+
+A Supabase project of its own is a Supabase project in every respect, including
+the parts nobody asked for:
+
+- **The sign-in sheet names that project.** Google's consent screen says "to
+  continue to `<ref>.supabase.co`" — the app's own ref now, not QuickStark's.
+  Fixing it is Supabase's Custom Domains add-on at roughly $10/month **per
+  project**, which is per generated app. See `docs/AUTH-DOMAIN.md`, which solves
+  the same problem for the platform's own.
+- **A free project sleeps after a week of no traffic.** A managed database
+  behind a site nobody has visited will be paused when somebody finally does,
+  and `verifyBackend()` names that as the likeliest cause rather than reporting
+  a timeout.
+
+Neither is a reason not to do it. Both are reasons to say so before somebody
+publishes a shop.
+
+The PGRST106 question is also now asked **before** a build rather than
+discovered after one: `schemaIsServable()` in `verify.ts` reads PostgREST's
+`content-profile` header when a Supabase is linked and refuses the link with
+the fix written out.
+
+### Verification, server-side
+
+Linking used to check **shape** and nothing else — that the URL parsed and was
+https, and that the key was an anon key rather than a service key. Both are
+worth checking and neither is evidence the thing exists. So a project was
+marked connected on the strength of two regexes and the first real test was a
+migration inside a sixty-second build, minutes later and somewhere else, where
+failing looks like a build problem rather than a typo.
+
+`verifyBackend()` runs on the server, where the builds run, and what it finds
+goes to `project_backends.verified_at`. It never writes anything: a check that
+created a table to prove it could create tables would leave debris in somebody
+else's database on every attempt, including the failed ones.
+
+The browser's pre-flight is still there and is **not** the same thing — it runs
+on the customer's network, so a proxy or a blocker fails it while the Supabase
+is perfectly reachable from where it matters. That one can be overridden. This
+one cannot.
 
 ---
 
@@ -144,6 +238,8 @@ read each other's rows — a policy in `app_a` never matches a row in `app_b`, a
 the role that makes somebody an admin lives in the app's own `profiles` table
 rather than on the auth user — but the identities are not separate.
 
-That is fine for a preview and wrong for a business with real customers. It is
-the reason "link your own" exists, and it should be described to owners as the
-exit rather than as an upgrade tier.
+That is fine for a preview and wrong for a business with real customers. There
+are two exits and both are offered in the panel: a Supabase project of its own
+(`quickstark_managed`), or the owner's (`own`). `isProductionGrade()` is the
+question the interface asks before somebody publishes a shop onto the shared
+instance, and it is what stopped the preview looking exactly like the others.
