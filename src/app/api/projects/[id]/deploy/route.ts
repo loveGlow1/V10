@@ -29,7 +29,7 @@
 import { NextResponse } from "next/server";
 
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
-import { blocking, inspectStructure } from "@/lib/builder/next-structure";
+import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
@@ -258,7 +258,28 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
    * Advisory findings are not a refusal. A validator that would not let
    * somebody publish a project that builds, because it suspects something, is
    * the failure this codebase has had twice already. */
-  const findings = inspectStructure(tree);
+  /* ── Repaired on the way out, for the builds that predate the repair ───
+   *
+   * completeTree fixes this class of defect when a project is generated, so
+   * anything built from now on arrives here already correct. Every project
+   * built BEFORE that is still sitting in the database with the defect in it,
+   * and those are exactly the projects this route exists for — see the header:
+   * it is the way a build that was paid for and never compiled becomes a
+   * running site.
+   *
+   * Without this, the "Fix automatically" control the workspace offers against
+   * a past failure would re-upload the same broken tree and fail in precisely
+   * the same way. A button that promises a fix and reproduces the failure is
+   * worse than no button.
+   *
+   * In memory, not written back. Rewriting the stored files of a historical
+   * build is a bigger claim than this route is entitled to make, and the
+   * repair is deterministic — it produces the same tree every time it runs, so
+   * there is nothing gained by persisting it and a customer's stored history
+   * is left as it was. */
+  const { tree: sound, repairs } = repairStructure(tree);
+
+  const findings = inspectStructure(sound);
   const stopping = blocking(findings);
   if (stopping.length > 0) {
     return NextResponse.json(
@@ -305,7 +326,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
      with any regularity, so waiting here was how a deployment came to be
      created successfully and then lost. The address comes back from the upload
      itself; whether the build SUCCEEDS is settled by /api/cron/deployments. */
-  const started = await startDeployment(tree, {
+  const started = await startDeployment(sound, {
     name: vercelProject,
     supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -360,6 +381,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     building: true,
     deploymentId: started.deploymentId,
     buildId: build.id,
-    files: tree.length,
+    files: sound.length,
+    /* What had to be put right on the way out, when anything did. Reported
+       rather than done quietly: the customer's stored files still hold the
+       defect, and somebody who downloads this project should be told why their
+       copy differs from the one that is running. */
+    repaired: repairs.map((repair) => repair.what),
   });
 }
