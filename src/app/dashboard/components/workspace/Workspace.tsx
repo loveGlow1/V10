@@ -255,10 +255,19 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
               The conversation's 420 is a column beside the preview; with the
               preview put away it takes the room the preview had rather than
-              leaving it blank. */}
+              leaving it blank — and CENTRES what is in it, because a
+              conversation run edge to edge on a wide screen is a bad way to
+              read anything.
+
+              justify-center here as well as the column's own max-width. The
+              max-width alone leaves the centring to auto margins on a flex
+              item, which only works once the cap has stopped it growing —
+              true, but subtle enough that any later change to the column's
+              flex behaviour would silently push it back against the left edge.
+              This says the thing directly. */}
           <div
             className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex ${
-              previewPaneOpen ? "md:w-[420px] md:flex-none" : "md:flex-1"
+              previewPaneOpen ? "md:w-[420px] md:flex-none" : "md:flex-1 md:justify-center"
             }`}
           >
             <ChatPanel
