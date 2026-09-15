@@ -7,6 +7,9 @@ import { Check, ChevronDown, ExternalLink } from "lucide-react";
 import ProviderSpinner from "./ProviderSpinner";
 import { TerminalMark } from "./panelMarks";
 import type { Provider } from "../../models";
+/* The words a person reads, as opposed to the ones the server recorded. The
+   ids and the recorder stay exactly as they were; this maps them. */
+import { activityFor, flowFor, headlineFor, type Flow } from "@/lib/builder/activity";
 
 /* One line in the tracker below. A step is something that actually happened, so
    a label is not enough on its own — `state` is what separates a step that has
@@ -67,6 +70,7 @@ export default function BuildActivity({
   previewHref,
   onOpenPreview,
   provider,
+  flow,
 }: {
   steps: ActivityStep[];
   running: boolean;
@@ -86,6 +90,10 @@ export default function BuildActivity({
      before the picker existed — falls back to the terminal mark, which is the
      honest answer when nobody recorded which model was asked. */
   provider?: Provider | null;
+  /* Which sequence this turn is following. An edit is not a build, and saying
+     "Building your project" over a change is how somebody comes to believe
+     their work was thrown away and rewritten. See activity.ts. */
+  flow?: Flow;
 }) {
   /* Open while it runs, folded to a summary when it finishes.
    *
@@ -163,6 +171,15 @@ export default function BuildActivity({
   const summary =
     ran === 0 ? "Done" : `Ran ${ran} ${ran === 1 ? "operation" : "operations"}`;
 
+  /* The folded line, in the person's vocabulary rather than the panel's.
+   *
+     "Working on it…" for a forty-second build is the wait described back, not
+     the work — and the panel already knows which phase is running, so it can
+     say which. When it is over the count stands: "Ran 9 operations" is a
+     measurement, and a measurement is the right thing to fold something away
+     behind. */
+  const live = headlineFor(steps, flow ?? flowFor(steps));
+
   return (
     <div className="overflow-hidden rounded-xl border border-line/[0.07] bg-layer/[0.02]">
       <button
@@ -184,7 +201,7 @@ export default function BuildActivity({
           <TerminalMark className="h-[15px] w-[15px] shrink-0 text-muted" />
         )}
         <span className="min-w-0 flex-1 truncate text-[13px] text-soft">
-          {running ? "Working on it…" : failed ? "This build failed" : summary}
+          {running ? `${live}…` : failed ? "This didn't finish" : summary}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`}
@@ -202,8 +219,18 @@ export default function BuildActivity({
             className="overflow-hidden"
           >
             <div className="px-3 pb-3">
+              {/* The flow is read off the steps when the caller has not said,
+                  which is every stored timeline: a message reopened later has
+                  its steps and no memory of the intent that produced them. */}
+              {activityFor(steps, flow ?? flowFor(steps)).map((phase) => (
+              <div key={phase.id} className="mb-3 last:mb-0">
+                {/* The heading, which is the answer to "what is it doing" for
+                    anybody who reads nothing else on the panel. */}
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  {phase.heading}
+                </p>
               <ol className="space-y-2">
-                {steps.map((step) => {
+                {phase.items.map((step) => {
                   const isOpen = opened[step.id] === true;
                   /* The running step always shows its detail: it is the line
                      saying what is happening right now, and hiding that behind
@@ -237,7 +264,10 @@ export default function BuildActivity({
                           ) : step.state === "running" ? (
                             <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
                           ) : (
-                            <span className="h-2 w-2 rounded-full bg-layer/[0.18]" />
+                            /* A ring rather than a dot: ○ reads as "still to
+                               come", a filled circle reads as a state of its
+                               own and invites the question which. */
+                            <span className="h-2 w-2 rounded-full border border-line/[0.28]" />
                           )}
                         </span>
 
@@ -312,6 +342,8 @@ export default function BuildActivity({
                   );
                 })}
               </ol>
+              </div>
+              ))}
 
               {/* The clock, and whatever the build reported alongside it. Both
                   measured; nothing here is filled in to make the row look
