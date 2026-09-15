@@ -512,7 +512,7 @@ has(
    literal-string form of this assertion failed the moment one was added, which
    made it a test of the spelling rather than of the property. */
 has(
-  /\{deployed && !building(?: && \w+)* \? \(/.test(panel),
+  /\{(?:deployed|publishedLive) && !building(?: && \w+)* \? \(/.test(panel),
   "and does not point the frame at a site that is still compiling",
   "this is what turned a working preview into a blank white pane on every deploy",
 );
@@ -534,7 +534,7 @@ has(
    added beside it, which made it a test of the spelling rather than of the
    property. The condition may grow; every one of these must stay in it. */
 has(
-  /\{deployed && !building(?: && \w+)*\b.*?liveIsCurrent/.test(panel),
+  /\{(?:deployed|publishedLive) && !building(?: && \w+)*\b.*?liveIsCurrent/.test(panel),
   "and does not point the frame at a site that is behind the newest build",
   "an edit that is stored but not published must not be invisible in the preview",
 );
@@ -547,7 +547,7 @@ has(
  * browser's only feedback is a blank rectangle, so the pane must ask before
  * it frames, and fall back to rendering the project from its own source. */
 has(
-  /\{deployed && !building(?: && \w+)*\b.*?liveViewable/.test(panel),
+  /\{(?:deployed|publishedLive) && !building(?: && \w+)*\b.*?liveViewable/.test(panel),
   "and does not point the frame at a site that refuses to be framed",
   "this is the blank white pane that reads as a broken product when nothing is broken",
 );
@@ -577,6 +577,25 @@ has(
 has(
   /deployed && building \?/.test(panel) && /Building your app/.test(panel),
   "while showing the address, which is the thing somebody wants to copy",
+);
+
+/* ── And not before anybody has published ────────────────────────────────
+ *
+ * A deployment can exist without a publish — the workspace's own "run this
+ * project" control makes one, and every build used to make one — so showing
+ * that address before Publish was pressed offers a public URL for something
+ * the customer never agreed to make public, and makes Publish look like it did
+ * nothing because the address was already there.
+ *
+ * Before publishing, the only address on offer is the QuickStark preview. */
+has(
+  /const publishedLive = project && isPublished\(project\) \? deployed : null;/.test(panel),
+  "the live address is only offered once the project is actually published",
+  "otherwise a private project is handed a public URL nobody asked for",
+);
+has(
+  !/src=\{deployed\}/.test(panel),
+  "and the frame shows the published site rather than any deployment that exists",
 );
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);

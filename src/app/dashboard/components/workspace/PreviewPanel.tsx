@@ -279,6 +279,25 @@ export default function PreviewPanel({
    *
    * safeHttpUrl still guards the result: it is built from SITE_URL, but a
    * misconfigured environment should not put a broken href on the page. */
+  /* ── The live address, and when a customer is allowed to see it ─────────
+   *
+   * Only after an actual publish. A deployment can exist without one — the
+   * workspace's own "run this project" control creates one, and so did every
+   * build back when a build deployed itself — and showing that address before
+   * anybody pressed Publish offers a public URL for something the customer has
+   * not agreed to make public. It also makes Publish look like it did nothing,
+   * because the address was already there.
+   *
+   * So before publishing, the only address on offer is the QuickStark preview,
+   * which is private to its owner and is what a preview should be. The Vercel
+   * domain appears when the project is published and not one moment sooner.
+   *
+   * `deployed` is kept as it was because the FRAME still uses it: a published
+   * project shows its real compiled site, and the checks around it — current,
+   * viewable — are about that. This is the narrower question of what address is
+   * put in front of a person. */
+  const publishedLive = project && isPublished(project) ? deployed : null;
+
   const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
   const repoUrl = safeHttpUrl(project?.repo_url);
 
@@ -692,7 +711,7 @@ export default function PreviewPanel({
            * instead, so there is something real to look at either way. This
            * says what happened and gives them the link, because opening it in
            * a tab is the one thing that definitely works. */}
-          {deployed && !building && !liveViewable ? (
+          {publishedLive && !building && !liveViewable ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="text-[12px] font-medium text-ink">Your site is live, but cannot be shown here</p>
               <p className="mt-1 break-words text-[12px] leading-relaxed text-muted">
@@ -704,7 +723,7 @@ export default function PreviewPanel({
                 from its own files.
               </p>
               <a
-                href={deployed}
+                href={publishedLive}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
@@ -715,7 +734,7 @@ export default function PreviewPanel({
             </div>
           ) : null}
 
-          {deployed && !building && !liveIsCurrent ? (
+          {publishedLive && !building && !liveIsCurrent ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="text-[12px] font-medium text-ink">Your live site is behind this preview</p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
@@ -723,12 +742,12 @@ export default function PreviewPanel({
                 below is still serving the last version you published.
               </p>
               <a
-                href={deployed}
+                href={publishedLive}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
               >
-                {deployed.replace(/^https?:\/\//, "")}
+                {publishedLive.replace(/^https?:\/\//, "")}
                 <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
             </div>
@@ -779,10 +798,10 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {deployed && !building && liveIsCurrent && liveViewable ? (
+          {publishedLive && !building && liveIsCurrent && liveViewable ? (
             <iframe
-              key={`${deployed}#${reloads}`}
-              src={deployed}
+              key={`${publishedLive}#${reloads}`}
+              src={publishedLive}
               title={`${project?.name ?? "App"} — live`}
               sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
               className="min-h-0 flex-1 border-0 bg-white"
