@@ -11,7 +11,6 @@ import BillingModal from "../billing/BillingModal";
 import AccountSettingsModal from "../AccountSettingsModal";
 import SupportChat from "../SupportChat";
 import WorkspaceTabs from "../WorkspaceTabs";
-import { AGENTS } from "../../agents";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
@@ -217,8 +216,6 @@ export default function Workspace({ projectId }: { projectId: string }) {
           setBillingOpen(true);
         }}
         credits={credits}
-        agents={AGENTS}
-        selectedAgent="Q1"
       />
       <SupportChat />
 
