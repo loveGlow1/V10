@@ -422,7 +422,7 @@ export default function PreviewPanel({
      600px and at 768 about 350 — the labels appear as that room arrives, and
      below it every control keeps its icon, its title and its aria-label. */
   const action =
-    "flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-line/[0.08] bg-layer/[0.04] px-2.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
+    "flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.04] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
 
   /* A rule between groups of controls: what the app is, what you do to it, and
      the way out of the pane. Without them the eight controls read as one queue
@@ -1268,7 +1268,12 @@ export default function PreviewPanel({
           </button>
         </div>
 
-        <div className="relative flex min-w-0 shrink-0 items-center gap-1.5">
+        {/* gap-2 rather than gap-1.5, and px-3 rather than px-2.5 inside each
+            control above. Six pixels between four labelled pills reads as one
+            crowded block — the eye cannot find the edges, so the row looks
+            cramped however well each button is drawn. Eight, with a little more
+            room inside, is what separates them into a set of tiles. */}
+        <div className="relative flex min-w-0 shrink-0 items-center gap-2">
           {/* Quinn, the assistant already floating in the corner of this screen.
               The button asks it to open rather than starting a second thread:
               there is one conversation with support, wherever it is opened
@@ -1399,7 +1404,10 @@ export default function PreviewPanel({
             onClick={() => setPublishOpen((open) => !open)}
             aria-expanded={publishOpen}
             title="Publish this app"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
+            /* The same rhythm as the controls beside it — gap-2, px-3, h-9 —
+               so the row is one set of tiles with the primary filled, rather
+               than three of one size and a fourth of another. */
+            className="flex h-9 shrink-0 items-center gap-2 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
           >
             <Rocket className="h-4 w-4 shrink-0" />
             <span className="hidden lg:inline">Publish</span>
