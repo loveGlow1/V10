@@ -844,7 +844,35 @@ export async function POST(request: Request) {
         tree,
       );
     } catch (error) {
-      await supabase.from("project_builds").delete().eq("id", inserted.id as string);
+      /* ── The compensating delete, checked ────────────────────────────────
+       *
+       * This line is the whole reason the paragraph above is true, and it was
+       * fired and forgotten: no error read, no count read. A delete that
+       * removes nothing does not throw — under RLS it filters to zero rows and
+       * reports success — so a failure here left exactly the state it exists
+       * to prevent: a build row claiming a project of 29 files, with no files,
+       * and a summary in the html column that every reader downstream treats
+       * as the customer's page.
+       *
+       * One project in production is in that state, and the mechanism that put
+       * it there is not proven — but a compensating action nobody checks
+       * cannot be relied on to have happened, which is enough reason to check
+       * it. When it did not happen, the row is named in the log, because a
+       * build claiming files it does not have is the one thing here that
+       * cannot be worked out afterwards from the row itself. */
+      const { error: rollbackError, count } = await supabase
+        .from("project_builds")
+        .delete({ count: "exact" })
+        .eq("id", inserted.id as string);
+
+      if (rollbackError || count === 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `save: build ${inserted.id} kept a row it should not have — its files did not store and the row could not be withdrawn`,
+          rollbackError ?? "the delete matched nothing",
+        );
+      }
+
       // eslint-disable-next-line no-console
       console.error("save: the project's files could not be stored:", error);
       return await reportFailure(
