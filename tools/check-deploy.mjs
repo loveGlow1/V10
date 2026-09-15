@@ -499,10 +499,20 @@ const panel = readFileSync(
   "utf8",
 );
 
+/* `building` is derived on the SERVER now, from the deployment record, rather
+   than read from the response to a deploy button the panel no longer has. That
+   is better than it was: it survives a reload, so somebody who publishes and
+   then refreshes still sees their preview instead of a blank frame for the
+   length of the build. */
 has(
   /setBuilding\(body\.building === true\)/.test(panel),
   "the panel keeps `building` apart from `deployed`",
   "the address is real before the site behind it is",
+);
+has(
+  /const building = latestDeploy\?\.state === "queued";/.test(deployApi),
+  "and the server decides it from the deployment's own state",
+  "a reload must not frame a site that is still compiling",
 );
 
 /* Matched as a PREFIX rather than as the whole condition. What this test is
