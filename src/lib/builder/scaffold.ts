@@ -720,6 +720,13 @@ export function treeBrief(
     "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
+    /* React 19 removed the GLOBAL JSX namespace — it lives inside the react
+       module now — and this project is pinned to React 19. A model writing
+       React types reaches for the bare form because that is what years of
+       React code looks like, and the build compiles cleanly and then dies in
+       the type check on it. next-structure.ts repairs it either way; this is
+       so it stops happening. */
+    '- There is NO global `JSX` namespace. `JSX.Element` will not compile. Write `React.ReactNode` for anything renderable, or `import type { JSX } from "react"` in the file that needs `JSX.Element`.',
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
     /* Named here as well as in the asset manifest, and deliberately. This brief
        is the last thing the model reads before it starts writing files, and

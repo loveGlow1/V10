@@ -227,6 +227,41 @@ function looksLikeComponent(entry: NamedExport): boolean {
   return /^[A-Z]/.test(entry.name) && entry.kind !== "list" && !/^[A-Z0-9_]+$/.test(entry.name);
 }
 
+/* ── The global JSX namespace, which React 19 does not have ───────────────
+ *
+ * React 18's types declared `namespace JSX` globally, so `JSX.Element` worked
+ * anywhere without an import. React 19 removed that block: the namespace now
+ * exists only INSIDE the react module. scaffold.ts pins React 19, so every
+ * generated file that writes the bare form fails the type check:
+ *
+ *     ./app/products/page.tsx:13:38
+ *     Type error: Cannot find namespace 'JSX'.
+ *     const CATEGORY_ICONS: Record<string, JSX.Element> = {
+ *
+ * It compiles cleanly right up to that point — "✓ Compiled successfully",
+ * then the type check kills it — so the customer waits for a full production
+ * build to be told about one missing import.
+ *
+ * A model writing React types reaches for `JSX.Element` because that is what
+ * years of React code looks like, and no amount of asking changes what the
+ * training data says. So it is repaired rather than forbidden.
+ *
+ * The lookbehind is what keeps this honest: `React.JSX.Element` is already
+ * qualified and correct, and must not be reported or rewritten. */
+const BARE_JSX = /(?<![.\w])JSX\s*\./;
+
+/* Whether the file already pulls the namespace in for itself.
+ *
+ * Tested against the RAW source, never the blanked copy. code() empties string
+ * bodies, so in the blanked text `from "react"` is `from "      "` — this
+ * pattern could never match there, and the first version of it did exactly
+ * that: every repaired file looked unrepaired, so the finding survived its own
+ * fix and running the repair twice added a second import. */
+const IMPORTS_JSX = /import\s+(?:type\s+)?\{[^}]*\bJSX\b[^}]*\}\s*from\s*["']react["']/;
+
+/** Every source file, not just the routable ones — this is a types problem. */
+const SOURCE_FILE = /\.(?:tsx?|jsx?)$/;
+
 /* Hooks and handlers, which only run in a client component. Matched on the
    blanked source so a hook named in a comment or a string is not a finding. */
 const HOOKS = /\b(useState|useEffect|useLayoutEffect|useReducer|useRef|useContext|useCallback|useMemo|useSyncExternalStore|useTransition|useOptimistic|useFormState)\s*\(/;
@@ -388,6 +423,24 @@ export function inspectStructure(tree: FileTree): Finding[] {
     }
   }
 
+  /* ── The bare JSX namespace, anywhere in the project ──────────────────
+   *
+   * Not a page rule, so it is checked over every source file rather than only
+   * the routable ones: a component that types an icon map as
+   * `Record<string, JSX.Element>` fails the build exactly as a page does. */
+  for (const file of tree) {
+    if (!SOURCE_FILE.test(file.path)) continue;
+    if (!BARE_JSX.test(code(file.content)) || IMPORTS_JSX.test(file.content)) continue;
+
+    findings.push({
+      severity: "blocking",
+      file: file.path,
+      problem: "A type in this project is written the way React used to allow, and the version it is built against no longer does.",
+      detail: `Type error: Cannot find namespace 'JSX'. React 19 removed the global JSX namespace; it must be imported from "react" or written as React.JSX.`,
+      repairable: true,
+    });
+  }
+
   /* The root layout, which is the one layout Next.js requires to exist and
      requires to be shaped a particular way. */
   const root = tree.find((file) => /^app\/layout\.tsx?$/.test(file.path));
@@ -539,6 +592,40 @@ export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repa
   const byPath = new Map(tree.map((file) => [file.path, { ...file }]));
   const taken = new Set(byPath.keys());
 
+  /* ── The JSX namespace, imported where it is used ──────────────────────
+   *
+   * React 19 removed the global one, so `JSX.Element` resolves to nothing and
+   * the type check kills the build after a clean compile. One import fixes it,
+   * and it is the same import every time — no judgement to make, so no reason
+   * to spend a model call or a customer's build on it.
+   *
+   * `import type`, not a value import: the namespace is erased at compile time
+   * and a value import of it would survive into the bundle for nothing.
+   *
+   * Placed after the directive when there is one, so "use client" stays the
+   * first thing in the file — a directive with an import above it is not a
+   * directive, which would trade this build error for a different one. */
+  for (const file of tree) {
+    if (!SOURCE_FILE.test(file.path)) continue;
+    const held = byPath.get(file.path);
+    if (!held) continue;
+
+    if (!BARE_JSX.test(code(held.content)) || IMPORTS_JSX.test(held.content)) continue;
+
+    const directive = held.content.match(CLIENT);
+    const cut = directive ? directive[0].length : 0;
+    held.content =
+      `${held.content.slice(0, cut)}\nimport type { JSX } from "react";\n${held.content.slice(cut)}`.replace(
+        /^\n/,
+        "",
+      );
+
+    repairs.push({
+      what: `${file.path} imports the JSX namespace, which React 19 no longer provides globally`,
+      file: file.path,
+    });
+  }
+
   for (const file of tree) {
     if (!PAGE.test(file.path) && !LAYOUT.test(file.path)) continue;
 
@@ -624,6 +711,7 @@ export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repa
   }
 
   if (repairs.length === 0) return { tree, repairs };
+
 
   const out: FileTree = [];
   for (const file of tree) out.push(byPath.get(file.path) as ProjectFile);

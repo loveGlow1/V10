@@ -130,6 +130,111 @@ const sound = [SHELL, HOME];
   );
 }
 
+/* ---- The JSX namespace React 19 took away ------------------------------
+ *
+ * A real failure, from a real build:
+ *
+ *     ./app/products/page.tsx:13:38
+ *     Type error: Cannot find namespace 'JSX'.
+ *     const CATEGORY_ICONS: Record<string, JSX.Element> = {
+ *
+ * React 18 declared the namespace globally; React 19 moved it inside the
+ * module, and scaffold.ts pins React 19. The build compiles cleanly and THEN
+ * the type check kills it, so a customer waits out a whole production build to
+ * be told about one missing import.
+ *
+ * The lookbehind is the part to keep honest: `React.JSX.Element` is already
+ * correct and must never be reported or rewritten. */
+{
+  const tree = [
+    SHELL,
+    HOME,
+    file(
+      "app/products/page.tsx",
+      'const CATEGORY_ICONS: Record<string, JSX.Element> = {};\nexport default function P(){ return <div/>; }\n',
+    ),
+  ];
+
+  const findings = inspectStructure(tree);
+  const jsx = findings.find((f) => f.file === "app/products/page.tsx");
+  has(Boolean(jsx), "a bare JSX namespace is a finding");
+  has(jsx && jsx.severity === "blocking", "and it is blocking - the build dies on it");
+  has(jsx && jsx.repairable, "and it is repairable without a model");
+  has(
+    jsx && /Cannot find namespace 'JSX'/.test(jsx.detail),
+    "the detail quotes the error the build actually prints",
+    jsx ? jsx.detail : "",
+  );
+
+  const { tree: fixed, repairs } = repairStructure(tree);
+  has(repairs.length === 1, "one repair is made", JSON.stringify(repairs));
+  const page = at(fixed, "app/products/page.tsx");
+  has(/import type \{ JSX \} from "react";/.test(page), "the namespace is imported", page);
+  has(page.includes("Record<string, JSX.Element>"), "and the type itself is left alone");
+  has(inspectStructure(fixed).length === 0, "the repaired project has no findings");
+  has(repairStructure(fixed).repairs.length === 0, "and repairing again does nothing");
+}
+
+/* It is a types problem, not a page problem, so it is caught anywhere. */
+{
+  const tree = [
+    SHELL,
+    HOME,
+    file("components/Icons.tsx", "export const MAP: Record<string, JSX.Element> = {};\n"),
+  ];
+  has(
+    inspectStructure(tree).some((f) => f.file === "components/Icons.tsx"),
+    "a component with the same defect is caught too",
+  );
+  has(
+    /import type \{ JSX \} from "react";/.test(at(repairStructure(tree).tree, "components/Icons.tsx")),
+    "and repaired the same way",
+  );
+}
+
+/* ---- And what must NOT be touched -------------------------------------- */
+{
+  const qualified = [
+    SHELL,
+    file("app/page.tsx", 'import * as React from "react";\nconst M: Record<string, React.JSX.Element> = {};\nexport default function P(){ return <div/>; }\n'),
+  ];
+  has(
+    inspectStructure(qualified).length === 0,
+    "React.JSX.Element is already correct and is not reported",
+    JSON.stringify(inspectStructure(qualified)),
+  );
+  has(repairStructure(qualified).repairs.length === 0, "nor rewritten");
+
+  const already = [
+    SHELL,
+    file("app/page.tsx", 'import type { JSX } from "react";\nconst M: Record<string, JSX.Element> = {};\nexport default function P(){ return <div/>; }\n'),
+  ];
+  has(inspectStructure(already).length === 0, "a file that already imports it is fine");
+  has(repairStructure(already).repairs.length === 0, "and is not given a second import");
+
+  const inText = [
+    SHELL,
+    file("app/page.tsx", 'const note = "JSX.Element used to be global";\n// JSX.Element too\nexport default function P(){ return <div/>; }\n'),
+  ];
+  has(
+    inspectStructure(inText).length === 0,
+    "the words in a string or a comment are not code",
+    JSON.stringify(inspectStructure(inText)),
+  );
+}
+
+/* The directive has to stay first, or it stops being a directive and this
+   trades one build error for another. */
+{
+  const client = [
+    SHELL,
+    file("app/page.tsx", '"use client";\nconst M: Record<string, JSX.Element> = {};\nexport default function P(){ return <div/>; }\n'),
+  ];
+  const page = at(repairStructure(client).tree, "app/page.tsx");
+  has(/^\s*"use client";/.test(page), "the directive stays first", page.split("\n")[0]);
+  has(/import type \{ JSX \}/.test(page), "and the import goes under it");
+}
+
 /* ── A project that is fine is reported as fine ─────────────────────────── */
 
 has(inspectStructure(sound).length === 0, "a sound project has no findings", JSON.stringify(inspectStructure(sound)));
