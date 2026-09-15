@@ -177,6 +177,58 @@ for (const system of SYSTEMS) {
   pass(`${system.name} — ${sizes.length} type steps, ${system.space.length} space steps, stacks fall back`);
 }
 
+/* ── Six systems, or three ────────────────────────────────────────────────
+ *
+ * A design system that renders in the same typeface as another design system
+ * is not a second design system. Three of these were exactly that: Clinical
+ * precision, Technical and Modern commercial each had `ui-sans-serif` for BOTH
+ * display and body, so all three came out in whatever sans the visitor's
+ * operating system uses — the same one. They differed by heading weight alone,
+ * 650 against 600 against 700, which a system stack usually snaps to the same
+ * rendered weight anyway.
+ *
+ * Nothing caught it because every other assertion here is about ONE system at
+ * a time, and each of the three was internally perfectly valid. The defect
+ * only exists between them.
+ *
+ * The rule is about the DISPLAY face, not the body: headings are where a
+ * register is legible at a glance, and sharing a system body stack across
+ * projects is deliberate — it is what keeps a downloadable page to one
+ * webfont. */
+
+console.log("\nTold apart");
+
+const firstFace = (stack) => stack.split(",")[0].trim().replace(/^["']|["']$/g, "");
+const byFace = new Map();
+
+for (const system of SYSTEMS) {
+  const face = firstFace(system.type.display);
+  byFace.set(face, [...(byFace.get(face) ?? []), system.name]);
+}
+
+for (const [face, names] of byFace) {
+  if (names.length > 1) {
+    fail("distinct display faces", `${names.join(" and ")} all lead with ${face}`);
+  }
+}
+
+if ([...byFace.values()].every((names) => names.length === 1)) {
+  pass(`${byFace.size} systems, ${byFace.size} display faces — ${[...byFace.keys()].join(", ")}`);
+}
+
+/* And a design system whose display face is a webfont has to actually load it,
+   or the stack names a typeface nobody has and falls through to the next. */
+for (const system of SYSTEMS) {
+  const face = firstFace(system.type.display);
+  const generic = /^(ui-|system-ui|-apple-system)/.test(face);
+  if (!generic && !system.type.webfont) {
+    /* Not a failure: Warm craft and Press lead with serifs that ship with
+       macOS and fall back to Georgia elsewhere, which is still a serif and
+       still distinct. Worth saying out loud rather than asserting away. */
+    console.log(`note  ${system.name} leads with ${face} and loads no webfont — it falls back off macOS`);
+  }
+}
+
 /* ── The decision ─────────────────────────────────────────────────────────*/
 
 console.log("\nThe decision");
