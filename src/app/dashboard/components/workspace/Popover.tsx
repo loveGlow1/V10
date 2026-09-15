@@ -67,6 +67,21 @@ export default function Popover({
     return (
       <AnchoredPanel
         open
+        /* Passed through, and it was not, which is the whole of two bugs.
+         *
+         * AnchoredPanel portals its card into the body so no ancestor can clip
+         * it, and carries the only outside-press handler that understands
+         * that: it excludes the card itself AND the control the card is hung
+         * off. Dropping onClose here left that handler switched off, so every
+         * call site kept the `contains(event.target)` check it had written
+         * when the card was still a descendant of its control — checks that
+         * now say "outside" about a press on the panel's own buttons.
+         *
+         * Publish stopped working entirely: mousedown inside the panel closed
+         * it, the panel unmounted before mouseup, and no click event was ever
+         * born. The model list did the same, which is why a model could not be
+         * chosen. Both read as a dead button. */
+        onClose={onClose}
         side={side}
         align={align}
         className={`${width} max-w-[calc(100vw-24px)] rounded-xl border border-line/[0.09] bg-panel p-3.5 shadow-[0_20px_60px_rgba(0,0,0,0.7)]`}

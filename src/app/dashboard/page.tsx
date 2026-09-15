@@ -256,7 +256,6 @@ export default function DashboardPage() {
      switch to inside it are named the same way in both places. */
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [isModelPopoverOpen, setIsModelPopoverOpen] = useState(false);
-  const composerBoxRef = useRef<HTMLDivElement>(null);
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -330,19 +329,12 @@ export default function DashboardPage() {
     };
   }, [isUploadPopoverOpen]);
 
-  // The panel and the chip that opens it sit at opposite ends of the composer
-  // box, so that box is what a press has to land outside of to close it.
-  // Reaching for the box itself — the textarea below — closes it too, on focus.
-  useEffect(() => {
-    if (!isModelPopoverOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (composerBoxRef.current && !composerBoxRef.current.contains(event.target as Node)) {
-        setIsModelPopoverOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isModelPopoverOpen]);
+  /* Home's model list closed itself the same way the workspace's did: the
+     handler here asked whether the press landed inside the composer box, and
+     the list is portalled into the body, so pressing a model in it was a press
+     outside the composer. It closed on mousedown and the row never saw a
+     click. AnchoredPanel's own handler, reached now that Popover passes
+     onClose through, excludes the card and the chip both. */
 
   /* Stop once there is something in the box: the placeholder is hidden then,
      and a timer nobody can see is just work. */
@@ -527,7 +519,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div ref={composerBoxRef} className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* The upload menu, anchored to the composer it belongs to. It used
                 to hang off the whole column, which put it above the tabs and
                 behind the phone header — its first row was unreadable there. */}

@@ -60,7 +60,8 @@
     "check:client-routes": "node tools/check-client-routes.mjs",
     "check:generated-types": "node tools/check-generated-types.mjs",
     "check:provision-diagnosis": "node tools/check-provision-diagnosis.mjs",
-    "check:edit-routing": "node tools/check-edit-routing.mjs"
+    "check:edit-routing": "node tools/check-edit-routing.mjs",
+    "check:popover": "node tools/check-popover.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

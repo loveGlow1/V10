@@ -345,7 +345,6 @@ export default function ChatPanel({
   useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
@@ -489,19 +488,13 @@ export default function ChatPanel({
     return () => setBusy(projectId, false);
   }, [projectId, building, setBusy]);
 
-  // One handler for both popovers in the toolbar: an outside press closes
-  // whichever is open, the way a menu behaves.
-  useEffect(() => {
-    if (!modelOpen && !forkOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
-        setModelOpen(false);
-        setForkOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [modelOpen, forkOpen]);
+  /* Both toolbar popovers used to share an outside-press handler here, keyed
+     on the toolbar containing the press. They are portalled into the body now
+     — see AnchoredPanel — so the model list is not inside the toolbar and
+     every press on a model in it counted as a press outside the menu: the list
+     closed on mousedown and the row never received a click. That is why a
+     model could be looked at and not chosen. Popover hands onClose to
+     AnchoredPanel, which knows about both the card and the chip. */
 
   async function attachFiles(files: FileList) {
     if (!project || !userId) return;
@@ -1896,7 +1889,7 @@ export default function ChatPanel({
               </AnimatePresence>
             </div>
 
-            <div ref={toolbarRef} className="relative mt-3 flex items-center justify-between gap-2">
+            <div className="relative mt-3 flex items-center justify-between gap-2">
               <div className="flex shrink-0 items-center gap-[3px]">
                 <input
                   type="file"
