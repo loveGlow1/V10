@@ -161,6 +161,34 @@ export async function settleDeployment(
   }
 }
 
+/**
+ * The deployment of this project that nobody has heard back about yet.
+ *
+ * The workspace's own poll asks for this. `pendingDeployments` answers the same
+ * question for the whole platform and is what the cron runs on; this answers it
+ * for one project, so a customer sitting in front of a building deployment is
+ * the one who finds out it finished rather than waiting on a schedule. See
+ * lib/publish/settle.ts for why that matters.
+ *
+ * Newest first: a project that was deployed twice in a minute has the second
+ * one as its answer, and the first is left to the cron.
+ */
+export async function pendingForProject(
+  service: SupabaseClient,
+  projectId: string,
+): Promise<DeploymentRecord | null> {
+  const { data } = await service
+    .from("project_deployments")
+    .select(COLUMNS)
+    .eq("project_id", projectId)
+    .eq("state", "queued")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<Row>();
+
+  return data ? read(data) : null;
+}
+
 /** The newest deployment of a project, whatever state it is in. */
 export async function latestDeployment(
   service: SupabaseClient,

@@ -34,7 +34,13 @@ import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { canBeFramed } from "@/lib/publish/framable";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deploymentName, deploymentsConfigured, publicAddress, startDeployment } from "@/lib/publish/vercel-deploy";
-import { existingVercelProject, latestDeployment, recordDeployment } from "@/lib/publish/deployment-store";
+import {
+  existingVercelProject,
+  latestDeployment,
+  pendingForProject,
+  recordDeployment,
+} from "@/lib/publish/deployment-store";
+import { settleOne } from "@/lib/publish/settle";
 import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -96,6 +102,34 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
      that succeeded an hour ago is still live, and the preview should be showing
      it the moment the workspace opens rather than the receipt it replaced. */
   const service = createSupabaseServiceClient();
+
+  /* ── Finding out, rather than waiting to be told ───────────────────────
+   *
+   * A deployment is started and never waited for, so something has to ask
+   * Vercel how it went. That something used to be a cron alone, every two
+   * minutes — and `vercel.json` asking for every two minutes is REFUSED on the
+   * Hobby plan this runs on: the deployment is never created and GitHub is
+   * told only "Deployment failed". The schedule is daily now, and a daily poll
+   * would leave somebody watching a spinner until tomorrow.
+   *
+   * So this asks. The workspace already polls this route while a deployment is
+   * building, which makes it the natural place: the person who wants to know is
+   * the one doing the asking. The cron stays as the backstop for deployments
+   * nobody is looking at.
+   *
+   * Cheap and bounded: one row read, and one Vercel call only when that row
+   * says a deployment of THIS project is still in flight. Never fatal — a
+   * settle that throws must not take down the answer about a site that is
+   * already up. */
+  if (service && deploymentsConfigured()) {
+    try {
+      const inFlight = await pendingForProject(service, owned.projectId);
+      if (inFlight) await settleOne(service, inFlight);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn("deploy: a pending deployment could not be settled:", error);
+    }
+  }
 
   /* ── Asked of the project, not of its latest build ─────────────────────
    *
