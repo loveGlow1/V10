@@ -388,10 +388,30 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
     return { ok: false, reason: "Vercel accepted the upload but did not say where it went" };
   }
 
+  /* ── The address a stranger can open ─────────────────────────────────────
+   *
+   * `deployment.url` is the host this BUILD was born with — the project name,
+   * a build hash and the team slug. On a Vercel team account that host is
+   * behind Deployment Protection by default: it answers 401 to anyone who is
+   * not signed in to the team, which in an iframe is a blank white rectangle
+   * and nothing else. The customer is told "your app is live", given a link,
+   * and shown an empty box.
+   *
+   * The production alias — the same name without the hash — is not protected,
+   * and it is assigned when the deployment is CREATED, not when it finishes
+   * building, because this is created with target: "production". readDeployment
+   * has been reading those aliases all along and this returned the raw host
+   * anyway, so the one address that works was parsed and dropped on the floor.
+   *
+   * stableHost is the same choice the polling path already makes (see
+   * deploymentState): a custom domain if there is one, else the shortest
+   * .vercel.app name, which is the alias by construction. Falling back to the
+   * deployment host when Vercel sends no aliases keeps this no worse than it
+   * was. */
   return {
     ok: true,
     deploymentId: deployment.id,
-    url: `https://${deployment.url}`,
+    url: `https://${stableHost(deployment.aliases, deployment.url)}`,
     inspect: deployment.inspect,
   };
 }
