@@ -170,6 +170,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
       <PhoneField />
 
       <TopNav
+        tabs={<WorkspaceTabs />}
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => setAccountSettingsOpen(true)}
         projectName={project?.name ?? "No project yet"}
@@ -178,7 +179,6 @@ export default function Workspace({ projectId }: { projectId: string }) {
 
       {/* Under the header and over the workspace, the way a browser puts its
           tabs between the chrome and the page. */}
-      <WorkspaceTabs />
 
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}

@@ -24,6 +24,17 @@ import Q3DCanvas from "../../Q3DCanvas";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
 interface TopNavProps {
+  /* The workspace tab strip, rendered INSIDE this bar rather than under it.
+     
+     It used to be its own row: a 56px header with the brand and the account,
+     and a second strip below it holding the tabs. Two bars stacked is a lot of
+     height spent saying very little, and it reads as two separate pieces of
+     chrome rather than as one window with tabs in it — which is what a browser
+     does, and what this is.
+     
+     Passed in rather than imported so this component stays what it is: a bar
+     that lays things out. Home and the workspace both hand it the same strip. */
+  tabs?: React.ReactNode;
   onUpgradeClick: () => void;
   onAccountSettingsClick: () => void;
   projectName: string;
@@ -31,7 +42,7 @@ interface TopNavProps {
   credits: string;
 }
 
-export default function TopNav({ onUpgradeClick, onAccountSettingsClick, projectName, credits }: TopNavProps) {
+export default function TopNav({ tabs, onUpgradeClick, onAccountSettingsClick, projectName, credits }: TopNavProps) {
   const router = useRouter();
   const [account, setAccount] = useState<{ name: string; email: string }>({ name: "", email: "" });
   const [panelOpen, setPanelOpen] = useState(false);
@@ -115,7 +126,12 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
     // account menu do not fit beside an upgrade pill at 390px, and the drawer
     // already carries them.
     <header className="sticky top-0 z-50 hidden h-14 w-full border-b border-line/[0.06] bg-bar md:block">
-      <div className="mx-auto flex h-full w-full items-center justify-between px-4 sm:px-6">
+      {/* items-stretch, not items-center, because the three groups sit on
+          different lines: the brand and the account are centred in the bar, and
+          the tabs hang from its BOTTOM edge so the open one can meet the canvas
+          below and fuse to it. A single centred row would leave the tabs
+          floating with a hairline under them. */}
+      <div className="mx-auto flex h-full w-full items-stretch justify-between gap-3 px-4 sm:px-6">
         {/* Brand */}
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <a href="/dashboard" className="flex shrink-0 items-center gap-2" aria-label="QuickStark.Ai dashboard">
@@ -127,10 +143,15 @@ export default function TopNav({ onUpgradeClick, onAccountSettingsClick, project
             </span>
           </a>
 
-          {/* No Home button here. An app is opened from the work already on
-              Home, and the brand to the left is the way back out of it — a
-              second control a hairline away would say the same thing twice. */}
+          {/* No Home button here. Home is a TAB, in the strip beside this — it
+              is a screen you switch back to, so it behaves like the others and
+              sits in their row. */}
         </div>
+
+        {/* The tabs, filling whatever the brand and the account leave. min-w-0
+            so a long project name scrolls the strip rather than pushing the
+            account off the end of the bar. */}
+        {tabs ? <div className="flex min-w-0 flex-1 items-end overflow-hidden">{tabs}</div> : null}
 
         {/* Balance, upgrade, avatar — in that order, because it is the order the
             thought runs in: what is left, then the way to get more, then the

@@ -79,9 +79,14 @@ export default function WorkspaceTabs() {
     // From md up. A phone has one screen at a time and a header that already
     // names the app it is on; a scrolling row of tabs above it would spend the
     // height that the conversation needs.
+    /* Embedded in the top bar rather than a strip of its own — see TopNav's
+       `tabs` prop. What goes with that: the full width, the bar's own fill, the
+       bottom hairline and the top padding, all of which belonged to a row that
+       no longer exists. What stays is the silhouette: tabs aligned to the
+       bottom edge so the open one meets the canvas and fuses to it. */
     <nav
       aria-label="Open workspaces"
-      className="relative z-30 hidden w-full shrink-0 items-end gap-1 overflow-x-auto border-b border-line/[0.06] bg-bar px-2 pt-1.5 md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="relative z-30 hidden min-w-0 items-end gap-1 overflow-x-auto md:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {/* Home is a tab rather than a button beside them: it is the screen you
           switch back to, so it behaves like the others and sits in their row. */}
