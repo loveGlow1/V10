@@ -411,6 +411,21 @@ const PLATFORM_OWNED = new Set([
   "next.config.mjs",
   "postcss.config.mjs",
   "tailwind.config.ts",
+  /* The other half of tailwind.config.ts, and owned for the same reason it is.
+     The config above maps `ground` to var(--ground) and six more like it; this
+     is the file that defines them. A model that writes its own app/tokens.css
+     — which it will, having been told in the brief that the project has one —
+     replaces those definitions with whatever it invented, and every mapped
+     class in the project then resolves to an empty custom property. Nothing
+     fails: Tailwind emits `color: var(--ink)`, the browser finds no --ink, and
+     the page renders in the user agent's own colours. Two white rectangles on
+     black, again, by a different route.
+   *
+     Only owned when there IS a design system, because `owned` is the
+     intersection of this set with what platformFiles actually wrote — with no
+     DesignDNA there is no platform tokens.css and the model's own is all there
+     is, which is the correct outcome. */
+  "app/tokens.css",
   "tsconfig.json",
 ]);
 
@@ -431,6 +446,25 @@ const PLATFORM_OWNED = new Set([
  * After any leading @import, because CSS requires @import to come first and a
  * stylesheet that breaks that rule drops the import silently — which would
  * take the tokens with it. */
+/* The tokens file, guaranteed to be loaded.
+ *
+ * Third part of the same failure, and the quietest of the three. The palette is
+ * written to app/tokens.css by the platform, the names are mapped in
+ * tailwind.config.ts by the platform, and the one line that connects them —
+ * `@import "./tokens.css"` at the top of globals.css — was left to the model
+ * because the brief asks for it. A model that writes a stylesheet of resets and
+ * forgets that line produces a project where all three pieces exist, every file
+ * looks right, and not one colour arrives: the custom properties are defined in
+ * a file nothing ever loads.
+ *
+ * So the import is inserted when it is missing, and only then. Before the
+ * Tailwind directives, because CSS drops an @import that comes after a rule and
+ * dropping this one is the failure being fixed. */
+function withTokenImport(css: string): string {
+  if (/@import\s+["'][^"']*tokens\.css["']/.test(css)) return css;
+  return `@import "./tokens.css";\n${css}`;
+}
+
 function withTailwindDirectives(css: string): string {
   if (/^\s*@tailwind\s+utilities/m.test(css)) return css;
 
@@ -465,7 +499,13 @@ export function completeTree(
 
   const globals = byPath.get("app/globals.css");
   if (globals) {
-    byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(globals.content) });
+    /* Import first, directives second: withTailwindDirectives places itself
+       after any leading @import, so doing it this way round leaves the tokens
+       ahead of the utilities that use them. */
+    const withTokens = byPath.has("app/tokens.css")
+      ? withTokenImport(globals.content)
+      : globals.content;
+    byPath.set("app/globals.css", { ...globals, content: withTailwindDirectives(withTokens) });
   }
 
   /* Last, and after everything else has been merged in: a page that is both

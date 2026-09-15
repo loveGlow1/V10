@@ -54,6 +54,7 @@ execFileSync("npx", ["tsc", "-p", config], { stdio: ["ignore", "ignore", "inheri
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "commonjs" }));
 const require = createRequire(import.meta.url);
 const { completeTree } = require(join(out, "lib/builder/scaffold.js"));
+const { SYSTEMS } = require(join(out, "lib/builder/design.js"));
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -150,6 +151,76 @@ const already = completeTree(
 const twice = already.find((f) => f.path === "app/globals.css").content;
 has((twice.match(/@tailwind utilities;/g) || []).length === 1,
   "directives are not added twice");
+
+/* ── The design system reaches the page ────────────────────────────────────
+ *
+ * Three files have to agree before a single colour appears: app/tokens.css
+ * DEFINES --ground and six more, tailwind.config.ts MAPS them so `bg-ground`
+ * is a real class, and app/globals.css LOADS the first one. The platform
+ * writes two of those and used to write neither of the guarantees, so there
+ * were two more ways to land on the same blank page as the bug above.
+ *
+ * Both are asserted against a tree built WITH a design system, because
+ * platformFiles only writes tokens.css when there is one. */
+const DNA = SYSTEMS[0];
+
+/* The model writes its own tokens, having been told the project has some. Its
+   file replaced ours, taking --ground with it, and every class the config maps
+   then resolved to an empty custom property — which renders as the browser's
+   own colours rather than as an error. */
+const invented = completeTree(
+  [
+    { path: "app/tokens.css", content: ":root { --brand: #ff0000; }\n" },
+    { path: "app/globals.css", content: "@import './tokens.css';\nbody{}" },
+    { path: "app/page.tsx", content: "export default () => null;" },
+  ],
+  "Shop", MANIFEST, MODEL, DNA,
+);
+const tokens = invented.find((f) => f.path === "app/tokens.css").content;
+has(!tokens.includes("--brand"), "the model cannot replace the design tokens");
+has(
+  ["--ground", "--surface", "--ink", "--muted", "--line", "--accent", "--accent-ink"]
+    .every((name) => tokens.includes(name)),
+  "every token tailwind.config.ts maps is defined",
+  tokens.slice(0, 200),
+);
+
+/* And the line that connects them, which the brief asked for and nothing
+   enforced. All three files present, every one of them correct, and not one
+   colour arriving. */
+const unlinked = completeTree(
+  [
+    { path: "app/globals.css", content: "body { margin: 0 }\n" },
+    { path: "app/page.tsx", content: "export default () => null;" },
+  ],
+  "Shop", MANIFEST, MODEL, DNA,
+);
+const linked = unlinked.find((f) => f.path === "app/globals.css").content;
+has(/@import\s+["'][^"']*tokens\.css["']/.test(linked),
+  "a stylesheet that forgot the tokens import gets one", linked.slice(0, 120));
+has(linked.indexOf("tokens.css") < linked.indexOf("@tailwind"),
+  "and it comes before the directives, as CSS requires");
+has(linked.includes("body { margin: 0 }"), "and the model's own stylesheet survives");
+
+/* Not added twice to a stylesheet that already had it, in either spelling. */
+for (const spelling of ['@import "./tokens.css";', "@import './tokens.css';", '@import "../app/tokens.css";']) {
+  const once = completeTree(
+    [{ path: "app/globals.css", content: `${spelling}\nbody{}` }],
+    "Shop", MANIFEST, MODEL, DNA,
+  ).find((f) => f.path === "app/globals.css").content;
+  has((once.match(/tokens\.css/g) || []).length === 1,
+    `an existing import is left alone — ${spelling}`, once.slice(0, 120));
+}
+
+/* And no import is invented when there are no tokens to import: without a
+   design system platformFiles writes no tokens.css, and a stylesheet importing
+   a file that does not exist fails the build. */
+const noDesign = completeTree(
+  [{ path: "app/globals.css", content: "body{}" }],
+  "Shop", MANIFEST, MODEL,
+).find((f) => f.path === "app/globals.css").content;
+has(!noDesign.includes("tokens.css"),
+  "no tokens import when the project has no tokens file", noDesign.slice(0, 120));
 
 /* Only one entry per path, however many versions arrived. */
 const dupes = tree.map((f) => f.path).filter((p, i, a) => a.indexOf(p) !== i);
