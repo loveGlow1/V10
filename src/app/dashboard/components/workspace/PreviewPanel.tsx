@@ -28,6 +28,7 @@ import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { SITE_URL } from "@/lib/site";
 import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
+import type { Diagnosis } from "@/lib/publish/diagnosis";
 import PublishPanel from "./PublishPanel";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
@@ -114,6 +115,16 @@ export default function PreviewPanel({
    * what it was showing until the site is actually up. */
   const [building, setBuilding] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  /* The same failure, read rather than printed.
+   *
+   * `deployError` is the build log — evidence, and correct to keep. This is
+   * what it MEANS: a sentence about what happened, a sentence about what
+   * happens next, and whether QuickStark can simply fix it. The log goes behind
+   * a disclosure, which is where a log belongs. See lib/publish/diagnosis.ts. */
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
+  /* Whether the technical panel is open. Closed by default and per failure: a
+     log that unfurls itself has taken the place of the summary again. */
+  const [showLog, setShowLog] = useState(false);
   /* Whether to draw the control at all. Asked of the server rather than
      decided here, because the answer depends on an allowlist and on an
      environment variable, neither of which the browser knows — and because a
@@ -139,6 +150,8 @@ export default function PreviewPanel({
     setDeployed(null);
     setBuilding(false);
     setDeployError(null);
+    setDiagnosis(null);
+    setShowLog(false);
 
     fetch(`/api/projects/${id}/deploy`)
       .then((response) => (response.ok ? response.json() : { available: false }))
@@ -150,6 +163,9 @@ export default function PreviewPanel({
            which is about this DEPLOYMENT's configuration rather than about
            this project's last build. */
         failure?: string | null;
+        /* The readable form of `failure`, built on the server so the workspace
+           and the chat say the same thing about the same failure. */
+        diagnosis?: Diagnosis | null;
         reason?: string | null;
       }) => {
         if (!current) return;
@@ -164,12 +180,14 @@ export default function PreviewPanel({
         if (body.available === true && body.ready === false && body.reason) {
           setHostingReady(false);
           setDeployError(body.reason);
+          setDiagnosis(body.diagnosis ?? null);
         } else if (body.failure) {
           /* The last attempt's own diagnosis, from the build row. Read on load
              so somebody returning to a project that did not host still finds
              out why — it used to exist only in the tab where it happened and
              then be gone. */
           setDeployError(body.failure);
+          setDiagnosis(body.diagnosis ?? null);
         }
       })
       .catch(() => {
@@ -185,6 +203,8 @@ export default function PreviewPanel({
     if (!project?.id || deploying) return;
     setDeploying(true);
     setDeployError(null);
+    setDiagnosis(null);
+    setShowLog(false);
     try {
       const response = await fetch(`/api/projects/${project.id}/deploy`, { method: "POST" });
       const body = (await response.json()) as {
@@ -193,11 +213,15 @@ export default function PreviewPanel({
            real; the site is not up behind it. */
         building?: boolean;
         error?: string;
+        diagnosis?: Diagnosis | null;
       };
       if (response.ok && body.url) {
         setDeployed(body.url);
         setBuilding(body.building === true);
-      } else setDeployError(body.error ?? "The deployment did not complete.");
+      } else {
+        setDeployError(body.error ?? "The deployment did not complete.");
+        setDiagnosis(body.diagnosis ?? null);
+      }
     } catch {
       setDeployError("The deployment could not be reached.");
     } finally {
@@ -255,16 +279,24 @@ export default function PreviewPanel({
   /* Whether what came back is a receipt rather than a page.
    *
    * A Next.js project stores its .tsx in project_files and a SUMMARY of itself
-   * in the html column, because nothing here runs `next build` and a tree of
-   * source cannot be shown to anybody. This pane fetched that column and framed
-   * whatever it got — so a customer who asked for a real-estate platform was
-   * shown a document headed "A web app built as a Next.js project — 19 files",
-   * listing routes and file counts, with their actual application nowhere on
-   * screen. That is a receipt for the work, not the work, and it is not what a
-   * preview pane is for.
+   * in the html column. This pane fetched that column and framed whatever it
+   * got — so a customer who asked for a real-estate platform was shown a
+   * document headed "A web app built as a Next.js project — 19 files", listing
+   * routes and file counts, with their actual application nowhere on screen.
+   * That is a receipt for the work, not the work, and it is not what a preview
+   * pane is for.
    *
-   * So it is recognised and refused here. Either the running app goes in this
-   * frame or an invitation to put it online does; the summary never does. See
+   * WHAT CHANGED UNDER THIS. The reason the receipt existed — that nothing here
+   * runs `next build`, so a tree of source cannot be shown to anybody — is no
+   * longer true. /preview/[projectId] compiles the tree in the browser and
+   * serves the running application instead (see lib/builder/preview), so for
+   * almost every project this flag is now false and the frame holds the real
+   * thing.
+   *
+   * It is kept because the fallback is kept: a tree this renderer cannot route
+   * still falls through to the summary on the server, and framing a receipt
+   * would be as wrong then as it was before. So this stays as the guard for
+   * that case — rarer now, and no longer the ordinary path. See
    * isProjectSummary. */
   const [isReceipt, setIsReceipt] = useState(false);
 
@@ -513,27 +545,95 @@ export default function PreviewPanel({
            * an error would take away the one thing that did work. */}
           {deployError && !deployed ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
-              <p className="text-[12px] font-medium text-ink">Not hosted yet</p>
-              <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted">
-                {deployError.replace(/\n\nFull build log: https?:\/\/\S+/, "")}
+              <p className="text-[12px] font-medium text-ink">
+                {diagnosis?.headline ?? "Deployment needs attention"}
               </p>
-              {/* Vercel's own page for the deployment, when the reason carried
-                  one. A tail is not always where the cause is, and this is the
-                  whole log. */}
-              {(() => {
-                const log = deployError.match(/https?:\/\/vercel\.com\/\S+/)?.[0];
-                return log ? (
-                  <a
-                    href={log}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
+              {/* ── What happened, not what was printed ───────────────────
+               *
+               * This used to be the build log, verbatim, in the pane: thirty
+               * lines beginning "Running build in Washington, D.C." and ending
+               * in a type error, shown to somebody who typed a sentence about
+               * a bakery. They cannot act on it and cannot tell whether their
+               * project is broken or this platform is.
+               *
+               * So it is the diagnosis now, and the log is behind the
+               * disclosure below — kept in full, filed where a log belongs.
+               * When the server could not make sense of the failure it says
+               * so rather than guessing, and the raw text is still one click
+               * away. See lib/publish/diagnosis.ts. */}
+              <p className="mt-1 break-words text-[12px] leading-relaxed text-muted">
+                {diagnosis?.summary ?? deployError.replace(/\n\nFull build log: https?:\/\/\S+/, "")}
+              </p>
+              {diagnosis?.next ? (
+                <p className="mt-1 break-words text-[12px] leading-relaxed text-muted">{diagnosis.next}</p>
+              ) : null}
+              {/* The file it is about, when the build named one. Worth its own
+                  line: it is the one piece of the log a person can match
+                  against something they asked for. */}
+              {diagnosis?.file ? (
+                <p className="mt-1 font-mono text-[11px] leading-relaxed text-muted/80">{diagnosis.file}</p>
+              ) : null}
+
+              {/* ── The project is still here ─────────────────────────────
+               *
+               * Said explicitly, because the failure is the loudest thing on
+               * the screen and somebody reading it has every reason to assume
+               * their work is gone. It is not: the pane below this is
+               * rendering their project from its own source, and has been the
+               * whole time. A deployment is a copy of the project going to a
+               * public address, and a copy that did not arrive leaves the
+               * original exactly where it was. */}
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                Your project is unaffected — what you see below is still it.
+              </p>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {/* Offered only where pressing it would do something. A button
+                    that says it can fix this and then cannot is worse than no
+                    button, so the server decides — see Diagnosis.automatic. */}
+                {diagnosis?.automatic ? (
+                  <button
+                    type="button"
+                    onClick={runTheApp}
+                    disabled={deploying}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-line/[0.10] bg-layer/[0.06] px-2 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.10] disabled:opacity-60"
                   >
-                    Full build log
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                  </a>
-                ) : null;
-              })()}
+                    {deploying ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
+                    Fix automatically
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowLog((open) => !open)}
+                  className="rounded-md px-1.5 py-1 text-[12px] font-medium text-muted underline underline-offset-2 transition-colors hover:bg-layer/[0.06] hover:text-ink"
+                  aria-expanded={showLog}
+                >
+                  {showLog ? "Hide technical details" : "View technical details"}
+                </button>
+                {/* Vercel's own page for the deployment, when the reason
+                    carried one. A tail is not always where the cause is, and
+                    this is the whole log. */}
+                {(() => {
+                  const log = deployError.match(/https?:\/\/vercel\.com\/\S+/)?.[0];
+                  return log ? (
+                    <a
+                      href={log}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-muted underline underline-offset-2 transition-colors hover:bg-layer/[0.06] hover:text-ink"
+                    >
+                      Full build log
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  ) : null;
+                })()}
+              </div>
+
+              {showLog ? (
+                <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-line/[0.08] bg-layer/[0.05] p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-muted">
+                  {diagnosis?.detail ?? deployError}
+                </pre>
+              ) : null}
             </div>
           ) : null}
 
@@ -591,21 +691,40 @@ export default function PreviewPanel({
               className="min-h-0 flex-1 border-0 bg-white"
             />
           ) : isReceipt ? (
-            /* A project, not yet online. The summary is what the html column
-               holds for one of these, and it is a receipt — the routes, the
-               file count, how to run it. Framing that is showing somebody an
+            /* The summary came back, which now means the renderer could not
+               route this tree — a scaffold that stopped halfway, or a shape it
+               does not know. Framing the receipt would be showing somebody an
                inventory of their application instead of their application, so
-               this is what goes here instead: what it is, and the one button
-               that turns it into a site with an address. */
+               this goes here instead.
+               
+               WHAT THIS MUST NOT SAY is that the project has to be put online
+               to be looked at. That was true when deployment was the only
+               renderer and it is not true now: the ordinary path renders the
+               application in this frame without deploying anything. Saying it
+               here would send somebody to Vercel for something the builder can
+               already do, and would be the exact confusion — deployment as the
+               price of seeing your own work — that the preview renderer exists
+               to end. So it says what actually happened, and offers the two
+               things that are genuinely useful: the file-by-file account, and
+               putting it online if that is what they wanted anyway. */
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-white px-6 text-center">
               <p className="text-[15px] font-semibold text-slate-900">
                 {project?.name ?? "Your app"} is built
               </p>
               <p className="max-w-[340px] text-[13px] leading-relaxed text-slate-500">
-                It runs as a real application rather than a single page, so it needs to be put
-                online before it can be looked at. That takes a minute or two and gives you a web
-                address you can open anywhere.
+                This one could not be rendered in the preview, so here is everything that was
+                made instead. Your files are all there, and the project can still be put online.
               </p>
+              {previewPath ? (
+                <a
+                  href={`${previewPath}${previewPath.includes("?") ? "&" : "?"}diagnostics=1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[13px] font-medium text-slate-900 underline underline-offset-2"
+                >
+                  See what was built
+                </a>
+              ) : null}
               {canRun && hostingReady ? (
                 <button
                   onClick={runTheApp}

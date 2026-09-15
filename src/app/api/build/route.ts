@@ -107,6 +107,8 @@ import {
   startDeployment,
 } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
+import { shouldRedeploy } from "@/lib/publish/redeploy";
+import type { PublishState } from "@/lib/project-status";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
@@ -1594,7 +1596,19 @@ async function handle(
        * survivable: the edit is stored and paid for whatever Vercel does, and
        * redeploying costs nothing. */
       let deploying = false;
-      if (deploymentsConfigured()) {
+      /* ── Only when there is a site to keep current ──────────────────────
+       *
+       * This used to run on every edit, which put a production deployment on
+       * the path of an ordinary change and made the build log the only account
+       * of a project that would not compile. Building is not publishing: the
+       * preview renders the edited source directly (see lib/builder/preview),
+       * so the customer sees the change immediately whatever Vercel is doing.
+       *
+       * A project that is ALREADY LIVE still redeploys, because an edit that
+       * does not reach a site somebody published is a change they believe they
+       * made and did not. See lib/publish/redeploy.ts. */
+      const redeploy = await shouldRedeploy(service, project.id, project as PublishState);
+      if (deploymentsConfigured() && redeploy.deploy) {
         const backendForDeploy = knownArchitecture?.database
           ? await resolveBackend(service, project.id)
           : null;
@@ -1626,6 +1640,11 @@ async function handle(
         } else {
           steps.mark("deploy", "Not put online", started.reason);
         }
+      } else if (!redeploy.deploy) {
+        /* Not silent. Somebody used to seeing every edit deploy itself has to
+           be told this one did not, and where the button is — otherwise the
+           change reads as something having broken. */
+        steps.mark("deploy", "Ready in your preview", redeploy.because ?? "press Publish to put it online");
       }
 
       const said = [
@@ -1634,6 +1653,7 @@ async function handle(
           ? `${source.failures.length} part of that could not be matched in the file.`
           : null,
         deploying ? "It is building now, and I'll tell you when it is live." : null,
+        !redeploy.deploy ? "It is ready in your preview — press Publish when you want it online." : null,
         source.note ? `Next: ${source.note}` : null,
       ]
         .filter(Boolean)

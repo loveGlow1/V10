@@ -29,6 +29,8 @@
 import { NextResponse } from "next/server";
 
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
+import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
@@ -145,11 +147,17 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
      is hosted, and last week's failure is not news. */
   const failure = url ? null : (latest?.deployment_error ?? null);
 
+  /* The failure as something a person can read, alongside the raw text rather
+     than instead of it. The workspace shows the summary and keeps the log in
+     the panel behind it — see lib/publish/diagnosis.ts, and §6 of the
+     specification this implements: a build log is evidence, not an answer. */
+  const diagnosis = diagnose(failure);
+
   if (!canDeploy(await callerEmail())) {
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, failure, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, failure, diagnosis, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
@@ -157,12 +165,13 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       ready: false,
       url,
       failure,
+      diagnosis,
       reason:
         "Hosting is not configured: this deployment has no VERCEL_API_TOKEN. " +
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, failure, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, failure, diagnosis, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -234,6 +243,63 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     );
   }
 
+  /* ── Checked before it is uploaded ─────────────────────────────────────
+   *
+   * `next build` is the strictest reader this source meets, and it used to be
+   * the first: a project went from the database to Vercel, and what came back
+   * two minutes later was a build log with a type error in the middle of it.
+   * The customer paid for the wait and was handed the framework's own wording.
+   *
+   * Every rule in next-structure.ts is one that build enforces, so anything
+   * blocking here is a deployment that WILL fail. Refusing it costs seconds and
+   * saves minutes, and — this is the part that matters — the answer comes back
+   * as findings a person can read rather than as a log they cannot.
+   *
+   * Advisory findings are not a refusal. A validator that would not let
+   * somebody publish a project that builds, because it suspects something, is
+   * the failure this codebase has had twice already. */
+  /* ── Repaired on the way out, for the builds that predate the repair ───
+   *
+   * completeTree fixes this class of defect when a project is generated, so
+   * anything built from now on arrives here already correct. Every project
+   * built BEFORE that is still sitting in the database with the defect in it,
+   * and those are exactly the projects this route exists for — see the header:
+   * it is the way a build that was paid for and never compiled becomes a
+   * running site.
+   *
+   * Without this, the "Fix automatically" control the workspace offers against
+   * a past failure would re-upload the same broken tree and fail in precisely
+   * the same way. A button that promises a fix and reproduces the failure is
+   * worse than no button.
+   *
+   * In memory, not written back. Rewriting the stored files of a historical
+   * build is a bigger claim than this route is entitled to make, and the
+   * repair is deterministic — it produces the same tree every time it runs, so
+   * there is nothing gained by persisting it and a customer's stored history
+   * is left as it was. */
+  const { tree: sound, repairs } = repairStructure(tree);
+
+  const findings = inspectStructure(sound);
+  const stopping = blocking(findings);
+  if (stopping.length > 0) {
+    return NextResponse.json(
+      {
+        error: "This project needs attention before it can go live.",
+        diagnosis: diagnoseFindings(stopping),
+        /* Structured, so the workspace renders the human sentences and keeps
+           the framework's wording in the technical panel behind them. */
+        findings: stopping.map((finding) => ({
+          file: finding.file,
+          problem: finding.problem,
+          detail: finding.detail,
+          repairable: finding.repairable,
+        })),
+        url: null,
+      },
+      { status: 422 },
+    );
+  }
+
   /* ── Whose database this app talks to ──────────────────────────────────
    *
    * THIS PROJECT'S backend, resolved from project_backends — never the
@@ -260,7 +326,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
      with any regularity, so waiting here was how a deployment came to be
      created successfully and then lost. The address comes back from the upload
      itself; whether the build SUCCEEDS is settled by /api/cron/deployments. */
-  const started = await startDeployment(tree, {
+  const started = await startDeployment(sound, {
     name: vercelProject,
     supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
     supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -272,7 +338,10 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       .from("project_builds")
       .update({ deployment_url: null, deployment_error: started.reason })
       .eq("id", build.id);
-    return NextResponse.json({ error: started.reason, url: null }, { status: 502 });
+    return NextResponse.json(
+      { error: started.reason, diagnosis: diagnose(started.reason), url: null },
+      { status: 502 },
+    );
   }
 
   await recordDeployment(service, {
@@ -312,6 +381,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     building: true,
     deploymentId: started.deploymentId,
     buildId: build.id,
-    files: tree.length,
+    files: sound.length,
+    /* What had to be put right on the way out, when anything did. Reported
+       rather than done quietly: the customer's stored files still hold the
+       defect, and somebody who downloads this project should be told why their
+       copy differs from the one that is running. */
+    repaired: repairs.map((repair) => repair.what),
   });
 }

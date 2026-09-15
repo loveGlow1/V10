@@ -28,6 +28,7 @@
  * markers, so running this again finds nothing to do.
  */
 
+import { blockAfter } from "./source-scan";
 import type { FileTree, ProjectFile } from "./tree";
 
 /* The directive, however it was quoted, as the FIRST thing in the file. A
@@ -42,53 +43,6 @@ function conflicted(file: ProjectFile): boolean {
     DIRECTIVE.test(file.content) &&
     /export\s+(?:async\s+)?function\s+generateStaticParams\b/.test(file.content)
   );
-}
-
-/* ── Reading one function out of a file without parsing the file ───────────
- *
- * Brace counting, with enough of a scanner to not be fooled by the things
- * generated React is full of: a `{` inside a string, a regex, a comment, or a
- * template literal. It does not need to understand the code — only to find
- * where this one function ends.
- */
-function blockAfter(source: string, from: number): number {
-  const open = source.indexOf("{", from);
-  if (open === -1) return -1;
-
-  let depth = 0;
-  let quote: string | null = null;
-  let line = false;
-  let block = false;
-
-  for (let i = open; i < source.length; i += 1) {
-    const ch = source[i];
-    const next = source[i + 1];
-
-    if (line) {
-      if (ch === "\n") line = false;
-      continue;
-    }
-    if (block) {
-      if (ch === "*" && next === "/") { block = false; i += 1; }
-      continue;
-    }
-    if (quote) {
-      if (ch === "\\") { i += 1; continue; }
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === "/" && next === "/") { line = true; i += 1; continue; }
-    if (ch === "/" && next === "*") { block = true; i += 1; continue; }
-    if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
-
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) return i + 1;
-    }
-  }
-
-  return -1;
 }
 
 /** The generateStaticParams declaration, and the text without it. */
