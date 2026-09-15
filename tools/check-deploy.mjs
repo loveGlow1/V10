@@ -256,6 +256,34 @@ has(stableHost([], DEPLOYMENT_HOST) === DEPLOYMENT_HOST,
 has(stableHost([DEPLOYMENT_HOST], DEPLOYMENT_HOST) === DEPLOYMENT_HOST,
   "an alias list containing only the deployment url is the same thing");
 
+/* ── And the fast path has to make the same choice ─────────────────────────
+ *
+ * stableHost was correct, tested, and called only from the POLLING path. The
+ * upload path parsed the aliases — readDeployment has always returned them —
+ * and then returned the raw deployment host anyway, so the address written to
+ * the build row, shown as "YOUR APP IS LIVE" and embedded in the workspace was
+ * the per-build one.
+ *
+ * On a Vercel team account that host is behind Deployment Protection by
+ * default: 401 to anyone not signed in to the team, which inside an iframe is
+ * a blank white rectangle. The customer is told their app is live, handed a
+ * link, and shown an empty box. The production alias — assigned at creation,
+ * because these are created with target: "production" — is not protected.
+ *
+ * Read from source: the call cannot be made here without a Vercel token, but
+ * dropping the aliases is the defect and it is visible. */
+const deploySource = readFileSync(join(root, "src/lib/publish/vercel-deploy.ts"), "utf8");
+const startBody = deploySource.slice(
+  deploySource.indexOf("export async function startDeployment"),
+  deploySource.indexOf("export type DeploymentState"),
+);
+
+has(
+  /url: `https:\/\/\$\{stableHost\(deployment\.aliases, deployment\.url\)\}`/.test(startBody),
+  "the upload path hands back the stable alias, not the per-build host",
+  "a per-build host is behind Deployment Protection on a team account: 401, and a white iframe",
+);
+
 /* Never a scheme, never a path — the caller prefixes https:// itself, and a
    host that arrived with one would produce https://https://… */
 for (const host of [PRODUCTION_ALIAS, "nova-estates.quickstark.tech", DEPLOYMENT_HOST]) {
