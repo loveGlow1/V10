@@ -99,6 +99,7 @@ import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { treeBrief } from "@/lib/builder/scaffold";
+import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import { indexTree } from "@/lib/context/project-index";
 import {
@@ -107,6 +108,7 @@ import {
   startDeployment,
 } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
+import { diagnoseFindings } from "@/lib/publish/diagnosis";
 import { shouldRedeploy } from "@/lib/publish/redeploy";
 import type { PublishState } from "@/lib/project-status";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
@@ -1508,9 +1510,33 @@ async function handle(
       /* The whole tree, with one file replaced. Stored as a NEW build rather
          than as an update to the old one, for the same reason a page edit is:
          undo is a version, never a deletion. */
-      const edited = project_.tree.map((file) =>
+      const changed = project_.tree.map((file) =>
         file.path === source.path ? { ...file, content: source.contents } : file,
       );
+
+      /* ── The same repair a fresh build gets ────────────────────────────
+       *
+       * completeTree runs repairStructure over every tree it scaffolds, so a
+       * model that types an icon map as `Record<string, JSX.Element>` — which
+       * React 18 allowed globally and React 19 does not — is fixed before the
+       * project is ever stored. An EDIT went nowhere near it: the edited file
+       * was stored as written and uploaded to Vercel as written, and the build
+       * failed with "Cannot find namespace 'JSX'" on the one path a customer
+       * uses over and over.
+       *
+       * So it runs here too, on the whole tree rather than the edited file: a
+       * repair is defined over the project, and the defects it fixes are not
+       * all confined to the file that moved. Idempotent, so the files this
+       * edit did not touch come back byte-identical and the stored version is
+       * still the customer's own source with one change in it. */
+      const { tree: edited, repairs } = repairStructure(changed);
+      if (repairs.length > 0) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `edit: ${project.id} repaired ${repairs.length} structural defect(s):`,
+          repairs.map((repair) => repair.what).join("; "),
+        );
+      }
 
       steps.begin("version", "Saving the new version", "storing the project so you can undo back to this…");
       const { data: newBuild, error: buildError } = await service
@@ -1607,8 +1633,28 @@ async function handle(
        * A project that is ALREADY LIVE still redeploys, because an edit that
        * does not reach a site somebody published is a change they believe they
        * made and did not. See lib/publish/redeploy.ts. */
+      /* ── What a repair could not fix ───────────────────────────────────
+       *
+       * Whatever is still blocking after the repair above is something
+       * `next build` will refuse, so uploading it buys a three-minute wait and
+       * a build log. The edit is stored either way — it is the customer's
+       * change and they paid for it, and the preview renders the edited source
+       * directly — but the live site stays on the version that works rather
+       * than being replaced by a deployment that cannot compile.
+       *
+       * Said in a sentence rather than as a log. See lib/publish/diagnosis.ts:
+       * the customer's answer to "Cannot find namespace 'JSX'" is a sentence
+       * about their project, not a line number in a file they did not write. */
+      const stopping = blocking(inspectStructure(edited));
+
       const redeploy = await shouldRedeploy(service, project.id, project as PublishState);
-      if (deploymentsConfigured() && redeploy.deploy) {
+      if (deploymentsConfigured() && redeploy.deploy && stopping.length > 0) {
+        const diagnosis = diagnoseFindings(stopping);
+        await deliver(
+          `${diagnosis?.summary ?? "This change leaves something the build will refuse."}\n\nYour change is saved and the preview shows it. The live site is still serving the version before it, so nothing your visitors see is broken. Tell me what you want done about this and I'll fix it.`,
+          { tone: "error", key: "edit-not-deployable" },
+        );
+      } else if (deploymentsConfigured() && redeploy.deploy) {
         const backendForDeploy = knownArchitecture?.database
           ? await resolveBackend(service, project.id)
           : null;
