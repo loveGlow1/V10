@@ -194,6 +194,25 @@ export function projectSummary(input: SummaryInput): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- What this document IS, stated in it.
+ *
+ * A project's .tsx lives in project_files and this receipt goes in the html
+ * column, because nothing here runs \`next build\` and a tree of source cannot
+ * be shown to anybody. Everything downstream that wants "the current page"
+ * reads that column — and when a project's files are missing for any reason,
+ * this is what it finds: an HTML document, well-formed, that every check
+ * treats as the customer's page.
+ *
+ * So an edit went to it. The pick landed on the only file in the tree, the
+ * blocks did not match, and the customer was told "I couldn't place that
+ * change in the page — try naming the section: 'Routes 9', 'Database
+ * created', 'Files'." Those are the headings of OUR receipt, read back to
+ * somebody asking us to change their dashboard, as though they had written
+ * them. The apology and the advice were both about the wrong document.
+ *
+ * A marker rather than a heuristic: it cannot drift, it survives storage, and
+ * it is one string to test for. See isProjectSummary. -->
+<meta name="quickstark:document" content="project-summary">
 <title>${name}</title>
 <style>
   :root { color-scheme: dark; }
@@ -303,4 +322,14 @@ npm run dev</code></pre>
 </div>
 </body>
 </html>`;
+}
+
+/* Whether a stored document is one of these receipts rather than a page.
+ *
+ * Read by anything that is about to treat `project_builds.html` as the
+ * customer's own work — the edit path above all. A receipt is not a page: it
+ * cannot be edited into one, and an edit that lands on it silently freezes the
+ * project's real source while charging for changes to a description of it. */
+export function isProjectSummary(html: string | null | undefined): boolean {
+  return typeof html === "string" && html.includes('name="quickstark:document" content="project-summary"');
 }

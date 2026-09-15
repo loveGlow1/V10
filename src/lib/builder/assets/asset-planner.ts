@@ -243,6 +243,30 @@ export function planAssets(opts: {
 
   const subject = (index: number, fallback: string) => opts.subjects?.[index] ?? fallback;
 
+  /* ── The mark, first and for every kind ─────────────────────────────────
+   *
+   * Every one of these has a brand mark in its header: a storefront's nav, a
+   * blog's masthead, a landing page's top-left corner. It is the first thing on
+   * the page and the one image on it that is never stock.
+   *
+   * Only the web app used to plan a slot for it, and the cost of that was not
+   * that the other four improvised. asset-intake reads an upload called
+   * logo.png as type "logo" and files it under the slot "logo" — and the
+   * resolver only ever asks for slots the PLAN requested. So a customer who
+   * uploaded their own logo to a storefront had it classified correctly,
+   * stored correctly, and then never mentioned to the generator: it drew one
+   * from scratch while the real one sat unused in their library.
+   *
+   * Drawn, so it costs nothing to plan. A drawn slot never reaches a stock
+   * source (see resolveAssets) — the only provider it consults is the project's
+   * own uploads. Planning it is what turns "draw a mark" into "use theirs if
+   * they gave us one, otherwise draw a mark", which are the only two correct
+   * answers and neither was being given.
+   *
+   * First in the list because it is first on the page, and because the manifest
+   * is read in order. */
+  add("logo", "logo", "the mark in the header", "1/1", `${briefSubject(brief)} logo`, "");
+
   if (kind === "landing") {
     add("hero", "hero", "the opening image", "16/9", "The product in use", subject(0, briefSubject(brief)));
     add("feature-1", "editorial", "first feature section", "4/3", "How it works in practice", subject(1, briefSubject(brief)));
@@ -275,7 +299,7 @@ export function planAssets(opts: {
   if (kind === "webapp") {
     /* Deliberately almost nothing. Photography inside working software is
        decoration, and the blueprint forbids it. */
-    add("logo", "logo", "the product's mark", "1/1", "Product logo", "");
+    /* The mark is planned above, for every kind. */
     for (let i = 0; i < 4; i++) {
       add(`avatar-${i + 1}`, "avatar", "team member avatar", "1/1", "Team member", "");
     }
