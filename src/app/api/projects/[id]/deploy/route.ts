@@ -117,12 +117,12 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const { data: live } = service
     ? await service
         .from("project_builds")
-        .select("deployment_url")
+        .select("id, deployment_url")
         .eq("project_id", owned.projectId)
         .not("deployment_url", "is", null)
         .order("created_at", { ascending: false })
         .limit(1)
-        .maybeSingle<{ deployment_url: string | null }>()
+        .maybeSingle<{ id: string; deployment_url: string | null }>()
     : { data: null };
 
   /* The last attempt's reason, read separately and only consulted when there
@@ -130,14 +130,36 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const { data: latest } = service
     ? await service
         .from("project_builds")
-        .select("deployment_error")
+        .select("id, deployment_error")
         .eq("project_id", owned.projectId)
         .order("created_at", { ascending: false })
         .limit(1)
-        .maybeSingle<{ deployment_error: string | null }>()
+        .maybeSingle<{ id: string; deployment_error: string | null }>()
     : { data: null };
 
   const url = live?.deployment_url ?? null;
+
+  /* ── Whether the site at that address is still THIS project ────────────
+   *
+   * It used to be, always, because every build and every edit deployed. That
+   * is no longer true and must not be — building is not publishing — but the
+   * workspace frames the live address in preference to everything else, and
+   * those two facts together make a trap:
+   *
+   *   somebody edits their project, the edit is stored, nothing is deployed
+   *   because they have not asked for that, and the pane goes on showing the
+   *   site as it was BEFORE the edit. The change they just made is invisible,
+   *   in the one pane whose whole job is to show them what they have.
+   *
+   * That is worse than the receipt it replaced. A receipt is unhelpful; this
+   * is wrong, confidently, about the thing the customer is looking at.
+   *
+   * So the live address is reported with whether it is CURRENT — whether the
+   * newest build is the one that was deployed. When it is not, the workspace
+   * renders the newest source instead and says the site is behind. The address
+   * is still handed over either way: the site is still up, it is still theirs,
+   * and it is still worth linking to. */
+  const current = Boolean(live?.id && latest?.id && live.id === latest.id);
   /* Why the last attempt did not produce one, carried back so the workspace
      can say it on load rather than only in the session where it happened.
      Without this the diagnosis — Deployment Protection, a type error, the tail
@@ -157,13 +179,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, failure, diagnosis, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, current, failure, diagnosis, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
       available: true,
       ready: false,
       url,
+      current,
       failure,
       diagnosis,
       reason:
@@ -171,7 +194,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, failure, diagnosis, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, current, failure, diagnosis, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
