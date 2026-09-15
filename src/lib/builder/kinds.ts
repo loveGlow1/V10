@@ -92,10 +92,41 @@ const LANDING_EXPLICIT =
 const LANDING_SHAPE =
   /\b(portfolio|resume|cv|personal site|about page|event page|conference page|menu page|brochure|microsite|link in bio|linktree|profile page|teaser)\b/i;
 
-/* Selling. Split in two because they are different strengths of evidence.
+/* Selling. Split by strength of evidence, because they are not equally strong.
    Naming a store is a description; naming a cart is a requirement. */
+
+/* Vocabulary that only means selling online. Nobody writes "e-commerce" or
+   "storefront" about a room with a door. */
 const COMMERCE_NOUN =
-  /\b(e[- ]?commerce|online store|storefront|web ?shop|shop|store|boutique|marketplace|dropship(ping)?|merch|catalog(ue)?|product (page|line|range)|inventory)\b/i;
+  /\b(e[- ]?commerce|online (?:store|shop)|storefront|web ?shop|marketplace|dropship(ping)?|merch|catalog(ue)?|product (page|line|range)|inventory)\b/i;
+
+/* ── "shop" and "store" on their own ──────────────────────────────────────
+ *
+ * These used to sit in the list above and score the same three points, and
+ * that is how this arrived:
+ *
+ *     "Build a simple one page site for my barber shop"
+ *
+ * `\bshop\b` matched inside "barber shop", ecommerce scored 3, which is the
+ * FLOOR, and nothing else scored at all — so the heuristic settled it without
+ * asking anybody, the ecommerce defaults switched on a database, accounts, an
+ * admin and a storage bucket, and a barber who asked for ONE PAGE was handed a
+ * storefront. The same hole is under "coffee shop", "flower shop", "repair
+ * shop", "hardware store", "corner store": in English these name a PREMISES,
+ * and naming the place you work is not asking for a checkout.
+ *
+ * Dropped to two, which is below FLOOR. That is the whole of the fix and it is
+ * deliberately not a removal: a bare "shop" is still real evidence, it is
+ * simply no longer enough to DECIDE on its own. Two points cannot clear the
+ * floor by themselves, so a brief whose only commerce signal is this word goes
+ * to the model — which is asked precisely this question and told that a page
+ * about a business is not that business's software.
+ *
+ * Anybody who actually wants to sell says so in a way COMMERCE_FUNCTION
+ * catches — cart, checkout, add to basket, payments — and that scores four on
+ * its own and six for two of them. Nothing about a real store gets quieter
+ * here; only the word that was never evidence of one on its own. */
+const COMMERCE_PREMISES = /\b(shop|store|boutique)\b/i;
 
 const COMMERCE_FUNCTION =
   /\b(cart|basket|checkout|add to (cart|bag|basket)|payments?|pay(ments)? (page|flow)|sku|variants?|order (form|management|history)|shipping|fulfil?lment|coupon|discount code|subscription box|sell(ing)? (products?|online|goods|items?))\b/i;
@@ -226,6 +257,10 @@ export function scoreKind(brief: string): Scores {
   if (commerceFunctions > 0) scores.ecommerce += 4;
   if (commerceFunctions > 1) scores.ecommerce += 2;
   if (COMMERCE_NOUN.test(m)) scores.ecommerce += 3;
+  /* Two, and below FLOOR on purpose — see COMMERCE_PREMISES. Only counted when
+     the stronger vocabulary is absent, so "online shop" is three rather than
+     five: it is one piece of evidence said once. */
+  else if (COMMERCE_PREMISES.test(m)) scores.ecommerce += 2;
   if (COMMERCE_PLATFORM.test(m)) scores.ecommerce += 2;
 
   if (PUBLISHING.test(m)) scores.blog += 4;

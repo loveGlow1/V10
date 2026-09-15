@@ -199,6 +199,45 @@ try {
     ]) {
       if (!heuristicKind(brief)) fail(`a brief that names its kind should never be asked about: "${brief}"`);
     }
+
+    /* ── A shop that is a room, not a checkout ───────────────────────────
+     *
+     * `\bshop\b` used to score three on its own, which is the floor, so a
+     * brief whose ONLY commerce signal was the word inside "barber shop"
+     * was settled by the free pass as `ecommerce` — and the ecommerce
+     * defaults then handed a barber a database, accounts, an admin area and
+     * a storage bucket.
+     *
+     * In English these name a premises. The word is still evidence and is
+     * still scored; it is simply no longer enough to DECIDE alone, so these
+     * go to the model, which is asked exactly this question. Asked is the
+     * correct answer here — not "landing" — because a bare "shop" genuinely
+     * could be either and the model is the thing that can tell. */
+    for (const brief of [
+      "Build a simple one page site for my barber shop",
+      "a website for my coffee shop",
+      "I need a site for my flower shop",
+      "build a website for my hardware store",
+    ]) {
+      const got = heuristicKind(brief);
+      if (got && got.kind === "ecommerce") {
+        fail(`naming a premises is not asking for a checkout: "${brief}" was read as ecommerce`);
+      }
+    }
+
+    /* And what must NOT have got quieter. Anybody who actually wants to sell
+       says so in a way COMMERCE_FUNCTION catches, and that still decides. */
+    for (const brief of [
+      "build an online store for handmade candles with a cart and checkout",
+      "a shop where people can add items to a basket and check out",
+      "an ecommerce site to sell my t-shirts",
+      "a storefront where customers browse products and pay by card",
+    ]) {
+      const got = heuristicKind(brief);
+      if (!got || got.kind !== "ecommerce") {
+        fail(`a real store must still be read as one: "${brief}" gave ${got ? got.kind : "no answer"}`);
+      }
+    }
   }
 
   /* ── The prompts ─────────────────────────────────────────────────────── */
