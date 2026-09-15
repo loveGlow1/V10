@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { canAfford, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
+import { loadTree } from "@/lib/builder/store-tree";
 import { validatePage } from "@/lib/builder/validate";
+import { diagnoseFindings } from "@/lib/publish/diagnosis";
+import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
+import {
+  deploymentName,
+  deploymentsConfigured,
+  publicAddress,
+  startDeployment,
+} from "@/lib/publish/vercel-deploy";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { publishedUrl, slugIsUsable } from "@/lib/publish/naming";
 import { reserveSlug } from "@/lib/publish/reserve";
@@ -39,8 +50,10 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/* A read, a validate and two writes. Nothing here waits on anything external. */
-export const maxDuration = 30;
+/* A read, a validate and two writes for a page, which waits on nothing.
+   Publishing a PROJECT also uploads it to Vercel — started, never waited for,
+   so this is still a handful of API calls rather than a build. */
+export const maxDuration = 60;
 
 type Body = { projectId?: unknown };
 
@@ -84,13 +97,34 @@ export async function POST(request: Request) {
     return fail("There's nothing to publish yet — build the page first.", 422, "validate");
   }
 
+  /* ── Which of the two things is being published ─────────────────────────
+   *
+   * A project with stored files is a Next.js application and publishing it
+   * means DEPLOYING it: there is no single document to snapshot, and the one
+   * sitting in `build.html` for such a build is the summary this platform
+   * writes for it. Publishing that would have put a receipt — "a web app built
+   * as a Next.js project, 19 files" — at the customer's public address and
+   * called it their site. That is what "the publish button does not work"
+   * was.
+   *
+   * A build with no files is the single-page stack, and everything below it is
+   * the snapshot that has always been right for it. The two pipelines stay
+   * separate all the way to the end, which is the point. */
+  const tree = await loadTree(supabase, build.id as string);
+  const isProject = tree.length > 0;
+
   /* The same check an edit has to pass before it is stored, applied again here
      against nothing. A page can only reach this table by passing it, so this is
      belt and braces — but it is the last gate before something becomes public,
-     and a structurally broken page going live is worse than one stored. */
-  const verdict = validatePage("", build.html as string);
-  if (!verdict.ok) {
-    return fail(`That page isn't ready to publish — ${verdict.problem}.`, 422, "validate");
+     and a structurally broken page going live is worse than one stored.
+     
+     Asked of a PAGE only. A project's stored document is a summary rather than
+     the thing being published, so this would be checking the receipt. */
+  if (!isProject) {
+    const verdict = validatePage("", build.html as string);
+    if (!verdict.ok) {
+      return fail(`That page isn't ready to publish — ${verdict.problem}.`, 422, "validate");
+    }
   }
 
   const service = createSupabaseServiceClient();
@@ -142,6 +176,82 @@ export async function POST(request: Request) {
 
   const slug = reserved.slug;
 
+  /* ── Putting a PROJECT online ────────────────────────────────────────────
+   *
+   * Everything above applies to both stacks — ownership, price, balance, the
+   * address. This is the half that only a Next.js project has, and it happens
+   * BEFORE the snapshot and before the project is marked live, so the rule the
+   * top of this file is built around still holds: a project is marked
+   * Published when it IS published, and a deployment that could not be started
+   * leaves it exactly as it was.
+   *
+   * Nothing is charged here either. The balance was checked above and the
+   * charge is taken after the pointer flips, which is the same order the page
+   * path uses and for the same reason. */
+  let liveUrl: string | null = null;
+  let deployment: { id: string; vercelProject: string; url: string; inspect: string | null } | null = null;
+
+  if (isProject) {
+    if (!deploymentsConfigured()) {
+      return fail(
+        "Publishing applications is not switched on for this installation of QuickStark yet — it has no Vercel API token.",
+        503,
+        "config",
+      );
+    }
+
+    /* The same structural gate the deploy route applies, for the same reason:
+       every rule in it is one `next build` enforces, so anything blocking here
+       is a deployment that WILL fail. Repaired first, because the defect with
+       exactly one correct fix should not cost somebody a publish. */
+    const { tree: sound } = repairStructure(tree);
+    const stopping = blocking(inspectStructure(sound));
+    if (stopping.length > 0) {
+      const diagnosis = diagnoseFindings(stopping);
+      return NextResponse.json(
+        {
+          error: diagnosis?.summary ?? "This project needs attention before it can go live.",
+          diagnosis,
+          stage: "validate",
+          published: false,
+        },
+        { status: 422 },
+      );
+    }
+
+    const backend = await resolveBackend(service, projectId);
+    const env = backend ? envFor(backend) : null;
+    const vercelProject =
+      (await existingVercelProject(service, projectId)) ??
+      deploymentName(project.name as string, projectId);
+
+    const started = await startDeployment(sound, {
+      name: vercelProject,
+      supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
+    });
+
+    if (!started.ok) {
+      return fail(
+        `That couldn't be put online just now — ${started.reason}. Nothing has changed.`,
+        502,
+        "deploy",
+      );
+    }
+
+    deployment = {
+      id: started.deploymentId,
+      vercelProject,
+      url: started.url,
+      inspect: started.inspect,
+    };
+    /* Derived rather than taken, so a per-deployment host — which is behind
+       Deployment Protection and renders unstyled — can never be handed over as
+       somebody's live address. See publicAddress. */
+    liveUrl = publicAddress(started.url, vercelProject);
+  }
+
   /* ── The snapshot ────────────────────────────────────────────────────────
      Written before the project is marked published, so the pointer can never
      name a row that does not exist. */
@@ -173,6 +283,32 @@ export async function POST(request: Request) {
     // eslint-disable-next-line no-console
     console.error("publish: the snapshot could not be written:", snapshotError);
     return fail("That couldn't be published just now. Nothing has changed — try again.", 502, "snapshot");
+  }
+
+  /* The deployment, against the publication it belongs to. After the snapshot
+     because a deployment record names a build and a project that exist, and
+     best effort because the site is already going up either way — a record
+     that fails to write costs the workspace its address, not the customer
+     their site. */
+  if (deployment) {
+    try {
+      await recordDeployment(service, {
+        projectId,
+        userId: user.id,
+        buildId: build.id as string,
+        deploymentId: deployment.id,
+        vercelProject: deployment.vercelProject,
+        url: deployment.url,
+        inspectUrl: deployment.inspect,
+      });
+      await service
+        .from("project_builds")
+        .update({ deployment_url: liveUrl, deployment_error: null })
+        .eq("id", build.id);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("publish: the deployment could not be recorded:", error);
+    }
   }
 
   /* ── Live ────────────────────────────────────────────────────────────────
@@ -228,7 +364,17 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     published: true,
-    url: publishedUrl(slug),
+    /* An application is served by Vercel and a page is served by this platform,
+       so "where is my site" has two correct answers and this is the one that
+       matches what was actually published. The Vercel domain appears HERE and
+       nowhere earlier: before a publish there is no live site, and offering its
+       future address would be offering something that does not exist yet. */
+    url: liveUrl ?? publishedUrl(slug),
+    /* Kept alongside, because a project also has a QuickStark address and the
+       workspace shows both. */
+    previewUrl: publishedUrl(slug),
+    kind: isProject ? "project" : "page",
+    building: Boolean(deployment),
     slug,
     version: publication.version,
     publishedAt: publication.published_at,

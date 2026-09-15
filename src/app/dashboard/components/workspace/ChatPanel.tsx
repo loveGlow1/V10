@@ -134,6 +134,7 @@ export default function ChatPanel({
   initialKind,
   onBuildSettled,
   onPublish,
+  alone = false,
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
@@ -153,6 +154,10 @@ export default function ChatPanel({
   onBuildSettled?: () => void;
   /** Asks the preview half for its publish flow. See Workspace. */
   onPublish?: () => void;
+  /* Whether this is the only pane on screen, which happens when somebody puts
+     the preview away on a desktop. It changes how the conversation is laid
+     out rather than what is in it — see the root element below. */
+  alone?: boolean;
 }) {
   const router = useRouter();
   const { create, build, watchBuild } = useProjects();
@@ -1286,7 +1291,27 @@ export default function ChatPanel({
     "border-line/[0.06] bg-layer/[0.035] text-soft hover:-translate-y-px hover:border-line/[0.12] hover:bg-layer/[0.07] hover:text-ink hover:shadow-[0_4px_14px_rgba(0,0,0,0.28)]";
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] md:border-r">
+    /* ── Beside the preview, or on its own ──────────────────────────────
+       
+       With the preview open this is a 420px column and fills it. With the
+       preview put away it used to take the whole window, and a conversation
+       run edge to edge on a wide screen is a bad way to read anything: the
+       lines are too long, the message bubbles stretch into bands, and the
+       buttons under them spread into the corners. It looked broken, which it
+       was not — it was simply unbounded.
+       
+       So on its own it is a centred column of a readable width, which is what
+       every other chat does and what somebody closing the preview is asking
+       for: more room for the conversation, not a wider conversation.
+       
+       The right-hand border goes with it. It divides this pane from the
+       preview, and with no preview beside it, it is a line down the middle of
+       nothing. */
+    <section
+      className={`flex min-h-0 min-w-0 flex-1 flex-col border-line/[0.06] ${
+        alone ? "md:mx-auto md:w-full md:max-w-[52rem]" : "md:border-r"
+      }`}
+    >
       {/* From md up only. On a phone the bar above already names the app, beside
           the way back out of it, and the same name a row under it is the word
           twice. h-[53px] on both halves so the two headers rule off at the same

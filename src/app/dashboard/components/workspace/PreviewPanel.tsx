@@ -99,7 +99,6 @@ export default function PreviewPanel({
    * The failure is shown rather than swallowed. The commonest one by far is
    * this deployment having no VERCEL_API_TOKEN, and that sentence in front of
    * the person who can add it is worth more than a disabled button. */
-  const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState<string | null>(null);
   /* Whether the site at that address is still this project.
    *
@@ -141,28 +140,13 @@ export default function PreviewPanel({
   /* Whether the technical panel is open. Closed by default and per failure: a
      log that unfurls itself has taken the place of the summary again. */
   const [showLog, setShowLog] = useState(false);
-  /* Whether to draw the control at all. Asked of the server rather than
-     decided here, because the answer depends on an allowlist and on an
-     environment variable, neither of which the browser knows — and because a
-     control whose only possible outcome is a refusal is worse than no control.
-     Null while unasked, so nothing flickers in before the answer. */
-  const [canRun, setCanRun] = useState<boolean | null>(null);
-  /* Eligible to press it is not the same as it being able to work. False means
-     hosting is not configured yet, which is a different sentence from a
-     deployment that was tried and failed. */
-  const [hostingReady, setHostingReady] = useState(true);
 
   useEffect(() => {
     const id = project?.id;
-    if (!id) {
-      setCanRun(null);
-      return;
-    }
+    if (!id) return;
 
     let current = true;
     /* Reset per project: the previous one's answer is not this one's. */
-    setCanRun(null);
-    setHostingReady(true);
     setDeployed(null);
     setLiveIsCurrent(true);
     setLiveViewable(true);
@@ -180,6 +164,9 @@ export default function PreviewPanel({
         url?: string | null;
         /* Whether that address is serving the newest build. */
         current?: boolean;
+        /* True while the newest deployment is still compiling. The address is
+           real; the site behind it is not up yet. */
+        building?: boolean;
         /* Whether it can be shown in this pane, and why not when it cannot. */
         viewable?: boolean;
         viewableReason?: string | null;
@@ -193,19 +180,18 @@ export default function PreviewPanel({
         reason?: string | null;
       }) => {
         if (!current) return;
-        setCanRun(body.available === true);
         /* Straight into the pane. This runs when the workspace opens, so a
            project that was deployed an hour ago is showing its app before
            anybody presses anything. */
         if (body.url) setDeployed(body.url);
         setLiveIsCurrent(body.current !== false);
+        setBuilding(body.building === true);
         setLiveViewable(body.viewable !== false);
         setLiveBlockedReason(body.viewableReason ?? null);
         /* Carried before anything is pressed. If hosting is not configured, the
            account that can configure it should be able to read that from the
            button rather than from a failed attempt. */
         if (body.available === true && body.ready === false && body.reason) {
-          setHostingReady(false);
           setDeployError(body.reason);
           setDiagnosis(body.diagnosis ?? null);
         } else if (body.failure) {
@@ -218,7 +204,8 @@ export default function PreviewPanel({
         }
       })
       .catch(() => {
-        if (current) setCanRun(false);
+        /* The workspace works without this answer: it only decides what is
+           said about a live address, and there is not one. */
       });
 
     return () => {
@@ -226,36 +213,6 @@ export default function PreviewPanel({
     };
   }, [project?.id]);
 
-  async function runTheApp() {
-    if (!project?.id || deploying) return;
-    setDeploying(true);
-    setDeployError(null);
-    setDiagnosis(null);
-    setShowLog(false);
-    try {
-      const response = await fetch(`/api/projects/${project.id}/deploy`, { method: "POST" });
-      const body = (await response.json()) as {
-        url?: string | null;
-        /* True while Vercel is still installing and compiling. The address is
-           real; the site is not up behind it. */
-        building?: boolean;
-        error?: string;
-        diagnosis?: Diagnosis | null;
-      };
-      if (response.ok && body.url) {
-        setDeployed(body.url);
-        setLiveIsCurrent(true);
-        setBuilding(body.building === true);
-      } else {
-        setDeployError(body.error ?? "The deployment did not complete.");
-        setDiagnosis(body.diagnosis ?? null);
-      }
-    } catch {
-      setDeployError("The deployment could not be reached.");
-    } finally {
-      setDeploying(false);
-    }
-  }
   const [draft, setDraft] = useState(project?.name ?? "");
   const [confirming, setConfirming] = useState(false);
   /* Bumped by the reload button and used as the frame's key, which is what
@@ -279,6 +236,25 @@ export default function PreviewPanel({
    *
    * safeHttpUrl still guards the result: it is built from SITE_URL, but a
    * misconfigured environment should not put a broken href on the page. */
+  /* ── The live address, and when a customer is allowed to see it ─────────
+   *
+   * Only after an actual publish. A deployment can exist without one — the
+   * workspace's own "run this project" control creates one, and so did every
+   * build back when a build deployed itself — and showing that address before
+   * anybody pressed Publish offers a public URL for something the customer has
+   * not agreed to make public. It also makes Publish look like it did nothing,
+   * because the address was already there.
+   *
+   * So before publishing, the only address on offer is the QuickStark preview,
+   * which is private to its owner and is what a preview should be. The Vercel
+   * domain appears when the project is published and not one moment sooner.
+   *
+   * `deployed` is kept as it was because the FRAME still uses it: a published
+   * project shows its real compiled site, and the checks around it — current,
+   * viewable — are about that. This is the narrower question of what address is
+   * put in front of a person. */
+  const publishedLive = project && isPublished(project) ? deployed : null;
+
   const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
   const repoUrl = safeHttpUrl(project?.repo_url);
 
@@ -619,15 +595,18 @@ export default function PreviewPanel({
                 {/* Offered only where pressing it would do something. A button
                     that says it can fix this and then cannot is worse than no
                     button, so the server decides — see Diagnosis.automatic. */}
+                {/* Offered only where pressing it would do something, and it
+                    opens PUBLISH rather than deploying by itself: the repair
+                    happens on the way out of a publish, so retrying one is how
+                    this class of failure is actually fixed. A second deploying
+                    control here would be a public address without a publish. */}
                 {diagnosis?.automatic ? (
                   <button
                     type="button"
-                    onClick={runTheApp}
-                    disabled={deploying}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-line/[0.10] bg-layer/[0.06] px-2 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.10] disabled:opacity-60"
+                    onClick={() => setPublishOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-line/[0.10] bg-layer/[0.06] px-2 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.10]"
                   >
-                    {deploying ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : null}
-                    Fix automatically
+                    Fix and publish again
                   </button>
                 ) : null}
                 <button
@@ -692,7 +671,7 @@ export default function PreviewPanel({
            * instead, so there is something real to look at either way. This
            * says what happened and gives them the link, because opening it in
            * a tab is the one thing that definitely works. */}
-          {deployed && !building && !liveViewable ? (
+          {publishedLive && !building && !liveViewable ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="text-[12px] font-medium text-ink">Your site is live, but cannot be shown here</p>
               <p className="mt-1 break-words text-[12px] leading-relaxed text-muted">
@@ -704,7 +683,7 @@ export default function PreviewPanel({
                 from its own files.
               </p>
               <a
-                href={deployed}
+                href={publishedLive}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
@@ -715,7 +694,7 @@ export default function PreviewPanel({
             </div>
           ) : null}
 
-          {deployed && !building && !liveIsCurrent ? (
+          {publishedLive && !building && !liveIsCurrent ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="text-[12px] font-medium text-ink">Your live site is behind this preview</p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
@@ -723,12 +702,12 @@ export default function PreviewPanel({
                 below is still serving the last version you published.
               </p>
               <a
-                href={deployed}
+                href={publishedLive}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
               >
-                {deployed.replace(/^https?:\/\//, "")}
+                {publishedLive.replace(/^https?:\/\//, "")}
                 <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
             </div>
@@ -779,10 +758,10 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {deployed && !building && liveIsCurrent && liveViewable ? (
+          {publishedLive && !building && liveIsCurrent && liveViewable ? (
             <iframe
-              key={`${deployed}#${reloads}`}
-              src={deployed}
+              key={`${publishedLive}#${reloads}`}
+              src={publishedLive}
               title={`${project?.name ?? "App"} — live`}
               sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
               className="min-h-0 flex-1 border-0 bg-white"
@@ -822,16 +801,15 @@ export default function PreviewPanel({
                   See what was built
                 </a>
               ) : null}
-              {canRun && hostingReady ? (
-                <button
-                  onClick={runTheApp}
-                  disabled={deploying}
-                  className="mt-1 flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white transition-opacity disabled:opacity-60"
-                >
-                  {deploying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {deploying ? "Putting it online…" : "Put it online"}
-                </button>
-              ) : null}
+              {/* Publish, rather than a deploy of its own. Putting a project
+                  online is one act with one control; a second one here would
+                  be a way to get a public address without publishing. */}
+              <button
+                onClick={() => setPublishOpen(true)}
+                className="mt-1 flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white transition-opacity"
+              >
+                Publish it
+              </button>
             </div>
           ) : pageHtml !== null ? (
             <iframe
@@ -1360,46 +1338,30 @@ export default function PreviewPanel({
             <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
           </button>
 
-          {/* Run it. Only for a build that produced a project — a single page is
-              already running in the pane behind this. Once there is an address
-              it becomes the link to it, because the second thing anybody wants
-              after "build my app" is "open my app".
+          {/* ── "Open app", and nothing that deploys ─────────────────────────
+              This was a Run app button that created a Vercel deployment of its
+              own. It is gone, because deploying is what Publish does and
+              nothing else should: a second control that put a project online
+              meant a public address could exist for a project nobody had
+              agreed to publish, and it made Publish look like it did nothing
+              because the address was already there.
 
-              Absent entirely outside the rollout. Not disabled: a greyed button
-              is a promise with no date on it. */}
-          {canRun !== true ? null : deployed ? (
+              What is left is the link, and only once there is genuinely
+              something to open — a project that has been published. Before
+              that the pane itself is the preview, which is the whole point of
+              rendering it in the builder. */}
+          {publishedLive ? (
             <a
-              href={deployed}
+              href={publishedLive}
               target="_blank"
               rel="noopener noreferrer"
-              title={`Open ${deployed}`}
+              title={`Open ${publishedLive}`}
               className={action}
             >
               <ExternalLink className="h-4 w-4 shrink-0" />
               <span className="hidden xl:inline">Open app</span>
             </a>
-          ) : (
-            <button
-              onClick={runTheApp}
-              disabled={deploying || !project?.id}
-              title={deployError ?? "Build and host this project"}
-              className={action}
-            >
-              <Rocket className="h-4 w-4 shrink-0" />
-              {/* The label carries the outcome as well as the invitation. A
-                  failure that lives only in a tooltip is a failure most people
-                  never read. */}
-              <span className="hidden xl:inline">
-                {deploying
-                  ? "Building…"
-                  : !hostingReady
-                    ? "Hosting not set up"
-                    : deployError
-                      ? "Couldn't host"
-                      : "Run app"}
-              </span>
-            </button>
-          )}
+          ) : null}
 
           {/* Download's permanent home, beside Publish. The copy in the chat
               card is the shortcut and it expires; this one does not, which is

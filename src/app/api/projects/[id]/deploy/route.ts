@@ -34,7 +34,7 @@ import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { canBeFramed } from "@/lib/publish/framable";
 import { loadTree } from "@/lib/builder/store-tree";
 import { deploymentName, deploymentsConfigured, publicAddress, startDeployment } from "@/lib/publish/vercel-deploy";
-import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
+import { existingVercelProject, latestDeployment, recordDeployment } from "@/lib/publish/deployment-store";
 import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -188,6 +188,22 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
    *
    * Only when there IS an address, and generous by default — see
    * lib/publish/framable.ts. */
+  /* ── Still compiling ────────────────────────────────────────────────────
+   *
+   * A deployment's address exists the moment Vercel accepts the upload, and
+   * the site behind it does not for another minute or two. Framing it in that
+   * window replaces a working preview with a blank white rectangle for the
+   * length of the build.
+   *
+   * The workspace used to learn this from the response to its own deploy
+   * button. That button is gone — publishing is the only way a project goes
+   * online — so the answer is derived from the deployment record instead,
+   * which is better than the old one was: it survives a reload, and a customer
+   * who publishes and then refreshes still sees their preview rather than a
+   * blank frame. */
+  const latestDeploy = service ? await latestDeployment(service, owned.projectId) : null;
+  const building = latestDeploy?.state === "queued";
+
   const framable = url ? await canBeFramed(url, new URL(request.url).origin) : { ok: true as const };
   const viewable = framable.ok;
   const viewableReason = framable.ok ? null : framable.reason;
@@ -210,7 +226,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, current, viewable, viewableReason, failure, diagnosis, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, current, building, viewable, viewableReason, failure, diagnosis, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
@@ -218,6 +234,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       ready: false,
       url,
       current,
+      building,
       viewable,
       viewableReason,
       failure,
@@ -227,7 +244,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, current, viewable, viewableReason, failure, diagnosis, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, current, building, viewable, viewableReason, failure, diagnosis, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {

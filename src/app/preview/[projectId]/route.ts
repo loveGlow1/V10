@@ -86,6 +86,19 @@ function fileNameFor(name: string | null | undefined): string {
   return `${slug || "page"}.html`;
 }
 
+/* What the pane shows when a project cannot be rendered.
+ *
+ * Deliberately almost nothing: one sentence, no branding, no file listing, no
+ * routes. Everything that used to be here is the summary, and the summary is
+ * not a preview — it is a receipt, and it lives in the QuickStark interface
+ * and at `?diagnostics=1`.
+ *
+ * Served with a bare `sandbox` and no allowances: there is nothing in it to
+ * run. */
+function cannotRender(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title></head><body style="margin:0;min-height:100dvh;display:grid;place-items:center;background:#f8fafc;color:#475569;font:14px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif"><p style="max-width:40ch;text-align:center;padding:24px">This project could not be rendered in the preview. Its files are all there — open the build details to see everything that was made.</p></body></html>`;
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ projectId: string }> },
@@ -252,11 +265,40 @@ export async function GET(
         }
       }
     } catch (error) {
-      /* The summary is a working preview and this is an improvement on it. A
-         failure to render must never be a failure to show anything. */
+      /* Reported, then handled below. A failure to render must never be a
+         failure to show anything — but what it falls back to is NOT the
+         summary. See below. */
       // eslint-disable-next-line no-console
-      console.error("preview: the project could not be rendered, falling back to its summary:", error);
+      console.error("preview: the project could not be rendered:", error);
     }
+
+    /* ── The summary is never the preview ────────────────────────────────
+     *
+     * Reaching here means the tree could not be routed — a scaffold that
+     * stopped halfway, or a shape this renderer does not know. Until now that
+     * fell through to the stored document, which for a project IS the summary:
+     * "a web app built as a Next.js project — 19 files", a list of routes and
+     * a file count, framed in the pane where the customer's application should
+     * be.
+     *
+     * That is a receipt, and a receipt is not a preview. It belongs in the
+     * QuickStark interface as a sentence about what was built, not in the frame
+     * that is supposed to be showing the product. So this pane says what
+     * happened in one line and points at the receipt for anybody who wants it,
+     * and the summary itself stays exactly where it has always been — at
+     * `?diagnostics=1`, for whoever asks. */
+    return new Response(
+      cannotRender(),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": "sandbox",
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   }
 
   return new Response(build.html, {

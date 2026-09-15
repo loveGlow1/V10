@@ -262,6 +262,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
             }`}
           >
             <ChatPanel
+              alone={!previewPaneOpen}
               project={project}
               onOpenIntegrations={openIntegrations}
               onOpenPreview={() => setPreviewSheetOpen(true)}
