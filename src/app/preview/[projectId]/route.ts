@@ -1,3 +1,5 @@
+import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-preview";
+import { isProjectSummary } from "@/lib/builder/project-summary";
 import { loadTree } from "@/lib/builder/store-tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -97,6 +99,11 @@ export async function GET(
      single-page build, which has one file and it is the page. */
   const wantsListing = params.get("files") === "1";
   const wantsFile = params.get("file");
+  /* The written summary of a project build, which used to BE this route's
+     answer for a tree and is now what sits behind it. See the note above
+     `renderable` below: the preview shows the product, and the receipt is
+     diagnostics somebody asks for. */
+  const wantsDiagnostics = params.get("diagnostics") === "1";
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return notFound("Previews are unavailable — Supabase is not configured.");
@@ -197,6 +204,59 @@ export async function GET(
         "Cache-Control": "no-store",
       },
     });
+  }
+
+  /* ── The product, rather than an account of it ──────────────────────────
+   *
+   * A build whose stored document is a project summary is a tree build: there
+   * was no HTML to store, because the HTML is what `next build` produces and
+   * nothing here runs `next build`. That was true of the renderer and is no
+   * longer true of this route — lib/builder/preview compiles the tree in the
+   * browser and runs it, so what the pane shows is the application.
+   *
+   * The summary is still stored and still reachable at `?diagnostics=1`. It was
+   * always a good receipt and was never a product, and the difference between
+   * those two is the whole of this change: a customer opening their project
+   * sees what they asked for, and the file listing is something they go and
+   * look at rather than something they are handed instead.
+   *
+   * The fallback chain matters as much as the feature. A tree that cannot be
+   * routed — a scaffold that failed halfway, a shape this renderer does not
+   * know — falls through to the summary rather than to a blank pane, which is
+   * exactly where this route was before. Nothing gets worse than it already
+   * was for any project. */
+  if (!wantsDiagnostics && isProjectSummary(build.html as string)) {
+    try {
+      const tree = await loadTree(supabase, build.id as string);
+      if (canRenderApp(tree)) {
+        const { data: project } = await supabase
+          .from("projects")
+          .select("name")
+          .eq("id", projectId)
+          .maybeSingle();
+
+        const document = appPreviewDocument({ tree, projectName: project?.name as string | null });
+        if (document) {
+          return new Response(document, {
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+              /* The same sandbox the stored page gets, for the same reason: this
+                 document runs source a customer's prompt produced. It needs
+                 scripts to be an application at all, and it must not have this
+                 origin's cookies while it does. */
+              "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+              "X-Content-Type-Options": "nosniff",
+              "Cache-Control": "no-store",
+            },
+          });
+        }
+      }
+    } catch (error) {
+      /* The summary is a working preview and this is an improvement on it. A
+         failure to render must never be a failure to show anything. */
+      // eslint-disable-next-line no-console
+      console.error("preview: the project could not be rendered, falling back to its summary:", error);
+    }
   }
 
   return new Response(build.html, {

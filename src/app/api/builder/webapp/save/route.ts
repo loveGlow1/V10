@@ -37,6 +37,7 @@ import {
 } from "@/lib/context/store";
 import { projectSummary } from "@/lib/builder/project-summary";
 import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
+import { shouldRedeploy } from "@/lib/publish/redeploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
@@ -339,7 +340,11 @@ export async function POST(request: Request) {
      now has somewhere to be reported. */
   const { data: project, error: lookupError } = await supabase
     .from("projects")
-    .select("id, name, deleted_at")
+    /* published_at and published_version_id come across so the deployment
+       decision below can be made from the row rather than from a second query.
+       See lib/publish/redeploy.ts: a project that is already live redeploys,
+       and one that has never been published does not. */
+    .select("id, name, deleted_at, status, published_at, published_version_id")
     .eq("id", claim.projectId)
     .eq("user_id", claim.userId)
     .maybeSingle();
@@ -477,7 +482,21 @@ export async function POST(request: Request) {
        * written and still stored, and the reason is kept beside it. A
        * deployment that could not happen must never take down a build that
        * did — the files are worth having and they were paid for. */
-      if (deploymentsConfigured()) {
+      /* ── Only a project that is already live deploys itself ───────────
+       *
+       * This used to run on every build of a project, which is what made
+       * Vercel responsible for the primary preview: the tree had no HTML, so
+       * the only way to SEE an application was to wait for a production build
+       * of it, and a project that would not compile showed its owner a build
+       * log instead of their work.
+       *
+       * The preview renders the tree directly now (see lib/builder/preview),
+       * so there is nothing a deployment is needed FOR at this point. A
+       * project that is already live still redeploys — an edit that does not
+       * reach a published site is a change the customer believes they made and
+       * did not. Everything else waits for Publish. */
+      const redeploy = await shouldRedeploy(supabase, project.id as string, project);
+      if (deploymentsConfigured() && redeploy.deploy) {
         /* The project's OWN backend, not this platform's.
          *
          * This used to read NEXT_PUBLIC_SUPABASE_URL and _ANON_KEY off the

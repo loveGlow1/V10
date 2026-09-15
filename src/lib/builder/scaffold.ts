@@ -28,6 +28,7 @@ import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
+import { repairStructure } from "./next-structure";
 import type { FileTree, ProjectFile } from "./tree";
 
 /* The version of Next.js these projects are written against.
@@ -512,9 +513,25 @@ export function completeTree(
      "use client" and a source of generateStaticParams does not compile, and
      that is a property of the finished tree rather than of any one file the
      model wrote. See client-routes.ts. */
-  return splitClientRoutes([...byPath.values()]).sort((a, b) =>
-    a.path.localeCompare(b.path),
-  );
+  const split = splitClientRoutes([...byPath.values()]);
+
+  /* And the other defect with exactly one correct fix: a component exported
+     from a page module, which `next build` rejects outright.
+
+     Here rather than at publish, deliberately, so that what is STORED is
+     correct. A repair applied on the way to Vercel would leave the customer's
+     own files — the ones they download, and the ones the next edit reads —
+     still holding the defect, so their local build would fail on something
+     this platform had quietly worked around on every deployment. Fixing it
+     once, in the tree everything else reads from, is the only version of this
+     that is true for the customer as well as for the deployment.
+
+     After the split because the split writes new files, and a component lifted
+     into a sibling by client-routes.ts must be looked at by this too. See
+     next-structure.ts. */
+  const { tree: repaired } = repairStructure(split);
+
+  return repaired.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /**
