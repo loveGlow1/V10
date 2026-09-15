@@ -410,6 +410,7 @@ export default function DashboardPage() {
       <PhoneField />
 
       <TopNav
+        tabs={<WorkspaceTabs />}
         onUpgradeClick={() => setBillingOpen(true)}
         onAccountSettingsClick={() => {
           setSettingsSection("account");
@@ -422,7 +423,6 @@ export default function DashboardPage() {
       {/* Home is a tab in the same strip the workspaces are in, so leaving an
           app for the composer and coming back is one row of switching rather
           than a navigation. */}
-      <WorkspaceTabs />
 
       <TopBar
         onMenuClick={() => setSidebarOpen(true)}
