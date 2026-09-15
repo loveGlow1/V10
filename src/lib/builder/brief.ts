@@ -187,6 +187,56 @@ export function isContinuation(message: string): boolean {
   return CONTINUATION.test(message);
 }
 
+/* ── Forward, as opposed to again ──────────────────────────────────────────
+ *
+ * CONTINUATION answers one question — "does this message describe anything
+ * new, or is it asking for the last thing again?" — and it was being asked a
+ * second, different one: on a project midway through a staged build, does this
+ * message mean BUILD THE NEXT STAGE?
+ *
+ * For most of the list those are the same. For the restart family they are
+ * opposites. "Continue" means go forward; "rebuild it" means do the same thing
+ * over. One predicate answering both sent a person who typed "Rebuild it"
+ * straight into stage two of a seven-stage plan, which was then applied to the
+ * page as an edit — and the edit over-closed a <section>, so the answer they
+ * got was that their change had broken the layout. They had not asked for a
+ * change. They had asked for the thing to be built again.
+ *
+ * So the words that mean GO ON are listed separately from the words that mean
+ * DO IT AGAIN, and only the first advance a plan. Nothing here overlaps the
+ * rebuild vocabulary; that is the whole point of the split. */
+const ADVANCES_STAGE =
+  /^\s*(?:please\s+)?(?:continue|carry on|keep going|proceed|go(?: on| ahead| for it)?|next(?: one| stage| step)?|yes(?: please)?|yep|yeah|sure|ok(?:ay)?|do it|please do|resume)(?:\s+please)?\s*[.!?]*\s*$/i;
+
+/** Whether this message asks for the NEXT stage of a staged build. */
+export function advancesStage(message: string): boolean {
+  return ADVANCES_STAGE.test(message);
+}
+
+/* ── Asking for it to be built again ───────────────────────────────────────
+ *
+ * Its own question, because every other reading of it has been wrong. Read as
+ * a continuation it advanced a plan; read as an edit it produced a patch
+ * against a page nobody asked to change. Neither is what the word means.
+ *
+ * Anchored, like CONTINUATION, so it only fires on a message that is nothing
+ * BUT the request: "rebuild the dashboard" names a target and is a different
+ * instruction, which is exactly the case the caller then asks about. */
+const REBUILD_WHOLE =
+  /^\s*(?:please\s+)?(?:re-?build|re-?generate|re-?make|re-?do|start over|do it over|build it over)(?:\s+(?:it|that|this|the|my|whole|entire|complete|full|everything|all|again|app|site|website|page|project|thing))*(?:\s+again)?(?:\s+please)?\s*[.!?]*\s*$/i;
+
+/**
+ * Whether this message asks for the project to be built again, without saying
+ * which part. Null when it is not a rebuild request at all.
+ *
+ * True is the case worth stopping on: it names no target, so acting on it means
+ * guessing, and the two guesses available — advance the plan, or patch the page
+ * — are both things the person did not ask for.
+ */
+export function isWholeRebuild(message: string): boolean {
+  return REBUILD_WHOLE.test(message);
+}
+
 /* ── Words that ask for something without saying what ──────────────────────
  *
  * Every one of these can be deleted from a message without losing a word of
