@@ -20,6 +20,14 @@
  * again, not because it waited. That is enough for polling somebody else's
  * build, which is all this does.
  *
+ * ── Once a day, not every two minutes ────────────────────────────────────
+ *
+ * This asked to run every two minutes, and that is what stopped the platform
+ * deploying: Hobby refuses a cron more frequent than daily, and refuses the
+ * whole DEPLOYMENT with it. So the schedule is daily, and the prompt answer
+ * comes from the workspace's own poll instead — see lib/publish/settle.ts,
+ * which both callers share. This loop is the backstop.
+ *
  * It is NOT enough for the two stages that still need a real worker: the QA
  * render loop and screenshot grounding both need a headless browser, which is
  * fifty megabytes of Chromium and cannot live in a function at all. Those wait
@@ -28,23 +36,10 @@
 
 import { NextResponse } from "next/server";
 
-import { canRetry } from "@/lib/jobs/state";
-import { advance, noteAttempt, readJob } from "@/lib/jobs/store";
-import {
-  pendingDeployments,
-  settleDeployment,
-  type DeploymentRecord,
-} from "@/lib/publish/deployment-store";
-import {
-  aliasDeployment,
-  deploymentState,
-  deploymentsConfigured,
-  previewAliasFor,
-  vercelCredentials,
-} from "@/lib/publish/vercel-deploy";
+import { pendingDeployments } from "@/lib/publish/deployment-store";
+import { settleOne } from "@/lib/publish/settle";
+import { deploymentsConfigured } from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { recordMessage } from "@/lib/thread-server";
-import { SITE_URL } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,62 +69,6 @@ function authorised(request: Request): boolean {
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-/* The job this deployment belongs to, moved on now that its last stage is
-   done. Best effort and never fatal: a deployment that landed is a deployment
-   that landed whatever the job row says, and a build with no job at all is
-   every build made before build_jobs existed. */
-async function settleJob(
-  service: ReturnType<typeof createSupabaseServiceClient>,
-  record: DeploymentRecord,
-  outcome: { state: "ready"; url: string } | { state: "error" | "cancelled"; reason: string },
-): Promise<void> {
-  if (!service || !record.jobId) return;
-
-  const job = await readJob(service, record.jobId);
-  if (!job || job.state !== "deploying") return;
-
-  if (outcome.state === "ready") {
-    await advance(service, job.id, { to: "ready", detail: { url: outcome.url } });
-  } else {
-    /* The DEPLOYMENT failed; the BUILD did not. The files are generated,
-       stored and paid for, and the customer can redeploy them without
-       spending a model call — see /api/projects/[id]/deploy. So the job is
-       failed with the reason attached rather than the page being thrown
-       away. */
-    await advance(service, job.id, { to: "failed", error: outcome.reason });
-  }
-}
-
-/* Points this platform's own subdomain at a deployment that has finished.
- *
- * Separate from the loop so the failure is contained: every path returns, none
- * throws, and a run that cannot alias still settles every deployment it was
- * called to settle. */
-async function attachPreviewAlias(record: {
-  deploymentId: string;
-  vercelProject: string | null;
-}): Promise<void> {
-  const creds = vercelCredentials();
-  if (!creds || !record.vercelProject) return;
-
-  const alias = previewAliasFor(record.vercelProject);
-  if (!alias) return;
-
-  try {
-    const assigned = await aliasDeployment(record.deploymentId, alias, creds);
-    if (!assigned.ok) {
-      /* Logged rather than surfaced. The customer has a working address; this
-         is the nicer one, and its absence is an operator's problem — usually
-         that the wildcard domain is not verified on the Vercel account. */
-      // eslint-disable-next-line no-console
-      console.warn(`deployments: ${alias} could not be aliased: ${assigned.reason}`);
-    }
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.warn("deployments: aliasing failed:", error);
-  }
-}
-
 export async function GET(request: Request) {
   if (!authorised(request)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
@@ -149,103 +88,14 @@ export async function GET(request: Request) {
   let retried = 0;
 
   for (const record of pending) {
-    const state = await deploymentState(record.deploymentId, record.vercelProject ?? undefined);
-
-    if (state.state === "ready") {
-      /* ── The clean address, once there is something behind it ───────────
-       *
-       * `<slug>.preview.quickstark.tech` rather than somebody else's hosting
-       * domain. Assigned HERE and nowhere earlier, because an alias pointed at
-       * a build that has not compiled sends the customer's own address at a
-       * failure — READY is the first moment it means anything.
-       *
-       * Best effort in the strongest sense: the wildcard has to be a verified
-       * domain on the Vercel account with DNS pointing at Vercel, and where it
-       * is not, this is refused and the vercel.app address goes on working
-       * exactly as before. Nothing downstream reads it, so a refusal costs the
-       * nicety and not the deployment. */
-      await attachPreviewAlias(record);
-
-      await settleDeployment(service, record, state);
-      await settleJob(service, record, state);
-      settled += 1;
-
-      /* Said where the question was asked. The customer was told their page
-         was ready minutes ago; this is the other half — the app itself is now
-         running at an address, which is a different and better thing than a
-         summary of the files it was built from. Keyed on the deployment, so a
-         run that overlaps another cannot say it twice. */
-      await recordMessage(service, {
-        projectId: record.projectId,
-        userId: record.userId,
-        role: "system",
-        body: "Your app is live.",
-        links: [
-          { label: "Open it", href: state.url },
-          { label: "Preview", href: `${SITE_URL}/preview/${record.projectId}` },
-        ],
-        kind: "build_ready",
-        dedupeKey: `deployed:${record.deploymentId}`,
-      });
-      continue;
-    }
-
-    if (state.state === "error" || state.state === "cancelled") {
-      /* ── Worth another go? ───────────────────────────────────────────────
-       *
-       * Only where a second attempt is a genuinely different attempt, which
-       * for a deployment it can be: an upload that raced a Vercel incident, a
-       * build that ran out of a shared resource. canRetry answers it and stops
-       * at MAX_ATTEMPTS, because a job failing the same way three times is not
-       * unlucky — it is broken, and retrying it forever spends somebody's
-       * Vercel quota to keep reaching the same answer.
-       *
-       * Deliberately NOT retried: a deployment Vercel refused for a reason in
-       * the code. That is what the build log in `reason` is for, and re-running
-       * a compile that does not compile is a slower way to print it again. The
-       * cheap signal for the difference is whether the log mentions the
-       * compiler; anything that looks like a type error or a missing module is
-       * the customer's project rather than the platform's day. */
-      const codeFault = /error TS\d+|Module not found|Cannot find module|Type error|SyntaxError/i.test(
-        state.state === "error" ? state.reason : "",
-      );
-
-      if (!codeFault && record.jobId) {
-        const job = await readJob(service, record.jobId);
-        if (job && canRetry("deploying", job.attempts)) {
-          await settleDeployment(service, record, state);
-          await noteAttempt(service, job);
-          retried += 1;
-          /* The job stays in `deploying` and the next build of this project
-             will redeploy. Nothing is re-uploaded from here: this route has a
-             deployment id and no files, and inventing a way for it to reach
-             them would put the tree behind a cron. The customer's own
-             redeploy button is free and does exactly this. */
-          continue;
-        }
-      }
-
-      await settleDeployment(service, record, state);
-      await settleJob(service, record, state);
-      settled += 1;
-
-      await recordMessage(service, {
-        projectId: record.projectId,
-        userId: record.userId,
-        role: "system",
-        body: `Your project was built, but putting it online didn't work — ${state.reason}\n\nThe files are saved and nothing was lost. Deploying again costs nothing and doesn't rebuild anything.`,
-        tone: "error",
-        kind: "build_failed",
-        dedupeKey: `deploy-failed:${record.deploymentId}`,
-      });
-      continue;
-    }
-
-    /* Still going, or Vercel could not be reached. Neither is a failure — see
-       DeploymentState, where "unknown" is deliberately not "error": a
-       deployment whose status could not be READ has not failed, and calling it
-       failed would take down a site that is very likely live. */
-    stillBuilding += 1;
+    /* One definition of "settle a deployment", shared with the workspace's own
+       poll — see lib/publish/settle.ts. This loop is the backstop: it finds the
+       deployments nobody was watching, which on a daily schedule is most of the
+       ones that were not settled on read. */
+    const outcome = await settleOne(service, record);
+    if (outcome === "settled") settled += 1;
+    else if (outcome === "retried") retried += 1;
+    else stillBuilding += 1;
   }
 
   /* The ones nobody is ever going to hear about. */
