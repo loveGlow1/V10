@@ -33,7 +33,7 @@ import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-
 import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { canBeFramed } from "@/lib/publish/framable";
 import { loadTree } from "@/lib/builder/store-tree";
-import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/publish/vercel-deploy";
+import { deploymentName, deploymentsConfigured, publicAddress, startDeployment } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { NOT_ALLOWED, canDeploy } from "@/lib/publish/deploy-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -138,7 +138,17 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         .maybeSingle<{ id: string; deployment_error: string | null }>()
     : { data: null };
 
-  const url = live?.deployment_url ?? null;
+  /* ── The address a customer can actually open ───────────────────────────
+   *
+   * Derived from the Vercel project name rather than read off the row. A
+   * per-deployment host sits behind Deployment Protection on a team account:
+   * signed in it opens, and every stylesheet it asks for without the team's
+   * cookie does not — which is a fully rendered, completely unstyled page, on
+   * a build that is perfect at its production alias. Rows written before
+   * stableHost landed still hold that host, and this is what stops them
+   * reaching anybody. See publicAddress. */
+  const vercelProject = service ? await existingVercelProject(service, owned.projectId) : null;
+  const url = publicAddress(live?.deployment_url ?? null, vercelProject);
 
   /* ── Whether the site at that address is still THIS project ────────────
    *

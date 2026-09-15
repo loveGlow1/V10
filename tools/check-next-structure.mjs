@@ -51,7 +51,7 @@ try {
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "commonjs" }));
 
 const require = createRequire(import.meta.url);
-const { inspectStructure, repairStructure, blocking, namedExports, hasDefaultExport } = require(
+const { inspectStructure, repairStructure, blocking, namedExports, hasDefaultExport, isNextProject } = require(
   join(out, "lib/builder/next-structure.js"),
 );
 
@@ -70,6 +70,65 @@ const SHELL = file(
 const HOME = file("app/page.tsx", "export default function Home() {\n  return <h1>Hi</h1>;\n}\n");
 
 const sound = [SHELL, HOME];
+
+/* ── The single page, which none of this is about ────────────────────────
+ *
+ * Most of what this platform builds is one HTML file: a landing page, a
+ * restaurant site, a portfolio. No app directory, no page.tsx, no Next.js
+ * anywhere near it. Every rule in this module is a `next build` rule, so none
+ * of them mean anything about such a page — and the one that WOULD fire is the
+ * worst of them, because `index.html` is not `app/page.tsx` and its absence
+ * reads as "this project has no pages". That is blocking, so a validator asked
+ * the wrong question would refuse to publish a landing page that is perfect.
+ *
+ * It was unreachable only because the deploy route happens to return early on
+ * an empty tree — an ordering accident in one caller, not a property of this
+ * module, and exactly the shape of seam bug that has bitten this branch twice.
+ * The guard is here now, where the next caller cannot forget it. */
+{
+  const page = [file("index.html", "<!doctype html><html><body><h1>Fresh every morning</h1></body></html>")];
+
+  has(!isNextProject(page), "a single HTML page is not a Next.js project");
+  has(inspectStructure(page).length === 0, "so the validator has nothing to say about it", JSON.stringify(inspectStructure(page)));
+  has(repairStructure(page).repairs.length === 0, "and rewrites nothing");
+  has(repairStructure(page).tree === page, "returning the tree by identity, untouched");
+
+  /* The same for the empty tree every single-page build in the database has. */
+  has(!isNextProject([]), "an empty tree is not a Next.js project");
+  has(inspectStructure([]).length === 0, "and produces no findings");
+
+  /* Assets beside a page are still not a project. */
+  const withAssets = [
+    file("index.html", "<h1>Hi</h1>"),
+    file("styles.css", "body{}"),
+    file("script.js", "console.log(1)"),
+  ];
+  has(!isNextProject(withAssets), "nor is a page with a stylesheet and a script beside it");
+  has(inspectStructure(withAssets).length === 0, "which is also left alone");
+}
+
+/* ── But a half-written scaffold IS one, and its missing page is real ────
+ *
+ * The guard must not swallow the case the "no pages" rule exists for: a
+ * generation that stopped halfway leaves a Next.js project with no page in it,
+ * and that is a deployment that will fail. */
+{
+  const halfBuilt = [SHELL, file("components/Nav.tsx", "export default function Nav(){ return <nav/>; }")];
+  has(isNextProject(halfBuilt), "a tree with an app/ directory is a Next.js project");
+  has(
+    inspectStructure(halfBuilt).some((f) => f.problem.includes("no pages")),
+    "so a scaffold that stopped halfway is still caught",
+  );
+
+  has(
+    isNextProject([file("next.config.mjs", "export default {}")]),
+    "a next.config makes it one too",
+  );
+  has(
+    isNextProject([file("package.json", '{"dependencies":{"next":"15.5.25"}}')]),
+    "and so does depending on next",
+  );
+}
 
 /* ── A project that is fine is reported as fine ─────────────────────────── */
 

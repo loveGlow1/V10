@@ -243,7 +243,44 @@ function describe(path: string): string {
  * Ordered blocking first, because that is the order somebody fixes them in and
  * the order the publish flow reports them in.
  */
+/**
+ * Whether these files are a Next.js project at all.
+ *
+ * NOTHING IN THIS FILE APPLIES TO ANYTHING ELSE, and that has to be true by
+ * construction rather than by where the callers happen to be. The single-page
+ * stack stores one file — `index.html` — and it is most of what this platform
+ * builds: a landing page, a restaurant site, a portfolio. None of the rules
+ * here mean anything about such a page, and the one that would fire is the
+ * worst of them, because `index.html` is not `app/page.tsx` and the absence of
+ * a Next.js page reads as "this project has no pages — there is nothing for a
+ * visitor to open". That is a BLOCKING finding, so a validator asked the wrong
+ * question would refuse to publish a landing page that is completely fine.
+ *
+ * It does not fire today, because the deploy route returns early on a tree with
+ * no files in it. That is an ordering accident in one caller, not a property of
+ * this module, and this branch has already been bitten twice by a defect living
+ * in the seam between two layers that were each individually correct. So the
+ * question is asked here, once, where the answer cannot be forgotten by the
+ * next caller.
+ *
+ * Deliberately generous about what counts as Next.js: anything under `app/`, or
+ * a next.config, or a package.json that depends on it. A half-written scaffold
+ * IS a Next.js project and its missing page is a real finding — that case is
+ * the reason the "no pages" rule exists, and it must survive this guard.
+ */
+export function isNextProject(tree: FileTree): boolean {
+  for (const file of tree) {
+    if (/^app\//.test(file.path)) return true;
+    if (/^next\.config\./.test(file.path)) return true;
+    if (file.path === "package.json" && /"next"\s*:/.test(file.content)) return true;
+  }
+  return false;
+}
+
 export function inspectStructure(tree: FileTree): Finding[] {
+  /* Not a Next.js project: none of this is about it. See isNextProject. */
+  if (!isNextProject(tree)) return [];
+
   const findings: Finding[] = [];
   const paths = new Set(tree.map((file) => file.path));
 
@@ -494,6 +531,10 @@ export type Repair = {
  * it does not understand changes nothing.
  */
 export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repair[] } {
+  /* Same guard, and it matters more here: this one REWRITES somebody's files.
+     A single page is returned by identity, untouched. See isNextProject. */
+  if (!isNextProject(tree)) return { tree, repairs: [] };
+
   const repairs: Repair[] = [];
   const byPath = new Map(tree.map((file) => [file.path, { ...file }]));
   const taken = new Set(byPath.keys());
