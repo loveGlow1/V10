@@ -320,7 +320,14 @@ function readDeployment(
  * the same project name plus a build hash plus the team slug, so it is always
  * longer than the alias it sits under.
  */
-export function stableHost(aliases: string[], deploymentHost: string): string {
+export function stableHost(
+  aliases: string[],
+  deploymentHost: string,
+  /* The Vercel PROJECT name, when the caller knows it. See productionDomain:
+     this is what makes an answer possible before Vercel has reported an alias,
+     which is every deployment at the moment it is created. */
+  projectName?: string,
+): string {
   const custom = aliases
     .filter((host) => !host.endsWith(".vercel.app"))
     .sort((a, b) => a.length - b.length)[0];
@@ -329,8 +336,40 @@ export function stableHost(aliases: string[], deploymentHost: string): string {
   const vercel = aliases
     .filter((host) => host.endsWith(".vercel.app"))
     .sort((a, b) => a.length - b.length)[0];
+  if (vercel) return vercel;
 
-  return vercel ?? deploymentHost;
+  /* ── Derived, rather than waited for ─────────────────────────────────────
+   *
+   * The reason this exists: at the moment a deployment is CREATED, Vercel's
+   * response often carries no aliases at all. Falling back to the deployment
+   * host there hands back the per-build address — project name, build hash,
+   * team slug — and on a team account that one is behind Deployment
+   * Protection. It answers 401 to everybody who is not signed in to the team,
+   * which is every customer, and inside an iframe that is a blank white
+   * rectangle. "Deployment links only really open on Vercel. Only domain links
+   * open in any browser" is exactly right, and it is the whole of this bug.
+   *
+   * The production domain is not a guess. Vercel gives a project the domain
+   * `<project>.vercel.app` and points it at that project's newest production
+   * deployment; these are all created with target: "production". So the name
+   * we chose for the project IS the address, and it is knowable before the
+   * build finishes, before any alias is reported, and without a second API
+   * call. */
+  if (projectName) return productionDomain(projectName);
+
+  return deploymentHost;
+}
+
+/**
+ * The domain a Vercel project answers on, from its name.
+ *
+ * `<project>.vercel.app` — the production alias Vercel assigns every project
+ * and re-points at each new production deployment. Stable across builds, which
+ * is what makes it the address worth giving somebody: the per-deployment host
+ * changes every time and is protected besides.
+ */
+export function productionDomain(projectName: string): string {
+  return `${projectName}.vercel.app`;
 }
 
 export type Started =
@@ -411,7 +450,7 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
   return {
     ok: true,
     deploymentId: deployment.id,
-    url: `https://${stableHost(deployment.aliases, deployment.url)}`,
+    url: `https://${stableHost(deployment.aliases, deployment.url, target.name)}`,
     inspect: deployment.inspect,
   };
 }
@@ -434,7 +473,14 @@ export type DeploymentState =
  * how it went do not have to be the same process — which is the whole point,
  * because on this platform the first one is usually gone.
  */
-export async function deploymentState(id: string): Promise<DeploymentState> {
+export async function deploymentState(
+  id: string,
+  /* The Vercel project this deployment belongs to, when the caller has it.
+     Lets the address resolve to the project's own domain rather than to the
+     per-build host on a deployment Vercel reports no aliases for — see
+     stableHost. */
+  projectName?: string,
+): Promise<DeploymentState> {
   const creds = credentials();
   if (!creds) return { state: "unknown", reason: "no VERCEL_API_TOKEN" };
 
@@ -456,7 +502,7 @@ export async function deploymentState(id: string): Promise<DeploymentState> {
        route, so it had its own copy of the same mistake: `deployment.url`
        carries a build hash and stops being the customer's app after the next
        deploy. See stableHost. */
-    const address = `https://${stableHost(deployment.aliases, deployment.url)}`;
+    const address = `https://${stableHost(deployment.aliases, deployment.url, projectName)}`;
 
     /* And built is still not reachable. A deployment behind Vercel's
        Deployment Protection is READY, correct, and answers every stranger
@@ -539,7 +585,7 @@ export async function deployProject(tree: FileTree, target: DeployTarget): Promi
   const deployment = readDeployment(created.body);
   if (!deployment) return { ok: false, reason: "Vercel accepted the upload but did not say where it went" };
 
-  const ready = await waitForBuild(deployment.id, deployment.url, creds);
+  const ready = await waitForBuild(deployment.id, deployment.url, creds, target.name);
   return ready;
 }
 
@@ -731,6 +777,9 @@ async function waitForBuild(
   id: string,
   url: string,
   creds: { token: string; teamQuery: string },
+  /* The project's own name, so the address resolves to its domain rather than
+     to this build's protected host. See stableHost. */
+  projectName?: string,
 ): Promise<DeployOutcome> {
   const deadline = Date.now() + BUILD_TIMEOUT_MS;
 
@@ -743,7 +792,7 @@ async function waitForBuild(
       if (state === "READY") {
         /* The name it will still answer to after the next deploy, not the one
            this build was born with. See stableHost. */
-        const host = stableHost(readDeployment(polled.body)?.aliases ?? [], url);
+        const host = stableHost(readDeployment(polled.body)?.aliases ?? [], url, projectName);
         const address = `https://${host}`;
 
         /* ── Built is not the same as reachable ───────────────────────────

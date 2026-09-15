@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 
+import { isProjectSummary } from "@/lib/builder/project-summary";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -251,17 +252,34 @@ export default function PreviewPanel({
   const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
   const [pageFailed, setPageFailed] = useState(false);
+  /* Whether what came back is a receipt rather than a page.
+   *
+   * A Next.js project stores its .tsx in project_files and a SUMMARY of itself
+   * in the html column, because nothing here runs `next build` and a tree of
+   * source cannot be shown to anybody. This pane fetched that column and framed
+   * whatever it got — so a customer who asked for a real-estate platform was
+   * shown a document headed "A web app built as a Next.js project — 19 files",
+   * listing routes and file counts, with their actual application nowhere on
+   * screen. That is a receipt for the work, not the work, and it is not what a
+   * preview pane is for.
+   *
+   * So it is recognised and refused here. Either the running app goes in this
+   * frame or an invitation to put it online does; the summary never does. See
+   * isProjectSummary. */
+  const [isReceipt, setIsReceipt] = useState(false);
 
   useEffect(() => {
     if (!previewUrl || !previewPath) {
       setPageHtml(null);
       setPageFailed(false);
+      setIsReceipt(false);
       return;
     }
 
     let cancelled = false;
     setPageHtml(null);
     setPageFailed(false);
+    setIsReceipt(false);
 
     void fetch(previewPath, { cache: "no-store" })
       .then((response) => (response.ok ? response.text() : null))
@@ -269,6 +287,7 @@ export default function PreviewPanel({
         if (cancelled) return;
         setPageHtml(html);
         setPageFailed(html === null);
+        setIsReceipt(isProjectSummary(html));
       })
       .catch(() => {
         if (!cancelled) setPageFailed(true);
@@ -571,6 +590,33 @@ export default function PreviewPanel({
               sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
               className="min-h-0 flex-1 border-0 bg-white"
             />
+          ) : isReceipt ? (
+            /* A project, not yet online. The summary is what the html column
+               holds for one of these, and it is a receipt — the routes, the
+               file count, how to run it. Framing that is showing somebody an
+               inventory of their application instead of their application, so
+               this is what goes here instead: what it is, and the one button
+               that turns it into a site with an address. */
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-white px-6 text-center">
+              <p className="text-[15px] font-semibold text-slate-900">
+                {project?.name ?? "Your app"} is built
+              </p>
+              <p className="max-w-[340px] text-[13px] leading-relaxed text-slate-500">
+                It runs as a real application rather than a single page, so it needs to be put
+                online before it can be looked at. That takes a minute or two and gives you a web
+                address you can open anywhere.
+              </p>
+              {canRun && hostingReady ? (
+                <button
+                  onClick={runTheApp}
+                  disabled={deploying}
+                  className="mt-1 flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white transition-opacity disabled:opacity-60"
+                >
+                  {deploying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {deploying ? "Putting it online…" : "Put it online"}
+                </button>
+              ) : null}
+            </div>
           ) : pageHtml !== null ? (
             <iframe
               key={`${previewUrl}#${reloads}`}
