@@ -114,6 +114,18 @@ export function deploymentsConfigured(): boolean {
 }
 
 /**
+ * The same credentials, for the callers outside this module that need them.
+ *
+ * Exported rather than each caller reading the environment for itself: the team
+ * query is the part that is easy to get wrong, and a call made without it acts
+ * on the personal account rather than the team — which is a different Vercel
+ * entirely and would silently do nothing to the project in hand.
+ */
+export function vercelCredentials(): { token: string; teamQuery: string } | null {
+  return credentials();
+}
+
+/**
  * A Vercel project name derived from whatever the customer called their
  * project. Never throws and never returns empty: a name that cannot be
  * salvaged becomes its fallback, because refusing to deploy over a project
@@ -419,8 +431,144 @@ export function publicAddress(
   return held;
 }
 
+/* ── Deployment Protection, turned off on the way in ──────────────────────
+ *
+ * A Vercel TEAM account protects new projects by default: every deployment
+ * answers 401 to anybody not signed in to the team. That is a sensible default
+ * for a team's own staging and exactly wrong for this platform, where the whole
+ * point of a deployment is that a customer — and their customers — can open it.
+ *
+ * Left on, it produces the failure that has been reported twice: the document
+ * loads for whoever is signed in and the stylesheets it then asks for do not,
+ * so the page renders completely unstyled; and in an iframe it is a blank white
+ * rectangle. Neither says what is wrong, because a 401 on a subresource is
+ * silent.
+ *
+ * TWO CALLS, DELIBERATELY. The project is created explicitly rather than being
+ * conjured by the first deployment, so the protection fields can be set at
+ * birth — there is no window in which a protected project exists. The PATCH
+ * after it is the safety net for the project that already existed, which is
+ * every project after its first build, and for the case where Vercel applies a
+ * team default over what was asked for.
+ *
+ * Neither is allowed to fail the deployment. A token without project-write
+ * scope, a team policy that forbids it, a Vercel that is having a bad minute:
+ * all of those should still get the customer their build. The cost of not
+ * clearing protection is a site they have to unprotect by hand, which is worth
+ * strictly more than no site at all. */
+export type ProtectionResult = {
+  /** Whether protection is known to be off. False includes "could not tell". */
+  cleared: boolean;
+  /** What happened, for the build's diagnostics. Null when it simply worked. */
+  note: string | null;
+};
+
+/* The two fields that gate a deployment. Null is Vercel's "off" — an absent key
+   means "leave as it is", which is not the same thing and is what makes this an
+   explicit null rather than a missing property. */
+const UNPROTECTED = { ssoProtection: null, passwords: null } as const;
+
+export async function clearProtection(
+  name: string,
+  creds: { token: string; teamQuery: string },
+): Promise<ProtectionResult> {
+  /* Created with protection already off. A 409 means it was there already,
+     which is the ordinary case for every build after the first and is not a
+     failure of anything. */
+  /* Result deliberately unread on the happy path: a 409 (already exists) and a
+     201 (just created) are both fine, and the PATCH below is what actually
+     decides. It is awaited rather than fired and forgotten so that a project
+     created here exists before the deployment that names it. */
+  await call(
+    `/v10/projects${creds.teamQuery}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ name, framework: "nextjs", ...UNPROTECTED }),
+    },
+    creds.token,
+  );
+
+  /* And cleared again on the project that already existed. Runs whatever the
+     create said, including when it said 409: that is precisely the path where
+     the create changed nothing. */
+  const patched = await call(
+    `/v9/projects/${encodeURIComponent(name)}${creds.teamQuery}`,
+    { method: "PATCH", body: JSON.stringify(UNPROTECTED) },
+    creds.token,
+  );
+
+  if (patched.ok && patched.status < 400) return { cleared: true, note: null };
+
+  const why = patched.ok ? refusal(patched.body, patched.status) : patched.reason;
+  return {
+    cleared: false,
+    note:
+      `Deployment Protection could not be turned off automatically (${why}). ` +
+      "The site will build, but Vercel may ask visitors to sign in before they can see it — " +
+      "turn it off under the project's Settings → Deployment Protection.",
+  };
+}
+
+/* ── A clean address of our own ───────────────────────────────────────────
+ *
+ * `<slug>.preview.quickstark.tech` rather than `<project>.vercel.app`: one
+ * domain this platform controls, which can be pointed anywhere later and reads
+ * as part of the product rather than as somebody else's hosting.
+ *
+ * REQUIRES the wildcard to exist. `*.preview.quickstark.tech` has to be a
+ * verified domain on the Vercel account and its DNS has to point at Vercel, or
+ * the alias call is refused — so this is best effort and says so, and the
+ * vercel.app alias goes on working either way. Nothing downstream depends on it
+ * landing. */
+export function previewDomainBase(): string | null {
+  const configured = process.env.QUICKSTARK_PREVIEW_DOMAIN?.trim();
+  return configured && configured.length > 0 ? configured.replace(/^\.+|\.+$/g, "") : null;
+}
+
+/** `<slug>.preview.quickstark.tech`, or null when no base domain is configured. */
+export function previewAliasFor(projectName: string): string | null {
+  const base = previewDomainBase();
+  if (!base) return null;
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `${slug}.${base}` : null;
+}
+
+export type AliasResult = { ok: true; alias: string } | { ok: false; reason: string };
+
+/**
+ * Points an alias at a deployment that has finished building.
+ *
+ * Only ever called once a deployment is READY, because an alias on a build that
+ * has not compiled points the customer's clean address at a failure.
+ */
+export async function aliasDeployment(
+  deploymentId: string,
+  alias: string,
+  creds: { token: string; teamQuery: string },
+): Promise<AliasResult> {
+  const assigned = await call(
+    `/v2/deployments/${encodeURIComponent(deploymentId)}/aliases${creds.teamQuery}`,
+    { method: "POST", body: JSON.stringify({ alias }) },
+    creds.token,
+  );
+
+  if (!assigned.ok) return { ok: false, reason: assigned.reason };
+  if (assigned.status >= 400) return { ok: false, reason: refusal(assigned.body, assigned.status) };
+  return { ok: true, alias };
+}
+
 export type Started =
-  | { ok: true; deploymentId: string; url: string; inspect: string | null }
+  | {
+      ok: true;
+      deploymentId: string;
+      url: string;
+      inspect: string | null;
+      /* Set only when Deployment Protection could not be turned off, which is
+         the difference between a site anybody can open and one Vercel asks
+         visitors to sign in to. Carried rather than logged, because the person
+         who needs to read it is the customer whose site it is. */
+      protectionNote?: string | null;
+    }
   | { ok: false; reason: string };
 
 /**
@@ -445,6 +593,10 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
     return { ok: false, reason: "this deployment has no VERCEL_API_TOKEN, so it cannot build projects" };
   }
   if (tree.length === 0) return { ok: false, reason: "there are no files to deploy" };
+
+  /* Before the upload, so there is no window in which a protected project
+     exists. Never fatal — see clearProtection. */
+  const protection = await clearProtection(target.name, creds);
 
   const created = await call(
     `/v13/deployments${creds.teamQuery}`,
@@ -497,6 +649,7 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
   return {
     ok: true,
     deploymentId: deployment.id,
+    protectionNote: protection.cleared ? null : protection.note,
     url: `https://${stableHost(deployment.aliases, deployment.url, target.name)}`,
     inspect: deployment.inspect,
   };

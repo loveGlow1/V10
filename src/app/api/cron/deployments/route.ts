@@ -35,7 +35,13 @@ import {
   settleDeployment,
   type DeploymentRecord,
 } from "@/lib/publish/deployment-store";
-import { deploymentState, deploymentsConfigured } from "@/lib/publish/vercel-deploy";
+import {
+  aliasDeployment,
+  deploymentState,
+  deploymentsConfigured,
+  previewAliasFor,
+  vercelCredentials,
+} from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
@@ -94,6 +100,36 @@ async function settleJob(
   }
 }
 
+/* Points this platform's own subdomain at a deployment that has finished.
+ *
+ * Separate from the loop so the failure is contained: every path returns, none
+ * throws, and a run that cannot alias still settles every deployment it was
+ * called to settle. */
+async function attachPreviewAlias(record: {
+  deploymentId: string;
+  vercelProject: string | null;
+}): Promise<void> {
+  const creds = vercelCredentials();
+  if (!creds || !record.vercelProject) return;
+
+  const alias = previewAliasFor(record.vercelProject);
+  if (!alias) return;
+
+  try {
+    const assigned = await aliasDeployment(record.deploymentId, alias, creds);
+    if (!assigned.ok) {
+      /* Logged rather than surfaced. The customer has a working address; this
+         is the nicer one, and its absence is an operator's problem — usually
+         that the wildcard domain is not verified on the Vercel account. */
+      // eslint-disable-next-line no-console
+      console.warn(`deployments: ${alias} could not be aliased: ${assigned.reason}`);
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("deployments: aliasing failed:", error);
+  }
+}
+
 export async function GET(request: Request) {
   if (!authorised(request)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
@@ -116,6 +152,20 @@ export async function GET(request: Request) {
     const state = await deploymentState(record.deploymentId, record.vercelProject ?? undefined);
 
     if (state.state === "ready") {
+      /* ── The clean address, once there is something behind it ───────────
+       *
+       * `<slug>.preview.quickstark.tech` rather than somebody else's hosting
+       * domain. Assigned HERE and nowhere earlier, because an alias pointed at
+       * a build that has not compiled sends the customer's own address at a
+       * failure — READY is the first moment it means anything.
+       *
+       * Best effort in the strongest sense: the wildcard has to be a verified
+       * domain on the Vercel account with DNS pointing at Vercel, and where it
+       * is not, this is refused and the vercel.app address goes on working
+       * exactly as before. Nothing downstream reads it, so a refusal costs the
+       * nicety and not the deployment. */
+      await attachPreviewAlias(record);
+
       await settleDeployment(service, record, state);
       await settleJob(service, record, state);
       settled += 1;

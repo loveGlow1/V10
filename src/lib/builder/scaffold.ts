@@ -176,6 +176,54 @@ export default nextConfig;
     },
 
     {
+      /* ── Who may put this site in a frame ────────────────────────────────
+       *
+       * So the builder can show a customer their own deployed site in the
+       * preview pane, and so nobody else can put it in a frame of theirs.
+       * Without a frame-ancestors directive a site may be embedded by anyone,
+       * which is how clickjacking works; with this one it may be embedded by
+       * itself and by QuickStark.
+       *
+       * ── Why this is vercel.json and NOT next.config ─────────────────────
+       *
+       * Because these projects are `output: "export"`. Next.js's own
+       * `async headers()` does not apply to a static export — there is no
+       * server left to run it, the build prints "Specified headers will not
+       * automatically work with output: export", and the header never reaches
+       * production. Putting it there would look exactly like a fix and do
+       * nothing at all, which is the worse of the two failures.
+       *
+       * vercel.json is read by the thing that actually serves these files, so
+       * the header is on the response. The cost of that is stated plainly: it
+       * works on Vercel and not on a customer who downloads the project and
+       * hosts it elsewhere. That is the same trade every other deployment
+       * decision in this file already makes.
+       *
+       * A project with its own domain still frames correctly — 'self' is the
+       * site's own origin, whatever it is called. */
+      path: "vercel.json",
+      content: `${JSON.stringify(
+        {
+          $schema: "https://openapi.vercel.sh/vercel.json",
+          headers: [
+            {
+              source: "/(.*)",
+              headers: [
+                {
+                  key: "Content-Security-Policy",
+                  value:
+                    "frame-ancestors 'self' https://quickstark.tech https://*.quickstark.tech;",
+                },
+              ],
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    },
+
+    {
       path: "tailwind.config.ts",
       /* The tokens, wired through to Tailwind — and this is a bug fix.
        *

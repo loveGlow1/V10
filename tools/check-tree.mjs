@@ -328,6 +328,66 @@ has(
   /generateStaticParams/.test(scaffold.treeBrief("blog", manifestFor("blog", false), modelFor("blog", false))),
   "a kind with dynamic routes is told what export needs from them",
 );
+/* ── Who may put a generated site in a frame ─────────────────────────────
+ *
+ * The builder shows a customer their own deployed site in the preview pane, so
+ * the site has to permit being framed by QuickStark; and nothing else should
+ * be able to frame it, because without a frame-ancestors directive anyone can,
+ * which is how clickjacking works.
+ *
+ * IT MUST NOT BE next.config. These projects are `output: "export"`, and
+ * Next.js's own `async headers()` does not apply to a static export — the
+ * build prints "Specified headers will not automatically work with output:
+ * export" and the header never reaches production. It would look exactly like
+ * a fix and do nothing, which is the worse of the two failures, so this pins
+ * where the header actually lives. */
+{
+  const files = scaffold.platformFiles("Nova", manifestFor("landing", false), modelFor("landing", false));
+  const vercelJson = files.find((f) => f.path === "vercel.json");
+
+  has(Boolean(vercelJson), "every project ships a vercel.json");
+
+  let parsed = null;
+  try { parsed = JSON.parse(vercelJson.content); } catch (e) { parsed = null; }
+  has(parsed !== null, "which is valid JSON", vercelJson && vercelJson.content.slice(0, 120));
+
+  const header = parsed && parsed.headers?.[0]?.headers?.[0];
+  has(
+    header && header.key === "Content-Security-Policy",
+    "carrying a Content-Security-Policy",
+    JSON.stringify(header),
+  );
+  has(
+    header && /frame-ancestors/.test(header.value),
+    "with a frame-ancestors directive",
+    header && header.value,
+  );
+  has(
+    header && /'self'/.test(header.value),
+    "that lets the site frame itself, whatever domain it ends up on",
+  );
+  has(
+    header && /https:\/\/quickstark\.tech/.test(header.value),
+    "and lets QuickStark frame it, which is the preview pane",
+    header && header.value,
+  );
+  has(
+    parsed && /^\/\(\.\*\)$|^\/:path\*$/.test(parsed.headers[0].source),
+    "applied to every path, not just the home page",
+    parsed && parsed.headers[0].source,
+  );
+
+  const nextConfig = files.find((f) => f.path === "next.config.mjs");
+  has(
+    nextConfig && !/async headers/.test(nextConfig.content),
+    "and next.config does NOT carry headers, which a static export ignores",
+  );
+  has(
+    nextConfig && /output: "export"/.test(nextConfig.content),
+    "which is exactly why — the project is a static export",
+  );
+}
+
 /* ── The photographs, and the rule that changes when there are none ──────
  *
  * This line used to be unconditional: every project was told "the photographs
