@@ -288,8 +288,23 @@ function unfilled(projectId: string, request: AssetRequest): Asset {
  *
  * No key, no URL template and no provider name appears here. The generated
  * project receives an address and nothing else.
+ *
+ * WRITTEN FOR WHICHEVER STACK IS BEING BUILT, which it was not, and six builds
+ * show what that cost. Every placement sentence below was phrased for a single
+ * HTML document — one file, `<img>` tags, `loading="lazy"` below the fold — and
+ * on the Next.js path it went to a model writing twenty-five .tsx files
+ * alongside a tree brief telling it to use `next/image`. Two instructions
+ * pulling opposite ways over a flat list of slots with no file named for any of
+ * them. Three of the six project builds in the database contain not one
+ * photograph; a fourth has photographs in one file out of twenty-four. The
+ * pictures had been searched for, paid for and handed over, and the page shipped
+ * grey.
+ *
+ * So `asProject` changes the placement rules and nothing else. What was chosen,
+ * why, and what is missing are the same facts either way — only where they go
+ * differs.
  */
-export function manifestForPrompt(manifest: AssetManifest): string {
+export function manifestForPrompt(manifest: AssetManifest, asProject = false): string {
   const lines = Object.entries(manifest.assets).map(([slot, url]) => {
     if (url) return `- ${slot}: ${url}   (alt: ${manifest.alt[slot] ?? ""})`;
     if (manifest.drawn.includes(slot)) {
@@ -309,7 +324,13 @@ VISUAL DIRECTION (every picture here was chosen to it, so write the design to ma
 SLOTS:
 ${lines.join("\n")}
 
-- Reference a slot by its URL exactly as written, in an <img> with the alt text given, width and height set, loading="lazy" below the fold, and object-fit: cover.
+${
+    asProject
+      ? `- PUT THESE URLS IN ONE FILE, lib/images.ts, as exported constants with the alt text beside each — \`export const HERO = { src: "…", alt: "…" };\` — and import them with \`@/lib/images\`. A URL this long retyped across twenty files is a URL mistyped in one of them, and a mistyped one is a hole in the page that nothing reports.
+- Render them with next/image: width and height set, \`priority\` on the one above the fold and nothing else, object-cover on the wrapper. The optimiser is off, so these remote addresses load exactly as given.
+- EVERY SLOT ABOVE BELONGS SOMEWHERE IN THE PROJECT. A build that lists these and then renders coloured boxes is the failure this list exists to prevent: the pictures were chosen for this brief, they are what makes the result look like a real business rather than a wireframe, and a project that ships without them has not been finished.`
+      : `- Reference a slot by its URL exactly as written, in an <img> with the alt text given, width and height set, loading="lazy" below the fold, and object-fit: cover.`
+  }
 - Some of these are the customer's own photographs of their own products, logo or premises. Use them as they are: never redraw one in SVG, never replace one with something that looks similar, and never crop one so its subject leaves the frame.
 - ${manifest.drawn.length > 0 ? `Draw these yourself, as you would any icon or logo: ${manifest.drawn.join(", ")}.` : "Nothing here is left for you to draw."}
 - ${

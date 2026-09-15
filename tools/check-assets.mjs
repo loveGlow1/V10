@@ -356,6 +356,38 @@ try {
   is(emptyText.includes("DRAW THIS YOURSELF"), true,
      "and a drawn slot is told to be drawn");
 
+  /* ── And told it for the stack being built ──────────────────────────────
+   *
+   * Every placement sentence here was written for a single HTML document —
+   * <img>, loading="lazy" below the fold — and went unchanged to a model
+   * writing twenty-five .tsx files beside a tree brief telling it to use
+   * next/image. Two instructions pulling opposite ways over a flat list of
+   * slots with no file named for any of them. Three of the six project builds
+   * in the database contain not one photograph; the pictures had been searched
+   * for, paid for and handed over, and the page shipped grey. */
+  const asPage = resolver.manifestForPrompt(made.manifest, false);
+  const asProject = resolver.manifestForPrompt(made.manifest, true);
+
+  is(asPage.includes("in an <img>"), true, "a page is still told to write <img>");
+  is(asProject.includes("in an <img>"), false, "a project is not told to write <img>");
+  is(asProject.includes("next/image"), true, "it is told to use next/image, as its tree brief also says");
+  is(asProject.includes("lib/images.ts"), true, "and given one file to keep the addresses in");
+  is(asProject.includes("@/lib/images"), true, "and the import path the rest of the project uses");
+  is(/EVERY SLOT ABOVE BELONGS SOMEWHERE IN THE PROJECT/.test(asProject), true,
+     "and told that leaving them out is not a finished build");
+
+  /* The facts are the same either way. Only the placement changes: what was
+     chosen, what it is of and what is missing are not properties of the
+     stack. */
+  for (const shared of ["use these exact URLs and no others", "VISUAL DIRECTION", "Register:"]) {
+    is(asPage.includes(shared) && asProject.includes(shared), true,
+       `both stacks are told the same thing about "${shared}"`);
+  }
+  const drawnProject = resolver.manifestForPrompt(nothing.manifest, true);
+  is(drawnProject.includes("DRAW THIS YOURSELF"), true, "a drawn slot is drawn in a project too");
+  is(drawnProject.includes("never an SVG drawing of what the photograph would have shown"), true,
+     "and an unresolved one is still a panel rather than a drawing");
+
   // ── Delivery ────────────────────────────────────────────────────────────
   const delivery = optimizer.deliveryFor("https://cdn/a.webp", { maxDisplayWidth: 640, quality: "premium", aboveTheFold: true });
   is(delivery.loading, "eager", "the hero is not lazy-loaded");

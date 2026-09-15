@@ -275,7 +275,7 @@ ${context.architecture ? `${architectureBrief(context.architecture)}\n\n──�
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest)}\n` : ""}
+${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 ${

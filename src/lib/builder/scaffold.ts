@@ -651,6 +651,13 @@ export function treeBrief(
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
+    /* Named here as well as in the asset manifest, and deliberately. This brief
+       is the last thing the model reads before it starts writing files, and
+       until the manifest learned to say "as a project" the two of them
+       disagreed — this one said next/image, that one said <img> — over a flat
+       list of slots with no file named for any of them. Half the projects built
+       under that contradiction contain no photograph at all. */
+    "- The photographs for this build are listed further up. Put their URLs in lib/images.ts as exported constants with their alt text, import them with `@/lib/images`, and use every one of them. A project with no photographs in it is not finished, whatever else is right about it.",
   ];
 
   if (manifest.database) {
