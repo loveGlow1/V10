@@ -106,6 +106,37 @@ try {
   is(blog.requests.filter((r) => r.type === "article-cover").length >= 7, true,
      "a blog plans a cover for the lead story and every article");
 
+  /* ── The logo ───────────────────────────────────────────────────────────
+   *
+   * Every one of these has a brand mark in its header. A storefront's nav, a
+   * blog's masthead, a landing page's top-left corner — the mark is the first
+   * thing on the page and the one image on it that is never stock.
+   *
+   * Only the web app planned a slot for it. The other four planned none, and
+   * the consequence is not merely that the model improvises: asset-intake
+   * classifies an upload called logo.png as type "logo" and files it under the
+   * slot "logo", and the resolver only ever asks for slots the PLAN requested.
+   * So a customer who uploaded their own logo to a storefront had it read
+   * correctly, stored correctly, and then never mentioned to the generator at
+   * all. It was drawn from scratch instead, beside the real one sitting unused
+   * in their library.
+   *
+   * Drawn, not photographed, in every case — see MEDIUM. Planning the slot
+   * does not mean buying a picture for it; it means the generator is told
+   * either "here is their mark, use it" or "draw one", which are the only two
+   * correct answers and neither was being given. */
+  for (const [name, plan] of [
+    ["a storefront", store],
+    ["a web app", app],
+    ["a blog", blog],
+    ["a landing page", planner.planAssets({ kind: "landing", brief: "a bakery in Peckham" })],
+    ["a newsroom", planner.planAssets({ kind: "news", brief: "a local paper" })],
+  ]) {
+    const logo = plan.requests.find((r) => r.slot === "logo");
+    is(Boolean(logo), true, `${name} plans a slot for its own mark`);
+    is(logo?.spec, undefined, `${name}'s mark is drawn rather than photographed`);
+  }
+
   const specs = store.requests.filter((r) => r.spec).map((r) => r.spec);
   is(new Set(specs.map((s) => s.lighting)).size, 1, "every picture in a project inherits one lighting");
   is(new Set(specs.map((s) => s.style)).size, 1, "and one style, which is what makes them look like one shoot");
@@ -220,6 +251,47 @@ try {
   is(withUpload.bySource.project, 1, "and is counted to the project, not to a paid source");
   is(withUpload.created.some((a) => a.url === "https://theirs/hero.jpg"), false,
      "their own asset is not recorded again as something we acquired");
+
+  /* ── Their own mark, all the way through ────────────────────────────────
+   *
+   * The end of the same thread. A logo is DRAWN, which means the resolver asks
+   * only one source about it — the project's own uploads — and skips every
+   * stock and generative provider. That is the right behaviour and it was
+   * unreachable: with no logo slot in the plan, there was nothing to ask, and
+   * a customer's uploaded mark went into the library and stopped there.
+   *
+   * Asserted from the upload to the sentence the generator reads, because
+   * every step between them was individually correct while the chain was
+   * broken. */
+  const theirMark = { assets: [ready({ type: "logo", source: "user", url: "https://theirs/logo.svg" })] };
+  const branded = await resolver.resolveAssets({
+    projectId: "p",
+    plan: planner.planAssets({ kind: "ecommerce", brief: "a store selling ceramics" }),
+    library: theirMark,
+    providers: await chainFor(theirMark.assets),
+  });
+  is(branded.manifest.assets.logo, "https://theirs/logo.svg", "an uploaded logo reaches the storefront's mark");
+  is(branded.manifest.drawn.includes("logo"), false, "and is not also left for the model to draw");
+  is(
+    resolver.manifestForPrompt(branded.manifest).includes("https://theirs/logo.svg"),
+    true,
+    "and the generator is given the address rather than told to invent one",
+  );
+
+  /* And with nothing uploaded, the slot is still planned — it is simply the
+     model's to draw, which is the other correct answer and the common one. */
+  const unbranded = await resolver.resolveAssets({
+    projectId: "p",
+    plan: planner.planAssets({ kind: "ecommerce", brief: "a store selling ceramics" }),
+    library: { assets: [] },
+    providers: await chainFor([]),
+  });
+  is(unbranded.manifest.drawn.includes("logo"), true, "with no logo uploaded the mark is the model's to draw");
+  is(
+    resolver.manifestForPrompt(unbranded.manifest).includes("DRAW THIS YOURSELF"),
+    true,
+    "and it is told so in those words, rather than left a blank panel where a mark goes",
+  );
 
   /* Several uploads must land in several slots, not one upload in all of them.
      This is the failure the anti-demo bar forbids, arriving through the one
