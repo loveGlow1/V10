@@ -8,6 +8,8 @@ import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
 import { useProjects } from "../ProjectsContext";
+import { MODELS } from "../models";
+import { useModel } from "../useModel";
 import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -16,9 +18,6 @@ interface AccountSettingsModalProps {
   onClose: () => void;
   onUpgradeClick: () => void;
   credits: string;
-  /** The same list the composer's picker uses, so the two cannot drift apart. */
-  agents: { id: string; title: string; subtitle: string; soon?: boolean }[];
-  selectedAgent: string;
   /** Which pane opens. The project switcher asks for its own; the account menu
       takes the default. Read each time the panel is opened, so the pane you
       asked for is the pane you get. */
@@ -153,7 +152,19 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
   );
 }
 
-export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, agents, selectedAgent, initialSection }: AccountSettingsModalProps) {
+export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, initialSection }: AccountSettingsModalProps) {
+  /* Read here rather than passed in, and that is the point of the change.
+   *
+     This list used to be the four "agents" — Q1, Q2, Prototype, Mobile — with
+     one marked "In use", and the mark was decided by a prop that Home held at
+     its own default and the workspace passed as the literal string "Q1". So
+     the panel confidently named something in use that nothing was using, while
+     the thing actually doing the work — the model the composer is set to — was
+     not named anywhere in settings at all.
+   *
+     It is the models now, from the same provider the two pickers read, which
+     is what makes "in use" a fact rather than a claim. */
+  const { model, reach } = useModel();
   const [section, setSection] = useState<SectionId>(initialSection ?? "account");
   const { selected: project, rename, remove } = useProjects();
   const [projectDraft, setProjectDraft] = useState("");
@@ -960,37 +971,47 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
 
                     {agentTab === "main" && (
                       <ul className="mt-4 space-y-2">
-                        {/* The agents the composer actually offers, rather than an upsell
-                            for agents this application does not have. */}
-                        {agents.map((agent) => (
-                          <li
-                            key={agent.id}
-                            className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
-                              agent.soon
-                                ? "border-line/[0.04] bg-layer/[0.015]"
-                                : "border-line/[0.07] bg-layer/[0.03]"
-                            }`}
-                          >
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
-                              <Bot className="h-4 w-4 text-muted" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm text-ink">{agent.title}</p>
-                              <p className="truncate text-[13px] text-muted">{agent.subtitle}</p>
-                            </div>
-                            {agent.soon ? (
-                              <ComingSoonBadge />
-                            ) : (
-                              agent.id === selectedAgent && (
+                        {/* What the composer actually offers, with the same
+                            three reasons a row can be out of reach that the
+                            picker itself shows: no credential here, not on
+                            this plan, or not affordable on this balance. */}
+                        {MODELS.map((option) => {
+                          const gate = reach(option);
+                          return (
+                            <li
+                              key={option.id}
+                              className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
+                                gate.ok
+                                  ? "border-line/[0.07] bg-layer/[0.03]"
+                                  : "border-line/[0.04] bg-layer/[0.015]"
+                              }`}
+                            >
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
+                                <Bot className="h-4 w-4 text-muted" />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className={`truncate text-sm ${gate.ok ? "text-ink" : "text-ink/55"}`}>
+                                  {option.name}
+                                </p>
+                                <p className="truncate text-[13px] text-muted">{option.blurb}</p>
+                              </div>
+                              {option.id === model ? (
                                 <span className="shrink-0 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
                                   In use
                                 </span>
-                              )
-                            )}
-                          </li>
-                        ))}
+                              ) : (
+                                !gate.ok && (
+                                  <span className="shrink-0 rounded-full border border-line/[0.08] bg-layer/[0.04] px-2.5 py-1 text-[11px] font-medium text-muted">
+                                    {gate.label}
+                                  </span>
+                                )
+                              )}
+                            </li>
+                          );
+                        })}
                         <li className="pt-1 text-[13px] text-muted">
-                          Custom agents need somewhere to save them before they can be created here.
+                          Change this from the picker beside the message box. It applies from your next
+                          message, wherever you are.
                         </li>
                       </ul>
                     )}

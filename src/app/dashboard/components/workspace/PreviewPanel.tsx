@@ -186,7 +186,6 @@ export default function PreviewPanel({
      remounts it. Reaching into the frame to call location.reload() is not
      available here: it is another origin, and deliberately sandboxed. */
   const [reloads, setReloads] = useState(0);
-  const publishRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
 
@@ -283,16 +282,17 @@ export default function PreviewPanel({
     setIntegrationsCategory(request.category);
   }, [request]);
 
-  useEffect(() => {
-    if (!publishOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (publishRef.current && !publishRef.current.contains(event.target as Node)) {
-        setPublishOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [publishOpen]);
+  /* The outside-press handler that used to live here is gone, and its absence
+     is the fix rather than a simplification.
+   *
+     It was written when the publish card was an absolutely-positioned child of
+     publishRef, so "not inside publishRef" meant "outside the menu". The card
+     is portalled into the body now — see AnchoredPanel — which makes every
+     press inside it, the Publish button included, read as outside. The panel
+     unmounted on mousedown, mouseup landed on nothing, and no click was ever
+     born: the button was dead, silently, with no error to report because
+     nothing had run. Popover passes onClose down to AnchoredPanel, whose own
+     handler excludes both the card and the control it hangs off. */
 
   /* A phone puts Manage over the whole screen, so the page behind it must not
      scroll with it — the same lock the drawer takes. */
@@ -785,7 +785,7 @@ export default function PreviewPanel({
           >
             <ManageMark className="h-4 w-4" />
           </button>
-          <div className="relative" ref={publishRef}>
+          <div className="relative">
             {/* Live: the pill IS the published site.
              *
              * The phone is where this matters most. On a laptop the address is
@@ -970,7 +970,7 @@ export default function PreviewPanel({
           </button>
         </div>
 
-        <div className="relative flex min-w-0 shrink-0 items-center gap-1.5" ref={publishRef}>
+        <div className="relative flex min-w-0 shrink-0 items-center gap-1.5">
           {/* Quinn, the assistant already floating in the corner of this screen.
               The button asks it to open rather than starting a second thread:
               there is one conversation with support, wherever it is opened

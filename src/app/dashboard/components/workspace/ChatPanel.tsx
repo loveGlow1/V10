@@ -22,17 +22,12 @@ import {
   X,
 } from "lucide-react";
 
-import { modelAllowedOnPlan, planRequiredFor } from "../../credits";
 import {
-  DEFAULT_MODEL,
-  UNAVAILABLE_LABEL,
   groupedModels,
-  isModelAvailable,
-  modelById,
   shortModelName,
   providerOf,
 } from "../../models";
-import { useCredits } from "../../useCredits";
+import { useModel } from "../../useModel";
 import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 /* The same naming Home uses when a sentence becomes an app, so an app started
@@ -226,7 +221,10 @@ export default function ChatPanel({
   const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  /* From the provider rather than from here. Two useStates — one on Home, one
+     in this composer — meant a model chosen in either place was discarded by
+     the other, and neither survived a reload. See useModel. */
+  const { model, setModel, chosen, reach } = useModel();
 
   /* The reply as it is being written.
    *
@@ -345,7 +343,6 @@ export default function ChatPanel({
   useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
@@ -489,19 +486,13 @@ export default function ChatPanel({
     return () => setBusy(projectId, false);
   }, [projectId, building, setBusy]);
 
-  // One handler for both popovers in the toolbar: an outside press closes
-  // whichever is open, the way a menu behaves.
-  useEffect(() => {
-    if (!modelOpen && !forkOpen) return;
-    function onPointerDown(event: MouseEvent) {
-      if (toolbarRef.current && !toolbarRef.current.contains(event.target as Node)) {
-        setModelOpen(false);
-        setForkOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [modelOpen, forkOpen]);
+  /* Both toolbar popovers used to share an outside-press handler here, keyed
+     on the toolbar containing the press. They are portalled into the body now
+     — see AnchoredPanel — so the model list is not inside the toolbar and
+     every press on a model in it counted as a press outside the menu: the list
+     closed on mousedown and the row never received a click. That is why a
+     model could be looked at and not chosen. Popover hands onClose to
+     AnchoredPanel, which knows about both the card and the chip. */
 
   async function attachFiles(files: FileList) {
     if (!project || !userId) return;
@@ -1254,10 +1245,6 @@ export default function ChatPanel({
     }
   }
 
-  /* The plan, for the picker: it greys what this account cannot reach and
-     names the tier that includes it. */
-  const { planId } = useCredits();
-  const chosen = modelById(model);
 
   const control =
     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
@@ -1896,7 +1883,7 @@ export default function ChatPanel({
               </AnimatePresence>
             </div>
 
-            <div ref={toolbarRef} className="relative mt-3 flex items-center justify-between gap-2">
+            <div className="relative mt-3 flex items-center justify-between gap-2">
               <div className="flex shrink-0 items-center gap-[3px]">
                 <input
                   type="file"
@@ -2078,23 +2065,22 @@ export default function ChatPanel({
                                that includes it — which is the only place in
                                the product a person meets the difference
                                between the tiers while actually wanting it. */
-                            const available = isModelAvailable(option);
-                            const needsPlan = modelAllowedOnPlan(option, planId)
-                              ? null
-                              : planRequiredFor(option);
-                            const ready = available && !needsPlan;
+                            /* One answer covering all three ways a model can
+                               be off the table — no credential, not on this
+                               plan, or not affordable on this balance. The
+                               third was missing, and its absence was worse
+                               than a grey row: the picker showed the model as
+                               ready, and the server, finding the balance
+                               short, silently ran a different one. See
+                               useModel. */
+                            const gate = reach(option);
+                            const ready = gate.ok;
                             return (
                               <button
                                 key={option.id}
                                 role="menuitem"
                                 disabled={!ready}
-                                title={
-                                  needsPlan
-                                    ? `Included with the ${needsPlan.name} plan`
-                                    : available
-                                      ? undefined
-                                      : UNAVAILABLE_LABEL
-                                }
+                                title={gate.ok ? undefined : gate.label}
                                 onClick={() => {
                                   setModel(option.id);
                                   setModelOpen(false);
@@ -2121,14 +2107,22 @@ export default function ChatPanel({
                                         {option.badge}
                                       </span>
                                     )}
-                                    {!available && (
-                                      <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
-                                        {UNAVAILABLE_LABEL}
-                                      </span>
-                                    )}
-                                    {available && needsPlan && (
-                                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                                        {needsPlan.name}
+                                    {/* The reason, on the row, in the colour
+                                        the reason deserves: ours to fix is
+                                        grey, theirs to act on is the accent,
+                                        and a balance that is merely short is
+                                        amber rather than an error. */}
+                                    {!gate.ok && (
+                                      <span
+                                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                          gate.why === "unavailable"
+                                            ? "bg-layer/[0.08] text-muted"
+                                            : gate.why === "plan"
+                                              ? "bg-accent/15 text-accent"
+                                              : "bg-amber-500/15 text-amber-300"
+                                        }`}
+                                      >
+                                        {gate.why === "plan" ? gate.planName : gate.label}
                                       </span>
                                     )}
                                   </span>

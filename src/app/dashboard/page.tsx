@@ -6,20 +6,15 @@ import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
-import { AGENTS } from "./agents";
-import { modelAllowedOnPlan, planRequiredFor } from "./credits";
 import {
-  DEFAULT_MODEL,
-  UNAVAILABLE_LABEL,
   groupedModels,
-  isModelAvailable,
-  modelById,
   shortModelName,
 } from "./models";
+import { useModel } from "./useModel";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import WorkspaceTabs from "./components/WorkspaceTabs";
-import { AgentMark, MicMark } from "./components/marks";
+import { MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
 import StartBuildButton, { type StartBuildHandle } from "./components/StartBuildButton";
@@ -28,7 +23,7 @@ import ScrollToEnds from "./components/ScrollToEnds";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import PhoneField from "./components/PhoneField";
-import { ComingSoonBadge, ComingSoonModal } from "./components/ComingSoon";
+import { ComingSoonModal } from "./components/ComingSoon";
 import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
@@ -243,20 +238,19 @@ export default function DashboardPage() {
 
   // The phone header opens this; from md up the drawer never mounts.
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
   // Agent Selector State & Data. The agent list is what a phone chooses from:
   // the sheet has the room for it and the bar has not, so Q1 stays the mobile
   // control while a pointer gets the model picker below.
-  const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState("Q1");
 
   /* Model Selector State — the workspace's picker, on Home's bar from md up.
      Same list, same chip, so the model you pick before a build and the one you
      switch to inside it are named the same way in both places. */
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  /* Held above both screens rather than here. Home and the workspace composer
+     each used to keep their own, so a model chosen in one was discarded by the
+     other and neither survived a reload — see useModel. */
+  const { model, setModel, chosen: chosenModel, reach } = useModel();
   const [isModelPopoverOpen, setIsModelPopoverOpen] = useState(false);
-  const composerBoxRef = useRef<HTMLDivElement>(null);
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -330,19 +324,12 @@ export default function DashboardPage() {
     };
   }, [isUploadPopoverOpen]);
 
-  // The panel and the chip that opens it sit at opposite ends of the composer
-  // box, so that box is what a press has to land outside of to close it.
-  // Reaching for the box itself — the textarea below — closes it too, on focus.
-  useEffect(() => {
-    if (!isModelPopoverOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (composerBoxRef.current && !composerBoxRef.current.contains(event.target as Node)) {
-        setIsModelPopoverOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isModelPopoverOpen]);
+  /* Home's model list closed itself the same way the workspace's did: the
+     handler here asked whether the press landed inside the composer box, and
+     the list is portalled into the body, so pressing a model in it was a press
+     outside the composer. It closed on mousedown and the row never saw a
+     click. AnchoredPanel's own handler, reached now that Popover passes
+     onClose through, excludes the card and the chip both. */
 
   /* Stop once there is something in the box: the placeholder is hidden then,
      and a timer nobody can see is just work. */
@@ -415,8 +402,6 @@ export default function DashboardPage() {
     }
   };
 
-  const chosenModel = modelById(model);
-
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-canvas">
@@ -469,12 +454,9 @@ export default function DashboardPage() {
           setBillingOpen(true);
         }}
         credits={credits}
-        agents={AGENTS}
-        selectedAgent={selectedAgent}
         initialSection={settingsSection}
       />
       <SupportChat />
-      <ComingSoonModal open={comingSoonOpen} onClose={() => setComingSoonOpen(false)} />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
@@ -527,7 +509,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div ref={composerBoxRef} className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* The upload menu, anchored to the composer it belongs to. It used
                 to hang off the whole column, which put it above the tabs and
                 behind the phone header — its first row was unreadable there. */}
@@ -707,23 +689,21 @@ export default function DashboardPage() {
                     <Github className="h-4 w-4" />
                   </button>
 
-                  {/* Agent selector — the phone's control. The sheet it opens has
-                      the room to describe each agent; the bar under a thumb has not,
-                      so the phone keeps naming the agent and the desktop names the
-                      model instead. */}
-                  <button
-                    onClick={() => setIsAgentModalOpen(true)}
-                    aria-label="Choose an agent"
-                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:gap-2 sm:px-3.5 sm:text-sm md:hidden"
-                  >
-                    <AgentMark className="h-4 w-4 text-ink" />
-                    <span className="font-medium tracking-tight">{selectedAgent}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-ink" />
-                  </button>
-
-                  {/* Model selector — the workspace's chip, from md up: the maker's
-                      mark, the model's short name, and the list of Claude, ChatGPT
-                      and Gemini behind it. */}
+                  {/* ONE CONTROL, at every width.
+                   *
+                      There were two. A phone got an "agent" chip opening a
+                      sheet of Q1 / Q2 / Prototype, and from md up the same spot
+                      held the model chip — two names for one decision, and only
+                      one of them connected to anything: picking an agent set a
+                      label and nothing else, while the workspace was hardcoded
+                      to Q1 regardless. So a person who chose on a phone had
+                      chosen nothing, and a person who chose on a laptop found
+                      their answer gone on the next screen.
+                   *
+                      The model chip is that control now. Popover already
+                      becomes a titled sheet on a phone, which is the shape the
+                      agent sheet had, so nothing is lost by the phone reading
+                      the same list as the desktop. */}
                   <button
                     onClick={() => {
                       setIsModelPopoverOpen((open) => !open);
@@ -731,7 +711,7 @@ export default function DashboardPage() {
                     }}
                     aria-expanded={isModelPopoverOpen}
                     aria-label="Choose a model"
-                    className="hidden h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:gap-2 md:px-3.5 md:text-sm"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
                     <ProviderMark provider={chosenModel.provider} />
                     <span className="font-medium tracking-tight">{shortModelName(chosenModel)}</span>
@@ -817,8 +797,13 @@ export default function DashboardPage() {
                 same reason the upload menu is: the graphite box clips what grows
                 out of it, and the tabs above it would paint over a panel drawn
                 inside. Opening upward keeps a list this tall on screen — the
-                composer sits low enough that the room is above it. Never a sheet:
-                the chip that opens it is desktop-only. */}
+                composer sits low enough that the room is above it.
+              *
+                Anchored on a phone too, rather than a sheet, because this is
+                the same control the workspace composer opens and it should not
+                be a different object depending on which screen it was reached
+                from. AnchoredPanel flips and clamps it into whatever room the
+                viewport has. */}
             <Popover
               open={isModelPopoverOpen}
               onClose={() => setIsModelPopoverOpen(false)}
@@ -851,23 +836,18 @@ export default function DashboardPage() {
                          cases: a model greyed with a reason is information, an
                          absent one is not. One says "check back soon", the
                          other names the plan that includes it. */
-                      const available = isModelAvailable(option);
-                      const needsPlan = modelAllowedOnPlan(option, planId)
-                        ? null
-                        : planRequiredFor(option);
-                      const ready = available && !needsPlan;
+                      /* One answer for all three ways a model can be out of
+                         reach — no credential, not on this plan, not
+                         affordable on this balance — and the same one the
+                         workspace's picker asks. See useModel. */
+                      const gate = reach(option);
+                      const ready = gate.ok;
                       return (
                         <button
                           key={option.id}
                           role="menuitem"
                           disabled={!ready}
-                          title={
-                            needsPlan
-                              ? `Included with the ${needsPlan.name} plan`
-                              : available
-                                ? undefined
-                                : UNAVAILABLE_LABEL
-                          }
+                          title={gate.ok ? undefined : gate.label}
                           onClick={() => {
                             setModel(option.id);
                             setIsModelPopoverOpen(false);
@@ -894,14 +874,17 @@ export default function DashboardPage() {
                                   {option.badge}
                                 </span>
                               )}
-                              {!available && (
-                                <span className="shrink-0 rounded-full bg-layer/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted">
-                                  {UNAVAILABLE_LABEL}
-                                </span>
-                              )}
-                              {available && needsPlan && (
-                                <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                                  {needsPlan.name}
+                              {!gate.ok && (
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    gate.why === "unavailable"
+                                      ? "bg-layer/[0.08] text-muted"
+                                      : gate.why === "plan"
+                                        ? "bg-accent/15 text-accent"
+                                        : "bg-amber-500/15 text-amber-300"
+                                  }`}
+                                >
+                                  {gate.why === "plan" ? gate.planName : gate.label}
                                 </span>
                               )}
                             </span>
@@ -1071,75 +1054,11 @@ export default function DashboardPage() {
           a long way back up to the box you actually came here to type in. */}
       <ScrollToEnds className="fixed bottom-[calc(86px+env(safe-area-inset-bottom)+var(--keyboard-inset,0px))] right-[max(18px,env(safe-area-inset-right))]" />
 
-      {/* Select Agent Modal Sheet */}
-      <AnimatePresence>
-        {isAgentModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl p-4">
-            <motion.div
-              initial={{ scale: 0.96, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.96, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-4"
-            >
-              <div className="flex items-center justify-between pb-1">
-                <h3 className="text-base font-semibold text-ink tracking-tight">Select Agent</h3>
-                <button
-                  onClick={() => setIsAgentModalOpen(false)}
-                  className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                {AGENTS.map((agent) => {
-                  const isSelected = selectedAgent === agent.id;
-                  return (
-                    <div
-                      key={agent.id}
-                      onClick={() => {
-                        // The one that is not here yet explains itself rather
-                        // than becoming the agent a build would be handed to.
-                        if (agent.soon) {
-                          setIsAgentModalOpen(false);
-                          setComingSoonOpen(true);
-                          return;
-                        }
-                        setSelectedAgent(agent.id);
-                        setIsAgentModalOpen(false);
-                      }}
-                      className={`p-4 rounded-[18px] cursor-pointer transition-all duration-200 flex items-center justify-between border ${
-                        agent.soon
-                          ? "bg-layer/[0.02] border-line/[0.04]"
-                          : isSelected
-                            ? "bg-layer/[0.07] border-accent/50 shadow-[0_0_15px_rgba(52,245,160,0.08)]"
-                            : "bg-layer/[0.035] border-line/[0.05] hover:bg-layer/[0.055] hover:border-line/[0.1]"
-                      }`}
-                    >
-                      <div className="space-y-0.5">
-                        <h4 className={`text-sm font-semibold ${agent.soon ? "text-ink/55" : "text-ink"}`}>
-                          {agent.title}
-                        </h4>
-                        <p className="text-xs text-muted font-normal">{agent.subtitle}</p>
-                      </div>
-                      {agent.soon ? (
-                        <ComingSoonBadge />
-                      ) : (
-                        isSelected && (
-                          <div className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-accent">
-                            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                          </div>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* The Select Agent sheet stood here. It listed Q1, Q2, Prototype and
+          Mobile, and choosing one set a label: nothing read it, the workspace
+          ran on a hardcoded "Q1" whatever it said, and it was only ever
+          reachable on a phone. The model picker above is the one control
+          now, at every width and with a choice that is actually sent. */}
 
       {/* Privacy Settings Modal Sheet */}
       <AnimatePresence>

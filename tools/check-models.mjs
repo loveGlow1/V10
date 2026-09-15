@@ -453,6 +453,73 @@ try {
     );
   }
 
+  /* ── One picker, one answer ───────────────────────────────────────────
+   *
+   * The second half of the same bug, and it outlived the first. Once the
+   * picker's choice WAS sent, there were still two pickers: Home held its
+   * choice in a useState and the workspace composer held another, so a model
+   * chosen in one was discarded by the other, neither survived a reload, and
+   * the settings panel — which lists what the composer offers and marks one
+   * "in use" — read a third value again, hardcoded to the string "Q1". Three
+   * places describing one decision and none of them agreeing.
+   *
+   * And a third way to be quietly overruled: the picker greyed what the PLAN
+   * could not reach and said nothing about what the BALANCE could not reach,
+   * while the server, finding the balance short, dropped the chosen model and
+   * ran its own. Picked Opus, charged, given something else, with nothing
+   * anywhere saying so. The gate has to name all three. */
+  const source = (path) => readFileSync(join(process.cwd(), path), "utf8");
+
+  /* Comments stripped before the last assertion below. Each of these files now
+     carries a note explaining what "Q1" was and why it is gone, and a check
+     that cannot tell a tombstone from the thing it marks would fail on the very
+     comment that records the fix. */
+  const code = (path) =>
+    source(path).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const provider = source("src/app/dashboard/useModel.tsx");
+  for (const why of ["unavailable", "plan", "credits"]) {
+    is(
+      new RegExp(`why: "${why}"`).test(provider),
+      true,
+      `a model out of reach because of ${why} says so`,
+    );
+  }
+  is(
+    /creditCostOf\("chat", \{ modelId: model\.id \}\)/.test(provider)
+      && /canAfford\(balance, needed\)/.test(provider),
+    true,
+    "the balance gate is the same arithmetic the server runs, so the two cannot disagree",
+  );
+  is(
+    /ModelProvider/.test(source("src/app/dashboard/layout.tsx")),
+    true,
+    "the choice is held above every dashboard screen rather than inside one",
+  );
+
+  for (const screen of [
+    "src/app/dashboard/page.tsx",
+    "src/app/dashboard/components/workspace/ChatPanel.tsx",
+    "src/app/dashboard/components/AccountSettingsModal.tsx",
+  ]) {
+    const text = source(screen);
+    is(
+      /useModel\(\)/.test(text),
+      true,
+      `${screen.split("/").pop()} reads the one choice`,
+    );
+    is(
+      /useState\(DEFAULT_MODEL\)/.test(text),
+      false,
+      `${screen.split("/").pop()} does not keep a second one of its own`,
+    );
+    is(
+      /selectedAgent|"Q1"/.test(code(screen)),
+      false,
+      `${screen.split("/").pop()} names no agent that nothing runs`,
+    );
+  }
+
   console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
   process.exit(failed ? 1 : 0);
 } catch (error) {

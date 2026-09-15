@@ -7,6 +7,7 @@ import { ThemeProvider } from './components/ThemeProvider';
 import { CreditsProvider } from './useCredits';
 import { PLAN_ORDER, type CreditBalance, type PlanId } from './credits';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
+import { ModelProvider } from './useModel';
 
 export const metadata: Metadata = {
   title: "QuickStark.Ai | Dashboard",
@@ -62,6 +63,13 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         be a list of one. */}
     <WorkspaceTabsProvider>
     <CreditsProvider initial={balance} initialPlan={planId}>
+    {/* Inside the credits provider, which is not incidental: whether a model
+        can be chosen depends on the plan AND on the balance, and both are read
+        from there. Above everything, because the choice belongs to the person
+        rather than to whichever screen they made it on — it used to be held
+        separately by Home and by the workspace composer, so each discarded the
+        other's answer. */}
+    <ModelProvider>
     <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-canvas text-ink">
       {/* The page stays nearly black so nothing competes with the composer; the
           existing blue is kept only as a faint wash rather than a backdrop.
@@ -73,6 +81,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
       {children}
     </div>
+    </ModelProvider>
     </CreditsProvider>
     </WorkspaceTabsProvider>
     </ThemeProvider>
