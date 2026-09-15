@@ -64,7 +64,7 @@ const shim = join(out, "node_modules");
 mkdirSync(shim, { recursive: true });
 try { symlinkSync(out, join(shim, "@"), "dir"); } catch { /* already there */ }
 const require = createRequire(import.meta.url);
-const { deploymentFiles, deploymentName, deploymentsConfigured } =
+const { deploymentFiles, deploymentName, deploymentsConfigured, stableHost } =
   require(join(out, "lib/publish/vercel-deploy.js"));
 
 let failed = 0;
@@ -194,6 +194,50 @@ has(deploymentName("Shop", id) !== deploymentName("Shop", other),
   "two projects with the same title are two sites");
 has(deploymentName("Shop", id) === deploymentName("Shop", id),
   "the same project keeps the same site across builds");
+
+// ── The address somebody is given ─────────────────────────────────────────
+//
+// Vercel returns two kinds of hostname and only one of them is worth giving to
+// a person. This was handing out the wrong one and calling it live:
+//
+//   nova-estates-038f1129-6dj1ceo99-neuralis-systems-ai.vercel.app
+//
+// That is the DEPLOYMENT url — unique to one build, different after the next
+// one. Somebody who bookmarked it, or sent it to a colleague, had a link that
+// silently stopped being their latest app the moment they changed anything.
+
+const DEPLOYMENT_HOST = "nova-estates-038f1129-6dj1ceo99-neuralis-systems-ai.vercel.app";
+const PRODUCTION_ALIAS = "nova-estates-038f1129.vercel.app";
+
+has(stableHost([PRODUCTION_ALIAS, DEPLOYMENT_HOST], DEPLOYMENT_HOST) === PRODUCTION_ALIAS,
+  "THE ONE: the stable alias wins over the per-build url",
+  `got ${stableHost([PRODUCTION_ALIAS, DEPLOYMENT_HOST], DEPLOYMENT_HOST)}`);
+
+/* A custom domain is what somebody actually wants people to see, so it beats
+   even the stable .vercel.app one. */
+has(stableHost(["nova-estates.quickstark.tech", PRODUCTION_ALIAS], DEPLOYMENT_HOST)
+      === "nova-estates.quickstark.tech",
+  "a custom domain beats a vercel.app name");
+
+/* Order must not decide it — Vercel does not promise one. */
+has(stableHost([DEPLOYMENT_HOST, PRODUCTION_ALIAS], DEPLOYMENT_HOST) === PRODUCTION_ALIAS,
+  "the order Vercel lists them in does not matter");
+
+/* With nothing to choose from, the deployment url is still better than
+   nothing — a real address that works today beats an empty card. */
+has(stableHost([], DEPLOYMENT_HOST) === DEPLOYMENT_HOST,
+  "no aliases at all falls back to the deployment url");
+
+has(stableHost([DEPLOYMENT_HOST], DEPLOYMENT_HOST) === DEPLOYMENT_HOST,
+  "an alias list containing only the deployment url is the same thing");
+
+/* Never a scheme, never a path — the caller prefixes https:// itself, and a
+   host that arrived with one would produce https://https://… */
+for (const host of [PRODUCTION_ALIAS, "nova-estates.quickstark.tech", DEPLOYMENT_HOST]) {
+  const picked = stableHost([host], DEPLOYMENT_HOST);
+  has(!picked.includes("://") && !picked.includes("/"),
+    `the result is a bare hostname — ${picked}`);
+}
 
 // ── Configuration ─────────────────────────────────────────────────────────
 

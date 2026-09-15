@@ -232,7 +232,7 @@ function refusal(body: unknown, status: number): string {
 
 function readDeployment(
   body: unknown,
-): { id: string; url: string; state: string; inspect: string | null } | null {
+): { id: string; url: string; state: string; inspect: string | null; aliases: string[] } | null {
   if (!body || typeof body !== "object") return null;
   const record = body as {
     id?: unknown;
@@ -240,6 +240,8 @@ function readDeployment(
     readyState?: unknown;
     status?: unknown;
     inspectorUrl?: unknown;
+    alias?: unknown;
+    automaticAliases?: unknown;
   };
   if (typeof record.id !== "string" || typeof record.url !== "string") return null;
   /* readyState is the documented field; status appears alongside it on some
@@ -253,12 +255,56 @@ function readDeployment(
   /* Vercel's own page for this deployment, with the full build log on it.
      Carried through so a failure can point at it: whatever this module puts in
      a card is a tail, and the tail is not always where the reason is. */
+  /* Every name this deployment answers to, as opposed to the one it was born
+     with. See stableHost. */
+  const aliases = [record.alias, record.automaticAliases]
+    .flatMap((value) => (Array.isArray(value) ? value : []))
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
+
   return {
     id: record.id,
     url: record.url,
     state,
     inspect: typeof record.inspectorUrl === "string" ? record.inspectorUrl : null,
+    aliases,
   };
+}
+
+/* ── The address to give somebody ──────────────────────────────────────────
+ *
+ * Vercel hands back two different kinds of hostname and they are not
+ * interchangeable:
+ *
+ *   nova-estates-038f1129-6dj1ceo99-neuralis-systems-ai.vercel.app
+ *     The DEPLOYMENT url. Immutable, unique to this one build, and different
+ *     after the next one. It is the right thing to link from a build log and
+ *     the wrong thing to call somebody's app.
+ *
+ *   nova-estates-038f1129.vercel.app
+ *     The PRODUCTION alias. Stable across deployments, which is the entire
+ *     property that makes an address worth giving to anybody.
+ *
+ * This returned the first one and called it live. Somebody who bookmarked it,
+ * or sent it to a colleague, had a link that silently stopped being their
+ * latest app the moment they changed anything.
+ *
+ * A custom domain wins outright when one is attached, because that is what
+ * somebody actually wants people to see. Otherwise the shortest .vercel.app
+ * name, which is the production alias by construction: the deployment url is
+ * the same project name plus a build hash plus the team slug, so it is always
+ * longer than the alias it sits under.
+ */
+export function stableHost(aliases: string[], deploymentHost: string): string {
+  const custom = aliases
+    .filter((host) => !host.endsWith(".vercel.app"))
+    .sort((a, b) => a.length - b.length)[0];
+  if (custom) return custom;
+
+  const vercel = aliases
+    .filter((host) => host.endsWith(".vercel.app"))
+    .sort((a, b) => a.length - b.length)[0];
+
+  return vercel ?? deploymentHost;
 }
 
 /**
@@ -431,6 +477,71 @@ async function settledLog(
   return best;
 }
 
+/* Whether a person with no Vercel account can actually open this.
+ *
+ * Deliberately NOT using `call` above: that one attaches the API token, and a
+ * request carrying a token proves only that WE can reach the site. The whole
+ * question here is what a stranger gets, so this goes out bare.
+ *
+ * Generous about what counts as working. A 404 on `/` would be odd but a 404
+ * anywhere else is a normal thing for a site to say, and a redirect is how
+ * half the internet answers. What is being looked for is the small set of
+ * answers that mean nobody can see the app at all. */
+const HEALTH_TIMEOUT_MS = 15_000;
+
+async function reachable(address: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(address, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: { "User-Agent": "QuickStark-deploy-check" },
+    });
+
+    /* The one that matters, and the one that was being reported as success.
+       Vercel answers a protected deployment with 401, or 403 once it has
+       decided who you are not. */
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        reason:
+          "The app built and deployed, but Vercel is not letting the public see it — " +
+          "the address answers with a sign-in wall rather than the site. This is " +
+          "Deployment Protection, which is on by default on some Vercel accounts. " +
+          "Turn it off for this project (Vercel → the project → Settings → Deployment " +
+          "Protection) and the same deployment becomes public with nothing to rebuild.",
+      };
+    }
+
+    if (response.status >= 500) {
+      return {
+        ok: false,
+        reason:
+          `The app deployed but answers ${response.status} when it is opened, so the ` +
+          "build succeeded and the running site is failing. The deployment's own logs " +
+          "on Vercel say why.",
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    /* A network failure here is about OUR ability to reach it, which is not
+       quite the customer's question — so it is reported as what it is rather
+       than as the app being broken. */
+    return {
+      ok: false,
+      reason:
+        "The app deployed, but this server could not open it to check that it " +
+        `works (${error instanceof Error ? error.message : "the request failed"}). ` +
+        "It may well be fine — try the address yourself.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function waitForBuild(
   id: string,
   url: string,
@@ -444,7 +555,32 @@ async function waitForBuild(
     if (polled.ok && polled.status < 400) {
       const state = readDeployment(polled.body)?.state ?? "QUEUED";
 
-      if (state === "READY") return { ok: true, url: `https://${url}`, deploymentId: id };
+      if (state === "READY") {
+        /* The name it will still answer to after the next deploy, not the one
+           this build was born with. See stableHost. */
+        const host = stableHost(readDeployment(polled.body)?.aliases ?? [], url);
+        const address = `https://${host}`;
+
+        /* ── Built is not the same as reachable ───────────────────────────
+         *
+         * READY means Vercel finished building. It does not mean anybody can
+         * open the thing, and the difference is what produced a preview pane
+         * showing a large white rectangle under the words "your app is live".
+         *
+         * The commonest cause is Deployment Protection, which is ON by default
+         * for some accounts: the build is perfect, the URL is correct, and
+         * every request that is not carrying a Vercel session gets a login
+         * page or a 401. Saying "live" over that is telling somebody their app
+         * works when what they will see is a wall.
+         *
+         * So it is fetched, once, before the word "live" is used anywhere. */
+        const reached = await reachable(address);
+        if (!reached.ok) {
+          return { ok: false, reason: `${reached.reason}\n\nThe build itself succeeded: ${address}` };
+        }
+
+        return { ok: true, url: address, deploymentId: id };
+      }
 
       if (state === "ERROR" || state === "CANCELED") {
         /* NOT necessarily a compile failure, and this used to say it was.
