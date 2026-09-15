@@ -96,31 +96,40 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const { data: latest } = service
     ? await service
         .from("project_builds")
-        .select("deployment_url")
+        .select("deployment_url, deployment_error")
         .eq("project_id", owned.projectId)
         .order("created_at", { ascending: false })
         .limit(1)
-        .maybeSingle<{ deployment_url: string | null }>()
+        .maybeSingle<{ deployment_url: string | null; deployment_error: string | null }>()
     : { data: null };
   const url = latest?.deployment_url ?? null;
+  /* Why the last attempt did not produce one, carried back so the workspace
+     can say it on load rather than only in the session where it happened.
+     Without this the diagnosis — Deployment Protection, a type error, the tail
+     of the build log — existed for as long as the tab stayed open and then
+     vanished, leaving somebody with a project that is not hosted and no longer
+     any account of why. Never sent alongside a url: a project that is hosted
+     is hosted, and last week's failure is not news. */
+  const failure = url ? null : (latest?.deployment_error ?? null);
 
   if (!canDeploy(await callerEmail())) {
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, failure, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
       available: true,
       ready: false,
       url,
+      failure,
       reason:
         "Hosting is not configured: this deployment has no VERCEL_API_TOKEN. " +
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, failure, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {

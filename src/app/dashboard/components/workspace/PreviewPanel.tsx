@@ -126,7 +126,16 @@ export default function PreviewPanel({
 
     fetch(`/api/projects/${id}/deploy`)
       .then((response) => (response.ok ? response.json() : { available: false }))
-      .then((body: { available?: boolean; ready?: boolean; url?: string | null; reason?: string | null }) => {
+      .then((body: {
+        available?: boolean;
+        ready?: boolean;
+        url?: string | null;
+        /* Why the last attempt produced no address. Distinct from `reason`,
+           which is about this DEPLOYMENT's configuration rather than about
+           this project's last build. */
+        failure?: string | null;
+        reason?: string | null;
+      }) => {
         if (!current) return;
         setCanRun(body.available === true);
         /* Straight into the pane. This runs when the workspace opens, so a
@@ -139,6 +148,12 @@ export default function PreviewPanel({
         if (body.available === true && body.ready === false && body.reason) {
           setHostingReady(false);
           setDeployError(body.reason);
+        } else if (body.failure) {
+          /* The last attempt's own diagnosis, from the build row. Read on load
+             so somebody returning to a project that did not host still finds
+             out why — it used to exist only in the tab where it happened and
+             then be gone. */
+          setDeployError(body.failure);
         }
       })
       .catch(() => {
@@ -437,6 +452,49 @@ export default function PreviewPanel({
               Open
             </a>
           </div>
+          {/* ── Why it is not hosted, where somebody will read it ───────────
+           *
+           * This diagnosis existed and lived in a `title` attribute on the Run
+           * app button — which is to say it was a tooltip on a control that
+           * says "Couldn't host", requiring somebody to hover a button they
+           * have already been told did not work, on a device that may not have
+           * a pointer at all. The comment beside that tooltip says a failure
+           * living only in a tooltip is a failure most people never read. It
+           * was right, and it was describing itself.
+           *
+           * What it is hiding is worth reading: Deployment Protection with the
+           * setting to turn off, a type error with the file and line, or the
+           * tail of the build log. Shown, not hovered.
+           *
+           * Above the pane rather than instead of it: the summary underneath is
+           * still the honest account of what was built, and replacing it with
+           * an error would take away the one thing that did work. */}
+          {deployError && !deployed ? (
+            <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
+              <p className="text-[12px] font-medium text-ink">Not hosted yet</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted">
+                {deployError.replace(/\n\nFull build log: https?:\/\/\S+/, "")}
+              </p>
+              {/* Vercel's own page for the deployment, when the reason carried
+                  one. A tail is not always where the cause is, and this is the
+                  whole log. */}
+              {(() => {
+                const log = deployError.match(/https?:\/\/vercel\.com\/\S+/)?.[0];
+                return log ? (
+                  <a
+                    href={log}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-md text-[12px] font-medium text-ink underline underline-offset-2 transition-colors hover:bg-layer/[0.06]"
+                  >
+                    Full build log
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                ) : null;
+              })()}
+            </div>
+          ) : null}
+
           {/* The running app wins over the receipt.
            *
            * A project build's stored page is a written summary of its files —
