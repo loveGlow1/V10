@@ -404,6 +404,35 @@ has(
   "checked before a file is picked, since the file it would pick is the receipt",
 );
 
+/* ── And it never reaches the preview frame either ─────────────────────────
+ *
+ * The same document, the same confusion, one pane over. The preview fetched
+ * the html column and framed whatever came back — so a customer who asked for
+ * a real-estate platform was shown a document headed "A web app built as a
+ * Next.js project — 19 files", listing routes and file counts, with their
+ * application nowhere on screen. A receipt for the work is not the work.
+ *
+ * Either the running app goes in that frame or an invitation to put it online
+ * does. The summary never does. */
+const preview = readFileSync(
+  join(process.cwd(), "src/app/dashboard/components/workspace/PreviewPanel.tsx"),
+  "utf8",
+);
+
+has(
+  /isProjectSummary\(html\)/.test(preview),
+  "the preview pane recognises a receipt when it fetches one",
+);
+has(
+  /\) : isReceipt \? \(/.test(preview),
+  "and does not frame it",
+  "framing it shows somebody an inventory of their application instead of their application",
+);
+has(
+  preview.indexOf(") : isReceipt ? (") < preview.indexOf("srcDoc={pageHtml}"),
+  "the receipt is caught before the branch that would render it",
+);
+
 has(
   route.indexOf("if (intent === \"edit\" && service) {") <
     route.indexOf("if (intent === \"edit\" && currentHtml) {"),

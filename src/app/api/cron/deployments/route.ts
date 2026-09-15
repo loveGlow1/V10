@@ -113,7 +113,7 @@ export async function GET(request: Request) {
   let retried = 0;
 
   for (const record of pending) {
-    const state = await deploymentState(record.deploymentId);
+    const state = await deploymentState(record.deploymentId, record.vercelProject ?? undefined);
 
     if (state.state === "ready") {
       await settleDeployment(service, record, state);
