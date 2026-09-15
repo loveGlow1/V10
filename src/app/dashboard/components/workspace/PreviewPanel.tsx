@@ -11,6 +11,7 @@ import {
   Database,
   Download,
   ExternalLink,
+  Loader2,
   Link2,
   RotateCw,
   Rocket,
@@ -98,6 +99,19 @@ export default function PreviewPanel({
    * the person who can add it is worth more than a disabled button. */
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState<string | null>(null);
+  /* The address exists and the site behind it does not, yet.
+   *
+   * Vercel answers as soon as it has ACCEPTED the upload; installing and
+   * compiling a Next.js project takes another one to three minutes. The pane
+   * used to swap to that address the instant the response came back, so
+   * pressing Deploy replaced a working preview of the landing page with a
+   * blank white rectangle for the length of the build — the app was fine, it
+   * simply was not there yet.
+   *
+   * So the two things are separated. The ADDRESS is shown the moment there is
+   * one, because it is real and people want to copy it. The PANE keeps showing
+   * what it was showing until the site is actually up. */
+  const [building, setBuilding] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   /* Whether to draw the control at all. Asked of the server rather than
      decided here, because the answer depends on an allowlist and on an
@@ -122,6 +136,7 @@ export default function PreviewPanel({
     setCanRun(null);
     setHostingReady(true);
     setDeployed(null);
+    setBuilding(false);
     setDeployError(null);
 
     fetch(`/api/projects/${id}/deploy`)
@@ -171,9 +186,17 @@ export default function PreviewPanel({
     setDeployError(null);
     try {
       const response = await fetch(`/api/projects/${project.id}/deploy`, { method: "POST" });
-      const body = (await response.json()) as { url?: string | null; error?: string };
-      if (response.ok && body.url) setDeployed(body.url);
-      else setDeployError(body.error ?? "The deployment did not complete.");
+      const body = (await response.json()) as {
+        url?: string | null;
+        /* True while Vercel is still installing and compiling. The address is
+           real; the site is not up behind it. */
+        building?: boolean;
+        error?: string;
+      };
+      if (response.ok && body.url) {
+        setDeployed(body.url);
+        setBuilding(body.building === true);
+      } else setDeployError(body.error ?? "The deployment did not complete.");
     } catch {
       setDeployError("The deployment could not be reached.");
     } finally {
@@ -495,6 +518,41 @@ export default function PreviewPanel({
             </div>
           ) : null}
 
+          {/* The address, while the site behind it is still being built.
+           *
+           * This is the half that was missing. Deploy handed back a real
+           * address and the only thing the panel did with it was point the
+           * frame at a site that did not exist yet — so the one moment
+           * somebody wants to copy their link is the moment the pane went
+           * blank and gave them nothing to copy.
+           *
+           * The domain, not the deployment. Vercel gives a build two hosts:
+           * the per-build one carrying a hash, which its team settings put
+           * behind a login, and the project's own alias, which is public. The
+           * second is what arrives here — see stableHost — and it is the one
+           * worth putting in front of somebody. */}
+          {deployed && building ? (
+            <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
+              <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                Building your app
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                It will answer at the address below in a minute or two. Until then this pane keeps
+                showing what you already had.
+              </p>
+              <a
+                href={deployed}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 break-all text-[12px] font-medium text-emerald-300 underline underline-offset-2"
+              >
+                {deployed.replace(/^https?:\/\//, "")}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </div>
+          ) : null}
+
           {/* The running app wins over the receipt.
            *
            * A project build's stored page is a written summary of its files —
@@ -505,7 +563,7 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {deployed ? (
+          {deployed && !building ? (
             <iframe
               key={`${deployed}#${reloads}`}
               src={deployed}
