@@ -1238,6 +1238,11 @@ create index if not exists project_files_project_idx
 create unique index if not exists project_files_build_path_idx
   on public.project_files (build_id, path);
 
+drop trigger if exists project_files_set_updated_at on public.project_files;
+create trigger project_files_set_updated_at
+  before update on public.project_files
+  for each row execute function public.set_updated_at();
+
 alter table public.project_files enable row level security;
 
 -- Read-only to the browser and only your own, through the project rather than
@@ -1431,6 +1436,21 @@ create index if not exists project_assets_reuse_idx
   on public.project_assets (project_id, prompt, status) where prompt is not null;
 
 alter table public.project_assets enable row level security;
+
+-- Read-only to the browser, and only your own. Writes are the service role's:
+-- an asset row is what the resolver decided, and a client that could write one
+-- could point a slot at any URL it liked.
+drop policy if exists "Owners read their project assets" on public.project_assets;
+create policy "Owners read their project assets"
+  on public.project_assets for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.projects p
+       where p.id = project_assets.project_id
+         and p.user_id = auth.uid()
+    )
+  );
 
 create table if not exists public.project_attachments (
   id         uuid primary key default gen_random_uuid(),
@@ -2593,3 +2613,93 @@ drop trigger if exists project_deployments_set_updated_at on public.project_depl
 create trigger project_deployments_set_updated_at
   before update on public.project_deployments
   for each row execute function public.set_updated_at();
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- THE TWO THINGS THE DATABASE DOES THAT THIS FILE DID NOT SAY IT DID
+--
+-- Both were live and neither was written here, found by auditing the database
+-- against this file rather than the other way round. The first is a security
+-- control; the second calls out to the internet. A schema file that omits
+-- either is not a description of the database, and a file that cannot be
+-- trusted is a file nobody reads — which is the cover three tables went
+-- missing from production under.
+--
+-- Transcribed from the live definitions, not rewritten.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- RLS on every new table in public, whether or not whoever created it
+-- remembered. This is why every table above reports rls = true: not because
+-- each `alter table ... enable row level security` above was reliably run, but
+-- because this catches the one that was not. A generated project's schema is
+-- created at runtime from a model's output; this is the backstop for that.
+create or replace function public.rls_auto_enable()
+returns event_trigger
+language plpgsql
+security definer
+set search_path to 'pg_catalog'
+as $$
+DECLARE
+  cmd record;
+BEGIN
+  FOR cmd IN
+    SELECT *
+    FROM pg_event_trigger_ddl_commands()
+    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+      AND object_type IN ('table','partitioned table')
+  LOOP
+     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN
+      BEGIN
+        EXECUTE format('alter table if exists %s enable row level security', cmd.object_identity);
+        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
+      EXCEPTION
+        WHEN OTHERS THEN
+          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
+      END;
+     ELSE
+        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;
+     END IF;
+  END LOOP;
+END;
+$$;
+
+drop event trigger if exists ensure_rls;
+create event trigger ensure_rls
+  on ddl_command_end
+  execute function public.rls_auto_enable();
+
+-- The crypto reconciliation sweep, run by pg_cron.
+--
+-- It makes an OUTBOUND HTTP call from inside the database, which is worth
+-- saying plainly in the file that describes the database. The bearer token is
+-- read from Vault at call time and appears nowhere in this definition or in
+-- this repository; `cron_secret` has to exist in the vault for the sweep to
+-- authenticate, and the function raises rather than calling without it.
+create or replace function public.sweep_crypto_payments()
+returns bigint
+language plpgsql
+security definer
+set search_path to ''
+as $$
+declare
+  v_secret text;
+  v_request_id bigint;
+begin
+  select decrypted_secret into v_secret
+    from vault.decrypted_secrets
+   where name = 'cron_secret';
+
+  if v_secret is null or length(v_secret) = 0 then
+    raise exception 'no cron_secret in vault: the sweep cannot authenticate';
+  end if;
+
+  select net.http_get(
+           url := 'https://www.quickstark.tech/api/cron/reconcile',
+           headers := jsonb_build_object('Authorization', 'Bearer ' || v_secret),
+           timeout_milliseconds := 120000
+         )
+    into v_request_id;
+
+  return v_request_id;
+end;
+$$;
