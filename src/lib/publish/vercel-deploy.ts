@@ -372,6 +372,53 @@ export function productionDomain(projectName: string): string {
   return `${projectName}.vercel.app`;
 }
 
+/**
+ * The address to show a customer, whatever is stored on the row.
+ *
+ * stableHost already chooses correctly at the moment a deployment is created,
+ * and every address written from now on is the production alias. This is for
+ * everything already in the database, and for any path that has not been found
+ * yet — because the cost of one leaking through is not cosmetic.
+ *
+ * A per-deployment host (`<project>-<hash>-<team>.vercel.app`) on a team
+ * account sits behind Deployment Protection. Signed in, it opens; signed out,
+ * and for every subresource fetched without the team's cookie, it does not —
+ * which is how a customer comes to be looking at their own site with every
+ * stylesheet missing, fully rendered and completely unstyled, while the same
+ * project on its production alias is perfect. Two addresses for one build, and
+ * the workspace was handing out the wrong one.
+ *
+ * So the address is DERIVED rather than read. The Vercel project name is
+ * recorded when the project is first deployed (see existingVercelProject) and
+ * `<project>.vercel.app` is the alias Vercel points at its newest production
+ * deployment — knowable without an API call and correct for every build.
+ *
+ * A custom domain still wins: if what is stored is not a vercel.app at all,
+ * somebody has attached their own domain and that is the address they want
+ * people to see. And with no project name to derive from, whatever is stored is
+ * better than nothing.
+ */
+export function publicAddress(
+  stored: string | null | undefined,
+  vercelProject: string | null | undefined,
+): string | null {
+  const held = typeof stored === "string" && stored.length > 0 ? stored : null;
+
+  if (held) {
+    let host: string;
+    try {
+      host = new URL(held).hostname;
+    } catch {
+      return held;
+    }
+    /* Their own domain. Nothing here improves on that. */
+    if (!host.endsWith(".vercel.app")) return held;
+  }
+
+  if (vercelProject) return `https://${productionDomain(vercelProject)}`;
+  return held;
+}
+
 export type Started =
   | { ok: true; deploymentId: string; url: string; inspect: string | null }
   | { ok: false; reason: string };

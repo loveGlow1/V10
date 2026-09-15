@@ -64,7 +64,7 @@ const shim = join(out, "node_modules");
 mkdirSync(shim, { recursive: true });
 try { symlinkSync(out, join(shim, "@"), "dir"); } catch { /* already there */ }
 const require = createRequire(import.meta.url);
-const { deploymentFiles, deploymentName, deploymentsConfigured, productionDomain, stableHost } =
+const { deploymentFiles, deploymentName, deploymentsConfigured, productionDomain, publicAddress, stableHost } =
   require(join(out, "lib/publish/vercel-deploy.js"));
 
 let failed = 0;
@@ -326,9 +326,15 @@ has(
   "without the filter, any build after a deployment blanks the address of a project that is still up",
 );
 
+/* What the workspace is handed is that row's address PUT THROUGH
+   publicAddress — the per-deployment host stored on older rows is behind
+   Deployment Protection, and handing it over is how a customer comes to be
+   looking at their own site with every stylesheet missing. The query above
+   still decides WHICH row; this decides which of that build's two hostnames
+   a person can actually open. */
 has(
-  /const url = live\?\.deployment_url/.test(deployRoute),
-  "and that is what the workspace is handed",
+  /const url = publicAddress\(live\?\.deployment_url/.test(deployRoute),
+  "and that is what the workspace is handed, as an address that opens",
 );
 
 /* The failure is still the LAST attempt's, not the last deployment's — those
@@ -427,6 +433,66 @@ has(
   "pressing Deploy writes the address where the workspace reads it",
   "otherwise it lives in one response and the next load shows the summary again",
 );
+
+/* ── The address a customer can actually open ─────────────────────────────
+ *
+ * Vercel gives one build two hostnames, and they behave differently for the
+ * person this platform is for. Both of these were reported from the same
+ * project, minutes apart:
+ *
+ *   furniture-store-for-nova-e12700c5-l2qcke8ij-team.vercel.app
+ *     The per-deployment host. Behind Deployment Protection on a team account.
+ *     Signed in, the document loads — and the stylesheets it then asks for do
+ *     not, because those requests carry no team cookie. What the customer sees
+ *     is their page fully rendered and completely unstyled: serif type, blue
+ *     underlined links, text overlapping text, on a build that is perfect.
+ *
+ *   furniture-store-for-nova-e12700c5.vercel.app
+ *     The production alias. Public, stable, and correct for anybody.
+ *
+ * The workspace was handing out the first. stableHost already chooses the
+ * second at the moment a deployment is created; publicAddress is what stops
+ * the rows written before that from reaching anybody, by DERIVING the address
+ * from the recorded project name instead of reading it off the build row. */
+{
+  const project = "furniture-store-for-nova-e12700c5";
+  const guarded = `https://${project}-l2qcke8ij-neuralis-systems-ai.vercel.app`;
+  const alias = `https://${project}.vercel.app`;
+
+  has(
+    publicAddress(guarded, project) === alias,
+    "a stored per-deployment host is replaced by the production alias",
+    publicAddress(guarded, project),
+  );
+  has(publicAddress(alias, project) === alias, "an alias that is already right is untouched");
+  has(
+    publicAddress(`https://${project}-abc123-team.vercel.app`, project) === alias,
+    "an old row is corrected on read, so no backfill is needed",
+  );
+
+  /* Somebody's own domain is the address they want people to see. */
+  has(
+    publicAddress("https://novafurniture.com", project) === "https://novafurniture.com",
+    "a custom domain is never replaced",
+  );
+
+  has(publicAddress(guarded, null) === guarded, "with no project name, what is stored beats nothing");
+  has(publicAddress(null, project) === alias, "with no stored address, the alias is still knowable");
+  has(publicAddress(null, null) === null, "with neither, there is no address");
+  has(publicAddress("", "") === null, "and empty strings are not an address");
+  /* This runs on the path that renders somebody's workspace. */
+  has(publicAddress("not a url", project) === "not a url", "an unparseable value passes through rather than throwing");
+
+  /* The two must agree, or the address changes depending on which one answered. */
+  has(
+    `https://${stableHost([], `${project}-l2qcke8ij-team.vercel.app`, project)}` === alias,
+    "stableHost agrees when Vercel has reported no aliases yet",
+  );
+  has(
+    `https://${stableHost([`${project}.vercel.app`], `${project}-l2qcke8ij-team.vercel.app`, project)}` === alias,
+    "and when it has reported the alias",
+  );
+}
 
 const panel = readFileSync(
   join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"),

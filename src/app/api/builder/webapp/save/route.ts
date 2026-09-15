@@ -6,6 +6,7 @@ import { carriedContextWords, countWords } from "@/lib/builder/brief";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
+import { fillTreeImages } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
@@ -433,6 +434,39 @@ export async function POST(request: Request) {
    * app. Rendering something that looked like the storefront would put a
    * picture of a working shop in front of somebody who does not have one,
    * which is the failure the blueprints spend paragraphs forbidding. */
+  /* ── The project's photographs ──────────────────────────────────────────
+   *
+   * The safety net the single page has had since images.ts was written, strung
+   * under the tree at last. A generated project declares its pictures as slots
+   * — `<img data-shot="…">`, art direction and no src — and this is where real
+   * pixels go in.
+   *
+   * It never ran for a project before. fillImages is called once, further down,
+   * on the single HTML document, and a tree build skips it: the flag that skips
+   * it is named for the SUMMARY this route writes for a tree, which genuinely
+   * has no slots in it, and the tree's own files were never offered to it. So a
+   * project's photographs could only come from the pipeline that runs BEFORE
+   * generation — and when that came back with nothing, nothing else ever ran.
+   * The model drew a neutral panel where a photograph belonged and that was
+   * final. Grey rounded rectangles, reported as "images show as blank
+   * placeholders".
+   *
+   * HERE, rather than beside the fill below, because it has to happen before
+   * the deployment a few lines down and before the tree is stored. Both read
+   * `tree`, and a project whose pictures arrived after it was uploaded is a
+   * project with grey panels on its live site.
+   *
+   * Unconfigured is a supported state, exactly as it is for the page: with no
+   * provider key every slot keeps the neutral placeholder it shipped with. */
+  if (tree.length > 0) {
+    const projectPhotos = await fillTreeImages(tree, providerFromEnv(), {
+      context: searchContext(str(body.prompt)),
+      seed: project.id as string,
+      exclude: await previouslyUsedPhotos(supabase, project.id as string),
+    });
+    tree = projectPhotos.tree;
+  }
+
   let html: string;
   let synthesised = false;
   /* Null for a single-page build and for every project this deployment cannot
