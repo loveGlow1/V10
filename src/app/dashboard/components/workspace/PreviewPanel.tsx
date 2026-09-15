@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 
+import { isProjectSummary } from "@/lib/builder/project-summary";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -275,17 +276,42 @@ export default function PreviewPanel({
   const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
   const [pageFailed, setPageFailed] = useState(false);
+  /* Whether what came back is a receipt rather than a page.
+   *
+   * A Next.js project stores its .tsx in project_files and a SUMMARY of itself
+   * in the html column. This pane fetched that column and framed whatever it
+   * got — so a customer who asked for a real-estate platform was shown a
+   * document headed "A web app built as a Next.js project — 19 files", listing
+   * routes and file counts, with their actual application nowhere on screen.
+   * That is a receipt for the work, not the work, and it is not what a preview
+   * pane is for.
+   *
+   * WHAT CHANGED UNDER THIS. The reason the receipt existed — that nothing here
+   * runs `next build`, so a tree of source cannot be shown to anybody — is no
+   * longer true. /preview/[projectId] compiles the tree in the browser and
+   * serves the running application instead (see lib/builder/preview), so for
+   * almost every project this flag is now false and the frame holds the real
+   * thing.
+   *
+   * It is kept because the fallback is kept: a tree this renderer cannot route
+   * still falls through to the summary on the server, and framing a receipt
+   * would be as wrong then as it was before. So this stays as the guard for
+   * that case — rarer now, and no longer the ordinary path. See
+   * isProjectSummary. */
+  const [isReceipt, setIsReceipt] = useState(false);
 
   useEffect(() => {
     if (!previewUrl || !previewPath) {
       setPageHtml(null);
       setPageFailed(false);
+      setIsReceipt(false);
       return;
     }
 
     let cancelled = false;
     setPageHtml(null);
     setPageFailed(false);
+    setIsReceipt(false);
 
     void fetch(previewPath, { cache: "no-store" })
       .then((response) => (response.ok ? response.text() : null))
@@ -293,6 +319,7 @@ export default function PreviewPanel({
         if (cancelled) return;
         setPageHtml(html);
         setPageFailed(html === null);
+        setIsReceipt(isProjectSummary(html));
       })
       .catch(() => {
         if (!cancelled) setPageFailed(true);
@@ -663,6 +690,52 @@ export default function PreviewPanel({
               sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
               className="min-h-0 flex-1 border-0 bg-white"
             />
+          ) : isReceipt ? (
+            /* The summary came back, which now means the renderer could not
+               route this tree — a scaffold that stopped halfway, or a shape it
+               does not know. Framing the receipt would be showing somebody an
+               inventory of their application instead of their application, so
+               this goes here instead.
+               
+               WHAT THIS MUST NOT SAY is that the project has to be put online
+               to be looked at. That was true when deployment was the only
+               renderer and it is not true now: the ordinary path renders the
+               application in this frame without deploying anything. Saying it
+               here would send somebody to Vercel for something the builder can
+               already do, and would be the exact confusion — deployment as the
+               price of seeing your own work — that the preview renderer exists
+               to end. So it says what actually happened, and offers the two
+               things that are genuinely useful: the file-by-file account, and
+               putting it online if that is what they wanted anyway. */
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-white px-6 text-center">
+              <p className="text-[15px] font-semibold text-slate-900">
+                {project?.name ?? "Your app"} is built
+              </p>
+              <p className="max-w-[340px] text-[13px] leading-relaxed text-slate-500">
+                This one could not be rendered in the preview, so here is everything that was
+                made instead. Your files are all there, and the project can still be put online.
+              </p>
+              {previewPath ? (
+                <a
+                  href={`${previewPath}${previewPath.includes("?") ? "&" : "?"}diagnostics=1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[13px] font-medium text-slate-900 underline underline-offset-2"
+                >
+                  See what was built
+                </a>
+              ) : null}
+              {canRun && hostingReady ? (
+                <button
+                  onClick={runTheApp}
+                  disabled={deploying}
+                  className="mt-1 flex h-9 items-center gap-2 rounded-lg bg-slate-900 px-4 text-[13px] font-medium text-white transition-opacity disabled:opacity-60"
+                >
+                  {deploying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {deploying ? "Putting it online…" : "Put it online"}
+                </button>
+              ) : null}
+            </div>
           ) : pageHtml !== null ? (
             <iframe
               key={`${previewUrl}#${reloads}`}

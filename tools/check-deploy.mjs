@@ -64,7 +64,7 @@ const shim = join(out, "node_modules");
 mkdirSync(shim, { recursive: true });
 try { symlinkSync(out, join(shim, "@"), "dir"); } catch { /* already there */ }
 const require = createRequire(import.meta.url);
-const { deploymentFiles, deploymentName, deploymentsConfigured, stableHost } =
+const { deploymentFiles, deploymentName, deploymentsConfigured, productionDomain, stableHost } =
   require(join(out, "lib/publish/vercel-deploy.js"));
 
 let failed = 0;
@@ -279,7 +279,7 @@ const startBody = deploySource.slice(
 );
 
 has(
-  /url: `https:\/\/\$\{stableHost\(deployment\.aliases, deployment\.url\)\}`/.test(startBody),
+  /url: `https:\/\/\$\{stableHost\(deployment\.aliases, deployment\.url, target\.name\)\}`/.test(startBody),
   "the upload path hands back the stable alias, not the per-build host",
   "a per-build host is behind Deployment Protection on a team account: 401, and a white iframe",
 );
@@ -337,6 +337,66 @@ has(
 has(
   /const failure = url \? null : \(latest\?\.deployment_error/.test(deployRoute),
   "a reason is only offered when there is no live address to offer instead",
+);
+
+const deploySourceForNames = readFileSync(
+  join(root, "src/lib/publish/vercel-deploy.ts"),
+  "utf8",
+);
+
+/* ── The address, when Vercel has not named one yet ───────────────────────
+ *
+ * "Deployment links only really open on Vercel. Only domain links open in any
+ * browser." That is the bug in one sentence, and the fix is arithmetic rather
+ * than patience.
+ *
+ * At the moment a deployment is CREATED, Vercel's response often carries no
+ * aliases at all — they are reported once it has built. Falling back to the
+ * deployment host there hands back the per-build address, which on a team
+ * account is behind Deployment Protection: 401 to everyone not signed in to
+ * the team, and a blank white rectangle inside an iframe.
+ *
+ * The production domain does not have to be waited for. Vercel gives a project
+ * `<project>.vercel.app` and re-points it at each new production deployment,
+ * and these are all created with target: "production". So the name we chose
+ * for the project IS the address. */
+has(productionDomain("swiftcargo-using-next-7e7c4cb5") === "swiftcargo-using-next-7e7c4cb5.vercel.app",
+  "a project's domain is its name",
+  `got ${productionDomain("swiftcargo-using-next-7e7c4cb5")}`);
+
+/* THE ONE THAT WAS REPORTED, in the shape it was reported in: a deployment
+   Vercel had named no alias for, whose per-build host was shown to the
+   customer as "YOUR APP IS LIVE" and opened as a blank page. */
+has(
+  stableHost([], "swiftcargo-using-next-7e7c4cb5-ph1a4eon9-neuralis-systems-ai.vercel.app",
+    "swiftcargo-using-next-7e7c4cb5") === "swiftcargo-using-next-7e7c4cb5.vercel.app",
+  "with no aliases reported, the project's domain wins over the per-build host",
+  `got ${stableHost([], "swiftcargo-using-next-7e7c4cb5-ph1a4eon9-neuralis-systems-ai.vercel.app", "swiftcargo-using-next-7e7c4cb5")}`,
+);
+
+/* A real alias still beats a derived one — it is what Vercel actually says. */
+has(stableHost([PRODUCTION_ALIAS], DEPLOYMENT_HOST, "some-project") === PRODUCTION_ALIAS,
+  "a reported alias beats a derived domain");
+has(stableHost(["nova.quickstark.tech"], DEPLOYMENT_HOST, "some-project") === "nova.quickstark.tech",
+  "and a custom domain beats both");
+
+/* Without a project name there is nothing to derive, and the old answer
+   stands — no worse than it was. */
+has(stableHost([], DEPLOYMENT_HOST) === DEPLOYMENT_HOST,
+  "with no name and no aliases, the deployment host is still the fallback");
+
+/* Every path that resolves an address takes the name, not just the first one:
+   the upload, the poll and the wait each had their own copy of this. */
+/* Counted rather than eyeballed: there are three places that resolve an
+   address — the upload, the poll and the wait — and each had its own copy of
+   the same mistake. A call site left without the name is an address that comes
+   back protected, which is invisible until somebody opens it. */
+const resolvesAddress = deploySourceForNames.match(/stableHost\([\s\S]{0,140}?\)\s*[;`}]/g) || [];
+const calls = resolvesAddress.filter((call) => !call.includes("aliases: string[]"));
+has(
+  calls.length >= 3 && calls.every((call) => /projectName\)|target\.name\)/.test(call)),
+  `every address the deploy module resolves is given the project name — ${calls.length} call sites`,
+  calls.filter((call) => !/projectName\)|target\.name\)/.test(call)).join(" | ") || "none found",
 );
 
 /* ── Pressing Deploy ───────────────────────────────────────────────────────

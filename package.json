@@ -67,7 +67,8 @@
     "check:preview-routes": "node tools/check-preview-routes.mjs",
     "check:preview-document": "node tools/check-preview-document.mjs",
     "check:next-structure": "node tools/check-next-structure.mjs",
-    "check:deploy-diagnosis": "node tools/check-deploy-diagnosis.mjs"
+    "check:deploy-diagnosis": "node tools/check-deploy-diagnosis.mjs",
+    "check:activity": "node tools/check-activity.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
