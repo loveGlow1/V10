@@ -44,8 +44,15 @@ export type FileTree = ProjectFile[];
 /** Files in a tree. A real Next.js marketing site is twenty to forty. */
 const MAX_FILES = 120;
 
-/** One file. Past this it is not source, it is something embedded by mistake. */
-const MAX_FILE_BYTES = 256_000;
+/** One file. Past this it is not source, it is something embedded by mistake.
+ *
+ * Exported because it is not only this module's rule: project_files carries the
+ * same number as a CHECK constraint, and anything that GROWS a file after
+ * readTree has passed it — filling image slots, most of all — has to answer to
+ * it too. A file that is validated at 90KB and stored at 600KB is rejected by
+ * the database, and the tree is written in one statement, so that one file
+ * takes the whole project down with it. */
+export const MAX_FILE_BYTES = 256_000;
 
 /** The whole tree, which is what actually gets stored per version. */
 const MAX_TREE_BYTES = 3_000_000;

@@ -36,7 +36,7 @@
 
 import { type FillResult, type ImageProvider, IMAGE_BUDGET_BYTES, fillImages } from "./images";
 import type { PhotoId } from "./images";
-import type { FileTree } from "./tree";
+import { MAX_FILE_BYTES, type FileTree } from "./tree";
 
 /* Under MAX_TREE_BYTES with room for the project itself.
  *
@@ -107,10 +107,26 @@ export async function fillTreeImages(
       continue;
     }
 
+    /* What this ONE file can still take.
+     *
+     * The budget above is the tree's, and spending it is not evenly spread:
+     * the first file with slots in it is offered the whole remaining amount,
+     * so a single page could be handed a megabyte of pictures. The tree stayed
+     * inside its own ceiling and the file blew through project_files' per-file
+     * CHECK, which readTree had cleared before any of this ran — and because
+     * the tree is stored in one statement, that one file cost the project
+     * every other file with it. Seen in production twice in one day: a build
+     * that generated fine and reported "its files could not be stored". */
+    const headroom = MAX_FILE_BYTES - Buffer.byteLength(file.content, "utf8");
+    if (headroom <= 0) {
+      out.push(file);
+      continue;
+    }
+
     let result: FillResult;
     try {
       result = await fillImages(file.content, provider, {
-        budget: remaining,
+        budget: Math.min(remaining, headroom),
         timeoutMs: options.timeoutMs,
         context: options.context,
         seed: options.seed,
@@ -119,6 +135,17 @@ export async function fillTreeImages(
     } catch {
       /* One file's fetch failing must not cost the project its other pictures,
          and must never cost it the file. */
+      out.push(file);
+      continue;
+    }
+
+    /* Measured rather than trusted. The budget is counted in image bytes and
+       what lands in the file is text, so the two are close but not the same
+       number — and "close" is not what a CHECK constraint enforces. A fill
+       that would not fit is dropped and the file kept as it was: a page with
+       fewer pictures is a page, where a project that will not store is
+       nothing. */
+    if (Buffer.byteLength(result.html, "utf8") > MAX_FILE_BYTES) {
       out.push(file);
       continue;
     }
