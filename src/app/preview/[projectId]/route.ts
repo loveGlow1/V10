@@ -2,7 +2,7 @@ import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-prev
 import { buildModeOf } from "@/lib/builder/build-mode";
 import { existingVercelProject } from "@/lib/publish/deployment-store";
 import { canBeFramed } from "@/lib/publish/framable";
-import { previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
+import { appDomainFor, previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
@@ -154,9 +154,32 @@ async function liveAddress(projectId: string): Promise<string | null> {
      * exact failure this route keeps being rewritten to avoid. So it is
      * fetched once, and the vercel.app address is what happens when it does
      * not answer. */
-    const alias = vercelProject ? previewAliasFor(vercelProject) : null;
-    if (alias) {
-      const address = `https://${alias}`;
+    /* ── In order of what somebody would rather be looking at ─────────
+     *
+     * The PUBLISHED address first — `<slug>.quickstark.tech`, bound to the
+     * Vercel project when the deployment went live (see settle.ts). It is the
+     * address the customer gives people, and a preview pane pointed at it is
+     * showing the same site their visitors see, on the same origin: the
+     * session cookie, the auth redirect and the server action all behave
+     * exactly as they will in production, which is the whole reason a
+     * server-mode preview is a frame around the real thing rather than a
+     * rendering of it.
+     *
+     * Then the preview alias, then the vercel.app address.
+     *
+     * ASKED AT EVERY STEP, never assumed. Both of ours need a wildcard that
+     * is verified on the Vercel account with DNS pointing at it, and where
+     * that is not true the bind is refused and logs a warning nobody reads.
+     * Redirecting the pane at a host that does not resolve would turn a
+     * working preview into a blank rectangle — the exact failure this route
+     * keeps being rewritten to avoid. So each is fetched once, and the
+     * vercel.app address is what happens when neither answers. */
+    for (const host of [
+      vercelProject ? appDomainFor(vercelProject) : null,
+      vercelProject ? previewAliasFor(vercelProject) : null,
+    ]) {
+      if (!host) continue;
+      const address = `https://${host}`;
       const reachable = await canBeFramed(address, SITE_URL);
       if (reachable.ok) return address;
     }

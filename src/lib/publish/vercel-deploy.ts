@@ -819,6 +819,101 @@ export async function aliasDeployment(
   return { ok: true, alias };
 }
 
+/* ── The address the customer actually wants ──────────────────────────────
+ *
+ * `<slug>.quickstark.tech` rather than `<slug>.vercel.app`. Not decoration:
+ * the vercel.app address tells every visitor whose hosting this is, on a site
+ * somebody is about to show a client.
+ *
+ * A PROJECT DOMAIN, NOT A DEPLOYMENT ALIAS, and the difference is the whole
+ * reason this exists beside aliasDeployment. An alias points at ONE build, so
+ * every publish afterwards has to re-point it or the clean address quietly
+ * goes stale — it keeps serving a version from three edits ago while the
+ * vercel.app address moves on, which is the worst possible failure because
+ * both addresses work and only one is right. A domain attached to the PROJECT
+ * follows its newest production deployment on its own, for the life of the
+ * project, with nothing to re-run.
+ *
+ * `idOrName` is genuinely either, so the project NAME we already record is
+ * enough and there is no id to look up first.
+ *
+ * REQUIRES THE WILDCARD TO EXIST. `*.quickstark.tech` has to be a verified
+ * domain on the Vercel account with its DNS pointed at Vercel; without that
+ * the call is refused and there is nothing this code can do about it. So it is
+ * best effort throughout and nothing downstream depends on it: the vercel.app
+ * address goes on working, which is the difference between a site with a
+ * plainer address and no site at all. */
+export function appDomainBase(): string | null {
+  const configured = process.env.QUICKSTARK_APP_DOMAIN?.trim();
+  return configured && configured.length > 0 ? configured.replace(/^\.+|\.+$/g, "") : null;
+}
+
+/** `<slug>.quickstark.tech`, or null when no base domain is configured. */
+export function appDomainFor(projectName: string): string | null {
+  const base = appDomainBase();
+  if (!base) return null;
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `${slug}.${base}` : null;
+}
+
+export type DomainResult =
+  | { ok: true; domain: string; already: boolean }
+  | { ok: false; reason: string };
+
+/**
+ * Binds a domain to a Vercel project, so every production deployment answers
+ * on it.
+ *
+ * Idempotent, and it has to be: this runs on every publish, and the second one
+ * finds the domain already there. Vercel answers that with 409, which is not a
+ * failure — so a conflict is checked against the project's own list rather
+ * than reported. A 409 because somebody ELSE holds the domain is a real
+ * refusal and is returned as one.
+ */
+export async function attachProjectDomain(
+  projectIdOrName: string,
+  domain: string,
+  creds: { token: string; teamQuery: string },
+): Promise<DomainResult> {
+  const added = await call(
+    `/v10/projects/${encodeURIComponent(projectIdOrName)}/domains${creds.teamQuery}`,
+    { method: "POST", body: JSON.stringify({ name: domain }) },
+    creds.token,
+  );
+
+  if (!added.ok) return { ok: false, reason: added.reason };
+  if (added.status < 400) return { ok: true, domain, already: false };
+
+  if (added.status === 409) {
+    /* Already in use — by us on the second publish, or by somebody else. The
+       project's own list is what tells the two apart, and only the second is
+       something to report. */
+    const held = await projectDomains(projectIdOrName, creds);
+    if (held.includes(domain.toLowerCase())) return { ok: true, domain, already: true };
+  }
+
+  return { ok: false, reason: refusal(added.body, added.status) };
+}
+
+/** The domains currently bound to a Vercel project, lower-cased. */
+export async function projectDomains(
+  projectIdOrName: string,
+  creds: { token: string; teamQuery: string },
+): Promise<string[]> {
+  const listed = await call(
+    `/v9/projects/${encodeURIComponent(projectIdOrName)}/domains${creds.teamQuery}`,
+    { method: "GET" },
+    creds.token,
+  );
+
+  if (!listed.ok || listed.status >= 400) return [];
+
+  const body = listed.body as { domains?: { name?: unknown }[] } | null;
+  return (body?.domains ?? [])
+    .map((entry) => (typeof entry.name === "string" ? entry.name.toLowerCase() : ""))
+    .filter((name) => name.length > 0);
+}
+
 export type Started =
   | {
       ok: true;
@@ -1194,7 +1289,7 @@ async function settledLog(
  * answers that mean nobody can see the app at all. */
 const HEALTH_TIMEOUT_MS = 15_000;
 
-async function reachable(address: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function reachable(address: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 

@@ -78,6 +78,48 @@ function pixels(token: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/* ── The header, which is the one everybody sees first ────────────────────
+ *
+ * A generated header puts the brand on the left and the link list on the
+ * right, and at 1280px that is exactly right. At 390px it is the single
+ * ugliest thing this platform ships: five inline links and a wordmark on a
+ * screen that fits about three, so they wrap under the logo, collide with it,
+ * or push the page sideways. It is the first thing on the page, so it is the
+ * first thing anybody judges.
+ *
+ * There is one shape that works and it is not a matter of taste: below `md`
+ * the header is the brand and a button, and the links live behind the button.
+ * Above it, the links come back. In Tailwind that is exactly two class lists —
+ * `hidden md:flex` on the list, `flex md:hidden` on the button — which is
+ * cheap to write at generation time and expensive to retrofit afterwards,
+ * because retrofitting it means adding markup rather than editing a class.
+ *
+ * ── What is read, and why it is scoped this tightly ───────────────────────
+ *
+ * Only <header> and <nav>, and never inside a <footer>. A footer with eight
+ * stacked links is correct on a phone and always has been; flagging it would
+ * be the gate refusing a working page over a stray attribute, which is a
+ * disease this codebase has caught twice already.
+ *
+ * The brand itself is a link, so the count is one higher than the number of
+ * nav items. Five anchors is a wordmark and four links, which is about 360px
+ * of content in a 390px screen before any padding — broken in every document
+ * that has it, and the only case here that is an error. */
+const COLLAPSES =
+  /\bhidden\s+(?:sm|md|lg|xl):(?:flex|block|grid|inline-flex|inline-block)\b|\b(?:sm|md|lg|xl):hidden\b|\bmax-(?:sm|md|lg|xl):hidden\b/;
+
+/** A link in a header: an anchor, a next/link, or a router link by any name. */
+const NAV_LINK = /<(?:a|Link|NavLink)\b/gi;
+
+function navRegions(source: string): string[] {
+  /* The footer goes first, so a <nav> inside it is never read. */
+  const withoutFooter = source.replace(/<footer\b[\s\S]*?<\/footer>/gi, "");
+  return [
+    ...(withoutFooter.match(/<header\b[\s\S]*?<\/header>/gi) ?? []),
+    ...(withoutFooter.match(/<nav\b[\s\S]*?<\/nav>/gi) ?? []),
+  ];
+}
+
 function issue(
   severity: Issue["severity"],
   rule: string,
@@ -94,15 +136,22 @@ function issue(
  * .tsx and a single page's lives in its html, and the same rules apply to both.
  */
 export function staticResponsiveGate(html: string, tree: FileTree = []): GateResult {
-  const lists: Lists = [];
+  /* Kept whole as well as split into class lists. Most rules here read one
+     class list at a time, but the header rule is about a REGION — how many
+     links are inside a <header> and whether anything hides them — and a class
+     list on its own cannot answer that. */
+  const sources: { file: string; source: string }[] = [];
 
   for (const file of tree) {
     if (!/\.(?:tsx?|jsx?)$/.test(file.path)) continue;
-    lists.push(...classListsIn(file.content, file.path));
+    sources.push({ file: file.path, source: file.content });
   }
   /* A single-page build has no tree worth reading — treeFromPage would hand
      back the document under index.html and we already have it. */
-  if (tree.length === 0 && html) lists.push(...classListsIn(html, "the page"));
+  if (tree.length === 0 && html) sources.push({ file: "the page", source: html });
+
+  const lists: Lists = [];
+  for (const { file, source } of sources) lists.push(...classListsIn(source, file));
 
   const issues: Issue[] = [];
   const said = new Set<string>();
@@ -116,6 +165,20 @@ export function staticResponsiveGate(html: string, tree: FileTree = []): GateRes
     said.add(key);
     issues.push(found);
   };
+
+  for (const { file, source } of sources) {
+    for (const region of navRegions(source)) {
+      const links = (region.match(NAV_LINK) ?? []).length;
+      if (links < 3 || COLLAPSES.test(region)) continue;
+
+      once(issue(
+        links >= 5 ? "error" : "warning",
+        "nav-never-collapses",
+        `This header keeps ${links} inline links at every width, so on a phone they wrap under the logo or push the page sideways. Below \`md\` a header is the brand and a menu button and nothing else: put \`hidden md:flex\` on the link list and \`flex md:hidden\` on the button that opens it.`,
+        file,
+      ));
+    }
+  }
 
   for (const { file, classes } of lists) {
     const tokens = classes.split(/\s+/).filter(Boolean);
@@ -218,7 +281,7 @@ export function staticResponsiveGate(html: string, tree: FileTree = []): GateRes
   /* Nothing to read is not a pass. A project whose files carry no class list at
      all has not been checked, and saying so is the same rule the rendered gate
      follows. */
-  if (lists.length === 0) return emptyGate(false);
+  if (lists.length === 0 && issues.length === 0) return emptyGate(false);
 
   return {
     ran: true,

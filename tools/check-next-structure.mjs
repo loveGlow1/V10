@@ -130,6 +130,111 @@ const sound = [SHELL, HOME];
   );
 }
 
+/* ── The directive, and the page nobody wrote ────────────────────────────
+ *
+ * Everything in the App Router is a server component until its first line
+ * says otherwise, and a server component runs at build time. So a
+ * components/Nav.tsx holding useState and missing "use client" does not
+ * degrade — it fails the build, and it fails it on a route the customer has
+ * never heard of:
+ *
+ *     Error occurred prerendering page "/_not-found"
+ *
+ * because Next.js generates that page itself, it renders the root layout, and
+ * the layout imports the component. Under `output: "export"` every page is
+ * prerendered, so there is no runtime for it to work at instead.
+ *
+ * The inspection used to read pages and layouts only, so the commonest
+ * instance of this — a component — was invisible to it. */
+{
+  const tree = [
+    SHELL,
+    file("app/page.tsx", `import Nav from "@/components/Nav";\nexport default function Page(){ return <Nav/>; }`),
+    file(
+      "components/Nav.tsx",
+      `import { useState } from "react";\nexport default function Nav(){ const [open,setOpen] = useState(false); return <nav onClick={() => setOpen(!open)}/>; }`,
+    ),
+  ];
+
+  const found = inspectStructure(tree).filter((f) => f.file === "components/Nav.tsx");
+  has(found.length === 1, "a component using hooks without the directive is caught", JSON.stringify(inspectStructure(tree)));
+  has(found[0]?.severity === "blocking", "as blocking, because the build does not finish");
+  has(
+    /_not-found/.test(found[0]?.detail ?? ""),
+    "and the finding names the page the error will actually arrive on",
+    found[0]?.detail,
+  );
+
+  const { tree: fixed, repairs } = repairStructure(tree);
+  const nav = fixed.find((f) => f.path === "components/Nav.tsx");
+  has(
+    /^"use client";/.test(nav?.content ?? ""),
+    "and the repair adds it, as the first thing in the file",
+    JSON.stringify(nav?.content?.slice(0, 40)),
+  );
+  has(
+    repairs.some((r) => r.file === "components/Nav.tsx"),
+    "and says so, rather than changing a file silently",
+  );
+  has(
+    inspectStructure(fixed).filter((f) => f.file === "components/Nav.tsx").length === 0,
+    "after which the project has nothing left to say about it",
+  );
+}
+
+/* ── What the repair must NOT touch ──────────────────────────────────────
+ *
+ * Adding the directive to a file that exports something only a server
+ * component may export trades one build error for another, which is not a
+ * repair. A page that genuinely needs both halves is split by
+ * client-routes.ts, which runs first. */
+{
+  const both = [
+    SHELL,
+    file(
+      "app/[slug]/page.tsx",
+      `export function generateStaticParams(){ return []; }\nexport default function P(){ return <a onClick={() => {}}/>; }`,
+    ),
+    file("app/page.tsx", "export default function Page(){ return <main/>; }"),
+  ];
+  const kept = repairStructure(both).tree.find((f) => f.path === "app/[slug]/page.tsx");
+  has(
+    !/use client/.test(kept?.content ?? ""),
+    "a page exporting generateStaticParams is left alone",
+    "the directive there is a different build error, not a fix",
+  );
+
+  const meta = [
+    SHELL,
+    file("app/page.tsx", `export const metadata = { title: "x" };\nexport default function P(){ return <a onClick={() => {}}/>; }`),
+  ];
+  has(
+    !/use client/.test(repairStructure(meta).tree.find((f) => f.path === "app/page.tsx")?.content ?? ""),
+    "and so is one exporting metadata",
+  );
+
+  const server = [
+    SHELL,
+    file("app/page.tsx", "export default function Page(){ return <main/>; }"),
+    file("lib/actions.ts", `"use server";\nexport async function save(){ }`),
+  ];
+  has(
+    !/use client/.test(repairStructure(server).tree.find((f) => f.path === "lib/actions.ts")?.content ?? ""),
+    'and a "use server" file is never turned into a client one',
+  );
+
+  const plain = [
+    SHELL,
+    file("app/page.tsx", "export default function Page(){ return <main/>; }"),
+    file("components/Card.tsx", "export default function Card(){ return <article/>; }"),
+  ];
+  has(
+    !/use client/.test(repairStructure(plain).tree.find((f) => f.path === "components/Card.tsx")?.content ?? ""),
+    "and a component with no state and no handlers stays a server component",
+    "marking everything client is how a static export stops being static",
+  );
+}
+
 /* ---- The JSX namespace React 19 took away ------------------------------
  *
  * A real failure, from a real build:
