@@ -225,5 +225,47 @@ has(
   "an unrecognised config shape is dropped rather than half-translated",
 );
 
+/* ── And the route has to REACH this renderer ─────────────────────────────
+ *
+ * Everything above tests a renderer that, for thirteen of the fourteen
+ * projects in production, was never called.
+ *
+ * The preview route decided which kind of build it was holding by asking
+ * `isProjectSummary(build.html)` — a marker written into the receipt. The
+ * marker was added on 15 September; every project built before that has a
+ * receipt without one. So the test read false, the branch was skipped, and the
+ * route fell through to serving `build.html`: the receipt, framed in the pane
+ * where the customer's application should be. The complaint that started all of
+ * this — "users should not get a summary in that manner" — was still true of
+ * every project the customer owned, with the fix merged and deployed.
+ *
+ * Whether a build is a project is a fact about the BUILD: it has source files.
+ * That is true of a project stored last week and of one stored ten minutes ago,
+ * and it needs no marker to have been written at the time. */
+const previewRoute = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+
+has(
+  /const tree = wantsDiagnostics \? \[\] : await loadTree\(/.test(previewRoute),
+  "the route loads the build's files before deciding what it is holding",
+);
+
+has(
+  /tree\.length > 0 \|\| isProjectSummary\(/.test(previewRoute),
+  "and a build WITH FILES is a project, whatever its stored document says",
+  "asking only the marker skips every project built before the marker existed",
+);
+
+has(
+  /if \(!wantsDiagnostics && isProject\)/.test(previewRoute),
+  "the render branch is taken on that answer",
+);
+
+/* The receipt is still reachable, and still only where it was asked for. */
+has(
+  /wantsDiagnostics/.test(previewRoute) && /cannotRender\(\)/.test(previewRoute),
+  "a tree that cannot be routed says so rather than being handed the receipt",
+  "the summary stays at ?diagnostics=1, which is where somebody goes to look for it",
+);
+
 console.log(failed === 0 ? "\nAll preview document checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

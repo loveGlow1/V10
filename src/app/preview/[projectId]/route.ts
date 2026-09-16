@@ -235,12 +235,34 @@ export async function GET(
    *
    * The fallback chain matters as much as the feature. A tree that cannot be
    * routed — a scaffold that failed halfway, a shape this renderer does not
-   * know — falls through to the summary rather than to a blank pane, which is
-   * exactly where this route was before. Nothing gets worse than it already
-   * was for any project. */
-  if (!wantsDiagnostics && isProjectSummary(build.html as string)) {
+   * know — says so in one line and points at the receipt, rather than being
+   * handed the receipt as though it were the product. See cannotRender. */
+  /* ── Asked of the BUILD, not of the document it stored ──────────────────
+   *
+   * This asked `isProjectSummary(build.html)`, and the marker that answers it
+   * was written into the receipt on 15 September. Every project built before
+   * that — thirteen of the fourteen in production, including every one the
+   * customer had complained about — has a receipt with no marker in it, so this
+   * read false, the branch was skipped entirely, and the route fell through to
+   * `return new Response(build.html)`: the receipt, framed in the pane where
+   * the application should be. The renderer below was written, shipped, tested
+   * and never reached by a single existing project.
+   *
+   * The marker was the wrong question. Whether a build is a project is a fact
+   * about the BUILD — it has source files — and that fact is the same for a
+   * project stored last week as for one stored ten minutes ago. It cannot be
+   * backdated into documents that are already written, and it does not need to
+   * be: the files are right there.
+   *
+   * The marker stays as the second half of the test, for the one case files
+   * cannot answer: a project whose files are missing. Its html is a receipt,
+   * and a receipt must not be framed as a preview then either — that falls to
+   * cannotRender below, which says so in a line. */
+  const tree = wantsDiagnostics ? [] : await loadTree(supabase, build.id as string);
+  const isProject = tree.length > 0 || isProjectSummary(build.html as string);
+
+  if (!wantsDiagnostics && isProject) {
     try {
-      const tree = await loadTree(supabase, build.id as string);
       if (canRenderApp(tree)) {
         const { data: project } = await supabase
           .from("projects")
