@@ -334,6 +334,69 @@ export function autofix(html: string): FixResult {
     }
   }
 
+  /* ── The media query an inline style silently outranks ──────────────────
+   *
+   * This is the one that produced a laundry site scrolling sideways on every
+   * phone, with a stylesheet that looked completely correct:
+   *
+   *     <nav class="desktop-nav" style="display:flex">
+   *     @media (max-width:767px){ .desktop-nav{ display:none; } }
+   *
+   * The rule is right, the breakpoint is right, and it never fires. An inline
+   * `style` attribute outranks any class selector, so the desktop navigation
+   * stayed on the phone at its full width and took the page with it —
+   * measured at 663px inside a 390px screen.
+   *
+   * It is not a mistake anybody can see. The stylesheet reads correctly, the
+   * media query reads correctly, and the defect is in the relationship between
+   * two lines several hundred apart. A model writing both is especially prone
+   * to it: it reaches for an inline style to be direct about one element, and
+   * writes a media query to be responsible about the layout, and the second is
+   * dead on arrival.
+   *
+   * So a declaration inside a PHONE media query, for a property this document
+   * also sets inline somewhere, is given the `!important` it needed.
+   *
+   * Why this cannot break a page that was already right. It only ever touches
+   * declarations inside `@media (max-width: …)`, so no wide layout can change.
+   * Inside one, it only raises a rule the author wrote in order to apply — a
+   * rule already winning goes on winning, and a rule that was losing to an
+   * inline style was doing nothing at all. And it is limited to the layout
+   * properties, because those are the ones where losing the cascade means the
+   * page comes apart rather than looks slightly different. */
+  {
+    const LAYOUT = new Set([
+      "display", "position", "width", "min-width", "max-width", "height", "min-height",
+      "max-height", "flex", "flex-direction", "flex-wrap", "grid-template-columns",
+      "grid-template-areas", "gap", "column-gap", "row-gap", "padding", "padding-left",
+      "padding-right", "padding-inline", "margin", "margin-left", "margin-right",
+      "margin-inline", "top", "left", "right", "bottom", "overflow", "overflow-x",
+      "float", "white-space", "font-size", "text-align",
+    ]);
+
+    /* What this document sets inline, anywhere. A property nothing sets inline
+       cannot be losing to an inline style, so raising it would be noise. */
+    const inline = new Set<string>();
+    for (const attribute of out.matchAll(/\sstyle\s*=\s*"([^"]*)"/gi)) {
+      for (const declaration of attribute[1].split(";")) {
+        const property = declaration.split(":")[0]?.trim().toLowerCase() ?? "";
+        if (LAYOUT.has(property)) inline.add(property);
+      }
+    }
+
+    if (inline.size > 0) {
+      const raised = raiseInPhoneQueries(out, inline);
+      if (raised.count > 0) {
+        out = raised.html;
+        applied.push({
+          rule: "responsive/inline-override",
+          what: "let the phone layout rules win over inline styles that were silently outranking them",
+          count: raised.count,
+        });
+      }
+    }
+  }
+
   /* ── The safety net ─────────────────────────────────────────────────────
      Last, so it wins over anything above it, and once. */
   if (!out.includes("Added automatically after the build")) {
@@ -355,6 +418,51 @@ export function autofix(html: string): FixResult {
   }
 
   return { html: out, applied };
+}
+
+/* `!important` added to the layout declarations inside every phone media query
+ * that an inline style would otherwise outrank.
+ *
+ * Braces are matched by counting rather than by regex, because a media query
+ * contains rules and a rule contains a block: `@media (max-width:767px){ .a{…}
+ * .b{…} }` has three closing braces and only the last one ends the query. A
+ * pattern that stopped at the first would raise the first rule and corrupt the
+ * rest of the stylesheet, which is a far worse outcome than the defect. */
+function raiseInPhoneQueries(html: string, properties: Set<string>): { html: string; count: number } {
+  const query = /@media[^{]*\(\s*max-width[^{]*\{/gi;
+  let out = "";
+  let read = 0;
+  let count = 0;
+
+  for (let match = query.exec(html); match; match = query.exec(html)) {
+    const open = match.index + match[0].length;
+    let depth = 1;
+    let index = open;
+    while (index < html.length && depth > 0) {
+      if (html[index] === "{") depth += 1;
+      else if (html[index] === "}") depth -= 1;
+      index += 1;
+    }
+    /* An unbalanced query is one this cannot read; left exactly as written. */
+    if (depth !== 0) continue;
+
+    const body = html.slice(open, index - 1);
+    const lifted = body.replace(
+      /([-a-z]+)(\s*:\s*)([^;{}]+)(;|(?=\s*\}))/gi,
+      (whole, property: string, colon: string, value: string, end: string) => {
+        if (!properties.has(property.trim().toLowerCase())) return whole;
+        if (/!\s*important/i.test(value)) return whole;
+        count += 1;
+        return `${property}${colon}${value.trimEnd()} !important${end}`;
+      },
+    );
+
+    out += html.slice(read, open) + lifted;
+    read = index - 1;
+    query.lastIndex = index;
+  }
+
+  return { html: out + html.slice(read), count };
 }
 
 /* Substitution that leaves wide-screen media queries alone.
