@@ -47,6 +47,7 @@ import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { resumableFrom } from "./resume";
 import { cardFor, cardIndex } from "./threadView";
+import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
@@ -1167,9 +1168,30 @@ export default function ChatPanel({
           "session",
         );
       } else {
-        say({ from: "system", text: (error as Error).message, tone: "error" });
-        /* The text comes from wherever it was thrown, so the wording lives with
-           the throw — see src/lib/builder/edit.ts and the route. */
+        /* ── Never the browser's own words ──────────────────────────────
+         *
+         * A fetch that dies throws "Load failed" — Safari's phrase for a
+         * connection that ended — and that used to go straight into the
+         * conversation as though the builder had said it. It names nothing the
+         * customer can act on, and it reads like the product falling over.
+         *
+         * Everything this knows goes through the same namer the streamed path
+         * uses: how long it ran, whether any step arrived, and whatever was
+         * thrown. A run that died at 57 seconds is a timeout and is told as
+         * one, with what to do instead. See lib/builder/run-failure.ts. */
+        const thrown = (error as Error)?.message ?? "";
+        const failure = describeRunFailure({
+          status: 0,
+          answered: false,
+          started: phases.current().length > 0,
+          elapsedMs: Date.now() - runStarted,
+          /* A message thrown by one of our own gates is already a sentence
+             somebody can read; the browser's is not. `Load failed` and
+             `NetworkError` are the ones to translate. */
+          said: /load failed|networkerror|failed to fetch|terminated/i.test(thrown) ? null : thrown,
+          thrown,
+        });
+        say({ from: "system", text: sayFailure(failure).trim(), tone: "error" });
       }
     } finally {
       /* Only if this run is still the one in flight: a stop that starts a new
