@@ -45,7 +45,7 @@ import MessageRow, { type Activity } from "./MessageRow";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
-import { resumableFrom } from "./resume";
+import { RESUME_STEP_POLL_MS, resumableFrom } from "./resume";
 import { cardFor, cardIndex } from "./threadView";
 import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
@@ -753,6 +753,52 @@ export default function ChatPanel({
     }
   }
 
+  /* Which steps this panel has already put on screen, and in what state, so a
+     poll queues what is new rather than the whole timeline every few seconds.
+     A ref because writing it must not itself cause a render. */
+  const replayed = useRef<Map<string, string>>(new Map());
+
+  /* Reads the timeline the job wrote down, and shows whatever this panel has
+   * not shown yet.
+   *
+   * Through the pace rather than set at once. These rows are history — most of
+   * them landed before the tab was opened — and a list that snaps to its
+   * finished state is exactly the flash usePacedSteps exists to prevent. They
+   * arrive in the rhythm they would have had live.
+   */
+  async function replaySteps(projectId: string): Promise<void> {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/build`, { cache: "no-store" });
+      if (!response.ok) return;
+
+      const body = (await response.json()) as {
+        steps?: { id: string; label: string; detail?: string; ms?: number; state: string }[];
+      };
+
+      for (const step of body.steps ?? []) {
+        if (replayed.current.get(step.id) === step.state) continue;
+        replayed.current.set(step.id, step.state);
+
+        phases.show({
+          id: step.id,
+          label: step.label,
+          detail: step.detail,
+          ms: step.ms,
+          /* "failed" is a step that did not succeed without failing the build —
+             a schema that did not apply, say, where the label already carries
+             it ("Database not created") and the detail carries the reason. The
+             streamed path marks that same step done and lets the words do the
+             work, so this matches it rather than inventing a marker the live
+             panel does not have. */
+          state: step.state === "running" ? "running" : step.state === "pending" ? "pending" : "done",
+        });
+      }
+    } catch {
+      /* A timeline that could not be read is not a reason to stop waiting for
+         the page. The panel is poorer for one poll and right on the next. */
+    }
+  }
+
   /* Picking a build back up.
    *
    * A build takes minutes, and people close tabs. The row says "Building" until
@@ -766,13 +812,40 @@ export default function ChatPanel({
    * "Building" by something that died a week ago is not a build to wait for,
    * and waiting on it would be this panel inventing a spinner. */
   async function resume(startedAt: number, since: number) {
+    if (!project) return;
+    const projectId = project.id;
+
     setBuilding(true);
     setRunStartedAt(startedAt);
     setLastRunAt(startedAt);
     phases.reset();
+    replayed.current.clear();
+
+    /* What the build already got through, before this tab existed.
+     *
+     * Without it the panel opened on the phase headings with every row still a
+     * ring — which reads as a build that has not started, not one halfway
+     * through, and is the opposite of what the row underneath it says. The
+     * steps were never missing, only unasked for: the job records each one as
+     * it happens and /api/projects/[id]/build reads them back.
+     *
+     * Drained before the wait begins, so the history lands above "Generating
+     * the page" rather than trickling in underneath it. */
+    await replaySteps(projectId);
+    await phases.flush();
+
+    /* And keeps up with the rest of it. A resumed session has no stream — the
+       NDJSON belonged to the tab that made the call — so the steps recorded
+       from here on are polled for. Merged by id, so a step that was running
+       when it was first read becomes the same row finished. */
+    const following = window.setInterval(() => {
+      void replaySteps(projectId);
+    }, RESUME_STEP_POLL_MS);
+
     try {
       await awaitPage(startedAt, since, "This was already running when you opened it — picking it back up…");
     } finally {
+      window.clearInterval(following);
       setBuilding(false);
       setRunStartedAt(null);
       phases.reset();
