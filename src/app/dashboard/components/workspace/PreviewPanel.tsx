@@ -138,6 +138,10 @@ export default function PreviewPanel({
    * happens next, and whether QuickStark can simply fix it. The log goes behind
    * a disclosure, which is where a log belongs. See lib/publish/diagnosis.ts. */
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
+  /* The newest build did not deploy and the site is still up on an older one.
+     Held apart from `diagnosis` because it must never replace the preview —
+     see the deploy route's `behind`. */
+  const [behind, setBehind] = useState<Diagnosis | null>(null);
   /* Whether the technical panel is open. Closed by default and per failure: a
      log that unfurls itself has taken the place of the summary again. */
   const [showLog, setShowLog] = useState(false);
@@ -178,6 +182,11 @@ export default function PreviewPanel({
         /* The readable form of `failure`, built on the server so the workspace
            and the chat say the same thing about the same failure. */
         diagnosis?: Diagnosis | null;
+        /* A failure that did NOT take the site down: the newest build would
+           not deploy and an older one is still serving. Separate from
+           `failure` on purpose — see the deploy route. The pane keeps framing
+           the site that works and says this beside it. */
+        behind?: Diagnosis | null;
         reason?: string | null;
       }) => {
         if (!current) return;
@@ -203,6 +212,10 @@ export default function PreviewPanel({
           setDeployError(body.failure);
           setDiagnosis(body.diagnosis ?? null);
         }
+        /* Set whatever the two above decided. It is not an error state: the
+           address stays, the frame stays, and nothing about the pane changes
+           except that one line appears over it. */
+        setBehind(body.behind ?? null);
       })
       .catch(() => {
         /* The workspace works without this answer: it only decides what is
@@ -692,6 +705,36 @@ export default function PreviewPanel({
                 Open it in a tab
                 <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
+            </div>
+          ) : null}
+
+          {/* ── The newest build would not deploy, and the site is still up ──
+           *
+           * Deliberately NOT an error state. The address is unchanged, the
+           * frame below goes on showing the site that works, and this is a
+           * line over the top of it — because the thing that is wrong is not
+           * the site, it is that somebody's last change is not on it, and
+           * replacing a working preview with a red panel would be reporting
+           * the opposite.
+           *
+           * Amber rather than red for the same reason. See the deploy route's
+           * `behind`, which is what decides that this is the current build's
+           * failure rather than an old one nobody needs reminding of. */}
+          {behind && !building ? (
+            <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5">
+              <p className="text-[12px] font-medium text-amber-200">
+                Your last change didn&apos;t reach the live site
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-amber-200/80">
+                {behind.summary}
+              </p>
+              {behind.next ? (
+                <p className="mt-1 text-[12px] leading-relaxed text-amber-200/70">{behind.next}</p>
+              ) : null}
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                The site below is still running, on the last version that deployed. Nothing your
+                visitors see has changed.
+              </p>
             </div>
           ) : null}
 
