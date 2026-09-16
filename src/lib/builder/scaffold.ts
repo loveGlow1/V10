@@ -745,6 +745,19 @@ export function treeBrief(
     "- Next.js App Router, TypeScript, Tailwind. Every file must compile under `strict`.",
     "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
     "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    /* ── Two rules about SHAPE rather than about syntax ──────────────────
+     *
+     * Everything else in this list stops a build failing. These two stop a
+     * project becoming unmaintainable, which costs more and shows up later: it
+     * arrives as an edit that cannot be made without rewriting a page, because
+     * the thing being changed is tangled with three things that are not.
+     *
+     * The second one is also a real defect and not only a tidiness rule. Every
+     * `process.env` read outside lib/supabase.ts is a value inlined at build
+     * time into a bundle we then have to keep configured, in a file nobody
+     * looks at when the configuration changes. One place to read them is one
+     * place to fix them. */
+    "- Presentation and data stay apart. A component takes what it renders as props and holds no query; the page, or a hook beside it, does the fetching and hands the result down. A component that both queries and renders cannot be reused, previewed or tested, and an edit to either half has to touch the other.",
     /* These two rules used to be one line, and together they instructed the
        model straight into a page that cannot compile: every dynamic route
        needs generateStaticParams, and a page that reads data has to be
@@ -797,6 +810,20 @@ export function treeBrief(
   } else {
     rules.push(
       "- There is no database. Data is typed constants in the file that renders it, or in `lib/data.ts` when two pages share it.",
+    );
+  }
+
+  /* Where the environment is allowed to be read at all. Named against
+     manifest.backend rather than .database because that is what decides
+     whether lib/supabase.ts is written — a rule naming a file the project does
+     not have is a rule that teaches the model the wrong shape. */
+  if (manifest.backend) {
+    rules.push(
+      "- NEVER read `process.env` outside lib/supabase.ts. That file is the only thing in this project that knows an environment exists; everything else imports `supabase` from it. A key read in a second place is a second place to fix when it changes, in a file nobody thinks to look at.",
+    );
+  } else {
+    rules.push(
+      "- There is no environment to read. `process.env` is empty here; anything configurable is a typed constant in the file that uses it.",
     );
   }
 
