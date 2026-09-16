@@ -529,8 +529,22 @@ export async function POST(request: Request) {
        * project that is already live still redeploys — an edit that does not
        * reach a published site is a change the customer believes they made and
        * did not. Everything else waits for Publish. */
+      /* ── Files, or no Vercel ─────────────────────────────────────────
+       *
+       * A single page does not go to Vercel, ever. There is nothing to
+       * compile: it is one HTML document, this platform serves it, and its
+       * address is a quickstark.tech one from the moment it is published.
+       * Sending it to a builder that runs `npm run build` would be a slower
+       * way to get the same page and a second address for it.
+       *
+       * Reachable here only through the file-tree branch, so this is belt and
+       * braces — but startDeployment's own answer to an empty tree is a
+       * refusal, and a refusal gets written to the build row as
+       * deployment_error. A page carrying "there are no files to deploy" is a
+       * page the workspace would report as a failed deployment, for a
+       * deployment nobody should have attempted. */
       const redeploy = await shouldRedeploy(supabase, project.id as string, project);
-      if (deploymentsConfigured() && redeploy.deploy) {
+      if (tree.length > 0 && deploymentsConfigured() && redeploy.deploy) {
         /* The project's OWN backend, not this platform's.
          *
          * This used to read NEXT_PUBLIC_SUPABASE_URL and _ANON_KEY off the

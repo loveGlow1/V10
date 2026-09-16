@@ -431,5 +431,59 @@ has(
   "and only ever on the caller's own project",
 );
 
+/* ── The two stacks, and the one address each of them gets ────────────────
+ *
+ * A SINGLE PAGE NEVER GOES TO VERCEL. It is one HTML document; there is
+ * nothing to compile, nothing to install, and no `npm run build` to wait for.
+ * This platform serves it, and its address is a quickstark.tech one from the
+ * moment it is published. Sending it to a builder would be a slower way to get
+ * the same page and would hand the customer a second address for it — one that
+ * belongs to our hosting provider rather than to them.
+ *
+ * A FILE-TREE PROJECT is the opposite: .tsx is not something a browser can be
+ * shown, so it has to be built, and the address that comes back is where the
+ * built thing is.
+ *
+ * Which one applies is read from the BUILD — it has files or it does not —
+ * never from the document it stored, and never from anything the caller sent.
+ * Four routes can reach Vercel and every one of them has to agree, so all four
+ * are checked here rather than trusting the one that is easiest to read. */
+const deployRoute = readFileSync(
+  join(process.cwd(), "src/app/api/projects/[id]/deploy/route.ts"), "utf8");
+const saveRoute = readFileSync(
+  join(process.cwd(), "src/app/api/builder/webapp/save/route.ts"), "utf8");
+const buildRoute = readFileSync(
+  join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+
+has(
+  /const isProject = tree\.length > 0;/.test(publishRoute),
+  "publish decides which stack it has from whether the build has files",
+);
+has(
+  /if \(isProject\) \{[\s\S]{0,4000}?startDeployment\(/.test(publishRoute),
+  "and only a project is ever uploaded to be built",
+);
+has(
+  /url: liveUrl \?\? publishedUrl\(slug\)/.test(publishRoute),
+  "a page's published address is the quickstark one, because liveUrl stays null for it",
+);
+
+has(
+  /tree\.length === 0/.test(deployRoute) && /single page rather than a project/.test(deployRoute),
+  "the deploy route refuses a single page outright",
+  "deploying one HTML file as a Next.js project is a build that does not need to happen",
+);
+
+has(
+  /if \(tree\.length > 0 && deploymentsConfigured\(\)/.test(saveRoute),
+  "a build only deploys when it has files to deploy",
+  "an empty tree makes startDeployment refuse, and the refusal lands on the build row as a failed deployment",
+);
+
+has(
+  /isSinglePage\(project_\.tree\)/.test(buildRoute),
+  "and an edit to a page never enters the branch that deploys",
+);
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
