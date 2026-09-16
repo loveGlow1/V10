@@ -127,7 +127,24 @@ const ASPECTS: { kind: EditKind; match: RegExp }[] = [
     match:
       /\b(brand (?:colou?rs?|font)|design system|typeface|font family|palette|whole site|everywhere|all pages|throughout)\b/i,
   },
-  { kind: "storage", match: /\b(upload|uploads|media|file|image library|attachment|avatars?)\b/i },
+  /* `media` is NOT in this list any more, and the reason is worth keeping.
+   *
+   * It matched the word inside `@media (max-width:767px)` — which appears in
+   * every CSS media query ever written. So "the rule @media (max-width:767px)
+   * hides the nav" was read as a request for a MEDIA LIBRARY, storage pulled
+   * backend in behind it, and a single-page project refused the whole edit:
+   *
+   *   "That means adding backend and storage, and this project is a single
+   *    page — there is no server behind it."
+   *
+   * A customer trying to fix a header on a phone was told four times that
+   * their layout fix was a feature their project could not have. The word only
+   * means a file library when it is one — "media library", "media uploads" —
+   * and on its own it is far more often CSS. */
+  {
+    kind: "storage",
+    match: /\b(upload|uploads|file|image library|media library|media uploads|attachment|avatars?)\b/i,
+  },
   {
     kind: "authentication",
     match:
@@ -136,11 +153,14 @@ const ASPECTS: { kind: EditKind; match: RegExp }[] = [
   {
     kind: "database",
     match:
-      /\b(save|store|persist|remember|databases?|tables?|records?|schema|fields?|columns?|history|list of|keep track)\b/i,
+      /* Inflections included, because a customer reports a problem in the tense
+         it is happening in: "it is not saving my data" is the sentence people
+         actually send, and `\bsave\b` does not match "saving". */
+      /\b(sav(?:e|es|ing)|stor(?:e|es|ing)|persist(?:s|ing)?|remember(?:s|ing)?|databases?|tables?|records?|schema|fields?|columns?|history|list of|keep track)\b/i,
   },
   {
     kind: "backend",
-    match: /\b(api|endpoints?|server|backend|business logic|validation|webhooks?|email|send mail|notifications?)\b/i,
+    match: /\b(api|endpoints?|server|backend|business logic|validation|webhooks?|emails?|send mail|notifications?)\b/i,
   },
   { kind: "admin", match: /\b(admin|dashboard for me|cms|back ?office|manage|moderation|publish|unpublish)\b/i },
   {
@@ -236,6 +256,35 @@ const FROM_KIND: Partial<Record<EditKind, Layer[]>> = {
 const SURFACE_ONLY =
   /\b(just|only|simply)\b[^.]{0,30}\b(change|update|edit|fix|tweak|adjust|move|swap)\b|\b(wording|spelling|typo|colou?r) (?:on|of|in)\b/i;
 
+/* ── A capability somebody asked us NOT to touch ───────────────────────────
+ *
+ * "Fix the mobile header without adding or modifying any backend logic" was
+ * read as a request for a backend, because the word is in the sentence and
+ * nothing was reading the half of the sentence that says not to. The customer
+ * got the refusal their own instruction was written to avoid.
+ *
+ * So a mention inside a negative clause does not count. The clause runs from
+ * the negation to the end of the sentence or to the next `and`/`but`, which is
+ * as far as "without adding a database" reaches and no further — "without a
+ * database, but add a contact form" still asks for the form.
+ *
+ * Conservative on purpose: this only ever REMOVES a match. The worst it can do
+ * is miss a capability somebody really wanted, which they then ask for again in
+ * plainer words. The failure it replaces refused the whole edit and charged
+ * them nothing but a round trip and their patience. */
+/* Bare "not" is deliberately NOT in this list. "It is not saving my data" and
+   "the button is not centred" are reports of something being wrong, not
+   instructions to leave a capability alone, and treating them as prohibitions
+   would drop the very thing the customer is asking about. Every trigger here
+   only ever means "do not do this". */
+const NEGATED =
+  /\b(?:without|no need (?:for|to)|don'?t|do not|never)\b[^.!?]{0,80}?(?=[.!?]|\band\b|\bbut\b|$)/gi;
+
+/** The message with its "without …" clauses removed, for matching features against. */
+export function spokenFor(text: string): string {
+  return text.replace(NEGATED, " ");
+}
+
 export type EditPlan = {
   kind: EditKind;
   /** Every layer this change reaches, including the ones implied by a feature. */
@@ -268,12 +317,22 @@ export function planEdit(message: string, manifest: ArchitectureManifest | null)
   const text = message ?? "";
   const why: string[] = [];
 
+  /* ── What the message ASKS for ──────────────────────────────────────────
+   *
+   * Everything below reads this rather than `text`, so a capability named only
+   * to rule it out does not drag the edit into a layer nobody wanted. "Fix the
+   * mobile header without adding or modifying any backend logic" reached the
+   * backend, and a single-page project then refused the whole edit — giving
+   * the customer the exact refusal their own sentence was written to prevent.
+   * See NEGATED. */
+  const asked = spokenFor(text);
+
   /* WHAT is being changed, from the aspects. Last match wins: they deepen down
      the list, so a message that is both a colour and a database change is read
      as the database one. */
   let kind: EditKind | null = null;
   for (const signal of ASPECTS) {
-    const found = firstMatch(signal.match, text);
+    const found = firstMatch(signal.match, asked);
     if (found) {
       kind = signal.kind;
       why.push(`"${found}" — ${EDIT_LABEL[signal.kind]}`);
@@ -285,7 +344,7 @@ export function planEdit(message: string, manifest: ArchitectureManifest | null)
      question would route a one-word fix as a component rebuild. */
   if (kind === null) {
     for (const signal of LOCATIONS) {
-      const found = firstMatch(signal.match, text);
+      const found = firstMatch(signal.match, asked);
       if (found) {
         kind = signal.kind;
         why.push(`"${found}" — ${EDIT_LABEL[signal.kind]}`);
@@ -299,7 +358,7 @@ export function planEdit(message: string, manifest: ArchitectureManifest | null)
 
   /* Features first, because they are what carry a request into layers nobody
      named. */
-  const surfaceOnly = SURFACE_ONLY.test(text);
+  const surfaceOnly = SURFACE_ONLY.test(asked);
   /* How many layers a single named FEATURE dragged in. This is what separates
      "add reviews" from "add login": both end up touching three layers, but the
      first is one feature spanning several parts of the product and the second
@@ -309,7 +368,7 @@ export function planEdit(message: string, manifest: ArchitectureManifest | null)
   let widestFeature = 0;
 
   for (const feature of FEATURES) {
-    if (!feature.match.test(text)) continue;
+    if (!feature.match.test(asked)) continue;
     if (surfaceOnly) {
       why.push(`asked for as a change to what is already there, not as a new feature`);
       continue;
