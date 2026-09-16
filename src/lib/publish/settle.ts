@@ -25,13 +25,24 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { repairFromLog } from "@/lib/builder/repair-build";
+import { loadTree, storeTree } from "@/lib/builder/store-tree";
 import { canRetry } from "@/lib/jobs/state";
 import { advance, noteAttempt, readJob } from "@/lib/jobs/store";
-import { settleDeployment, type DeploymentRecord } from "@/lib/publish/deployment-store";
+import {
+  existingVercelProject,
+  recordDeployment,
+  settleDeployment,
+  type DeploymentRecord,
+} from "@/lib/publish/deployment-store";
 import {
   aliasDeployment,
+  deploymentName,
   deploymentState,
+  deploymentsConfigured,
   previewAliasFor,
+  startDeployment,
   vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
 import { recordMessage } from "@/lib/thread-server";
@@ -96,6 +107,157 @@ async function attachPreviewAlias(record: {
   }
 }
 
+/* How a repair build says which attempt it is, on the row itself.
+ *
+ * `repair:<n>:<the build that first failed>` in request_id, so the count
+ * survives a worker restart, a redeploy from Vercel's dashboard, and anything
+ * else that loses in-memory state — and so the chain can be followed back to
+ * the build somebody actually asked for. */
+const REPAIR_ID = /^repair:(\d+):([0-9a-f-]+)$/i;
+const MAX_REPAIRS = 2;
+
+/**
+ * Reads the log, fixes what it can, stores the result and deploys it again.
+ *
+ * Returns true when a new deployment is on its way, false when this failure is
+ * the customer's to hear about. Never throws.
+ */
+async function repairAndRedeploy(
+  service: SupabaseClient,
+  record: DeploymentRecord,
+  log: string,
+): Promise<boolean> {
+  if (!record.buildId || !deploymentsConfigured()) return false;
+
+  try {
+    const { data: build } = await service
+      .from("project_builds")
+      .select("id, project_id, user_id, request_id, prompt, html, created_at")
+      .eq("id", record.buildId)
+      .maybeSingle<{
+        id: string;
+        project_id: string;
+        user_id: string;
+        request_id: string | null;
+        prompt: string | null;
+        html: string | null;
+      }>();
+
+    if (!build) return false;
+
+    const chain = REPAIR_ID.exec(build.request_id ?? "");
+    const attempt = chain ? Number(chain[1]) : 0;
+    const root = chain ? chain[2] : build.id;
+    if (attempt >= MAX_REPAIRS) return false;
+
+    const tree = await loadTree(service, build.id);
+    if (tree.length === 0) return false;
+
+    const repair = await repairFromLog(log, tree);
+    if (!repair.ok) {
+      // eslint-disable-next-line no-console
+      console.info(`repair: ${build.project_id} left alone — ${repair.reason}`);
+      return false;
+    }
+
+    /* A NEW build rather than an edit of the failed one, for the same reason
+       every other change here is: undo is a version, never an overwrite. The
+       failed build stays exactly as it was, with its log on it. */
+    const { data: fixed, error: buildError } = await service
+      .from("project_builds")
+      .insert({
+        project_id: build.project_id,
+        user_id: build.user_id,
+        request_id: `repair:${attempt + 1}:${root}`,
+        prompt: build.prompt,
+        /* The same summary. It describes the project, and a repair to one file
+           does not make it wrong. */
+        html: build.html ?? "",
+        model: `repair (${repair.how})`,
+        files_touched: repair.changed.length,
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (buildError || !fixed) {
+      // eslint-disable-next-line no-console
+      console.error("repair: the repaired build could not be stored:", buildError);
+      return false;
+    }
+
+    try {
+      await storeTree(
+        service,
+        { buildId: fixed.id, projectId: build.project_id, userId: build.user_id },
+        repair.tree,
+      );
+    } catch (error) {
+      /* A build row claiming files it does not have is worse than no row —
+         see the save route, which withdraws it for the same reason. */
+      await service.from("project_builds").delete().eq("id", fixed.id);
+      // eslint-disable-next-line no-console
+      console.error("repair: the repaired files could not be stored:", error);
+      return false;
+    }
+
+    const backend = await resolveBackend(service, build.project_id);
+    const env = backend ? envFor(backend) : null;
+    const vercelProject =
+      (await existingVercelProject(service, build.project_id)) ??
+      deploymentName("app", build.project_id);
+
+    const started = await startDeployment(repair.tree, {
+      name: vercelProject,
+      supabaseUrl: env?.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: env?.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      supabaseSchema: env?.NEXT_PUBLIC_SUPABASE_SCHEMA,
+    });
+
+    if (!started.ok) {
+      // eslint-disable-next-line no-console
+      console.error(`repair: the repaired build would not upload — ${started.reason}`);
+      return false;
+    }
+
+    await recordDeployment(service, {
+      projectId: build.project_id,
+      userId: build.user_id,
+      buildId: fixed.id,
+      deploymentId: started.deploymentId,
+      vercelProject,
+      url: started.url,
+      inspectUrl: started.inspect,
+    });
+
+    await service
+      .from("projects")
+      .update({ last_build_at: new Date().toISOString() })
+      .eq("id", build.project_id);
+
+    /* Said while it is happening rather than afterwards, because the customer
+       is very likely watching a deployment they were told was building. One
+       sentence, naming what was wrong, and no invitation to do anything: there
+       is nothing for them to do. */
+    await recordMessage(service, {
+      projectId: build.project_id,
+      userId: build.user_id,
+      role: "system",
+      body:
+        `The build failed, so I fixed it and started it again — ${repair.note}.` +
+        (repair.changed.length > 1 ? ` (${repair.changed.length} files)` : "") +
+        `\n\nThis costs nothing. Attempt ${attempt + 1} of ${MAX_REPAIRS}.`,
+      kind: "chat",
+      dedupeKey: `repaired:${record.deploymentId}`,
+    });
+
+    return true;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("repair: the attempt failed:", error);
+    return false;
+  }
+}
+
 /**
  * Asks Vercel how one deployment went, and writes down the answer.
  *
@@ -157,6 +319,32 @@ export async function settleOne(
     const codeFault = /error TS\d+|Module not found|Cannot find module|Type error|SyntaxError/i.test(
       state.state === "error" ? state.reason : "",
     );
+
+    /* ── One attempt at putting it right, before anybody is told ────────
+     *
+     * A failed deployment leaves a project that is finished, paid for, stored
+     * and not on the internet, and a build log that is evidence rather than an
+     * answer. The log names the file and the line; the source is in our own
+     * database; nothing was reading one against the other.
+     *
+     * So it is read. Most of what `next build` refuses in generated code has a
+     * deterministic fix that costs nothing — see repairFromLog, which tries
+     * that first and only reaches a model for what is left, and then only for
+     * the file the log named.
+     *
+     * FREE. No credits are taken for this and none should be: the customer
+     * paid for a build, this is that build not having worked, and charging
+     * somebody to fix our own output is charging twice for one thing.
+     *
+     * Bounded at two, and the bound is the point. A third attempt at a failure
+     * two attempts could not fix is not luck running out, it is the wrong tool,
+     * and spending a customer's Vercel quota to keep reaching the same answer
+     * helps nobody. Past it this behaves exactly as it did before. */
+    const repaired = await repairAndRedeploy(service, record, state.reason);
+    if (repaired) {
+      await settleDeployment(service, record, state);
+      return "retried";
+    }
 
     if (!codeFault && record.jobId) {
       const job = await readJob(service, record.jobId);
