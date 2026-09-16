@@ -486,6 +486,19 @@ export type ProtectionResult = {
    explicit null rather than a missing property. */
 const UNPROTECTED = { ssoProtection: null, passwords: null } as const;
 
+/* The prefix Next.js inlines into the bundle. The single fact everything about
+   secrets on this platform turns on. */
+const PUBLISHED = /^NEXT_PUBLIC_/;
+
+/* Where a secret is readable, and nowhere else.
+ *
+ * `development` is left off deliberately: it exists for `vercel dev` on
+ * somebody's laptop, which is not a thing that happens to a generated project,
+ * and a secret present in a place nothing uses is a place it can leak from for
+ * no benefit. The three published values keep all three targets — they are not
+ * secret and a preview deployment without them cannot reach its database. */
+const SECRET_TARGETS = ["production", "preview"] as const;
+
 /* Vercel's shape for one variable, from a plain key/value map.
  *
  * `plain` rather than `encrypted`, and that is a statement about these values
@@ -502,7 +515,15 @@ function environmentPayload(environment: Record<string, string>) {
     .map(([key, value]) => ({
       key,
       value,
-      type: "plain" as const,
+      /* Decided from the NAME, so this door cannot publish a secret however it
+         is called. NEXT_PUBLIC_ is plain because it is inlined into the bundle
+         and served to visitors — marking it secret would mislead whoever reads
+         the Vercel dashboard looking for the real ones. Anything else is
+         encrypted, because anything else might be a key, and the failure of
+         guessing wrong is asymmetric: a plain value that should have been
+         encrypted is a leak, and an encrypted one that need not have been
+         costs nothing at all. */
+      type: PUBLISHED.test(key) ? ("plain" as const) : ("encrypted" as const),
       target: ["production", "preview", "development"] as const,
     }));
 }
@@ -635,7 +656,7 @@ export async function setProjectSecret(
         key: key.trim(),
         value,
         type: "encrypted",
-        target: ["production", "preview", "development"],
+        target: SECRET_TARGETS,
       }),
     },
     creds.token,

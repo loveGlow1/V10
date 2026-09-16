@@ -355,6 +355,16 @@ has(
   "at the stable address, not the per-deployment host behind Deployment Protection",
 );
 has(
+  /previewAliasFor\(/.test(previewRoute),
+  "preferring this platform's own preview domain over somebody else's hosting one",
+  "before a publish a customer should be looking at a quickstark address",
+);
+has(
+  /canBeFramed\(/.test(previewRoute),
+  "and asking whether that address answers before sending the pane at it",
+  "the alias needs a verified wildcard; redirecting at one that does not resolve is a blank rectangle",
+);
+has(
   /needsServer\(/.test(previewRoute),
   "and says so plainly when there is nothing running yet",
 );
