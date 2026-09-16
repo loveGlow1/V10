@@ -810,7 +810,7 @@ export async function editPage(
   if (ranOutOfTime(first)) {
     if (result.applied === 0) {
       throw new EditError(
-        "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+        "This change needs more time than one go allows, so I've left the page exactly as it was and nothing has been charged. Send the same message again — it picks the saved change back up rather than starting a second one — or switch to the Prototype agent, which is the quickest of the three. You don't need to change what you asked for.",
         422,
       );
     }
@@ -874,7 +874,7 @@ export async function editPage(
     if (ranOutOfTime(second)) {
       if (result.applied === 0) {
         throw new EditError(
-          "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+          "This change needs more time than one go allows, so I've left the page exactly as it was and nothing has been charged. Send the same message again — it picks the saved change back up rather than starting a second one — or switch to the Prototype agent, which is the quickest of the three. You don't need to change what you asked for.",
           422,
         );
       }
@@ -957,7 +957,7 @@ export async function editPage(
          own markup so they can name one. */
       if (ranOutOfRoom(third)) {
         throw new EditError(
-          "That change came back longer than one edit can carry, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+          "That change came back longer than one edit can carry, so I've left the page exactly as it was. That's a limit at my end rather than anything wrong with what you asked for: naming the one part you most want changed will get through it.",
           422,
           byLine.failures,
         );

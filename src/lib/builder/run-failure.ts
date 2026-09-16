@@ -8,11 +8,16 @@
  * It was the catch-all for every way a run could end without an answer, and it
  * is wrong in the only way that matters: it names no cause, and its advice is
  * actively harmful for the commonest case. A request killed by the sixty-second
- * ceiling will be killed again at sixty seconds, and again after that. "Try it
+ * ceiling used to be killed again at sixty seconds, and again after that. "Try it
  * again" sent a customer round that loop four times in nine minutes, paying
- * attention each time, while the thing they needed to know — that the change
- * was too big to finish in the time, and to ask for one section instead — was
- * never said by anything.
+ * attention each time.
+ *
+ * The first fix here told them instead to ask for one section at a time, which
+ * was accurate about the ceiling and wrong about whose problem it was: it made
+ * a limit of ours read as a fault in their request. The real fix was to stop
+ * tying an edit's life to a connection at all — see lib/builder/edit-task.ts —
+ * and this file now reports what that makes true, which is that the change is
+ * saved and sending it again continues it.
  *
  * ── The rule ──────────────────────────────────────────────────────────────
  *
@@ -82,37 +87,56 @@ export function describeRunFailure(facts: RunFacts): RunFailure {
     };
   }
 
-  /* ── The one that was being reported as "try it again" ────────────────
+  /* ── The connection ended before the change did ───────────────────────
    *
-   * The work started, ran for most of a minute, and the connection ended with
-   * no answer. That is the platform's ceiling, and it is deterministic: the
-   * same message will do the same thing. Saying "try again" here is the single
-   * most expensive sentence in the product. */
+   * The work started, ran for most of a minute, and the connection closed with
+   * no answer. That is the platform's ceiling on a request — and it is a
+   * ceiling on the CONNECTION, not on what was asked for.
+   *
+   * This branch used to say so in the worst available way. It reported the
+   * seconds ("that ran for 58 seconds and was cut off"), which describes our
+   * plumbing and nothing the customer did, and then it told them to ask for
+   * one part at a time — making a limit of ours read as a fault in their
+   * request. Somebody asking for a mobile layout fix was told that four times
+   * in nine minutes. Their request was never too large.
+   *
+   * What makes a different answer honest is that an edit is now a durable task
+   * rather than something a socket is doing (lib/builder/edit-task.ts). The
+   * row, its checkpoint and its timeline are written as the work happens and
+   * outlive the request, and the same message sent again rejoins that task by
+   * its request id instead of starting a second edit into the same files.
+   *
+   * So the remedy is genuinely to send it again, and retryable is genuinely
+   * true — which is the opposite of what it was, for the opposite reason.
+   *
+   * Two things this must not say, because neither is true: that it was the
+   * customer's request that was too big, and that the work is still running
+   * somewhere. Nothing is running. It is SAVED, which is a different promise
+   * and the one that can be kept. */
   if (!facts.answered && facts.elapsedMs >= NEAR_CEILING_MS) {
-    const seconds = Math.round(facts.elapsedMs / 1000);
     return {
       cause:
-        `That ran for ${seconds} seconds and was cut off — a change has one minute to finish in, ` +
-        `and this one did not fit. Your page has not been touched.`,
+        "This change takes longer than one connection is allowed to stay open for, so the " +
+        "connection closed. Your page is exactly as it was, nothing has been charged, and " +
+        "what was worked out is saved against this project.",
       remedy:
-        "Ask for one part at a time and name it in the words that are on the page — " +
-        '"the header", "the pricing table", "the footer". A smaller change finishes ' +
-        "well inside the minute, and three small ones land where one large one cannot. " +
-        "Choosing the Prototype agent also helps: it is the fastest of the three.",
-      /* The important field. Sending the same thing again reproduces this. */
-      retryable: false,
+        "Send the same message again and it picks the saved change back up rather than " +
+        "starting a second one. If you'd rather it went faster, the Prototype agent is the " +
+        "quickest of the three — but you don't have to change anything you asked for.",
+      retryable: true,
     };
   }
 
-  /* Gateway failures from the platform itself, which look like a timeout and
-     are not the customer's doing either. */
+  /* The same ceiling, reported by the platform's own gateway rather than by a
+     connection going quiet, and it gets the same answer for the same reason:
+     the change is saved as a task, so sending it again continues it. */
   if (facts.status === 504 || facts.status === 502) {
     return {
-      cause: "The server took too long to answer and the connection was closed. Nothing was changed.",
-      remedy:
-        "Ask for a smaller part of the change — one section, named in the words on the page — " +
-        "which finishes inside the time this has to answer in.",
-      retryable: false,
+      cause:
+        "The server didn't answer inside the time it's given, so the connection was closed. " +
+        "Nothing on your page was changed and nothing has been charged.",
+      remedy: "Send it again — it picks up the saved change rather than starting over.",
+      retryable: true,
     };
   }
 
@@ -175,8 +199,8 @@ export function describeRunFailure(facts: RunFacts): RunFailure {
   return {
     cause: "That stopped before it finished, and nothing came back to say why. Your page has not been touched.",
     remedy:
-      "Send it again — if it stops the same way a second time, ask for a smaller part of " +
-      "the change and it will usually go through.",
+      "Send it again — it rejoins the saved change rather than starting a second one. " +
+      "If it stops the same way twice, say so and we'll look at it from this end.",
     retryable: true,
   };
 }

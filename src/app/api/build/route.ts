@@ -140,6 +140,14 @@ import {
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import {
+  checkpointBeforeEdit,
+  editTaskId,
+  noteEditStep,
+  openEditTask,
+  settleEditTask,
+  type EditTaskHandle,
+} from "@/lib/builder/edit-task";
+import {
   advance as advanceJob,
   failJob,
   recordStep,
@@ -373,12 +381,28 @@ export async function POST(request: Request) {
         }
       };
 
+      /* ── The durable task for an edit ─────────────────────────────────
+       *
+       * Filled in by `handle` if this request turns out to be an edit, and
+       * settled here once the answer is known. It is threaded rather than
+       * closed over because the two ends are in different functions and the
+       * edit path has around twenty places it can return from — see the note
+       * on EditTaskHandle in lib/builder/edit-task.ts.
+       *
+       * The case it is FOR is the one that never gets here at all. A function
+       * killed at the sixty-second ceiling runs none of this, so the task row
+       * is left live with everything it had recorded, and the next request on
+       * this project rejoins it instead of starting over. That is the whole
+       * point: an edit outliving the connection that asked for it. */
+      const task: EditTaskHandle = {};
+
       let response: NextResponse;
       try {
         response = await handle(
           request,
           (step) => write({ type: "step", step }),
           (delta) => write({ type: "text", delta }),
+          task,
         );
       } catch (error) {
         // eslint-disable-next-line no-console
@@ -393,6 +417,15 @@ export async function POST(request: Request) {
          separately, so the branches below stay the plain `return
          NextResponse.json(...)` they have always been. */
       const body = await response.json().catch(() => null);
+
+      /* Settled before the last line goes out, so a browser that reads "done"
+         and immediately asks what is running on this project is not told about
+         a task that has in fact finished. */
+      await settleEditTask(task, {
+        status: response.status,
+        error: (body as { error?: string } | null)?.error ?? null,
+      });
+
       write({ type: "result", status: response.status, body });
 
       if (open) controller.close();
@@ -419,6 +452,7 @@ async function handle(
   request: Request,
   emit: StepSink,
   emitText: TextSink,
+  task: EditTaskHandle,
 ): Promise<NextResponse> {
   /* ── When this request arrived ──────────────────────────────────────────
    *
@@ -461,7 +495,27 @@ async function handle(
      Opened here rather than beside the classifier, where it used to be: the
      reads before that point are quick but they are not free, and a panel that
      begins at the classifier is silent for whatever they cost. */
-  const steps = stepRecorder(emit);
+  const steps = stepRecorder((step) => {
+    emit(step);
+
+    /* ── Streamed AND stored ──────────────────────────────────────────────
+     *
+     * Streaming alone is what made a closed tab lose the whole timeline: the
+     * steps existed only in the socket. Once an edit has a task, each one is
+     * also written to build_steps — upserted on (job_id, step), so a step that
+     * begins and then finishes is one row ticking over rather than two.
+     *
+     * Deliberately not awaited. A progress note is bookkeeping, and an edit
+     * somebody paid for must not be slowed by it, let alone fail on it. */
+    if (task.job) {
+      void noteEditStep(task.service ?? null, task.job, {
+        id: step.id,
+        label: step.label,
+        detail: step.detail,
+        state: step.state,
+      });
+    }
+  });
 
   /* Turns what the model reports about itself into the line under a step.
    *
@@ -1400,6 +1454,61 @@ async function handle(
    * balance, no stashed images, and neighbours that import it. See editSource.
    */
   if (intent === "edit" && service) {
+    /* ── An edit becomes a task before it becomes a change ────────────────
+     *
+     * Everything below this line used to live and die inside the connection
+     * that asked for it. The platform kills that connection at sixty seconds
+     * whatever the route declares, so an edit that needed sixty-one left a
+     * dead socket, an untouched page, a credit spent, and a message telling
+     * the customer to ask for less — for a request that was never too large,
+     * only longer than a ceiling nobody chose.
+     *
+     * Opening the task here gives the edit four things the connection could
+     * not: it is IDEMPOTENT (the same words twice rejoin one task rather than
+     * running two edits into the same file), it LOCKS the project (the unique
+     * index on build_jobs allows one live job), it is RESUMABLE (the row and
+     * its steps outlive the request), and it has somewhere to go back to (the
+     * checkpoint, written below, before anything is touched).
+     *
+     * See lib/builder/edit-task.ts — including what it does NOT claim, which
+     * is that anything continues running once the function is gone. */
+    const opened = await openEditTask(service, {
+      projectId: project.id,
+      userId: user.id,
+      requestId: editTaskId(project.id, prompt),
+      request: prompt,
+    });
+
+    if (opened.ok) {
+      task.service = service;
+      task.job = opened.job;
+
+      /* The state to return to, taken before the first change and not after
+         it. A checkpoint written afterwards records the thing that went
+         wrong. */
+      if (!opened.resumed) {
+        await checkpointBeforeEdit(service, {
+          projectId: project.id,
+          userId: user.id,
+          request: prompt,
+        });
+      }
+    } else if (opened.why === "busy") {
+      /* ── Two edits into one project ───────────────────────────────────
+       *
+       * Refused rather than raced, and refused with the truth: there is
+       * another change in flight on these files. Letting both run is how two
+       * edits read the same page, each apply to their own copy, and the second
+       * one to save silently erases the first. */
+      const said =
+        "There's already a change running on this project. I'm not going to start a second one into the same files — the two would overwrite each other. Give the first one a moment; when it lands, send this again.";
+      const stored = await deliver(said, { tone: "error", key: "edit-busy" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_busy", stored },
+        { status: 409 },
+      );
+    }
+
     const project_ = await currentTree(service, project.id);
 
     /* ── Built as a project, and its source is not here ──────────────────
