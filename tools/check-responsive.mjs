@@ -112,9 +112,15 @@ const errors = (result) => result.issues.filter((i) => i.severity === "error").m
   const result = staticResponsiveGate("", header);
 
   has(
-    errors(result).includes("nav-never-collapses"),
-    "a header of inline links with nothing hiding them is an error",
+    rules(result).includes("nav-never-collapses"),
+    "a header of inline links with nothing hiding them is reported",
     JSON.stringify(rules(result)),
+  );
+  has(
+    !errors(result).includes("nav-never-collapses"),
+    "AS A WARNING, because a header with many links is not broken in every document",
+    "the first real file this was run against had ten links and was correct — " +
+      "an error here would have failed a build that works",
   );
   has(
     result.issues.some((i) => /hidden md:flex/.test(i.message)),
@@ -147,6 +153,51 @@ const errors = (result) => result.issues.filter((i) => i.severity === "error").m
   );
 }
 
+/* ── THE ONE FROM PRODUCTION ─────────────────────────────────────────────
+ *
+ * components/SiteHeader.tsx, from a real project. Ten anchors, not one
+ * Tailwind breakpoint, and completely correct: the link list is hidden with an
+ * inline `display: none`, a menu button sits beside it, and a
+ * `@media (min-width: 768px)` block in the element's own <style> flips both.
+ *
+ * The first version of this rule failed it, as an ERROR, which would have
+ * blocked that build. Tailwind is not the only way to write a responsive
+ * header and this gate does not get to pretend otherwise. */
+{
+  const real = page("");
+  real[0] = {
+    path: "components/SiteHeader.tsx",
+    content: `export default function SiteHeader() {
+      return (
+        <header style={{ borderBottom: "1px solid var(--line)" }}>
+          <div className="container" style={{ display: "flex", justifyContent: "space-between" }}>
+            <Link href="/">NOVA</Link>
+            <nav style={{ display: "none" }} className="nav-desktop">
+              <Link href="/">Shop</Link><Link href="/">New Arrivals</Link>
+              <Link href="/">Collections</Link><Link href="/">About</Link>
+            </nav>
+            <button className="nav-toggle" aria-label="Menu">menu</button>
+          </div>
+          <style>{\`
+            @media (min-width: 768px) {
+              .nav-desktop { display: flex !important; }
+              .nav-toggle { display: none !important; }
+            }
+          \`}</style>
+        </header>
+      );
+    }`,
+  };
+
+  const found = staticResponsiveGate("", real);
+  has(
+    !rules(found).includes("nav-never-collapses"),
+    "A HEADER THAT COLLAPSES WITH A MEDIA QUERY IS LEFT ALONE",
+    JSON.stringify(rules(found)),
+  );
+  has(found.passed === true, "and the gate passes it", JSON.stringify(found.issues));
+}
+
 /* A footer full of links is correct on a phone and always has been. */
 {
   const footer = page(`<footer><nav className="flex flex-col gap-2">
@@ -168,7 +219,7 @@ const errors = (result) => result.issues.filter((i) => i.severity === "error").m
     <a href="#c">About</a><a href="#d">FAQ</a><a href="#e">Contact</a></nav>
   </header></body></html>`;
   has(
-    errors(staticResponsiveGate(html, [])).includes("nav-never-collapses"),
+    rules(staticResponsiveGate(html, [])).includes("nav-never-collapses"),
     "a single-page build is held to it too",
   );
 }

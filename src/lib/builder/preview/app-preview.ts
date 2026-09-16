@@ -164,6 +164,40 @@ export function stylesheetOf(tree: FileTree): string {
   });
 }
 
+/* ── The same stylesheet, in a block the BROWSER applies ──────────────────
+ *
+ * A project's whole design system — its tokens, its base element styles, its
+ * container rule — went into `<style type="text/tailwindcss">` and nowhere
+ * else. A browser does not apply a style element with an unknown type. Only
+ * the Tailwind CDN script does, after it loads, by reading that block and
+ * compiling it.
+ *
+ * Which means every generated preview hung its entire appearance on one
+ * third-party script. Measured in Chromium against a real project: with that
+ * one request failing, the page still RENDERS — the heading, the cards, the
+ * footer, all correct — and it renders with no palette, no gutters, Times New
+ * Roman, and blue underlined links. Text against the edge of the glass on a
+ * phone. Indistinguishable, to the person looking at it, from us having built
+ * them something broken.
+ *
+ * So the project's own CSS is emitted twice: once natively, first, and once in
+ * the Tailwind block as before. When the CDN loads, the second block wins on
+ * order and nothing changes — this is invisible. When it does not, the design
+ * survives. Only Tailwind's own utility classes are lost, which is the part
+ * that genuinely needs the compiler.
+ *
+ * The two directives that are meaningless to a browser come out: `@tailwind`
+ * is Tailwind's, and `@import` has already been inlined by stylesheetOf, so
+ * what is left of one is a request for a file that is not there. Browsers drop
+ * both harmlessly; removing them keeps the devtools console honest. */
+function nativeCss(styles: string): string {
+  return styles
+    .replace(/^[ \t]*@tailwind\s+[^;]+;[ \t]*$/gm, "")
+    .replace(/^[ \t]*@import\s+(?:url\()?["'][^"')]+["']\)?\s*;[ \t]*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /* The chrome around the app: a route switcher and the failure states.
  *
  * Deliberately minimal and deliberately OUTSIDE the app's own styling. The
@@ -272,6 +306,7 @@ ${config ? `<script>${config}\nwindow.tailwind = window.tailwind || {}; if (wind
 <script src="${TAILWIND}"></script>
 ${config ? `<script>try { if (window.__qsTailwind && window.tailwind) window.tailwind.config = window.__qsTailwind; } catch (e) {}</script>` : ""}
 <style>${SHELL}</style>
+${styles ? `<style>${nativeCss(styles).replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 ${styles ? `<style type="text/tailwindcss">${styles.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 </head>
 <body>

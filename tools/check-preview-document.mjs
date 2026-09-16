@@ -243,10 +243,34 @@ has(
  * That is true of a project stored last week and of one stored ten minutes ago,
  * and it needs no marker to have been written at the time. */
 const previewRoute = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+const storeTree = readFileSync(join(root, "src/lib/builder/store-tree.ts"), "utf8");
 
+/* And then the same lesson, one level up.
+ *
+ * `loadTree(build.id)` is the right question about a BUILD and the wrong one
+ * about a PROJECT. A build row can exist without its files — an older save
+ * path, an orchestrator step that wrote the summary and stopped — and when the
+ * newest one is like that, the empty tree left the renderer nothing to route
+ * and the pane fell through to the receipt all over again.
+ *
+ * Three projects in production are in that state, and two of them have a
+ * complete tree on the build immediately before. */
 has(
-  /const tree = wantsDiagnostics \? \[\] : await loadTree\(/.test(previewRoute),
-  "the route loads the build's files before deciding what it is holding",
+  /await currentTree\(supabase, projectId\)/.test(previewRoute),
+  "the route asks the PROJECT for its files, not just the newest build row",
+);
+has(
+  /async function newestStoredTree\(/.test(storeTree),
+  "a build row without its files does not mean the project has no source",
+  "two of the three projects in this state have a complete tree one build back",
+);
+has(
+  /const found = ids\.find\(\(id\) => withFiles\.has\(id\)\)/.test(storeTree),
+  "and the NEWEST build that has source is the one it recovers",
+);
+has(
+  /sourceMissing: true/.test(storeTree),
+  "with the receipt kept as the answer of last resort, for a project with none anywhere",
 );
 
 has(
@@ -266,6 +290,70 @@ has(
   "a tree that cannot be routed says so rather than being handed the receipt",
   "the summary stays at ?diagnostics=1, which is where somebody goes to look for it",
 );
+
+/* ── A design that does not hang on one third-party script ───────────────
+ *
+ * A project's whole stylesheet — its tokens, its base element styles, its
+ * container rule — used to go into `<style type="text/tailwindcss">` and
+ * nowhere else. A browser does not apply a style element with an unknown
+ * type; only the Tailwind CDN script does, after it loads, by reading that
+ * block and compiling it.
+ *
+ * Measured in Chromium against a real project with that one request failing:
+ * the page still RENDERS correctly — heading, cards, footer, the header
+ * collapsing at 390px — and it renders in Times New Roman with no palette, no
+ * gutters and blue underlined links, text against the edge of the glass.
+ * Indistinguishable, to the person looking at it, from us having built them
+ * something broken.
+ *
+ * So the stylesheet is emitted twice: natively first, then in the Tailwind
+ * block as before. With the CDN up the second wins on order and nothing
+ * changes. Without it, the design survives. */
+{
+  const styled = [
+    ...minimal,
+    file("app/tokens.css", ":root { --ground: #FBFAF8; --ink: #16150F; --container: 1200px; }"),
+    file(
+      "app/globals.css",
+      "@import './tokens.css';\n\n@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n" +
+        "body { background: var(--ground); color: var(--ink); }\n" +
+        ".container { max-width: var(--container); margin: 0 auto; padding: 0 24px; }",
+    ),
+  ];
+
+  const doc = appPreviewDocument({ tree: styled, projectName: "Styled" });
+
+  const native = doc.match(/<style>([\s\S]*?)<\/style>/g) ?? [];
+  const carriesDesign = native.some(
+    (block) => /--ground/.test(block) && /\.container/.test(block),
+  );
+
+  has(
+    carriesDesign,
+    "THE PROJECT'S CSS IS IN A PLAIN <style> THE BROWSER APPLIES",
+    "without this the whole design is contingent on cdn.tailwindcss.com loading",
+  );
+  has(
+    /<style type="text\/tailwindcss">/.test(doc),
+    "and still in the Tailwind block, so utility classes keep working",
+  );
+  has(
+    doc.indexOf("<style>") < doc.indexOf('<style type="text/tailwindcss">'),
+    "with the native copy FIRST, so a CDN that does load still wins on order",
+    "otherwise this would change how every styled preview looks today",
+  );
+
+  const nativeBlock = native.find((block) => /--ground/.test(block)) ?? "";
+  has(
+    !/@tailwind\s/.test(nativeBlock),
+    "the @tailwind directives are stripped from the native copy",
+    "they mean nothing to a browser and only litter the console",
+  );
+  has(
+    !/@import\s+['"]\.\//.test(nativeBlock),
+    "and so is the relative @import, which stylesheetOf has already inlined",
+  );
+}
 
 console.log(failed === 0 ? "\nAll preview document checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
