@@ -146,6 +146,7 @@ import {
 } from "@/lib/jobs/store";
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
+import { autofix } from "@/lib/builder/qa/autofix";
 import { validatePage } from "@/lib/builder/validate";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
@@ -2260,6 +2261,27 @@ async function handle(
      * because that is what would be written. See validatePage, and note what it
      * deliberately does not check: this refuses what an edit BROKE, never what
      * it merely left imperfect. */
+    /* ── The mechanical repairs, on this path too ──────────────────────────
+     *
+     * The build path has run autofix since it existed; the edit path never
+     * has. So a page was born with its viewport tag, its box-sizing and its
+     * overflow guards, and then every edit afterwards was stored raw — and an
+     * edit is exactly where a model reaches for an inline `style` on one
+     * element, which is what silently outranks the media query that was
+     * supposed to hide it on a phone. See qa/autofix.ts.
+     *
+     * Applied BEFORE the gate below, because what is checked has to be what
+     * gets written. Nothing here needs a model, nothing costs a credit, and no
+     * fix in that file can change a page that was already right. */
+    const mechanical = autofix(edited.html);
+    if (mechanical.applied.length > 0) {
+      edited = { ...edited, html: mechanical.html };
+      // eslint-disable-next-line no-console
+      console.info(
+        `edit: ${project.id} — ${mechanical.applied.map((fix) => fix.rule).join(", ")}`,
+      );
+    }
+
     steps.begin("check", "Checking the change", "making sure the page still holds together…");
     const verdict = validatePage(currentHtml, edited.html);
 

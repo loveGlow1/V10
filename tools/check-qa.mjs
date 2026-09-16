@@ -582,6 +582,72 @@ console.log("\nThe mechanical repairs");
   const vw = qa.autofix(CLEAN.replace("body{margin:0", "body{width:100vw;margin:0"));
   if (vw.html.includes("100vw")) fail("autofix", "left width: 100vw in place");
   else pass("width: 100vw becomes 100%");
+
+  /* ── The media query an inline style silently outranks ─────────────────
+   *
+   * A real page, measured: a laundry site whose stylesheet read perfectly and
+   * which scrolled sideways on every phone.
+   *
+   *     <nav class="desktop-nav" style="display:flex">
+   *     @media (max-width:767px){ .desktop-nav{ display:none; } }
+   *
+   * The rule is right, the breakpoint is right, and an inline style outranks a
+   * class selector — so it never fired, the desktop navigation stayed on the
+   * phone at 663px inside a 390px screen, and took the page with it. Not a
+   * mistake anybody can see: the defect is the relationship between two lines
+   * several hundred apart. */
+  const outranked = CLEAN.replace(
+    "</style>",
+    "@media (max-width:767px){.desktop-nav{display:none}}</style>",
+  ).replace("<body>", `<body><nav class="desktop-nav" style="display:flex">nav</nav>`);
+
+  const lifted = qa.autofix(outranked);
+  if (!/\.desktop-nav\{display:none !important\}/.test(lifted.html)) {
+    fail("autofix", "left a phone rule that an inline style outranks");
+  } else pass("a phone rule an inline style outranks is given the !important it needed");
+
+  if (!lifted.applied.some((fix) => fix.rule === "responsive/inline-override")) {
+    fail("autofix", "did not report raising the phone rule");
+  } else pass("and says so, rather than changing the page silently");
+
+  /* THE SAFETY TEST. A wide-screen query must never be touched: raising a
+     declaration there could change a desktop layout that was correct, which is
+     the one thing no fix in this file may do. */
+  const wide = CLEAN.replace(
+    "</style>",
+    "@media (min-width:1024px){.desktop-nav{display:flex}}</style>",
+  ).replace("<body>", `<body><nav class="desktop-nav" style="display:flex">nav</nav>`);
+  const leftAlone = qa.autofix(wide);
+  if (/min-width:1024px\)\{\.desktop-nav\{display:flex !important/.test(leftAlone.html)) {
+    fail("autofix", "raised a declaration inside a wide-screen query");
+  } else pass("a wide-screen query is left exactly as written");
+
+  /* A document with no inline styles has nothing to be outranked BY, so
+     nothing in its phone queries should move. */
+  const noInline = CLEAN.replace("</style>", "@media (max-width:767px){.a{display:none}}</style>");
+  const quiet = qa.autofix(noInline);
+  if (/\.a\{display:none !important\}/.test(quiet.html)) {
+    fail("autofix", "raised a phone rule that nothing was outranking");
+  } else pass("a phone rule with nothing outranking it is left alone");
+
+  /* And the whole stylesheet has to survive. A media query holds rules and a
+     rule holds a block, so a pattern that stopped at the first closing brace
+     would raise one declaration and corrupt everything after it. */
+  const many = CLEAN.replace(
+    "</style>",
+    "@media (max-width:767px){.a{display:none}.b{gap:4px}.c{color:red}}.after{display:block}</style>",
+  ).replace("<body>", `<body><nav style="display:flex;gap:2px">nav</nav>`);
+  const survived = qa.autofix(many);
+  if (!/\.after\{display:block\}/.test(survived.html)) {
+    fail("autofix", "lost the rules following a media query");
+  } else if (!/\.c\{color:red\}/.test(survived.html)) {
+    fail("autofix", "lost a rule inside the media query");
+  } else pass("every rule after a raised media query survives it");
+
+  const twiceRaised = qa.autofix(lifted.html);
+  if (twiceRaised.html !== lifted.html) {
+    fail("autofix", "raising is not idempotent — !important would stack on every build");
+  } else pass("and raising twice changes nothing");
 }
 
 /* ── Composition ──────────────────────────────────────────────────────────
