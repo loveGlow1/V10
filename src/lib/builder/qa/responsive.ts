@@ -226,3 +226,44 @@ export function staticResponsiveGate(html: string, tree: FileTree = []): GateRes
     issues,
   };
 }
+
+/**
+ * What is wrong with this page on a phone, written for the model about to fix it.
+ *
+ * ── Why a brief and not just the instruction ──────────────────────────────
+ *
+ * "Make it fit on mobile" is a perfectly clear request and it was being handed
+ * over as the whole of what the model knew. The page is forty kilobytes, the
+ * defect is four characters somewhere inside it, and the edit has under a
+ * minute — so the model spent that minute reading, looking for something that
+ * this codebase had already found and could have simply said.
+ *
+ * It is the difference between understanding a request and being equipped to
+ * answer it. The gate above knows the file, the class list and the rule; none
+ * of that was reaching the one thing that could act on it.
+ *
+ * Empty when there is nothing to report, so a page with no findings does not
+ * get a paragraph telling it so — and the model then works exactly as it did,
+ * which is the right fallback for a page this cannot read.
+ */
+export function responsiveBrief(html: string, tree: FileTree = []): string {
+  const gate = staticResponsiveGate(html, tree);
+  if (!gate.ran || gate.issues.length === 0) return "";
+
+  /* Errors first: they are the ones that certainly break the page, and a model
+     reading a list acts on the top of it. */
+  const ordered = [...gate.issues].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1,
+  );
+
+  const lines = ordered
+    .slice(0, 12)
+    .map((issue) => `- ${issue.where ? `${issue.where}: ` : ""}${issue.message}`);
+
+  return [
+    `WHAT IS ACTUALLY WRONG ON A PHONE — found by measuring this page at ${PHONE}px, not guessed:`,
+    ...lines,
+    "",
+    "Fix these. They are the reason the page does not fit; anything else you change is a change nobody asked for.",
+  ].join("\n");
+}
