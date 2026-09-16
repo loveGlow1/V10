@@ -68,7 +68,7 @@ process.env.VERCEL_TEAM_ID = "team_abc";
 
 const require = createRequire(import.meta.url);
 const mod = require(join(out, "lib/publish/vercel-deploy.js"));
-const { clearProtection, aliasDeployment, previewAliasFor, vercelCredentials } = mod;
+const { clearProtection, aliasDeployment, previewAliasFor, projectEnvironment, setProjectEnvironment, vercelCredentials } = mod;
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -219,6 +219,96 @@ has(creds.teamQuery.includes("team_abc"), "and carry the team", creds.teamQuery)
   const result = await aliasDeployment("dpl_123", "x.preview.quickstark.tech", creds);
   has(result.ok === false, "a refused alias is reported, not thrown");
   has(result.reason.length > 0, "with a reason", result.ok ? "" : result.reason);
+}
+
+/* ── The environment, set on the PROJECT and not only in the upload ───────
+ *
+ * `.env.production` goes up with the files and is what the build reads. It only
+ * exists in the deployment that carried it, though, and the variables are a
+ * fact about the project rather than about one build of it.
+ *
+ * A customer's store proved the difference: its database credentials were wiped
+ * by a failed re-provision, so the next deploy resolved no backend, wrote no
+ * env file, and the build died on /_not-found for want of two strings that were
+ * still sitting correct in the database they came from. Set on the project they
+ * survive that, and survive a redeploy started from Vercel's own dashboard. */
+const TARGET = {
+  name: "my-app",
+  supabaseUrl: "https://probe.supabase.co",
+  supabaseAnonKey: "anon-key",
+  supabaseSchema: "app_probe",
+};
+
+{
+  const vars = projectEnvironment(TARGET);
+  has(
+    vars && vars.NEXT_PUBLIC_SUPABASE_URL === TARGET.supabaseUrl
+      && vars.NEXT_PUBLIC_SUPABASE_ANON_KEY === TARGET.supabaseAnonKey
+      && vars.NEXT_PUBLIC_SUPABASE_SCHEMA === TARGET.supabaseSchema,
+    "the three variables come from one definition",
+    JSON.stringify(vars),
+  );
+  has(
+    projectEnvironment({ name: "my-app" }) === null,
+    "a project with no backend has none, rather than three empty ones",
+    "writing somebody else's credentials into a site that never asked for a database",
+  );
+}
+
+{
+  stubFetch(() => ({ status: 200, body: {} }));
+  await clearProtection("my-app", creds, projectEnvironment(TARGET));
+  const create = calls.find((c) => c.method === "POST" && c.url.includes("/v10/projects") && !c.url.includes("/env"));
+  const sent = create?.body?.environmentVariables ?? [];
+
+  has(sent.length === 3, "a project is CREATED carrying its environment", `${sent.length} variable(s)`);
+  has(
+    sent.every((v) => Array.isArray(v.target) && v.target.includes("production")),
+    "targeted at production",
+  );
+  has(
+    sent.every((v) => v.type === "plain"),
+    "and marked plain, because every one of them is NEXT_PUBLIC_ and is served to visitors",
+    "calling a value secret that the bundle publishes is a lie to whoever reads the dashboard",
+  );
+}
+
+{
+  stubFetch(() => ({ status: 200, body: {} }));
+  const result = await setProjectEnvironment("my-app", projectEnvironment(TARGET), creds);
+  const written = calls.find((c) => c.url.includes("/env"));
+
+  has(result.set === true, "an existing project's environment is updated too");
+  has(written && written.method === "POST", "as a POST", written?.method);
+  has(
+    written && written.url.includes("/v10/projects/my-app/env"),
+    "at /v10/projects/{name}/env",
+    written?.url,
+  );
+  has(
+    written && written.url.includes("upsert=true"),
+    "upserted, so the hundredth deploy is the same call as the first",
+    written?.url,
+  );
+  has(written && written.url.includes("team_abc"), "and carries the team", written?.url);
+  has(Array.isArray(written?.body) && written.body.length === 3, "with all three variables");
+}
+
+{
+  /* Refused. The upload still carries .env.production, so this build is fine
+     and the cost is borne by later ones — which is what the note has to say. */
+  stubFetch((url) => (url.includes("/env") ? { status: 403, body: { error: { message: "no access" } } } : { status: 200, body: {} }));
+  const result = await setProjectEnvironment("my-app", projectEnvironment(TARGET), creds);
+
+  has(result.set === false, "a refusal is reported rather than thrown");
+  has(/unaffected/.test(result.note ?? ""), "and says this build is unaffected", result.note);
+}
+
+{
+  /* Nothing to set is not a failure, and must not spend a request. */
+  stubFetch(() => ({ status: 200, body: {} }));
+  const result = await setProjectEnvironment("my-app", {}, creds);
+  has(result.set === true && calls.length === 0, "a project with no environment makes no call at all");
 }
 
 console.log(failed === 0 ? "\nAll Vercel protection checks passed." : `\n${failed} failed.`);

@@ -29,6 +29,7 @@ import type { BuildKind } from "./kinds";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
 import { repairStructure } from "./next-structure";
+import { type BuildMode, buildModeOf } from "./build-mode";
 import type { FileTree, ProjectFile } from "./tree";
 
 /* The version of Next.js these projects are written against.
@@ -52,6 +53,8 @@ const TYPES_REACT = "19.1.0";
 const TYPESCRIPT = "5.6.3";
 const TAILWIND = "3.4.14";
 const SUPABASE_JS = "2.47.10";
+/* Pinned for the same reason as everything above it — see NEXT_VERSION. */
+const SUPABASE_SSR = "0.5.2";
 
 /** Files every generated project gets, whatever it is. */
 export const REQUIRED_FILES = [
@@ -75,6 +78,10 @@ export function platformFiles(
   manifest: ArchitectureManifest,
   model: DataModel,
   design?: DesignDNA,
+  /* Static unless the project's own files say otherwise — see build-mode.ts.
+     Defaulted, so every caller that predates the two modes keeps the one it
+     was written against. */
+  mode: BuildMode = "static",
 ): FileTree {
   const slug = packageName(name);
   const withBackend = manifest.backend;
@@ -98,6 +105,13 @@ export function platformFiles(
             react: REACT,
             "react-dom": REACT,
             ...(withBackend ? { "@supabase/supabase-js": SUPABASE_JS } : {}),
+            /* Cookie-based sessions, and only where there is a server to hold
+               them. @supabase/ssr is how a session survives a request on the
+               server side — the middleware refresh, the server component that
+               knows who is signed in. In a static build there is no request to
+               hold a cookie for and supabase-js alone is the whole story, so
+               shipping it there would be a dependency nothing imports. */
+            ...(withBackend && mode === "server" ? { "@supabase/ssr": SUPABASE_SSR } : {}),
           },
           devDependencies: {
             "@types/node": "22.9.0",
@@ -119,12 +133,40 @@ export function platformFiles(
          so a .js config is CommonJS, and `export default` in it is a syntax
          error at the first thing the build does. */
       path: "next.config.mjs",
-      content: `/** @type {import('next').NextConfig} */
+      content:
+        mode === "server"
+          ? `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  /* A SERVER, because this project has something in it that needs one — a
+     route handler, a server action, a middleware redirect, or a key that must
+     not reach a browser. See lib/builder/build-mode.ts, which read the files
+     and decided; it is not a setting anybody chose by hand.
+
+     No \`output\` line at all: Next's default is a server build, and Vercel
+     knows what to do with it. \`standalone\` is for copying the build into a
+     container of your own, which is a different deployment from this one. */
+
+  /* On here the optimiser exists, so images are optimised. The static half of
+     this file turns it off because a file server has nothing behind it to
+     optimise with. */
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "**" }],
+  },
+};
+
+export default nextConfig;
+`
+          : `/** @type {import('next').NextConfig} */
 const nextConfig = {
   /* A directory of files rather than a server. See scaffold.ts: it is what
      lets this be previewed and downloaded without anything being provisioned.
      Route handlers and middleware do not run under it — data comes from the
-     browser instead. */
+     browser instead.
+
+     This is the default and it is right nearly every time. A project that
+     needs a server gets one automatically: build-mode.ts reads the files, and
+     a route handler, a "use server" directive, a middleware.ts or a secret
+     environment variable switches this whole file to the server version. */
   output: "export",
 
   /* The exported site is served from a plain file server, which has no image
@@ -489,6 +531,97 @@ export function packageName(name: string): string {
  * package.json is deliberately NOT on this list. A model that adds a dependency
  * needs its manifest to survive, and a wrong one breaks a build loudly rather
  * than quietly. */
+/**
+ * The build configuration brought back into line with what a project has become.
+ *
+ * ── The whole point of the two modes ──────────────────────────────────────
+ *
+ * completeTree decides static or server when a project is GENERATED, which
+ * settles it for that build and no other. A project is then edited, and the
+ * edit is where evolution actually happens: a landing page acquires a contact
+ * form, the form acquires a route handler, and the project has quietly become
+ * something its next.config.mjs is wrong about. Nothing downstream would catch
+ * it — `output: "export"` plus a route handler is a build that fails, and plus
+ * a middleware.ts is a build that succeeds with the guard silently removed.
+ *
+ * So the config is re-derived from the tree after every edit that changes it.
+ * That is the Phase 1 → Phase 2 upgrade: nobody asks for it and nothing is
+ * migrated, the project simply stops being exported the moment it stops being
+ * exportable.
+ *
+ * `changed` is what the caller tells the customer. A project crossing from a
+ * directory of files to a running server is worth one sentence — it is why
+ * their site now costs something to host and why the build takes longer.
+ *
+ * Only ever raises, like buildModeOf itself: nothing here turns a server
+ * project back into a static one. Deleting the last route handler does not
+ * un-need the server, because the session cookies and the secrets that arrived
+ * with it usually have not gone anywhere, and quietly re-exporting somebody's
+ * app is not a decision an edit gets to take.
+ */
+export function retuneBuild(
+  tree: FileTree,
+  name: string,
+  manifest: ArchitectureManifest,
+  model: DataModel,
+  design?: DesignDNA,
+): { tree: FileTree; mode: BuildMode; changed: boolean; because: string[] } {
+  const { mode, because } = buildModeOf(tree);
+  const unchanged = { tree, mode, changed: false, because };
+
+  if (mode !== "server") return unchanged;
+
+  const wanted = platformFiles(name, manifest, model, design, mode)
+    .find((file) => file.path === "next.config.mjs");
+  if (!wanted) return unchanged;
+
+  const current = tree.find((file) => file.path === "next.config.mjs");
+  if (current && current.content === wanted.content) return unchanged;
+
+  const rewritten = current
+    ? tree.map((file) => (file.path === "next.config.mjs" ? { ...file, content: wanted.content } : file))
+    : [...tree, wanted];
+
+  return { tree: withServerDependencies(rewritten, manifest), mode, changed: true, because };
+}
+
+/* @supabase/ssr added, and NOTHING removed.
+ *
+ * The package.json of an edited project is not the platform's any more: a
+ * server build needs zod for the validation its own brief asks for, and a model
+ * that adds a dependency it then imports is doing the right thing. Rewriting
+ * the file from the scaffold would delete it and the build would fail on the
+ * import — so this reads the file, adds the one key, and puts it back. */
+function withServerDependencies(tree: FileTree, manifest: ArchitectureManifest): FileTree {
+  if (!manifest.backend) return tree;
+
+  const file = tree.find((entry) => entry.path === "package.json");
+  if (!file) return tree;
+
+  try {
+    const parsed = JSON.parse(file.content) as {
+      dependencies?: Record<string, string>;
+      [key: string]: unknown;
+    };
+    if (parsed.dependencies?.["@supabase/ssr"]) return tree;
+
+    const updated = {
+      ...parsed,
+      dependencies: { ...(parsed.dependencies ?? {}), "@supabase/ssr": SUPABASE_SSR },
+    };
+    return tree.map((entry) =>
+      entry.path === "package.json"
+        ? { ...entry, content: `${JSON.stringify(updated, null, 2)}\n` }
+        : entry,
+    );
+  } catch {
+    /* A package.json that does not parse is one this must not rewrite. The
+       build will fail on it either way, and failing on the model's own file is
+       a better error than failing on ours. */
+    return tree;
+  }
+}
+
 const PLATFORM_OWNED = new Set([
   "lib/supabase.ts",
   "lib/database.types.ts",
@@ -570,7 +703,22 @@ export function completeTree(
   design?: DesignDNA,
 ): FileTree {
   const byPath = new Map<string, ProjectFile>();
-  const platform = platformFiles(name, manifest, model, design);
+
+  /* ── Which config this project gets, read from the project ──────────────
+   *
+   * Asked of the files the model produced, before they are merged, because the
+   * answer decides which next.config.mjs is written over them. A tree with a
+   * route handler, a "use server", a middleware.ts or a secret environment
+   * variable in it needs a server, and giving it `output: "export"` is a build
+   * that fails — or worse, for middleware, one that succeeds and silently
+   * guards nothing.
+   *
+   * It only ever raises. See build-mode.ts: a static config over server code
+   * is broken, a server config over static code is a working site that costs
+   * slightly more to host, and when the two disagree the expensive one is the
+   * safe one. */
+  const { mode } = buildModeOf(generated);
+  const platform = platformFiles(name, manifest, model, design, mode);
   const owned = new Set(platform.filter((file) => PLATFORM_OWNED.has(file.path)).map((f) => f.path));
 
   for (const file of platform) byPath.set(file.path, file);
@@ -694,6 +842,10 @@ export function treeBrief(
      it — see the note there. Defaulted so an older caller keeps the behaviour
      it had. */
   photographs = 0,
+  /* Static unless this request needs a server. Defaulted for the same reason
+     as everything else here: a caller that does not know about the two modes
+     gets the one that is right 95% of the time. */
+  mode: BuildMode = "static",
 ): string {
   const routes = ROUTES[kind] ?? [];
   const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
@@ -743,8 +895,36 @@ export function treeBrief(
 
   const rules = [
     "- Next.js App Router, TypeScript, Tailwind. Every file must compile under `strict`.",
-    "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
+    /* ── Which of the two worlds this project is written for ────────────
+     *
+     * The default is static and stays static: a directory of files served from
+     * a CDN, talking to Supabase from the browser under row-level security. It
+     * is right for nearly every project and it is the cheaper and more robust
+     * of the two.
+     *
+     * The server half is not an upgrade to reach for. It is what a project
+     * gets when it genuinely cannot be done the other way — a secret key, a
+     * webhook to receive, a redirect that has to happen before the page is
+     * sent. Saying that here matters as much as the permission itself: a model
+     * told "you have a server" will put one in a project that did not need
+     * one, and that is a running function where a file would have done. */
+    mode === "server"
+      ? '- THIS PROJECT HAS A SERVER, because something in it needs one. Route handlers under `app/api/*/route.ts`, server actions marked "use server", and a root `middleware.ts` all run, and a server component may read a secret. Use the server for what needs it and nothing else: a page that only reads public data still reads it in the browser, because that page is faster and cannot leak anything.'
+      : "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
     "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    /* ── Two rules about SHAPE rather than about syntax ──────────────────
+     *
+     * Everything else in this list stops a build failing. These two stop a
+     * project becoming unmaintainable, which costs more and shows up later: it
+     * arrives as an edit that cannot be made without rewriting a page, because
+     * the thing being changed is tangled with three things that are not.
+     *
+     * The second one is also a real defect and not only a tidiness rule. Every
+     * `process.env` read outside lib/supabase.ts is a value inlined at build
+     * time into a bundle we then have to keep configured, in a file nobody
+     * looks at when the configuration changes. One place to read them is one
+     * place to fix them. */
+    "- Presentation and data stay apart. A component takes what it renders as props and holds no query; the page, or a hook beside it, does the fetching and hands the result down. A component that both queries and renders cannot be reused, previewed or tested, and an edit to either half has to touch the other.",
     /* These two rules used to be one line, and together they instructed the
        model straight into a page that cannot compile: every dynamic route
        needs generateStaticParams, and a page that reads data has to be
@@ -752,7 +932,10 @@ export function treeBrief(
        outright. The brief has to name the way out, because both halves of the
        conflict are things this same brief asks for. completeTree repairs it
        either way (see client-routes.ts); this is so it stops happening. */
-    "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
+    /* Static-only. `output: "export"` has to know every path ahead of time;
+       a server renders one when it is asked for, and demanding the list there
+       would send a model prerendering a catalogue it cannot see yet. */
+    mode === "server" ? null : "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     /* React 19 removed the GLOBAL JSX namespace — it lives inside the react
@@ -788,7 +971,14 @@ export function treeBrief(
       : '- PHOTOGRAPHS ARE DECLARED, NOT DRAWN. No pictures were resolved ahead of this build, so write each one as a slot and real pixels are put in afterwards: `<img data-shot="folded ochre linen, raking light, neutral seamless" data-ratio="4/5" data-weight="hero" alt="Ochre linen throw">` — art direction in data-shot, no src attribute at all. NEVER invent an image URL; every one of those is a broken picture. NEVER substitute a grey box, a coloured div or an empty placeholder for a photograph that belongs there. Use data-weight="hero" for the one picture that carries a page, "feature" for a section, "thumb" for a card.',
   ].filter((rule): rule is string => typeof rule === "string");
 
-  if (manifest.database) {
+  if (manifest.database && mode === "server") {
+    rules.push(
+      "- Reads that are public and part of the page render on the server, in the page itself. Anything belonging to the signed-in person reads in the browser, so it follows their session rather than the server's.",
+      '- Writes go through a server action marked "use server" or a route handler under `app/api/`, with the body validated by a Zod schema before it reaches the database. Row-level security is still what authorises the write; the schema is what stops a malformed one being attempted.',
+      "- Sessions are cookie-based, through `@supabase/ssr`, refreshed in the root `middleware.ts`. Never read a session from localStorage on this side.",
+      "- Every list has the four states and all four are reachable: loading while the query runs, empty when it returns nothing, the rows when it returns some, and the error when it fails.",
+    );
+  } else if (manifest.database) {
     rules.push(
       '- Data comes from `@/lib/supabase`, in a client component ("use client"), inside useEffect or an event handler. Never at module scope — it runs at build time and there is no session then.',
       "- A dynamic route's generateStaticParams cannot query the database either, for the same reason. Export the shell and load the record in the browser from the route parameter.",
@@ -797,6 +987,20 @@ export function treeBrief(
   } else {
     rules.push(
       "- There is no database. Data is typed constants in the file that renders it, or in `lib/data.ts` when two pages share it.",
+    );
+  }
+
+  /* Where the environment is allowed to be read at all. Named against
+     manifest.backend rather than .database because that is what decides
+     whether lib/supabase.ts is written — a rule naming a file the project does
+     not have is a rule that teaches the model the wrong shape. */
+  if (manifest.backend) {
+    rules.push(
+      "- NEVER read `process.env` outside lib/supabase.ts. That file is the only thing in this project that knows an environment exists; everything else imports `supabase` from it. A key read in a second place is a second place to fix when it changes, in a file nobody thinks to look at.",
+    );
+  } else {
+    rules.push(
+      "- There is no environment to read. `process.env` is empty here; anything configurable is a typed constant in the file that uses it.",
     );
   }
 

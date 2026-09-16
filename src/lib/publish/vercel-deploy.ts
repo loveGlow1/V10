@@ -189,6 +189,29 @@ function withCurrentFramework(file: { file: string; data: string; encoding: "utf
   }
 }
 
+/**
+ * The three values a generated app needs to reach its database.
+ *
+ * One definition, because they now go to Vercel twice: written into the upload
+ * as `.env.production`, which is what the BUILD reads, and set on the Vercel
+ * project itself, which is what every LATER deployment reads. Two copies of
+ * this list is two chances for them to disagree.
+ *
+ * Null when the project has no backend. The generated tree then has no
+ * lib/supabase.ts either — scaffold.ts writes one only when the manifest says
+ * database — so there is nothing to configure, and writing a file full of
+ * somebody else's credentials to satisfy a template would be handing them to
+ * every visitor of a site that never asked for a database.
+ */
+export function projectEnvironment(target: DeployTarget): Record<string, string> | null {
+  if (!target.supabaseUrl || !target.supabaseAnonKey || !target.supabaseSchema) return null;
+  return {
+    NEXT_PUBLIC_SUPABASE_URL: target.supabaseUrl,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: target.supabaseAnonKey,
+    NEXT_PUBLIC_SUPABASE_SCHEMA: target.supabaseSchema,
+  };
+}
+
 export function deploymentFiles(tree: FileTree, target: DeployTarget) {
   /* Written rather than appended to whatever the generator emitted: a
      generated .env.production would be the model's guess at these values, and
@@ -199,15 +222,10 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
      says database — so there is nothing to configure, and writing a file full
      of somebody else's credentials to satisfy a template would be handing them
      to every visitor of a site that never asked for a database. */
-  const env =
-    target.supabaseUrl && target.supabaseAnonKey && target.supabaseSchema
-      ? [
-          `NEXT_PUBLIC_SUPABASE_URL=${target.supabaseUrl}`,
-          `NEXT_PUBLIC_SUPABASE_ANON_KEY=${target.supabaseAnonKey}`,
-          `NEXT_PUBLIC_SUPABASE_SCHEMA=${target.supabaseSchema}`,
-          "",
-        ].join("\n")
-      : null;
+  const variables = projectEnvironment(target);
+  const env = variables
+    ? `${Object.entries(variables).map(([key, value]) => `${key}=${value}`).join("\n")}\n`
+    : null;
 
   /* Repaired on the way out, for the same reason the framework pin is: every
      project ever generated is still sitting in the database, and a tree stored
@@ -468,9 +486,84 @@ export type ProtectionResult = {
    explicit null rather than a missing property. */
 const UNPROTECTED = { ssoProtection: null, passwords: null } as const;
 
+/* Vercel's shape for one variable, from a plain key/value map.
+ *
+ * `plain` rather than `encrypted`, and that is a statement about these values
+ * rather than a shortcut. Every one of them is NEXT_PUBLIC_, which Next inlines
+ * into the bundle at build time and serves to every visitor of the site.
+ * Marking as secret a value we publish in the next breath would be a lie told
+ * to whoever opens the Vercel dashboard looking for the real ones.
+ *
+ * All three targets, because a preview deployment of somebody's app is as
+ * useless without a database as a production one. */
+function environmentPayload(environment: Record<string, string>) {
+  return Object.entries(environment)
+    .filter(([key, value]) => key.length > 0 && typeof value === "string" && value.length > 0)
+    .map(([key, value]) => ({
+      key,
+      value,
+      type: "plain" as const,
+      target: ["production", "preview", "development"] as const,
+    }));
+}
+
+/**
+ * Sets the project's environment variables on Vercel itself.
+ *
+ * ── Why, when the upload already carries `.env.production` ────────────────
+ *
+ * Because a file only exists in the deployment that carried it, and the
+ * variables are a fact about the PROJECT. A customer's store proved the
+ * difference: its database credentials were wiped by a failed re-provision, the
+ * next deploy therefore resolved no backend, wrote no env file, and the build
+ * died — on the /_not-found page, for want of two strings that had been correct
+ * an hour earlier and were still correct in the database they came from.
+ *
+ * Set here they persist. Any later deployment — from this platform, from a
+ * redeploy button in Vercel's own dashboard, from a rollback — is built with
+ * them whether or not whatever started it could look them up. The file stays as
+ * well: it is what makes a DOWNLOADED project runnable, and it is the copy the
+ * build is guaranteed to see even if this call is refused.
+ *
+ * Upserted, so this is the same call on the first deploy and the hundredth.
+ * Never fatal, for the same reason as clearProtection above: an app that
+ * deploys with an environment we could not update is worth more than no app.
+ */
+export async function setProjectEnvironment(
+  name: string,
+  environment: Record<string, string>,
+  creds: { token: string; teamQuery: string },
+): Promise<{ set: boolean; note: string | null }> {
+  const payload = environmentPayload(environment);
+  if (payload.length === 0) return { set: true, note: null };
+
+  const query = creds.teamQuery ? `${creds.teamQuery}&upsert=true` : "?upsert=true";
+  const written = await call(
+    `/v10/projects/${encodeURIComponent(name)}/env${query}`,
+    { method: "POST", body: JSON.stringify(payload) },
+    creds.token,
+  );
+
+  if (written.ok && written.status < 400) return { set: true, note: null };
+
+  const why = written.ok ? refusal(written.body, written.status) : written.reason;
+  return {
+    set: false,
+    note:
+      `The project's environment variables could not be set on Vercel (${why}). ` +
+      "This build carries them in its own .env.production and is unaffected; a " +
+      "deployment started from Vercel's dashboard rather than from here may not have them.",
+  };
+}
+
 export async function clearProtection(
   name: string,
   creds: { token: string; teamQuery: string },
+  /* Set on the project at the moment it is CREATED, so the very first
+     deployment of a new project has them before anything else runs. The upsert
+     above covers every project that already existed. Optional because the
+     callers that only want protection cleared should not have to say so. */
+  environment: Record<string, string> = {},
 ): Promise<ProtectionResult> {
   /* Created with protection already off. A 409 means it was there already,
      which is the ordinary case for every build after the first and is not a
@@ -483,7 +576,14 @@ export async function clearProtection(
     `/v10/projects${creds.teamQuery}`,
     {
       method: "POST",
-      body: JSON.stringify({ name, framework: "nextjs", ...UNPROTECTED }),
+      body: JSON.stringify({
+        name,
+        framework: "nextjs",
+        ...UNPROTECTED,
+        ...(environmentPayload(environment).length > 0
+          ? { environmentVariables: environmentPayload(environment) }
+          : {}),
+      }),
     },
     creds.token,
   );
@@ -595,8 +695,20 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
   if (tree.length === 0) return { ok: false, reason: "there are no files to deploy" };
 
   /* Before the upload, so there is no window in which a protected project
-     exists. Never fatal — see clearProtection. */
-  const protection = await clearProtection(target.name, creds);
+     exists, and so a project created here is created carrying the environment
+     its build is about to need. Never fatal — see clearProtection and
+     setProjectEnvironment. */
+  const variables = projectEnvironment(target) ?? {};
+  const protection = await clearProtection(target.name, creds, variables);
+
+  /* And on the project that already existed, which the create above left
+     untouched. Best effort: the upload below carries .env.production either
+     way, so a refusal here costs later deployments rather than this one. */
+  const environment = await setProjectEnvironment(target.name, variables, creds);
+  if (!environment.set && environment.note) {
+    // eslint-disable-next-line no-console
+    console.warn(`deploy: ${target.name} — ${environment.note}`);
+  }
 
   const created = await call(
     `/v13/deployments${creds.teamQuery}`,
