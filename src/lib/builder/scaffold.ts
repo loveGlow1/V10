@@ -361,22 +361,57 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const schema = process.env.NEXT_PUBLIC_SUPABASE_SCHEMA ?? "${model.schema}";
 
-if (!url || !anonKey) {
-  throw new Error(
-    "This app needs NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. See README.md.",
-  );
+/* ── Connected on first use, never on import ───────────────────────────────
+ *
+ * The two variables above used to be checked HERE, at the top level, and the
+ * module threw when either was missing. That reads as careful and is not.
+ * \`next build\` prerenders every route, including the /_not-found page Next
+ * writes for you, so a module that throws while it is being IMPORTED takes the
+ * entire build with it:
+ *
+ *     Error occurred prerendering page "/_not-found"
+ *     Error: This app needs NEXT_PUBLIC_SUPABASE_URL and ...
+ *     Export encountered an error on /_not-found/page, exiting the build.
+ *
+ * — on a page that has never heard of this database. An unset environment
+ * variable became "your app does not compile", which is both the wrong size of
+ * problem and a description of the wrong thing.
+ *
+ * So the client is built the first time something asks it for anything. The
+ * build does not, and now compiles whatever the environment holds. A page that
+ * reads data does, and it fails there, in the browser, naming the two variables
+ * — which is where somebody can actually do something about it. */
+function connect() {
+  if (!url || !anonKey) {
+    throw new Error(
+      "This app needs NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. See README.md.",
+    );
+  }
+
+  /* The schema as an explicit generic, not just as a runtime option.
+   *
+   * database.types.ts mounts this project's tables under BOTH their real schema
+   * name and \`public\`, so that a query written the way every Supabase example
+   * writes it compiles. The cost of that is here: with \`public\` present,
+   * createClient's second type parameter defaults to it, and then \`db.schema\`
+   * is required to be "public" too — which would be a lie about which schema is
+   * really being read. Naming it settles both halves. */
+  return createClient<Database, "${model.schema}">(url, anonKey, {
+    db: { schema: schema as "${model.schema}" },
+  });
 }
 
-/* The schema as an explicit generic, not just as a runtime option.
- *
- * database.types.ts mounts this project's tables under BOTH their real schema
- * name and \`public\`, so that a query written the way every Supabase example
- * writes it compiles. The cost of that is here: with \`public\` present,
- * createClient's second type parameter defaults to it, and then \`db.schema\`
- * is required to be "public" too — which would be a lie about which schema is
- * really being read. Naming it settles both halves. */
-export const supabase = createClient<Database, "${model.schema}">(url, anonKey, {
-  db: { schema: schema as "${model.schema}" },
+let client: ReturnType<typeof connect> | null = null;
+
+/* The same \`supabase\` every page already imports — \`supabase.from(...)\`,
+   \`supabase.auth\` — so nothing that uses it has to change. The proxy is here
+   only to hold connect() back until the first property is read. */
+export const supabase = new Proxy({} as ReturnType<typeof connect>, {
+  get(_target, property) {
+    client = client ?? connect();
+    const value = Reflect.get(client, property, client);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
 });
 `,
     });

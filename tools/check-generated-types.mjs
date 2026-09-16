@@ -34,7 +34,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -155,6 +155,90 @@ export const byAlias: Media | null = null;
     `${label}: the tables are reachable as Database["public"]`);
   has(types.includes(schema),
     `${label}: and under the schema the rows are really in`);
+
+  /* ── And it has to survive being IMPORTED with nothing configured ───────
+   *
+   * Compiling is half of it. This file used to check the two environment
+   * variables at module scope and throw when either was missing, which is fine
+   * in a browser and fatal in a build: `next build` prerenders every route,
+   * including the /_not-found page Next writes for you, so a module that throws
+   * while it is being imported ends the whole build —
+   *
+   *     Error occurred prerendering page "/_not-found"
+   *     Error: This app needs NEXT_PUBLIC_SUPABASE_URL and ...
+   *     Export encountered an error on /_not-found/page, exiting the build.
+   *
+   * — on a page that never touches the database. A customer's store failed
+   * exactly this way when its database credentials went missing: not "the
+   * database is not connected", which is true and actionable, but "your app
+   * does not compile", which is neither.
+   *
+   * So: importing with no environment must not throw, using it without one
+   * must, and with one it must still be an ordinary client. Run against the
+   * real @supabase/supabase-js, because what is being tested is that a proxy
+   * standing in front of it behaves like it. */
+  const js = join(sandbox, "js");
+  mkdirSync(js, { recursive: true });
+  execFileSync("npx", [
+    "tsc", "--skipLibCheck", "--moduleResolution", "bundler", "--module", "esnext",
+    "--target", "ES2022", "--lib", "dom,dom.iterable,esnext", "--outDir", js,
+    join(sandbox, "lib/database.types.ts"),
+    join(sandbox, "lib/supabase.ts"),
+  ], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
+
+  /* .mjs so node reads it as the ES module tsc emitted — the nearest
+     package.json is this repo's, which does not say "type": "module". The bare
+     @supabase/supabase-js specifier resolves from here because the sandbox is
+     inside the repo, which is the whole reason it lives there. */
+  const runnable = join(js, "supabase.mjs");
+  writeFileSync(runnable, readFileSync(join(js, "supabase.js"), "utf8"));
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  let unset = null;
+  try {
+    unset = await import(`file://${runnable}?unset=${label.length}`);
+    ok(`${label}: importing the client with no environment does not throw`);
+  } catch (error) {
+    fail(`${label}: importing the client with no environment does not throw`, String(error.message));
+  }
+
+  if (unset) {
+    try {
+      unset.supabase.from("media");
+      fail(`${label}: using it unconfigured says which variables are missing`, "it returned a client instead");
+    } catch (error) {
+      has(
+        /NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(error.message),
+        `${label}: using it unconfigured says which variables are missing`,
+        error.message,
+      );
+    }
+  }
+
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://check.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "check-anon-key";
+
+  try {
+    const live = await import(`file://${runnable}?set=${label.length}`);
+    const query = live.supabase.from("media").select("id");
+    has(typeof query?.then === "function", `${label}: configured, from().select() is a real query`);
+    has(
+      typeof live.supabase.auth?.getUser === "function",
+      `${label}: and supabase.auth is the auth client, not a bound function`,
+      "a proxy that binds everything it hands back breaks property access",
+    );
+  } catch (error) {
+    fail(`${label}: configured, the client works through the proxy`, String(error.message));
+  }
+
+  if (url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  else process.env.NEXT_PUBLIC_SUPABASE_URL = url;
+  if (anon === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = anon;
 
   rmSync(sandbox, { recursive: true, force: true });
 }
