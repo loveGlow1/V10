@@ -35,7 +35,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { BackendConnection } from "@/lib/builder/backend/connection";
-import { type DataModel, toSql } from "@/lib/builder/schema";
+import { type DataModel, destructiveStatements, toSql } from "@/lib/builder/schema";
 
 export type ProvisionOutcome =
   /* `recorded` is whether project_backends remembers this run, and it is
@@ -227,6 +227,29 @@ export async function provision(
       applied: false,
       reason: error instanceof Error ? error.message : "the schema could not be written",
     };
+  }
+
+  /* ── Read before it is run ─────────────────────────────────────────────
+   *
+   * Every migration this platform writes is additive — see toSql — so this
+   * finds nothing, every time, and that is what it is for. The SQL below is
+   * applied by a machine against a database holding a customer's real orders
+   * and users, with nobody watching. The cost of getting it wrong once is not a
+   * failed build, it is their data, and no amount of care in the generator buys
+   * as much as one check standing in front of the connection.
+   *
+   * A refusal rather than a warning, and it names the statement: reaching here
+   * means something upstream started writing destructive SQL, and that is a bug
+   * to go and fix rather than a condition to survive. */
+  const destructive = destructiveStatements(sql);
+  if (destructive.length > 0) {
+    const reason =
+      `the migration was refused because it would destroy data: ${destructive[0]}` +
+      (destructive.length > 1 ? ` (and ${destructive.length - 1} more)` : "");
+    // eslint-disable-next-line no-console
+    console.error(`provision: ${projectId} — ${reason}`, destructive);
+    await recordFailure(service, projectId, userId, connection, reason);
+    return { ok: false, applied: false, reason };
   }
 
   const dsn = await connectionStringFor(service, connection, projectId);

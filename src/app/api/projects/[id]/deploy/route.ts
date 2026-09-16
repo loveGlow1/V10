@@ -250,6 +250,27 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
      is hosted, and last week's failure is not news. */
   const failure = url ? null : (latest?.deployment_error ?? null);
 
+  /* The other failure: the one that did not take the site down.
+   *
+   * `failure` above is for a project with nothing online. This is for the
+   * project that HAS something online and whose newest attempt did not make
+   * it: the site is up, it is serving the last build that deployed, and the
+   * change somebody just made is not on it.
+   *
+   * Suppressing that — which is what happened, because a url meant no failure
+   * was reported at all — leaves the customer looking at a working site and
+   * believing it is their latest work. The old rule is still right for what it
+   * was written for ("last week's failure is not news"); this is not last
+   * week's, it is the current build's, and the site being up is exactly why it
+   * needs saying rather than why it does not.
+   *
+   * Non-blocking by construction: the address is unchanged, the pane goes on
+   * framing the site that works, and this is a sentence beside it. */
+  const superseded = Boolean(
+    url && latest?.deployment_error && live?.id && latest?.id && live.id !== latest.id,
+  );
+  const behind = superseded ? diagnose(latest?.deployment_error ?? null) : null;
+
   /* The failure as something a person can read, alongside the raw text rather
      than instead of it. The workspace shows the summary and keeps the log in
      the panel behind it — see lib/publish/diagnosis.ts, and §6 of the
@@ -260,7 +281,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     /* Still handed over. Whether somebody may CREATE a deployment and whether
        they may SEE the one their own project already has are different
        questions, and ownership was settled above. */
-    return NextResponse.json({ available: false, ready: false, url, current, building, viewable, viewableReason, failure, diagnosis, reason: NOT_ALLOWED });
+    return NextResponse.json({ available: false, ready: false, url, current, building, viewable, viewableReason, failure, diagnosis, behind, reason: NOT_ALLOWED });
   }
   if (!deploymentsConfigured()) {
     return NextResponse.json({
@@ -273,12 +294,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       viewableReason,
       failure,
       diagnosis,
+      behind,
       reason:
         "Hosting is not configured: this deployment has no VERCEL_API_TOKEN. " +
         "Add it to the platform's environment variables and redeploy.",
     });
   }
-  return NextResponse.json({ available: true, ready: true, url, current, building, viewable, viewableReason, failure, diagnosis, reason: null });
+  return NextResponse.json({ available: true, ready: true, url, current, building, viewable, viewableReason, failure, diagnosis, behind, reason: null });
 }
 
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {

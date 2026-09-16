@@ -763,6 +763,103 @@ function policySql(table: string, policy: Policy, schema: string): string {
   return `${lines.join("\n")};`;
 }
 
+/* ── Nothing here may destroy anything ────────────────────────────────────
+ *
+ * Every migration this platform writes is additive by construction — `create
+ * schema if not exists`, `create table if not exists`, `create index if not
+ * exists` — and the only `drop` in any of it is `drop policy if exists`, which
+ * replaces a rule rather than losing a row.
+ *
+ * That is true today and it is true by convention, which is not the same as
+ * being true. A migration is applied by a machine, against a database holding a
+ * customer's real orders and users, with nobody watching. The cost of getting
+ * this wrong once is not a failed build, it is somebody's data, and no amount
+ * of care in the generator is worth as much as one check in front of the
+ * connection.
+ *
+ * So the SQL is read before it runs, and a statement that could destroy
+ * something stops it. Not a warning — a refusal.
+ */
+
+/* Statements that lose data, by the verb they start with. Anchored to the start
+   of a statement rather than searched for anywhere, because `create policy ...
+   for delete using (...)` is a rule ABOUT deletion and is exactly the kind of
+   thing this file writes. */
+const DESTRUCTIVE = [
+  /^drop\s+(?:table|column|schema|database|type|view|materialized\s+view)\b/,
+  /^truncate\b/,
+  /^delete\s+from\b/,
+  /^update\b/,
+  /^alter\s+table\s+[\s\S]*?\bdrop\s+(?:column|constraint)\b/,
+];
+
+/** SQL with its comments and string bodies blanked, so a verb inside one cannot match. */
+function bareSql(sql: string): string {
+  let out = "";
+  let quote: string | null = null;
+  let index = 0;
+
+  while (index < sql.length) {
+    const character = sql[index];
+    const next = sql[index + 1];
+
+    if (quote) {
+      /* Doubled quote is an escaped quote in SQL, not the end of the string. */
+      if (character === quote && next === quote) {
+        out += "  ";
+        index += 2;
+        continue;
+      }
+      if (character === quote) quote = null;
+      out += character === "\n" ? "\n" : " ";
+      index += 1;
+      continue;
+    }
+
+    if (character === "-" && next === "-") {
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      continue;
+    }
+
+    if (character === "/" && next === "*") {
+      index += 2;
+      while (index < sql.length && !(sql[index] === "*" && sql[index + 1] === "/")) index += 1;
+      index += 2;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      out += " ";
+      index += 1;
+      continue;
+    }
+
+    out += character;
+    index += 1;
+  }
+
+  return out;
+}
+
+/**
+ * The statements in this migration that could destroy something.
+ *
+ * Empty for everything toSql writes, which is the point: this is the guard in
+ * front of the connection, not a description of the generator. See the note
+ * above, and provision.ts, which refuses to run a migration this answers for.
+ */
+export function destructiveStatements(sql: string): string[] {
+  return bareSql(sql)
+    .split(";")
+    .map((statement) => statement.trim().replace(/\s+/g, " ").toLowerCase())
+    .filter((statement) => statement.length > 0)
+    .filter((statement) => DESTRUCTIVE.some((pattern) => pattern.test(statement)))
+    /* Trimmed for a message somebody has to read, and the verb is at the front
+       so the first few words are the part that matters. */
+    .map((statement) => (statement.length > 120 ? `${statement.slice(0, 117)}…` : statement));
+}
+
 /**
  * The migration, as SQL somebody can read before running it.
  *

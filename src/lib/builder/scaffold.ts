@@ -912,6 +912,27 @@ export function treeBrief(
       ? '- THIS PROJECT HAS A SERVER, because something in it needs one. Route handlers under `app/api/*/route.ts`, server actions marked "use server", and a root `middleware.ts` all run, and a server component may read a secret. Use the server for what needs it and nothing else: a page that only reads public data still reads it in the browser, because that page is faster and cannot leak anything.'
       : "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
     "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    /* ── Mobile first, and not as a preference ──────────────────────────
+     *
+     * More than half of what is built here is opened on a phone first, and the
+     * failure is not subtle: a fixed width scrolls sideways, three columns
+     * become three 110px slivers, a capped container puts text against the
+     * glass. Every one of those is written in the class list at generation
+     * time, which is the cheapest possible moment to not write it.
+     *
+     * Stated as the shape to use rather than as a principle to hold. "Be
+     * responsive" produces a model's idea of responsive; `grid-cols-1
+     * sm:grid-cols-2 lg:grid-cols-3` produces that. qa/responsive.ts checks
+     * the result either way — a rule a model is asked to follow is not a rule
+     * until something checks — and this is so there is nothing to find. */
+    "- MOBILE FIRST. Unprefixed classes are the phone; `sm:` `md:` `lg:` widen from there, never the reverse.",
+    "- Every section: `<section className=\"w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20\">`. `px-4` is the floor; content never touches the edge of a phone.",
+    "- `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`. A bare `grid-cols-3` is three 110px slivers on a phone.",
+    "- `flex flex-col md:flex-row` with `gap-6 md:gap-12`.",
+    "- No fixed sizes: not `w-[1200px]`, not `h-[800px]`, not `h-screen`. Use `w-full max-w-…`, and `min-h-dvh` with padding for a full-screen section.",
+    "- No absolute positioning for anything with words in it; `absolute top-20 left-40` works at one width only. Decorative shapes may, content flows.",
+    "- `text-3xl sm:text-4xl lg:text-6xl` on a headline; `text-center md:text-left` where a column becomes a row.",
+    "- Primary buttons `w-full sm:w-auto`; a group is `flex flex-col sm:flex-row gap-4`.",
     /* ── Two rules about SHAPE rather than about syntax ──────────────────
      *
      * Everything else in this list stops a build failing. These two stop a
