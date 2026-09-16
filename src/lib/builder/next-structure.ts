@@ -111,7 +111,7 @@ function isClient(source: string): boolean {
  * Newlines survive too, so a line number taken from this is a line number in
  * the file.
  */
-function code(source: string): string {
+export function code(source: string): string {
   const out = source.split("");
   let quote: string | null = null;
   let line = false;

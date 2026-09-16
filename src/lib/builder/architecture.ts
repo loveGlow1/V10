@@ -100,6 +100,27 @@ export type ArchitectureManifest = {
   payments: boolean;
 };
 
+/* What is known about a project built before manifests were recorded.
+ *
+ * Every layer false rather than every layer true, and that direction is the
+ * point: a reader of this is about to act on it, and acting as though a
+ * database exists when nothing knows whether it does is how a project gets a
+ * dependency it never imports or a rule about tables it does not have. Unknown
+ * reads as "not this", which is wrong in the safe direction.
+ *
+ * `frontend` is true because it is always true — a project with no front end is
+ * not a thing this platform builds. */
+export const UNKNOWN_ARCHITECTURE: ArchitectureManifest = {
+  type: "webapp",
+  frontend: true,
+  backend: false,
+  database: false,
+  authentication: false,
+  admin: false,
+  storage: false,
+  payments: false,
+};
+
 export type ArchitectureResult = {
   manifest: ArchitectureManifest;
   /* One clause per layer that is on, saying what turned it on. Read by the step

@@ -89,6 +89,7 @@ import {
   decideArchitecture,
   describeArchitecture,
   isArchitectureChoice,
+  UNKNOWN_ARCHITECTURE,
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
@@ -98,7 +99,7 @@ import { referenceEditBrief } from "@/lib/builder/reference";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
-import { treeBrief } from "@/lib/builder/scaffold";
+import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import { isSinglePage } from "@/lib/builder/tree";
@@ -1581,7 +1582,44 @@ async function handle(
        * all confined to the file that moved. Idempotent, so the files this
        * edit did not touch come back byte-identical and the stored version is
        * still the customer's own source with one change in it. */
-      const { tree: edited, repairs } = repairStructure(changed);
+      const { tree: repaired, repairs } = repairStructure(changed);
+
+      /* ── And the config, if this edit changed what the project IS ───────
+       *
+       * A landing page acquires a contact form; the form acquires a route
+       * handler; the project is now something its next.config.mjs is wrong
+       * about. Under `output: "export"` a route handler fails the build and a
+       * middleware.ts is dropped without a word — so the configuration is
+       * re-derived from the tree here, where the tree last changed, rather
+       * than being left to fail at deploy.
+       *
+       * This is the whole of the upgrade path. Nobody asks for it and nothing
+       * is migrated: the project stops being exported at the moment it stops
+       * being exportable. See retuneBuild. */
+      /* The manifest as it stands AFTER this edit, because an edit that raised
+         a capability is exactly the kind that also needs a server. Null for a
+         project built before manifests existed; retuneBuild reads only
+         `backend` from it, and treating unknown as "no backend" means the
+         config is still corrected and no dependency is invented. */
+      const manifestNow =
+        upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture ?? UNKNOWN_ARCHITECTURE;
+      const retuned = retuneBuild(
+        repaired,
+        (project.name as string | null) ?? "app",
+        manifestNow,
+        dataModelFor(manifestNow, schemaNameFor(project.id)),
+      );
+      const edited = retuned.tree;
+
+      if (retuned.changed) {
+        /* Said, because it is a real change to what their project is: it stops
+           being a directory of files on a CDN and becomes a running server.
+           One sentence, with the reason that forced it. */
+        await deliver(
+          `This project now needs a server, so I've switched its build over — ${retuned.because[0]}.\n\nNothing about the pages changes. It will take a little longer to deploy and it is no longer a folder of files you can open without one.`,
+          { key: "build-mode-raised" },
+        );
+      }
       if (repairs.length > 0) {
         // eslint-disable-next-line no-console
         console.info(
