@@ -243,6 +243,74 @@ console.log("\nThe brief the model is given");
   } else pass("nothing known → the brief claims nothing");
 }
 
+/* ── A word that is not a request ─────────────────────────────────────────
+ *
+ * Both of these were reported from production, on the same page, on the same
+ * afternoon, and both ended the same way — the edit refused outright:
+ *
+ *   "That means adding backend and storage, and this project is a single page
+ *    — there is no server behind it."
+ *
+ * The first message described a CSS media query. `media` was in the storage
+ * pattern, and `@media (max-width:767px)` appears in every responsive
+ * stylesheet ever written, so a customer fixing a header on a phone was told
+ * their layout fix was a feature their project could not have.
+ *
+ * The second said "without adding or modifying any backend logic" — and got a
+ * refusal about adding backend logic. The word was in the sentence; nothing was
+ * reading the half of the sentence that said not to.
+ *
+ * The cost of both is the same and it is the worst kind: the edit does not
+ * happen, the page stays broken, and the reply is confidently about something
+ * the customer never asked for.
+ */
+console.log("Words that are not requests");
+{
+  const page = {
+    type: "landing", frontend: true, backend: false, database: false,
+    authentication: false, admin: false, storage: false, payments: false,
+  };
+  const reaches = (message) =>
+    planEdit(message, page).touches.filter((layer) => layer !== "frontend");
+
+  const css = reaches(
+    'The rule @media (max-width:767px){ .desktop-nav{ display:none; } } never takes effect ' +
+    'because the inline style="display:flex" outranks it.',
+  );
+  if (css.length > 0) fail("@media", `a CSS media query reached ${css.join(", ")}`);
+  else pass("a CSS media query is not a request for a media library");
+
+  const negated = reaches(
+    "Fix the mobile header immediately without adding or modifying any backend logic.",
+  );
+  if (negated.length > 0) fail("negation", `"without … backend" reached ${negated.join(", ")}`);
+  else pass('"without adding backend" is not a request for a backend');
+
+  const alsoNegated = reaches("Change the hero text. No need for a database or sign-in.");
+  if (alsoNegated.length > 0) fail("negation", `"no need for" reached ${alsoNegated.join(", ")}`);
+  else pass('"no need for a database" is not a request for one');
+
+  /* THE OTHER HALF. A guard that swallowed real requests would be the same
+     failure pointing the other way — an edit quietly not doing what was asked. */
+  const login = reaches("Add customer accounts so people can sign in and see their orders");
+  if (!login.includes("authentication")) fail("negation", "a real sign-in request stopped being one");
+  else pass("a real request for accounts still reaches authentication");
+
+  const upload = reaches("Let customers upload a photo to a media library");
+  if (!upload.includes("storage")) fail("@media", "a real upload request stopped being one");
+  else pass("a real request for uploads still reaches storage");
+
+  const mixed = reaches("Do not add a database, but add a contact form that emails me");
+  if (!mixed.includes("backend")) fail("negation", "the clause after `but` was swallowed too");
+  else pass("a negation stops at `but`, so what follows it is still asked for");
+
+  /* And a bug REPORT that happens to contain a negative is not a prohibition:
+     "it is not saving" is somebody telling us saving is broken. */
+  const report = reaches("It is not saving my data when I submit the form");
+  if (!report.includes("database")) fail("negation", '"it is not saving" was read as "do not save"');
+  else pass('"it is not saving" is a report, not an instruction to leave it alone');
+}
+
 console.log("");
 
 if (failures > 0) {
