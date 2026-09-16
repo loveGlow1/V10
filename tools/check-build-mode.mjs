@@ -328,5 +328,52 @@ const packageOf = (tree) =>
   );
 }
 
+/* ── And the preview has to tell the truth about a server project ────────
+ *
+ * The in-browser renderer compiles a tree and runs it. That is exactly right
+ * for a static project and meaningless for a server one: a route handler does
+ * not exist in a browser, a server action has nothing to call, and a server
+ * component reading a secret would either fail or — far worse — be handed a
+ * plausible-looking nothing and render a page that is not the page.
+ *
+ * Showing a mock-up of somebody's app is the thing that route was rewritten to
+ * stop doing, so a server project is sent at its running copy, and when there
+ * is not one yet the pane says so in a sentence. */
+const previewRoute = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+
+has(
+  /buildModeOf\(tree\)/.test(previewRoute),
+  "the preview route asks which kind of project it is holding",
+);
+has(
+  /Response\.redirect\(live/.test(previewRoute),
+  "and sends a server project at its running copy",
+  "compiling server components in a browser renders something that is not the app",
+);
+has(
+  /publicAddress\(/.test(previewRoute),
+  "at the stable address, not the per-deployment host behind Deployment Protection",
+);
+has(
+  /needsServer\(/.test(previewRoute),
+  "and says so plainly when there is nothing running yet",
+);
+
+/* The keys panel, which exists so a server project can hold a secret at all. */
+const secretsRoute = readFileSync(join(root, "src/app/api/projects/[id]/secrets/route.ts"), "utf8");
+has(
+  !/from\("project_secrets"\)/.test(secretsRoute) && !/insert\(/.test(secretsRoute),
+  "no secret is written to this platform's database",
+  "a copy held here is a second thing to breach for no benefit",
+);
+has(
+  /projectSecretNames\(/.test(secretsRoute),
+  "the list is read back from Vercel, so it says what is really set",
+);
+has(
+  /secretKeyProblem\(key\)/.test(secretsRoute),
+  "and a key is checked before its value goes anywhere",
+);
+
 console.log(failed === 0 ? "\nAll build mode checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

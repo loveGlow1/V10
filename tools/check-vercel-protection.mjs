@@ -68,7 +68,8 @@ process.env.VERCEL_TEAM_ID = "team_abc";
 
 const require = createRequire(import.meta.url);
 const mod = require(join(out, "lib/publish/vercel-deploy.js"));
-const { clearProtection, aliasDeployment, previewAliasFor, projectEnvironment, setProjectEnvironment, vercelCredentials } = mod;
+const { clearProtection, aliasDeployment, previewAliasFor, projectEnvironment, projectSecretNames,
+        removeProjectSecret, secretKeyProblem, setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -309,6 +310,103 @@ const TARGET = {
   stubFetch(() => ({ status: 200, body: {} }));
   const result = await setProjectEnvironment("my-app", {}, creds);
   has(result.set === true && calls.length === 0, "a project with no environment makes no call at all");
+}
+
+/* ── Server keys: the ones that must never reach a browser ────────────────
+ *
+ * A server-mode project can hold a real secret. It goes to Vercel and nowhere
+ * else — QuickStark stores no copy, encrypted or otherwise — and it is written
+ * `encrypted` rather than `plain`, which is the whole difference from the three
+ * public values above.
+ *
+ * The rule worth a check of its own is the NEXT_PUBLIC_ refusal. Next inlines
+ * anything with that prefix into the bundle and serves it to every visitor, so
+ * accepting one here would mark a Stripe secret key encrypted on Vercel and
+ * then publish it on the customer's own website, having told them it was safe.
+ * Nothing downstream would catch that: the deployment succeeds. */
+{
+  has(secretKeyProblem("STRIPE_SECRET_KEY") === null, "an ordinary key name is accepted");
+  has(secretKeyProblem("OPENAI_API_KEY") === null, "and another");
+
+  has(
+    /published to every visitor/.test(secretKeyProblem("NEXT_PUBLIC_STRIPE_KEY") ?? ""),
+    "a NEXT_PUBLIC_ name is refused, and the refusal says why",
+    secretKeyProblem("NEXT_PUBLIC_STRIPE_KEY") ?? "accepted",
+  );
+  has(
+    secretKeyProblem("NEXT_PUBLIC_SUPABASE_URL") !== null,
+    "the platform's own variables cannot be overwritten by hand",
+  );
+  has(secretKeyProblem("") !== null, "an empty name is refused");
+  has(secretKeyProblem("2FAST") !== null, "and one that could not be an environment variable");
+  has(secretKeyProblem("HAS SPACE") !== null, "and one with a space in it");
+}
+
+{
+  stubFetch(() => ({ status: 200, body: {} }));
+  const result = await setProjectSecret("my-app", "STRIPE_SECRET_KEY", "sk_live_x", creds);
+  const written = calls.find((c) => c.url.includes("/env") && c.method === "POST");
+
+  has(result.ok === true, "a secret is written to the project");
+  has(written && written.body.type === "encrypted", "as encrypted, not as plain", written?.body?.type);
+  has(written && written.body.value === "sk_live_x", "carrying the value once");
+  has(
+    calls.some((c) => c.method === "POST" && c.url.includes("/v10/projects") && !c.url.includes("/env")),
+    "and the project is created first, so a key can be set before the first deploy",
+  );
+}
+
+{
+  /* Refused before the value goes anywhere. The order matters: a bad name must
+     not result in a request that carries the secret. */
+  stubFetch(() => ({ status: 200, body: {} }));
+  const result = await setProjectSecret("my-app", "NEXT_PUBLIC_OOPS", "sk_live_x", creds);
+  has(result.ok === false, "a NEXT_PUBLIC_ key is refused by the writer too");
+  has(calls.length === 0, "and nothing is sent, so the value never leaves this process", `${calls.length} call(s)`);
+}
+
+{
+  /* Read back by NAME. Values are not returned by Vercel and are not asked for
+     here; a secret readable from the interface that set it is a secret with an
+     extra way out. */
+  stubFetch(() => ({
+    status: 200,
+    body: {
+      envs: [
+        { id: "1", key: "STRIPE_SECRET_KEY", type: "encrypted" },
+        { id: "2", key: "NEXT_PUBLIC_SUPABASE_URL", type: "plain" },
+        { id: "3", key: "OPENAI_API_KEY", type: "encrypted" },
+      ],
+    },
+  }));
+  const names = await projectSecretNames("my-app", creds);
+
+  has(
+    names.length === 2 && names[0] === "OPENAI_API_KEY" && names[1] === "STRIPE_SECRET_KEY",
+    "the list is the secret names, sorted",
+    JSON.stringify(names),
+  );
+  has(
+    !names.includes("NEXT_PUBLIC_SUPABASE_URL"),
+    "the published variables are not listed as secrets, because they are not",
+  );
+}
+
+{
+  stubFetch((url, init) =>
+    init.method === "DELETE" ? { status: 200, body: {} } : { status: 200, body: { envs: [{ id: "abc", key: "STRIPE_SECRET_KEY", type: "encrypted" }] } },
+  );
+  const result = await removeProjectSecret("my-app", "STRIPE_SECRET_KEY", creds);
+  const deleted = calls.find((c) => c.method === "DELETE");
+
+  has(result.ok === true, "a key can be taken off again");
+  has(deleted && deleted.url.includes("/env/abc"), "by the id Vercel gave it", deleted?.url);
+}
+
+{
+  stubFetch(() => ({ status: 200, body: { envs: [] } }));
+  const result = await removeProjectSecret("my-app", "GONE_ALREADY", creds);
+  has(result.ok === true && !calls.some((c) => c.method === "DELETE"), "removing one that is not there is not an error");
 }
 
 console.log(failed === 0 ? "\nAll Vercel protection checks passed." : `\n${failed} failed.`);
