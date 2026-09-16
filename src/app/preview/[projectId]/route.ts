@@ -6,7 +6,8 @@ import { appDomainFor, previewAliasFor, publicAddress } from "@/lib/publish/verc
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
-import { loadTree } from "@/lib/builder/store-tree";
+import { currentTree, loadTree } from "@/lib/builder/store-tree";
+import type { FileTree } from "@/lib/builder/tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -370,7 +371,24 @@ export async function GET(
    * cannot answer: a project whose files are missing. Its html is a receipt,
    * and a receipt must not be framed as a preview then either — that falls to
    * cannotRender below, which says so in a line. */
-  const tree = wantsDiagnostics ? [] : await loadTree(supabase, build.id as string);
+  /* ── Read for the PROJECT, not for the row ───────────────────────────
+   *
+   * This read `loadTree(build.id)`, which is the right question about a build
+   * and the wrong one about a project. A build row can exist without its
+   * files — an older save path, an orchestrator step that wrote the summary
+   * and stopped — and when the newest one is like that, an empty tree here
+   * meant the renderer had nothing to route and the pane fell through to the
+   * receipt: "Routes 9, Database created, Files", framed where somebody's
+   * application should be.
+   *
+   * Three projects in production are in that state, and two of them have a
+   * complete tree on the build immediately before. currentTree looks back for
+   * it and only reports sourceMissing when there is genuinely no source
+   * anywhere — see newestStoredTree in lib/builder/store-tree.ts. */
+  const current = wantsDiagnostics
+    ? { tree: [] as FileTree, sourceMissing: false }
+    : await currentTree(supabase, projectId);
+  const tree = current.tree;
   const isProject = tree.length > 0 || isProjectSummary(build.html as string);
 
   if (!wantsDiagnostics && isProject) {
