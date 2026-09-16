@@ -30,7 +30,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -182,6 +182,57 @@ if (EDIT_MODEL === EDIT_MODEL_STRONG) {
   fail("the two tiers are different models", `both are ${EDIT_MODEL}`);
 } else {
   ok(`the two tiers are different models — ${EDIT_MODEL} vs ${EDIT_MODEL_STRONG}`);
+}
+
+/* ── The budget belongs to the request, not to the edit ──────────────────
+ *
+ * Four "Load failed" messages in a row on a real project, 57 to 69 seconds
+ * apart, with credits spent and nothing stored. Not a refusal and not a model
+ * problem: the platform kills this function at sixty seconds, and the edit was
+ * measuring its own forty-five from the moment IT started — after intent
+ * classification, retrieval, planning, the reframe and the landmarks had
+ * already spent some of the same sixty.
+ *
+ * So the edit ran correctly, to its own deadline, and was cut off with the
+ * socket open. The browser has no message for that; it says "Load failed",
+ * which tells the customer nothing and reads like the product is broken.
+ *
+ * Measured from the top of the request this cannot happen. An honest "that was
+ * too large to finish in one go" at fifty seconds is worth more than a dead
+ * connection at sixty. */
+{
+  const route = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+  const edit = readFileSync(join(process.cwd(), "src/lib/builder/edit.ts"), "utf8");
+
+  const declared = /export const maxDuration = (\d+)/.exec(route);
+  const budget = /const REQUEST_BUDGET_MS = (\d+)_(\d+)/.exec(edit);
+
+  if (!declared) fail("the route declares a maxDuration");
+  else if (!budget) fail("edit.ts declares a request budget");
+  else {
+    const ceiling = Number(declared[1]) * 1000;
+    const spend = Number(`${budget[1]}${budget[2]}`);
+    if (spend >= ceiling) {
+      fail(
+        `the edit budget (${spend}ms) does not fit inside the function ceiling (${ceiling}ms)`,
+      );
+    } else {
+      ok(`the edit budget leaves ${(ceiling - spend) / 1000}s to store, charge and answer in`);
+    }
+  }
+
+  if (!/const requestStartedAt = Date\.now\(\);/.test(route)) {
+    fail("the route takes a clock when the request arrives");
+  } else ok("the clock starts when the request arrives, not when the edit does");
+
+  const passes = route.match(/editDeadline\(requestStartedAt\)/g) ?? [];
+  if (passes.length < 2) {
+    fail(`only ${passes.length} of the two edit paths is given the remaining time`);
+  } else ok("both edit paths — the page and the source — are given what is left of it");
+
+  if (!/deadline \?\? Date\.now\(\) \+ EDIT_DEADLINE_MS/.test(edit)) {
+    fail("a caller that passes no deadline no longer gets the old behaviour");
+  } else ok("and a caller outside a request keeps the budget it always had");
 }
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
