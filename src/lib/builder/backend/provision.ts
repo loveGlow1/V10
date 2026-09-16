@@ -123,9 +123,10 @@ export function diagnose(dsn: string, message: string): string {
       `resolve and no connection is attempted — the password is never reached. ` +
       `Use the Session pooler instead: in Supabase, Connect → Session pooler. It ` +
       `looks like ` +
-      `postgresql://postgres.${ref}:PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres — ` +
-      `note the username is postgres.${ref}, not postgres. Then set SUPABASE_DB_URL ` +
-      `to it and redeploy.`
+      `postgresql://postgres.${ref}:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres — ` +
+      `note the username is postgres.${ref}, not postgres, and that ` +
+      `[YOUR-PASSWORD] is a placeholder standing in for the database password, ` +
+      `brackets included. Then set SUPABASE_DB_URL to it and redeploy.`
     );
   }
 

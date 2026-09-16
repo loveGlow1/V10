@@ -81,6 +81,34 @@ port `5432`, with the username in the `postgres.<ref>` form. Session mode rather
 than transaction mode (port `6543`) because this connection runs DDL inside one
 transaction, and session mode is the one that behaves like an ordinary client.
 
+```
+postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+Copy it from the dashboard rather than typing it out: the region prefix is
+`aws-0-` on older projects and `aws-1-` on newer ones, and only the dashboard
+knows which.
+
+### `[YOUR-PASSWORD]` is a placeholder
+
+Supabase prints the string with that placeholder in it, and it has to be
+replaced — square brackets and all — with the **database** password. Not the
+`anon` key, not `service_role`, not a management token; those are different
+credentials and none of them will authenticate here.
+
+That password is displayed once, when the project is created, and cannot be
+read back afterwards — it is not in the dashboard and not in the API. If it is
+lost, **Project Settings → Database → Reset database password** issues a new
+one, which invalidates the old password everywhere it is still in use.
+
+It also sits inside a URL, so any character that means something there has to
+be percent-encoded: `@` → `%40`, `:` → `%3A`, `/` → `%2F`, `?` → `%3F`, `#` →
+`%23`, `%` → `%25`, `&` → `%26`, `+` → `%2B`, space → `%20`. A password left
+unencoded is read as the end of the password and the start of a hostname, and
+fails as `28P01 password authentication failed` — which reads like the wrong
+password rather than a mis-typed URL. Generating an alphanumeric password
+avoids the question entirely.
+
 If the tables are still not created after switching, the reason is now recorded
 against the build rather than only spoken once in the chat — see
 `project_builds.database_error`.
