@@ -7,9 +7,10 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import {
-  groupedModels,
+  modelById,
   shortModelName,
 } from "./models";
+import { AGENTS, agentForModel } from "./agents";
 import { useModel } from "./useModel";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
@@ -710,11 +711,18 @@ export default function DashboardPage() {
                       setIsUploadPopoverOpen(false);
                     }}
                     aria-expanded={isModelPopoverOpen}
-                    aria-label="Choose a model"
+                    aria-label="Choose an agent"
                     className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
                     <ProviderMark provider={chosenModel.provider} />
-                    <span className="font-medium tracking-tight">{shortModelName(chosenModel)}</span>
+                    {/* The agent's name when the chosen model is one, and the
+                        model's own when it is not — a model picked in the
+                        workspace's fuller list has no agent, and naming it
+                        anyway is better than naming nothing or naming the
+                        wrong thing. */}
+                    <span className="font-medium tracking-tight">
+                      {agentForModel(model)?.title ?? shortModelName(chosenModel)}
+                    </span>
                     <ChevronDown
                       className={`h-3.5 w-3.5 text-ink transition-transform ${
                         isModelPopoverOpen ? "rotate-180" : ""
@@ -807,7 +815,7 @@ export default function DashboardPage() {
             <Popover
               open={isModelPopoverOpen}
               onClose={() => setIsModelPopoverOpen(false)}
-              title="Select model"
+              title="Select agent"
               align="left"
               side="top"
               width="w-[min(340px,100%)]"
@@ -815,98 +823,98 @@ export default function DashboardPage() {
             >
               <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
                 <Shuffle className="h-3.5 w-3.5 shrink-0" />
-                Model changes apply from your next message
+                Agent changes apply from your next message
               </p>
 
-              {/* No cap and no scroller of its own any more. The card around
-                  it measures the room it actually has and scrolls what does not
-                  fit, so a fixed 52vh here would either leave room unused on a
-                  tall window or start a second scrollbar inside the first. */}
+              {/* ── The agents, which now name a model each ─────────────────
+               *
+               * This list was here before and was deleted, because choosing an
+               * agent set a label and nothing else: the build ran on a
+               * hardcoded "Q1" whatever the chip said, so somebody who chose
+               * Q2 got Q1 and nothing anywhere admitted it.
+               *
+               * It is back because each entry now names a real model and
+               * choosing one sets it — through the same provider the
+               * workspace composer and the settings panel read, so the three
+               * cannot disagree again. See ./agents.ts.
+               *
+               * The full model list has not gone anywhere; it is in the
+               * workspace composer, which is where somebody who wants to pick
+               * a specific model by name is working. This is the front door,
+               * and the front door offers the product's own vocabulary. */}
               <div className="-mx-1.5 px-1.5" role="menu">
-                {groupedModels().map((group) => (
-                  <div key={group.provider}>
-                    {group.label && (
-                      <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-                        {group.label}
-                      </p>
-                    )}
-                    {group.models.map((option) => {
-                      const selected = model === option.id;
-                      /* Shown either way, and for the same reason in both
-                         cases: a model greyed with a reason is information, an
-                         absent one is not. One says "check back soon", the
-                         other names the plan that includes it. */
-                      /* One answer for all three ways a model can be out of
-                         reach — no credential, not on this plan, not
-                         affordable on this balance — and the same one the
-                         workspace's picker asks. See useModel. */
-                      const gate = reach(option);
-                      const ready = gate.ok;
-                      return (
-                        <button
-                          key={option.id}
-                          role="menuitem"
-                          disabled={!ready}
-                          title={gate.ok ? undefined : gate.label}
-                          onClick={() => {
-                            setModel(option.id);
-                            setIsModelPopoverOpen(false);
-                          }}
-                          className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
-                            ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
-                          } ${selected ? "bg-layer/[0.06]" : ""}`}
-                        >
-                          <span className="mt-0.5 shrink-0">
-                            <ProviderMark provider={option.provider} />
-                          </span>
+                {AGENTS.map((agent) => {
+                  const runs = agent.model ? modelById(agent.model) : null;
+                  /* An agent on the roadmap, and one whose model this account
+                     cannot reach, are both unselectable and are NOT the same
+                     sentence: one is "not yet", the other names the plan or
+                     the balance that would fix it. See useModel's reach. */
+                  const gate = runs ? reach(runs) : null;
+                  const ready = !agent.soon && Boolean(runs) && (gate?.ok ?? false);
+                  const selected = Boolean(agent.model) && agent.model === model;
 
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-2">
-                              <span
-                                className={`truncate text-[13px] font-medium ${
-                                  selected ? "text-accent" : "text-ink"
-                                }`}
-                              >
-                                {option.name}
-                              </span>
-                              {option.badge && ready && (
-                                <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
-                                  {option.badge}
-                                </span>
-                              )}
-                              {!gate.ok && (
-                                <span
-                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                    gate.why === "unavailable"
-                                      ? "bg-layer/[0.08] text-muted"
-                                      : gate.why === "plan"
-                                        ? "bg-accent/15 text-accent"
-                                        : "bg-amber-500/15 text-amber-300"
-                                  }`}
-                                >
-                                  {gate.why === "plan" ? gate.planName : gate.label}
-                                </span>
-                              )}
-                            </span>
-                            <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
-                              {option.blurb}
-                              {option.note && (
-                                <>
-                                  {" · "}
-                                  <span className="text-warn">{option.note}</span>
-                                </>
-                              )}
-                            </span>
-                          </span>
+                  return (
+                    <button
+                      key={agent.id}
+                      role="menuitem"
+                      disabled={!ready}
+                      title={agent.soon ? "Coming soon" : gate && !gate.ok ? gate.label : undefined}
+                      onClick={() => {
+                        if (!agent.model) return;
+                        setModel(agent.model);
+                        setIsModelPopoverOpen(false);
+                      }}
+                      className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
+                        ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
+                      } ${selected ? "bg-layer/[0.06]" : ""}`}
+                    >
+                      <span className="mt-0.5 shrink-0">
+                        <ProviderMark provider={runs?.provider ?? "auto"} />
+                      </span>
 
-                          {selected && (
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-accent" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={`truncate text-[13px] font-medium ${
+                              selected ? "text-accent" : "text-ink"
+                            }`}
+                          >
+                            {agent.title}
+                          </span>
+                          {agent.soon && (
+                            <span className="shrink-0 rounded-full bg-layer/[0.10] px-2 py-0.5 text-[10px] font-semibold text-muted">
+                              Coming soon
+                            </span>
                           )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
+                          {!agent.soon && gate && !gate.ok && (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                gate.why === "unavailable"
+                                  ? "bg-layer/[0.10] text-muted"
+                                  : "bg-accent/15 text-accent"
+                              }`}
+                            >
+                              {gate.label}
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-0.5 block text-[12px] leading-snug text-muted">
+                          {agent.subtitle}
+                        </span>
+                        {/* Named underneath rather than hidden. Q1 and Q2 are
+                            what somebody is choosing between; the model is
+                            what they are paying for, and concealing that from
+                            an account billed per build would be the other kind
+                            of dishonesty. */}
+                        {runs && (
+                          <span className="mt-0.5 block text-[11px] leading-snug text-muted/70">
+                            Runs on {runs.name}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </Popover>
           </div>
