@@ -8,16 +8,23 @@
  *     "I couldn't send that one. Your message is still in the box — try it
  *      again."
  *
- * It names no cause, and its advice is actively wrong for the commonest case. A
- * request killed by the sixty-second ceiling is killed again at sixty seconds,
- * and again after that. A customer followed that instruction four times in nine
- * minutes — 8:41, 8:47, 8:48 — while the thing they needed to know, that the
- * change was too large to finish in the time and to ask for one section
- * instead, was never said by anything in the product.
+ * It names no cause, and its advice used to be actively wrong for the commonest
+ * case. A customer followed that instruction four times in nine minutes —
+ * 8:41, 8:47, 8:48 — and each time got the same dead connection.
  *
- * THE FIELD THAT MATTERS IS `retryable`. Telling somebody to try again when
- * trying again cannot work is worse than saying nothing: it is an instruction
- * to spend their afternoon in a loop that does not close.
+ * The first fix told them instead to ask for one section at a time. That was
+ * accurate about the ceiling and wrong about whose problem it was: it made a
+ * limit of ours read as a fault in their request, for a request that was never
+ * too large.
+ *
+ * An edit is now a durable task (src/lib/builder/edit-task.ts), so the answer
+ * this file has to give changed with it: the change is saved, sending the same
+ * message rejoins it, and NOTHING here may tell a customer to break up what
+ * they asked for because our connection has a ceiling. That is the rule these
+ * assertions exist to hold.
+ *
+ * THE OTHER FIELD THAT MATTERS IS `retryable`, and it has to match the world:
+ * true when sending it again does something different, false when it cannot.
  *
  * No keys, no network.
  */
@@ -64,30 +71,85 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
     status: 200, answered: false, started: true, elapsedMs: 58_000,
   });
 
-  has(/58 seconds/.test(timeout.cause), "a run cut off at 58 seconds says so, in seconds", timeout.cause);
-  has(/one minute/.test(timeout.cause), "and names the limit it hit");
-  has(/not been touched|nothing was changed/i.test(timeout.cause), "and says the page is untouched");
+  has(
+    /connection/i.test(timeout.cause),
+    "a run cut off names the CONNECTION as what ended",
+    timeout.cause,
+  );
+  has(
+    !/\b\d+ seconds\b/.test(timeout.cause),
+    "and never reports our seconds at somebody who did nothing wrong",
+    timeout.cause,
+  );
+  has(
+    /exactly as it was|not been touched|nothing was changed/i.test(timeout.cause),
+    "it says the page is untouched",
+    timeout.cause,
+  );
+  has(/charged/i.test(timeout.cause), "and that the attempt cost nothing");
+  has(/saved/i.test(timeout.cause), "and that what was worked out is saved", timeout.cause);
+
+  /* ── THE TWO SENTENCES THIS PRODUCT MAY NOT SAY ──────────────────────────
+   *
+   * Both were shipped, both were read as our limit being the customer's fault,
+   * and both are now false as well as unkind: the change is a task, not a
+   * socket. */
+  has(
+    !/one part at a time|one section at a time|a section at a time|smaller/i.test(
+      `${timeout.cause} ${timeout.remedy}`,
+    ),
+    "IT NEVER TELLS THEM TO ASK FOR LESS",
+    timeout.remedy,
+  );
+  has(
+    !/cut off/i.test(`${timeout.cause} ${timeout.remedy}`),
+    "and never says the request was cut off",
+    timeout.cause,
+  );
 
   has(
-    timeout.retryable === false,
-    "IT IS NOT RETRYABLE — the same message hits the same ceiling",
-    "this is the field that sent somebody round the loop four times",
+    timeout.retryable === true,
+    "IT IS RETRYABLE — the same message rejoins the saved task",
+    "this is the field that used to send somebody round a loop that could not close",
   );
   has(
-    !/try (it )?again/i.test(timeout.remedy),
-    "so the remedy never says try again",
+    /send (the same message |it )?again/i.test(timeout.remedy),
+    "so the remedy is to send the same message again",
     timeout.remedy,
   );
   has(
-    /one part at a time|section/i.test(timeout.remedy),
-    "it says to ask for one part at a time",
+    /rather than starting a second|picks .*back up|saved/i.test(timeout.remedy),
+    "and says what that does, rather than asking them to trust it",
     timeout.remedy,
   );
   has(
-    /header|pricing|footer/i.test(timeout.remedy),
-    "with the words to use, rather than the instruction to be brief",
+    /don't (need|have) to change what you asked for|don't have to change anything you asked for/i.test(
+      timeout.remedy,
+    ),
+    "and says in as many words that their request was fine",
+    timeout.remedy,
   );
-  has(/Prototype/.test(timeout.remedy), "and names the faster agent as the other way out");
+  has(/Prototype/.test(timeout.remedy), "with the faster agent named as an option, not an instruction");
+}
+
+/* ── Nothing anywhere may push them to shrink the request ────────────────── */
+{
+  const everyFailure = [
+    { status: 200, answered: false, started: true, elapsedMs: 58_000 },
+    { status: 504, answered: false, started: true, elapsedMs: 61_000 },
+    { status: 502, answered: false, started: true, elapsedMs: 47_000 },
+    { status: 500, answered: false, started: true, elapsedMs: 5_000 },
+    { status: 0, answered: false, started: false, elapsedMs: 800 },
+  ].map((facts) => sayFailure(describeRunFailure(facts)));
+
+  const pushy = everyFailure.filter((said) =>
+    /one part at a time|one section at a time|a section at a time|ask for (a )?smaller/i.test(said),
+  );
+  has(
+    pushy.length === 0,
+    "NO failure this file names asks the customer to break up their request",
+    pushy[0],
+  );
 }
 
 /* ── The opposite failure, which needs the opposite advice ───────────────── */
@@ -142,8 +204,11 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
 /* ── The named statuses ──────────────────────────────────────────────────── */
 {
   for (const [status, expect, retry] of [
-    [504, /too long/i, false],
-    [502, /too long/i, false],
+    /* Both are the connection's ceiling wearing a status code, and both are
+       retryable now for the same reason the branch above is: the change is a
+       saved task, so sending it again continues it. */
+    [504, /didn't answer/i, true],
+    [502, /didn't answer/i, true],
     [429, /faster than/i, true],
     [402, /credits/i, true],
     [401, /signed in/i, true],
