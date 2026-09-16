@@ -68,7 +68,7 @@ process.env.VERCEL_TEAM_ID = "team_abc";
 
 const require = createRequire(import.meta.url);
 const mod = require(join(out, "lib/publish/vercel-deploy.js"));
-const { clearProtection, aliasDeployment, previewAliasFor, projectEnvironment, projectSecretNames,
+const { clearProtection, aliasDeployment, deploymentFiles, previewAliasFor, projectEnvironment, projectSecretNames,
         removeProjectSecret, secretKeyProblem, setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
 
 let failed = 0;
@@ -275,6 +275,23 @@ const TARGET = {
 }
 
 {
+  /* The same door, handed something that is not published. It must not be
+     written plain whatever the caller believed it was sending: a plain value
+     that should have been encrypted is a leak, and an encrypted one that need
+     not have been costs nothing. */
+  stubFetch(() => ({ status: 200, body: {} }));
+  await setProjectEnvironment("my-app", { STRIPE_SECRET_KEY: "sk_live_x" }, creds);
+  const written = calls.find((c) => c.url.includes("/env"));
+  const entry = Array.isArray(written?.body) ? written.body[0] : null;
+
+  has(
+    entry && entry.type === "encrypted",
+    "a name without the published prefix is encrypted even through the public door",
+    entry?.type,
+  );
+}
+
+{
   stubFetch(() => ({ status: 200, body: {} }));
   const result = await setProjectEnvironment("my-app", projectEnvironment(TARGET), creds);
   const written = calls.find((c) => c.url.includes("/env"));
@@ -351,6 +368,14 @@ const TARGET = {
   has(written && written.body.type === "encrypted", "as encrypted, not as plain", written?.body?.type);
   has(written && written.body.value === "sk_live_x", "carrying the value once");
   has(
+    Array.isArray(written?.body?.target)
+      && written.body.target.includes("production")
+      && written.body.target.includes("preview")
+      && !written.body.target.includes("development"),
+    "for production and preview, and not for development",
+    `${JSON.stringify(written?.body?.target)} — development is \`vercel dev\` on a laptop, which no generated project has`,
+  );
+  has(
     calls.some((c) => c.method === "POST" && c.url.includes("/v10/projects") && !c.url.includes("/env")),
     "and the project is created first, so a key can be set before the first deploy",
   );
@@ -407,6 +432,51 @@ const TARGET = {
   stubFetch(() => ({ status: 200, body: { envs: [] } }));
   const result = await removeProjectSecret("my-app", "GONE_ALREADY", creds);
   has(result.ok === true && !calls.some((c) => c.method === "DELETE"), "removing one that is not there is not an error");
+}
+
+/* ── And none of it reaches the client bundle ─────────────────────────────
+ *
+ * The other half of "never exposed". `.env.production` is written INTO the
+ * upload, so it is part of the project: it ends up in the build, in the
+ * download, and in anything a customer opens. Every value in it is therefore
+ * published by definition, and the only values that belong there are the three
+ * that were already public.
+ *
+ * A secret is not passed through here and never has been — it goes straight to
+ * Vercel — but "it does not happen to today" is not a guarantee, and this is
+ * the one file where a mistake would be silent: the deployment succeeds, the
+ * site works, and the key is in a text file inside somebody's downloadable
+ * project. */
+{
+  const files = deploymentFiles(
+    [{ path: "app/page.tsx", content: "export default function P() { return null; }" }],
+    TARGET,
+  );
+  const env = files.find((f) => f.file === ".env.production");
+
+  has(Boolean(env), "the upload carries .env.production for a project with a backend");
+
+  const names = (env?.data ?? "")
+    .split("\n")
+    .map((line) => line.split("=")[0].trim())
+    .filter((name) => name.length > 0);
+
+  has(names.length === 3, "with three variables in it", names.join(", "));
+  has(
+    names.every((name) => name.startsWith("NEXT_PUBLIC_")),
+    "and every one of them published by name, so nothing secret can be in there",
+    names.join(", "),
+  );
+
+  const none = deploymentFiles(
+    [{ path: "app/page.tsx", content: "export default function P() { return null; }" }],
+    { name: "my-app" },
+  );
+  has(
+    !none.some((f) => f.file === ".env.production"),
+    "a project with no backend gets no env file at all",
+    "a file of somebody else's credentials in a site that never asked for a database",
+  );
 }
 
 console.log(failed === 0 ? "\nAll Vercel protection checks passed." : `\n${failed} failed.`);

@@ -1,7 +1,9 @@
 import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-preview";
 import { buildModeOf } from "@/lib/builder/build-mode";
 import { existingVercelProject } from "@/lib/publish/deployment-store";
-import { publicAddress } from "@/lib/publish/vercel-deploy";
+import { canBeFramed } from "@/lib/publish/framable";
+import { previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
+import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { loadTree } from "@/lib/builder/store-tree";
@@ -134,7 +136,32 @@ async function liveAddress(projectId: string): Promise<string | null> {
       .maybeSingle<{ deployment_url: string | null }>();
 
     const vercelProject = await existingVercelProject(service, projectId);
-    return publicAddress(data?.deployment_url ?? null, vercelProject);
+    const vercel = publicAddress(data?.deployment_url ?? null, vercelProject);
+
+    /* ── This platform's own address first ─────────────────────────────
+     *
+     * `<slug>.preview.quickstark.tech` rather than `<project>.vercel.app`,
+     * for the rule this product is held to everywhere else: before a publish
+     * a customer sees a QuickStark link, and somebody else's hosting domain
+     * is not something to hand them in the pane they preview in. The cron
+     * assigns this alias on every deployment that reaches READY.
+     *
+     * ASKED, not assumed. The alias needs `*.preview.quickstark.tech` to be a
+     * verified domain on the Vercel account with DNS pointing at it, and
+     * where that is not true aliasDeployment is refused and logs a warning
+     * nobody reads. Redirecting the pane at a host that does not resolve
+     * would turn a working preview into a blank rectangle — which is the
+     * exact failure this route keeps being rewritten to avoid. So it is
+     * fetched once, and the vercel.app address is what happens when it does
+     * not answer. */
+    const alias = vercelProject ? previewAliasFor(vercelProject) : null;
+    if (alias) {
+      const address = `https://${alias}`;
+      const reachable = await canBeFramed(address, SITE_URL);
+      if (reachable.ok) return address;
+    }
+
+    return vercel;
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("preview: the live address could not be read:", error);
