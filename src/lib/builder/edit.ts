@@ -305,6 +305,37 @@ function ranOutOfRoom(message: Anthropic.Message): boolean {
  * platform, which is the failure this exists to prevent. */
 const EDIT_DEADLINE_MS = 45_000;
 
+/* ── The budget belongs to the REQUEST, not to the edit ────────────────────
+ *
+ * EDIT_DEADLINE_MS above is measured from the moment editPage is called, and
+ * everything before that was unbudgeted: classifying the intent is a model call
+ * of its own, and so is retrieval, planning, the reframe and the landmarks. So
+ * an edit could start its 45 seconds with 15 already gone, run to its own
+ * deadline perfectly correctly, and be killed by the platform at 60 with the
+ * socket still open. What the customer sees then is not a message — it is the
+ * browser's own "Load failed", four times in a row, with credits spent and
+ * nothing to show.
+ *
+ * Measured from the top of the request, this cannot happen: whatever the rest
+ * of the route spent, the edit is given only what is left and returns inside
+ * it. An honest "that was too large to finish in one go" delivered at 50
+ * seconds is worth more than a dead connection at 60.
+ *
+ * 46 rather than 60 because the route still has to store the version, write the
+ * index, charge and answer after the edit returns. */
+const REQUEST_BUDGET_MS = 46_000;
+
+/**
+ * When an edit started from this request has to be finished by.
+ *
+ * Takes the time the REQUEST arrived. Returns a moment that may already have
+ * passed, and deliberately: a route that has spent its budget before reaching
+ * the edit should report that rather than start a call it cannot finish.
+ */
+export function editDeadline(requestStartedAt: number): number {
+  return requestStartedAt + REQUEST_BUDGET_MS;
+}
+
 /* Replies that were abandoned on the clock rather than finished.
  *
  * Held beside the message instead of inside it: the synthetic Message below has
@@ -702,6 +733,10 @@ export async function editPage(
      balance by the caller. Null or absent means Auto, and the heuristics below
      decide as they always have. */
   chosen?: string | null,
+  /* When this whole edit must be done by — see editDeadline. Absent means the
+     old behaviour: a budget measured from here, which is right for a caller
+     that is not inside a request with a ceiling over it. */
+  deadline?: number,
 ): Promise<EditOutcome> {
   /* A picture in the message changes what this call is. The model has to read
      the photograph, find the markup behind what it shows, and copy that markup
@@ -730,8 +765,9 @@ export async function editPage(
       : EDIT_MODEL_STRONG;
 
   /* One clock for the whole edit, started before the first call and inherited
-     by the retries. See EDIT_DEADLINE_MS. */
-  const deadlineAt = Date.now() + EDIT_DEADLINE_MS;
+     by the retries. See EDIT_DEADLINE_MS — and editDeadline, which is what the
+     caller passes when the request around this has a ceiling of its own. */
+  const deadlineAt = deadline ?? Date.now() + EDIT_DEADLINE_MS;
 
   const first = await ask(
     EDIT_SYSTEM,
@@ -1084,12 +1120,14 @@ export async function editSource(
   prior: Anthropic.MessageParam[] = [],
   onProgress?: OnProgress,
   architecture?: string,
+  /* As editPage — see editDeadline. */
+  deadline?: number,
 ): Promise<SourceEdit> {
   /* Sized on the file rather than on the project: what goes into the window is
      this one file, and a forty-file project whose every file is small is not a
      large edit. */
   const model = editModelFor(userMessage, file.content);
-  const deadlineAt = Date.now() + EDIT_DEADLINE_MS;
+  const deadlineAt = deadline ?? Date.now() + EDIT_DEADLINE_MS;
 
   const first = await ask(
     SOURCE_SYSTEM,

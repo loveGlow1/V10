@@ -44,6 +44,7 @@ import {
   EditError,
   answerQuestion,
   askClarifying,
+  editDeadline,
   editModelFor,
   editPage,
   editSource,
@@ -418,6 +419,21 @@ async function handle(
   emit: StepSink,
   emitText: TextSink,
 ): Promise<NextResponse> {
+  /* ── When this request arrived ──────────────────────────────────────────
+   *
+   * Taken on the first line, because this is the clock the PLATFORM is
+   * keeping. The function is killed at sixty seconds whatever it declares, and
+   * everything below — classifying the intent, retrieval, planning, the
+   * reframe, the landmarks — spends part of that before the edit begins.
+   *
+   * An edit measuring its own budget from where IT starts can therefore run
+   * entirely correctly and still be cut off with the socket still open. What
+   * the customer sees then is not a message: it is the browser's own "Load
+   * failed", four times in a row, with credits spent and nothing to show.
+   *
+   * See editDeadline — the edit is given what is LEFT of the request. */
+  const requestStartedAt = Date.now();
+
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
@@ -1535,6 +1551,7 @@ async function handle(
             upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture,
             architectureRow?.design_system as string | null,
           ),
+          editDeadline(requestStartedAt),
         );
         steps.mark(
           "edit",
@@ -2187,6 +2204,11 @@ async function handle(
            balance allow. Null is Auto, and editPage then decides as it always
            has. See pickedEditModel above. */
         pickedEditModel,
+        /* And what is LEFT of this request, rather than a fresh budget of its
+           own. Everything above spent some of the sixty seconds the platform
+           allows; the edit gets the remainder and answers inside it. See
+           editDeadline. */
+        editDeadline(requestStartedAt),
       );
 
       /* The photographs that were lifted out so the page could be read, put
