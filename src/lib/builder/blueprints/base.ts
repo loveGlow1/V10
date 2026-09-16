@@ -145,6 +145,7 @@ THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - Each width is its own composition with the same intent, not the desktop one scaled down: recalculate the image scale, the focal point, the text measure, the header height, the hero height and the margins for it. A page the same height on a phone as on a laptop has been shrunk rather than laid out.
 - ZERO horizontal scrolling at any width. What causes it, every time: a fixed px width, an unmeetable min-width, \`width: 100vw\` (that includes the scrollbar — use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width. Never hide it with \`overflow-x: hidden\` — that leaves the content cut off where nobody can reach it.
 - Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type that scales, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
+- A GUTTER AT EVERY WIDTH, from one container rule and not section by section: never under 16px, never text against the glass.
 - The navigation needs a layout for a narrow screen — stacked, wrapped, or behind a button opening a panel already in the markup. A horizontal nav that never becomes anything else lands on top of itself.
 - Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`, and their container decides the size. Tables scroll inside their own box, never by taking the page with them.
 

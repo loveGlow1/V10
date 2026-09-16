@@ -29,6 +29,7 @@ import { type Evidence, contentGate, evidenceFrom } from "./evidence";
 import { renderedCompositionGate, staticCompositionGate } from "./composition";
 import { type Renderer, gatesFrom, measureAll } from "./render";
 import { type Repair, repairInstruction, repairsFor } from "./repair";
+import { staticResponsiveGate } from "./responsive";
 import { accessibilityGate, designGate, functionalGate, staticVisualGate } from "./static";
 import {
   GATES,
@@ -112,6 +113,21 @@ export async function runQa(input: QaInput): Promise<QaResult> {
        picture the frame is throwing away — is merged in below where there is a
        renderer to measure it. */
     gates.composition = staticCompositionGate(input.html);
+    /* ── The gate that had never run ──────────────────────────────────
+     *
+     * `responsive` was answerable only by render.ts, which needs a browser, and
+     * a browser cannot live in a serverless function — so in production this
+     * gate has never run on any build. Every project shipped with its layout
+     * unexamined, which is what "the page on a mobile screen isn't well
+     * aligned" sounds like from the other side.
+     *
+     * Most of what actually breaks a generated page on a phone is not subtle
+     * and is not measured: it is written in the class list and can be read.
+     * That half runs here, always. The measured half — whether text really
+     * overflows, whether two things collide — still needs the browser and is
+     * merged in below when there is one. See qa/responsive.ts, which says in
+     * MEASURED exactly what a passing static gate did not cover. */
+    gates.responsive = staticResponsiveGate(input.html, tree);
     gates.accessibility = accessibilityGate(input.html, input.design);
     gates.design = designGate(input.html, input.design);
     gates.functional = functionalGate(input.html, tree, input.manifest);
@@ -147,12 +163,13 @@ export async function runQa(input: QaInput): Promise<QaResult> {
    * to prevent, written into the module itself: a build whose layout nobody
    * looked at, claiming its layout was fine.
    *
-   * The consequence is deliberate and it is the honest one. A pipeline run with
-   * no browser comes back "incomplete", not "passed", because the layout really
-   * was not checked. The build still saves, still previews and still reports
-   * everything the static gates found; what it does not do is claim a
-   * verification nobody performed. "passed" is then a word that means
-   * something, which is the only reason to have it. */
+   * It is answerable without a browser now, but only in part, and the
+   * distinction is the same one as before rather than a softening of it. The
+   * static half reads the class lists and finds what is written down —
+   * `w-[1200px]`, `grid-cols-3`, a container with no padding. The measured half
+   * finds what is only true once the page is drawn. A run with no browser
+   * therefore reports the first and says, in MEASURED, what it did not look at;
+   * "passed" still means what it says, and now means it about something. */
   const required: Gate[] = ["visual", "accessibility", "responsive", "composition"];
   if (input.manifest) required.push("functional");
   if (input.design) required.push("design");
