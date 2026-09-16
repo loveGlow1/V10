@@ -30,6 +30,7 @@ import { SITE_URL } from "@/lib/site";
 import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
 import type { Diagnosis } from "@/lib/publish/diagnosis";
 import PublishPanel from "./PublishPanel";
+import ServerKeys from "./ServerKeys";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import BackendPanel from "./BackendPanel";
@@ -965,6 +966,12 @@ export default function PreviewPanel({
                 {project ? new Date(project.updated_at).toLocaleString() : "—"}
               </Row>
             </div>
+
+            {/* Above the delete box and below the facts, which is where it
+                belongs: it is a thing you configure about the app, not a thing
+                you read about it. See ServerKeys — the value never comes back
+                here, because it never comes here at all. */}
+            <ServerKeys projectId={project?.id ?? null} />
 
             <div className="mt-6 rounded-[18px] border border-danger/25 p-3.5 md:rounded-xl">
               <p className="text-[13px] font-medium text-ink">Delete this app</p>

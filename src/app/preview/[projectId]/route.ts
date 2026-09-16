@@ -1,4 +1,8 @@
 import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-preview";
+import { buildModeOf } from "@/lib/builder/build-mode";
+import { existingVercelProject } from "@/lib/publish/deployment-store";
+import { publicAddress } from "@/lib/publish/vercel-deploy";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { loadTree } from "@/lib/builder/store-tree";
 import { toStandalone } from "@/lib/standalone-page";
@@ -95,6 +99,64 @@ function fileNameFor(name: string | null | undefined): string {
  *
  * Served with a bare `sandbox` and no allowances: there is nothing in it to
  * run. */
+/* A project that has to run somewhere, said plainly.
+ *
+ * A server-mode project cannot be rendered here and that is not a failure: the
+ * in-browser runtime compiles components and runs them, and a route handler, a
+ * server action or a server component reading a secret has no meaning in a
+ * browser at all. Faking one would be the mock-up this whole route exists to
+ * stop showing.
+ *
+ * So the pane says what kind of project this is and where its running copy is.
+ * With a live address it never gets this far — see below, which sends the pane
+ * at the real thing. */
+/* Where this project is actually running, or null.
+ *
+ * Service-keyed because it reads project_deployments, which has no policy for
+ * a browser session and should not: a deployment row names another account's
+ * hosting project. The projectId reaching here has already been through RLS on
+ * project_builds above, so this is not widening what the caller can see.
+ *
+ * Best effort. A preview that cannot look up an address falls through to the
+ * sentence below, which is the honest answer anyway. */
+async function liveAddress(projectId: string): Promise<string | null> {
+  const service = createSupabaseServiceClient();
+  if (!service) return null;
+
+  try {
+    const { data } = await service
+      .from("project_builds")
+      .select("deployment_url")
+      .eq("project_id", projectId)
+      .not("deployment_url", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ deployment_url: string | null }>();
+
+    const vercelProject = await existingVercelProject(service, projectId);
+    return publicAddress(data?.deployment_url ?? null, vercelProject);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("preview: the live address could not be read:", error);
+    return null;
+  }
+}
+
+function needsServer(reason: string | null): string {
+  const why = reason
+    ? `<p style="max-width:44ch;margin:8px 0 0;font-size:13px;opacity:.75">${escapeHtml(reason)}</p>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title></head><body style="margin:0;min-height:100dvh;display:grid;place-items:center;background:#f8fafc;color:#475569;font:14px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif"><div style="max-width:44ch;text-align:center;padding:24px"><p style="margin:0">This app runs on a server, so there is nothing to show until it is published. Publish it and this pane will show the running site.</p>${why}</div></body></html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function cannotRender(): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title></head><body style="margin:0;min-height:100dvh;display:grid;place-items:center;background:#f8fafc;color:#475569;font:14px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif"><p style="max-width:40ch;text-align:center;padding:24px">This project could not be rendered in the preview. Its files are all there — open the build details to see everything that was made.</p></body></html>`;
 }
@@ -262,6 +324,38 @@ export async function GET(
   const isProject = tree.length > 0 || isProjectSummary(build.html as string);
 
   if (!wantsDiagnostics && isProject) {
+    /* ── A project with a server is shown, not simulated ──────────────────
+     *
+     * The renderer below compiles this tree and runs it in the browser, which
+     * is exactly right for a static project and meaningless for a server one:
+     * a route handler does not exist in a browser, a server action has nothing
+     * to call, and a server component reading a secret would either fail or —
+     * far worse — be given a plausible-looking nothing. Rendering a mock-up of
+     * an app is the thing this route was rewritten to stop doing.
+     *
+     * So a server project is sent at its running copy when it has one. The
+     * address is derived rather than read off the row, for the same reason the
+     * workspace derives it: a per-deployment host sits behind Deployment
+     * Protection and renders as a blank rectangle. See publicAddress.
+     *
+     * And when it has no running copy, the pane says so in a sentence rather
+     * than showing a rendering that would be a lie. */
+    const build_mode = buildModeOf(tree);
+    if (build_mode.mode === "server") {
+      const live = await liveAddress(projectId);
+      if (live) return Response.redirect(live, 302);
+
+      return new Response(needsServer(build_mode.because[0] ?? null), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": "sandbox",
+          "X-Content-Type-Options": "nosniff",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
     try {
       if (canRenderApp(tree)) {
         const { data: project } = await supabase

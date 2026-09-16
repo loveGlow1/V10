@@ -556,6 +556,147 @@ export async function setProjectEnvironment(
   };
 }
 
+/* ── Keys that must never reach a browser ─────────────────────────────────
+ *
+ * A server-mode project can hold a real secret — a Stripe secret key, an
+ * OpenAI key, a webhook signing secret. Those go to Vercel and nowhere else.
+ *
+ * QUICKSTARK DOES NOT STORE THEM. Not encrypted, not hashed, not at all: the
+ * value is taken from the person, sent to Vercel, and dropped. Vercel encrypts
+ * it at rest and decrypts it into the build and the running function, which is
+ * exactly the job — and a copy held here would be a second place to breach for
+ * no benefit, in a database whose whole purpose is holding other things.
+ *
+ * What is read back is the LIST OF NAMES, from Vercel, because Vercel is the
+ * only thing that knows. That also means the list is true: it says what is
+ * really set on the project rather than what we remember setting.
+ */
+
+/** Why this key cannot be used as a secret, or null when it can. */
+export function secretKeyProblem(key: string): string | null {
+  const name = key.trim();
+
+  if (name.length === 0) return "Give the key a name.";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    return "An environment variable's name can only be letters, numbers and underscores, and cannot start with a number.";
+  }
+  if (name.length > 256) return "That name is too long for an environment variable.";
+
+  /* The one that matters. NEXT_PUBLIC_ is not a namespace for secrets, it is
+     the opposite: Next inlines anything with that prefix into the JavaScript
+     bundle and serves it to every visitor. Accepting one here would take a
+     Stripe secret key, mark it encrypted on Vercel, and then publish it on the
+     customer's own website — with this platform having told them it was
+     safe. */
+  if (/^NEXT_PUBLIC_/.test(name)) {
+    return "A name starting with NEXT_PUBLIC_ is published to every visitor's browser, so it cannot hold a secret. Use a name without that prefix.";
+  }
+
+  /* Managed by this platform. Letting somebody overwrite them by hand is how a
+     project ends up pointed at a database that is not its own. */
+  if (["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_SCHEMA"].includes(name)) {
+    return "That variable is set for you from the project's own database and cannot be overwritten here.";
+  }
+
+  return null;
+}
+
+export type SecretResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Puts one secret on the Vercel project, creating the project if it is new.
+ *
+ * Encrypted rather than plain, which is the whole difference from the three
+ * public values beside it: Vercel stores it encrypted, never shows it again,
+ * and hands it only to the build and the running function.
+ *
+ * The project is ensured first, so a key can be set before the first
+ * deployment — which is the ordinary case, because somebody adds their Stripe
+ * key and then publishes.
+ */
+export async function setProjectSecret(
+  name: string,
+  key: string,
+  value: string,
+  creds: { token: string; teamQuery: string },
+): Promise<SecretResult> {
+  const problem = secretKeyProblem(key);
+  if (problem) return { ok: false, reason: problem };
+  if (value.trim().length === 0) return { ok: false, reason: "Paste the value for that key." };
+
+  await clearProtection(name, creds);
+
+  const query = creds.teamQuery ? `${creds.teamQuery}&upsert=true` : "?upsert=true";
+  const written = await call(
+    `/v10/projects/${encodeURIComponent(name)}/env${query}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        key: key.trim(),
+        value,
+        type: "encrypted",
+        target: ["production", "preview", "development"],
+      }),
+    },
+    creds.token,
+  );
+
+  if (!written.ok) return { ok: false, reason: written.reason };
+  if (written.status >= 400) return { ok: false, reason: refusal(written.body, written.status) };
+  return { ok: true };
+}
+
+/** What is set on this project, by name. Values are never returned — see above. */
+export async function projectSecretNames(
+  name: string,
+  creds: { token: string; teamQuery: string },
+): Promise<string[]> {
+  const read = await call(
+    `/v9/projects/${encodeURIComponent(name)}/env${creds.teamQuery}`,
+    {},
+    creds.token,
+  );
+
+  if (!read.ok || read.status >= 400) return [];
+
+  const body = read.body as { envs?: { key?: unknown; type?: unknown }[] } | null;
+  return (body?.envs ?? [])
+    .filter((entry) => entry.type === "encrypted" || entry.type === "sensitive")
+    .map((entry) => (typeof entry.key === "string" ? entry.key : ""))
+    .filter((key) => key.length > 0 && secretKeyProblem(key) === null)
+    .sort();
+}
+
+/** Takes one off the project. Removing what is not there is not an error. */
+export async function removeProjectSecret(
+  name: string,
+  key: string,
+  creds: { token: string; teamQuery: string },
+): Promise<SecretResult> {
+  const read = await call(
+    `/v9/projects/${encodeURIComponent(name)}/env${creds.teamQuery}`,
+    {},
+    creds.token,
+  );
+
+  if (!read.ok) return { ok: false, reason: read.reason };
+  if (read.status >= 400) return { ok: false, reason: refusal(read.body, read.status) };
+
+  const body = read.body as { envs?: { id?: unknown; key?: unknown }[] } | null;
+  const found = (body?.envs ?? []).find((entry) => entry.key === key);
+  if (!found || typeof found.id !== "string") return { ok: true };
+
+  const removed = await call(
+    `/v9/projects/${encodeURIComponent(name)}/env/${encodeURIComponent(found.id)}${creds.teamQuery}`,
+    { method: "DELETE" },
+    creds.token,
+  );
+
+  if (!removed.ok) return { ok: false, reason: removed.reason };
+  if (removed.status >= 400) return { ok: false, reason: refusal(removed.body, removed.status) };
+  return { ok: true };
+}
+
 export async function clearProtection(
   name: string,
   creds: { token: string; teamQuery: string },
