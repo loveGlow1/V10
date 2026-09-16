@@ -7,7 +7,7 @@ import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { currentTree, loadTree } from "@/lib/builder/store-tree";
-import type { FileTree } from "@/lib/builder/tree";
+import { isSinglePage, type FileTree } from "@/lib/builder/tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -388,7 +388,27 @@ export async function GET(
   const current = wantsDiagnostics
     ? { tree: [] as FileTree, sourceMissing: false }
     : await currentTree(supabase, projectId);
-  const tree = current.tree;
+
+  /* ── A TREE OF ONE PAGE IS NOT A PROJECT ─────────────────────────────
+   *
+   * currentTree hands a single-page build back as a one-file tree under
+   * index.html, so that the download and the file listing do not each have to
+   * ask which of the two kinds of build they are holding. That is right for
+   * reading and wrong HERE, because this is the line that decides whether the
+   * renderer runs at all.
+   *
+   * Left in, it broke every single-page build on the platform in one commit:
+   * the tree was no longer empty, so `isProject` read true, so the branch
+   * below took over, so canRenderApp looked for app/**​/page.tsx in a tree
+   * whose only file is index.html, found none, and served the "could not be
+   * rendered" page. A blank rectangle where somebody's site had been, for the
+   * commonest kind of build this platform makes.
+   *
+   * The distinction the route actually needs is "does this project have SOURCE
+   * FILES", and a page reconstituted from the html column is not that. So the
+   * page-derived tree is dropped and the document below serves it, which is
+   * exactly what happened before currentTree was wired in here. */
+  const tree = isSinglePage(current.tree) ? [] : current.tree;
   const isProject = tree.length > 0 || isProjectSummary(build.html as string);
 
   if (!wantsDiagnostics && isProject) {

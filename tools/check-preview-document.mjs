@@ -245,6 +245,48 @@ has(
 const previewRoute = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
 const storeTree = readFileSync(join(root, "src/lib/builder/store-tree.ts"), "utf8");
 
+/* ── THE ONE THAT BROKE EVERY SINGLE-PAGE BUILD ─────────────────────────
+ *
+ * currentTree hands a single-page build back as a ONE-FILE tree under
+ * index.html, so the download and the file listing do not each have to ask
+ * which kind of build they hold. Wiring it into this route without allowing
+ * for that turned every single-page preview blank in one commit: the tree was
+ * no longer empty, `isProject` read true, the renderer looked for
+ * app/page.tsx in a tree whose only file is index.html, found none, and served
+ * "could not be rendered". That is the commonest kind of build this platform
+ * makes — most of the projects in production are one page.
+ *
+ * The distinction this route needs is "does the project have SOURCE FILES",
+ * and a page reconstituted from the html column is not that.
+ *
+ * Asserted against the route's own text because the decision is three awaited
+ * database calls deep. The two halves are what matter: the page-derived tree
+ * is dropped, and `isProject` is asked of what is left. */
+has(
+  /const tree = isSinglePage\(current\.tree\) \? \[\] : current\.tree/.test(previewRoute),
+  "A SINGLE-PAGE BUILD IS NEVER MISTAKEN FOR A PROJECT",
+  "a tree of one index.html sends the renderer looking for app/page.tsx, " +
+    "finds none, and serves a blank pane instead of somebody's site",
+);
+has(
+  /const isProject = tree\.length > 0 \|\| isProjectSummary/.test(previewRoute),
+  "and the project test is asked of the tree AFTER that, not before",
+);
+
+/* The renderer's own half of it, which is where the blank came from. */
+{
+  const onePage = [file("index.html", "<!doctype html><html><body><h1>A landing page</h1></body></html>")];
+  has(
+    canRenderApp(onePage) === false,
+    "canRenderApp says no to a tree whose only file is index.html",
+    "which is correct — and is exactly why such a tree must never reach it",
+  );
+  has(
+    appPreviewDocument({ tree: onePage, projectName: "One page" }) === null,
+    "and the document builder returns null rather than an empty shell",
+  );
+}
+
 /* And then the same lesson, one level up.
  *
  * `loadTree(build.id)` is the right question about a BUILD and the wrong one
