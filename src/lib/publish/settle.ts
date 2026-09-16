@@ -38,10 +38,13 @@ import {
 } from "@/lib/publish/deployment-store";
 import {
   aliasDeployment,
+  appDomainFor,
+  attachProjectDomain,
   deploymentName,
   deploymentState,
   deploymentsConfigured,
   previewAliasFor,
+  reachable,
   startDeployment,
   vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
@@ -104,6 +107,70 @@ async function attachPreviewAlias(record: {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("deployments: aliasing failed:", error);
+  }
+}
+
+/* ── The address on our own domain, bound to the project ──────────────────
+ *
+ * `<slug>.quickstark.tech`, which is what the customer shows a client — the
+ * vercel.app address tells every visitor whose hosting this is.
+ *
+ * Bound to the PROJECT rather than aliased to this deployment, which is the
+ * difference between an address that keeps up and one that quietly does not.
+ * An alias points at one build; a project domain follows the newest production
+ * deployment on its own, so this never has to run again — and running it again
+ * anyway is free, because attachProjectDomain treats a domain it already holds
+ * as success rather than as a conflict.
+ *
+ * Best effort, like the preview alias above it and for the same reason: its
+ * failure mode is a plainer address, and the alternative to a plainer address
+ * is not a nicer one, it is a customer whose publish failed. */
+async function attachAppDomain(record: {
+  vercelProject: string | null;
+}): Promise<string | null> {
+  const creds = vercelCredentials();
+  if (!creds || !record.vercelProject) return null;
+
+  const domain = appDomainFor(record.vercelProject);
+  if (!domain) return null;
+
+  try {
+    const bound = await attachProjectDomain(record.vercelProject, domain, creds);
+    if (!bound.ok) {
+      /* Logged rather than surfaced. Almost always the operator's half of
+         this: `*.quickstark.tech` is not a verified domain on the Vercel
+         account, or its DNS does not point at Vercel. Nothing the customer
+         can act on, and their site is live either way. */
+      // eslint-disable-next-line no-console
+      console.warn(`deployments: ${domain} could not be bound: ${bound.reason}`);
+      return null;
+    }
+
+    /* ── Bound is not the same as answering ────────────────────────────
+     *
+     * Vercel issues the certificate for a newly attached domain itself, and
+     * on a verified wildcard it is usually a matter of seconds — but "usually"
+     * is not what an address handed to a customer may rest on. A bind that has
+     * not finished propagating would put a URL that fails to resolve in front
+     * of somebody who just pressed Publish, which is worse than the plainer
+     * address in every way.
+     *
+     * So it is ASKED. When it does not answer yet the vercel.app address is
+     * stored, which is correct and works; the next publish binds nothing (the
+     * domain is already there), finds it answering, and the address upgrades
+     * on its own with nothing to re-run. */
+    const answers = await reachable(`https://${domain}`);
+    if (!answers.ok) {
+      // eslint-disable-next-line no-console
+      console.warn(`deployments: ${domain} is bound but does not answer yet: ${answers.reason}`);
+      return null;
+    }
+
+    return `https://${domain}`;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("deployments: binding the domain failed:", error);
+    return null;
   }
 }
 
@@ -282,8 +349,24 @@ export async function settleOne(
      * failure — READY is the first moment it means anything. */
     await attachPreviewAlias(record);
 
-    await settleDeployment(service, record, state);
-    await settleJob(service, record, state);
+    /* And the published address, on our own domain rather than our host's.
+       Beside the alias because both need the same thing to be true — that
+       there is a build behind the address — and neither may fail a publish
+       that has already succeeded. */
+    const own = await attachAppDomain(record);
+
+    /* What gets WRITTEN DOWN, which is what every other part of the product
+       then shows: the workspace's live frame, the Open link, the row. A
+       domain that bound and answers is the address this project has; without
+       one, nothing about the stored address changes.
+
+       publicAddress needs no teaching for this. Its existing rule is that a
+       stored address which is not a vercel.app is somebody's own domain and
+       is left exactly as it is — which is precisely true of this one. */
+    const settled = own ? { ...state, url: own } : state;
+
+    await settleDeployment(service, record, settled);
+    await settleJob(service, record, settled);
 
     /* Said where the question was asked. Keyed on the deployment, so two
        callers arriving at once — the cron and the workspace's own poll —
@@ -294,7 +377,7 @@ export async function settleOne(
       role: "system",
       body: "Your app is live.",
       links: [
-        { label: "Open it", href: state.url },
+        { label: "Open it", href: settled.url },
         { label: "Preview", href: `${SITE_URL}/preview/${record.projectId}` },
       ],
       kind: "build_ready",

@@ -933,6 +933,24 @@ export function treeBrief(
     "- No absolute positioning for anything with words in it; `absolute top-20 left-40` works at one width only. Decorative shapes may, content flows.",
     "- `text-3xl sm:text-4xl lg:text-6xl` on a headline; `text-center md:text-left` where a column becomes a row.",
     "- Primary buttons `w-full sm:w-auto`; a group is `flex flex-col sm:flex-row gap-4`.",
+    /* ── The header, which is the first thing anybody judges ─────────────
+     *
+     * A generated header puts the wordmark left and the links right, which is
+     * right at 1280px and the ugliest thing we ship at 390px: five inline
+     * links and a brand on a screen that fits about three, wrapping under the
+     * logo or pushing the page sideways. It is at the top of every page, so it
+     * is what "it looks ugly on mobile" is usually about.
+     *
+     * Written as the two class lists rather than as "make the nav responsive",
+     * for the same reason as every rule above it: the second produces a
+     * model's idea of a mobile nav, and the first produces this one. Retrofit
+     * is expensive here in a way the other rules are not — adding a menu is
+     * adding markup and behaviour, where fixing a grid is editing a class —
+     * so it has to be right the first time. qa/responsive.ts finds it when it
+     * is not: see the nav-never-collapses rule there. */
+    "- BELOW `md` A HEADER IS TWO THINGS: the brand on the left and a menu button on the right. Nothing else. `<header className=\"flex items-center justify-between px-4 sm:px-6 lg:px-8 h-16\">`.",
+    "- The inline link list is `hidden md:flex` — never rendered on a phone. The button that opens it is `flex md:hidden` with `aria-expanded` and `aria-controls`, and the panel it opens is in the markup already, toggled by a class rather than built when it is clicked.",
+    "- Never leave a row of text links — Home, Services, Pricing, About, FAQ, Contact — inline at every width. Three or more of those in a header with nothing hiding them is the defect, whatever else is right about the page.",
     /* ── Two rules about SHAPE rather than about syntax ──────────────────
      *
      * Everything else in this list stops a build failing. These two stop a
@@ -957,6 +975,25 @@ export function treeBrief(
        a server renders one when it is asked for, and demanding the list there
        would send a model prerendering a catalogue it cannot see yet. */
     mode === "server" ? null : "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
+    /* ── The directive, and the build that dies without it ──────────────
+     *
+     * Every file in the App Router is a SERVER component unless its first line
+     * says otherwise, and a server component is executed at build time. So a
+     * component holding useState, or an onClick, and missing the directive
+     * does not degrade: the build fails on it, and under `output: "export"` it
+     * fails while prerendering pages nobody wrote — `/_not-found` is the one
+     * that comes back, because Next.js generates that page itself and it
+     * renders the same layout, and the error names a route the customer has
+     * never heard of for a mistake four files away.
+     *
+     * A model writing React reaches for hooks and handlers by reflex and the
+     * directive by memory, which is exactly the wrong way round. So it is
+     * stated as a mechanical test — if the file contains one of these words,
+     * the first line is the directive — rather than as an explanation of
+     * server components, which is a thing to understand rather than a thing
+     * to check. */
+    '- "use client" IS THE FIRST LINE OF ANY FILE THAT USES useState, useEffect, useRef, useContext, useReducer, any other hook, or any event handler — onClick, onChange, onSubmit, onInput, onFocus, onKeyDown. Above the imports, on its own line, in double quotes with the semicolon. There is no second chance for it: without it the build fails at prerender, and under a static export it fails on `/_not-found`, a page you did not write.',
+    '- The directive is INHERITED, not repeated. A client component\'s children are already client components; a "use client" in a file that has no state and no handlers of its own makes a server component into a client one for no reason. Put it where the state is.',
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     /* React 19 removed the GLOBAL JSX namespace — it lives inside the react

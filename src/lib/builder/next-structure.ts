@@ -268,6 +268,17 @@ const HOOKS = /\b(useState|useEffect|useLayoutEffect|useReducer|useRef|useContex
 const HANDLERS = /\son(?:Click|Change|Submit|Input|Focus|Blur|KeyDown|KeyUp|MouseEnter|MouseLeave)\s*=\s*\{/;
 const BROWSER = /\b(?:window|document|localStorage|sessionStorage|navigator)\s*\./;
 
+/* What a file may export ONLY as a server component.
+ *
+ * The directive cannot simply be added to anything interactive: a page that
+ * also exports generateStaticParams or metadata is refused by Next.js for the
+ * opposite reason, and swapping one build error for another is not a repair.
+ * A page needing both halves is split by client-routes.ts, which runs first,
+ * so by the time this reads the tree the split has already happened and the
+ * client half already carries its directive. */
+const SERVER_ONLY =
+  /\bexport\s+(?:async\s+)?(?:function|const)\s+(?:generateStaticParams|generateMetadata|generateViewport)\b|\bexport\s+const\s+(?:metadata|viewport|dynamic|revalidate)\b|^[ \t]*["']use server["']/m;
+
 function describe(path: string): string {
   return path.replace(/^app\//, "").replace(/\/(page|layout|route)\.tsx?$/, "") || "the home page";
 }
@@ -392,7 +403,11 @@ export function inspectStructure(tree: FileTree): Finding[] {
     }
 
     /* Interactivity without the directive. The build error is real and its
-       wording is famously unhelpful, so it is worth catching by name. */
+       wording is famously unhelpful, so it is worth catching by name.
+
+       Components are checked too, in their own pass below — see the note
+       there on /_not-found, which is the page this failure is reported
+       against and the one nobody wrote. */
     if (!client) {
       const body = code(source);
       if (HOOKS.test(body)) {
@@ -421,6 +436,43 @@ export function inspectStructure(tree: FileTree): Finding[] {
         });
       }
     }
+  }
+
+  /* ── The same defect, in a file that is not a route ───────────────────
+   *
+   * Everything in the App Router is a SERVER component until its first line
+   * says otherwise, and a server component is executed at build time. So a
+   * components/Nav.tsx holding useState and missing the directive does not
+   * degrade — it fails the build.
+   *
+   * WHERE IT IS REPORTED IS THE PROBLEM. Next.js generates `/_not-found`
+   * itself, and that page renders the root layout, which imports the
+   * component. So a mistake in a file the customer wrote comes back as a
+   * prerender failure on a route they have never heard of:
+   *
+   *     Error occurred prerendering page "/_not-found"
+   *
+   * Under `output: "export"` every page is prerendered, so there is no
+   * runtime for it to work at instead. Reading it here — over every source
+   * file rather than only the routable ones — is what turns an error naming
+   * a page nobody wrote into one naming the file and the hook. */
+  for (const file of tree) {
+    if (!SOURCE_FILE.test(file.path)) continue;
+    /* Pages and layouts were read above, with their own wording; a route
+       handler is server code by definition and has no client half. */
+    if (PAGE.test(file.path) || LAYOUT.test(file.path) || ROUTE.test(file.path)) continue;
+    if (isClient(file.content) || SERVER_ONLY.test(file.content)) continue;
+
+    const body = code(file.content);
+    if (!HOOKS.test(body) && !HANDLERS.test(body)) continue;
+
+    findings.push({
+      severity: "blocking",
+      file: file.path,
+      problem: `${file.path} is interactive but is not marked as a client component, which fails the build on a page nobody wrote.`,
+      detail: `${file.path} uses ${HOOKS.test(body) ? "React hooks" : "an event handler"} without the "use client" directive. Under a static export this surfaces as "Error occurred prerendering page /_not-found".`,
+      repairable: true,
+    });
   }
 
   /* ── The bare JSX namespace, anywhere in the project ──────────────────
@@ -591,6 +643,46 @@ export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repa
   const repairs: Repair[] = [];
   const byPath = new Map(tree.map((file) => [file.path, { ...file }]));
   const taken = new Set(byPath.keys());
+
+  /* ── The directive, added where the file plainly needs it ─────────────
+   *
+   * A model writing React reaches for hooks and handlers by reflex and for
+   * "use client" by memory, which is the wrong way round: the first is how
+   * React has looked for a decade, and the second is a Next.js rule about
+   * where code runs. The prompt says it (see treeBrief), the inspection finds
+   * it, and this is what makes it stop costing a build — there is no
+   * judgement in the fix, so there is no reason to spend a model call or a
+   * customer's minute on it.
+   *
+   * Everything that could make it the WRONG fix is excluded rather than
+   * guessed at: a route handler, a file already carrying the directive, and
+   * anything exporting something only a server component may export. That
+   * last one matters most, because adding the directive there trades this
+   * build error for a different build error, which is not a repair.
+   *
+   * Done before the JSX import below, so that when a file needs both the
+   * import lands after the directive rather than above it — an import above
+   * "use client" means it is no longer the first thing in the file, and a
+   * directive that is not first is a string. */
+  for (const file of tree) {
+    if (!SOURCE_FILE.test(file.path)) continue;
+    if (ROUTE.test(file.path)) continue;
+
+    const held = byPath.get(file.path);
+    if (!held) continue;
+    if (isClient(held.content) || SERVER_ONLY.test(held.content)) continue;
+
+    const body = code(held.content);
+    const why = HOOKS.test(body) ? "React hooks" : HANDLERS.test(body) ? "an event handler" : null;
+    if (!why) continue;
+
+    held.content = `"use client";\n\n${held.content.replace(/^\s*\n/, "")}`;
+
+    repairs.push({
+      what: `${file.path} uses ${why} and is now marked "use client", which is what stops the export failing on /_not-found`,
+      file: file.path,
+    });
+  }
 
   /* ── The JSX namespace, imported where it is used ──────────────────────
    *

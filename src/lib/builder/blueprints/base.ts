@@ -136,7 +136,7 @@ STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of thes
 - Logos, wordmarks, monograms and avatars.
 - Icons, rules, patterns, textures and background shapes.
 Never send one of these through a photo slot, and never send a photograph through an SVG.
-- Prefer a system font stack over a webfont link. The page is downloadable as a file, and everything it fetches is something that file has to carry. Reach for a webfont only when the typeface is genuinely the design, and then only one family.
+- Prefer a system font stack. The page is downloadable, and everything it fetches that file has to carry. One webfont family at most, and only where the typeface is genuinely the design.
 - Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Forms and interactive controls must behave — validate and respond in-page. There is no server, so never post to one; show the state a real submission would produce.
 
@@ -146,7 +146,7 @@ THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - ZERO horizontal scrolling at any width. What causes it, every time: a fixed px width, an unmeetable min-width, \`width: 100vw\` (that includes the scrollbar — use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width, and an inline \`style\` outranking the media query meant to undo it. Never hide it with \`overflow-x: hidden\` — that leaves the content cut off where nobody can reach it.
 - Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type that scales, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
 - A GUTTER AT EVERY WIDTH, from one container rule and not section by section: never under 16px, never text against the glass.
-- The navigation needs a layout for a narrow screen — stacked, wrapped, or behind a button opening a panel already in the markup. A horizontal nav that never becomes anything else lands on top of itself.
+- BELOW 768px THE HEADER IS THE BRAND AND A MENU BUTTON, and nothing else. The inline link list takes \`hidden md:flex\`; the button takes \`flex md:hidden\` and opens a panel that is already in the markup. Six text links left inline at every width is the defect people photograph.
 - Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`, and their container decides the size. Tables scroll inside their own box, never by taking the page with them.
 
 WHAT IS TRUE — the rule about numbers, and it outranks how the page looks:
@@ -167,7 +167,7 @@ CONTENT GOES IN THE HTML — the rule people notice when it is broken:
 STATE — a hard constraint, not a preference:
 - Hold all state in ordinary JavaScript variables.
 - Do NOT use localStorage, sessionStorage, cookies or IndexedDB. The preview runs in a sandboxed frame with an opaque origin, and in that context those APIs throw a SecurityError on access — so anything keeping its session there does not degrade, it crashes blank on load. If you have a real reason to touch one, wrap every access in try/catch and work correctly without it.
-- State therefore lasts as long as the tab, which is expected. Say so once and quietly, where it matters, rather than implying the data is real.
+- State lasts as long as the tab, which is expected. Say so once and quietly, rather than implying the data is real.
 
 FINISHING — how this is judged before anything else:
 - Reply with the HTML document and nothing else. No prose before it, no explanation after it, no markdown fences. Start at <!doctype html> and end at </html>.

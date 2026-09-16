@@ -92,6 +92,87 @@ const errors = (result) => result.issues.filter((i) => i.severity === "error").m
   );
 }
 
+/* ── The header, which is the one people photograph ──────────────────────
+ *
+ * Wordmark left, six inline links right. Correct at 1280px and the ugliest
+ * thing this platform ships at 390px: the links wrap under the logo, collide
+ * with it, or push the page sideways. It is the top of every page, so it is
+ * what "it looks ugly on mobile" is usually about. */
+{
+  const header = page(`<header className="flex items-center justify-between px-4">
+      <a href="/" className="font-bold">Brand</a>
+      <nav className="flex gap-6">
+        <a href="#services">Services</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#about">About</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </header>`);
+  const result = staticResponsiveGate("", header);
+
+  has(
+    errors(result).includes("nav-never-collapses"),
+    "a header of inline links with nothing hiding them is an error",
+    JSON.stringify(rules(result)),
+  );
+  has(
+    result.issues.some((i) => /hidden md:flex/.test(i.message)),
+    "and the finding carries the class list that fixes it",
+  );
+  has(
+    result.issues.some((i) => /flex md:hidden/.test(i.message)),
+    "including the one on the button, which is the half that needs new markup",
+  );
+}
+
+/* And the shape that is correct is not reported, which is the harder half:
+   a gate that refuses a working page is a disease this codebase has caught
+   twice already. */
+{
+  const done = page(`<header className="flex items-center justify-between px-4">
+      <a href="/" className="font-bold">Brand</a>
+      <nav className="hidden md:flex gap-6">
+        <a href="#services">Services</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#about">About</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <button className="flex md:hidden" aria-expanded="false" aria-controls="menu">Menu</button>
+    </header>`);
+  has(
+    !rules(staticResponsiveGate("", done)).includes("nav-never-collapses"),
+    "a header that collapses below md is left alone",
+  );
+}
+
+/* A footer full of links is correct on a phone and always has been. */
+{
+  const footer = page(`<footer><nav className="flex flex-col gap-2">
+      <a href="/a">Terms</a><a href="/b">Privacy</a><a href="/c">Contact</a>
+      <a href="/d">Careers</a><a href="/e">Press</a><a href="/f">Help</a>
+    </nav></footer>`);
+  has(
+    !rules(staticResponsiveGate("", footer)).includes("nav-never-collapses"),
+    "and a footer's link list is never mistaken for a header's",
+    "flagging it would be the gate refusing a page that is right",
+  );
+}
+
+/* A single page is read the same way — it is the same defect in one file. */
+{
+  const html = `<!doctype html><html><body><header class="flex justify-between">
+    <a href="/">Brand</a>
+    <nav class="flex gap-6"><a href="#a">Services</a><a href="#b">Pricing</a>
+    <a href="#c">About</a><a href="#d">FAQ</a><a href="#e">Contact</a></nav>
+  </header></body></html>`;
+  has(
+    errors(staticResponsiveGate(html, [])).includes("nav-never-collapses"),
+    "a single-page build is held to it too",
+  );
+}
+
 {
   const result = staticResponsiveGate("", page(`<section className="h-screen">hero</section>`));
   has(rules(result).includes("fixed-height"), "h-screen is reported");
@@ -193,6 +274,29 @@ has(
   "\\\"be responsive\\\" produces a model's idea of responsive",
 );
 has(/px-4 sm:px-6 lg:px-8/.test(brief), "and one container rule for every section");
+
+/* ── And the header rule is in the prompt, not only in the gate ──────────
+ *
+ * Retrofit is expensive here in a way the other responsive rules are not:
+ * fixing a grid is editing a class, and fixing a header is adding markup and
+ * behaviour. So this one has to be right the first time, which means the model
+ * has to be told the two class lists before it writes the file rather than
+ * after a gate has found it. */
+has(
+  /hidden md:flex/.test(brief) && /flex md:hidden/.test(brief),
+  "the project brief names both halves of a collapsing header",
+);
+has(
+  /BELOW `md` A HEADER IS TWO THINGS/.test(brief),
+  "and says what a header IS below md, rather than asking for a responsive nav",
+);
+
+const base = readFileSync(join(root, "src/lib/builder/blueprints/base.ts"), "utf8");
+has(
+  /hidden md:flex/.test(base) && /flex md:hidden/.test(base),
+  "and the single-page prompt carries the same rule",
+  "one page and a project are the same header on the same phone",
+);
 
 /* ── Telling the model what is wrong, instead of making it look ──────────
  *

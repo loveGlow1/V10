@@ -68,8 +68,9 @@ process.env.VERCEL_TEAM_ID = "team_abc";
 
 const require = createRequire(import.meta.url);
 const mod = require(join(out, "lib/publish/vercel-deploy.js"));
-const { clearProtection, aliasDeployment, deploymentFiles, previewAliasFor, projectEnvironment, projectSecretNames,
-        removeProjectSecret, secretKeyProblem, setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
+const { appDomainFor, attachProjectDomain, clearProtection, aliasDeployment, deploymentFiles, previewAliasFor,
+        projectDomains, projectEnvironment, projectSecretNames, removeProjectSecret, secretKeyProblem,
+        setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -476,6 +477,134 @@ const TARGET = {
     !none.some((f) => f.file === ".env.production"),
     "a project with no backend gets no env file at all",
     "a file of somebody else's credentials in a site that never asked for a database",
+  );
+}
+
+/* ── The customer's own address, bound to the project ────────────────────
+ *
+ * `<slug>.quickstark.tech` rather than `<slug>.vercel.app`, which is not
+ * decoration: the vercel.app address tells every visitor whose hosting this is
+ * on a site somebody is about to show a client.
+ *
+ * WHAT IS PINNED HERE IS THAT IT IS A PROJECT DOMAIN AND NOT A DEPLOYMENT
+ * ALIAS, because the two look identical the day they are written and diverge
+ * afterwards. An alias points at ONE build, so every publish after it has to
+ * re-point the alias or the clean address quietly serves a version from three
+ * edits ago — while the vercel.app address moves on. Both addresses work and
+ * only one is right, which is the worst shape a bug can have. A domain bound
+ * to the PROJECT follows its newest production deployment on its own. */
+{
+  process.env.QUICKSTARK_APP_DOMAIN = "quickstark.tech";
+
+  has(appDomainFor("acme-store") === "acme-store.quickstark.tech", "a project's domain is its slug under the base");
+  has(
+    appDomainFor("Acme Store!") === "acme-store.quickstark.tech",
+    "and a name with spaces and punctuation still makes a legal host",
+    appDomainFor("Acme Store!"),
+  );
+
+  delete process.env.QUICKSTARK_APP_DOMAIN;
+  has(
+    appDomainFor("acme-store") === null,
+    "with no base domain configured there is no address to claim",
+    "inventing one would point a customer at a host that does not resolve",
+  );
+  process.env.QUICKSTARK_APP_DOMAIN = "quickstark.tech";
+}
+
+{
+  stubFetch(() => ({ status: 200, body: { name: "acme.quickstark.tech" } }));
+  const bound = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+
+  has(bound.ok === true, "a domain binds");
+  has(bound.already === false, "and says it is new");
+
+  const post = calls.find((c) => c.method === "POST");
+  has(
+    post && /\/v10\/projects\/acme\/domains/.test(post.url),
+    "at POST /v10/projects/{idOrName}/domains — the PROJECT, not a deployment",
+    post?.url,
+  );
+  has(post && post.body.name === "acme.quickstark.tech", "carrying the domain as `name`", JSON.stringify(post?.body));
+  has(post && post.url.includes("teamId=team_abc"), "and the team, or it acts on the wrong account");
+}
+
+/* ── The second publish, which is every publish after the first ──────────
+ *
+ * This runs each time a deployment goes live, so it finds the domain already
+ * attached and Vercel answers 409. That is not a failure and must never be
+ * reported as one — the project's own list is what tells "already ours" apart
+ * from "somebody else holds it". */
+{
+  stubFetch((url, init) =>
+    (init.method ?? "GET") === "POST"
+      ? { status: 409, body: { error: { code: "domain_already_in_use", message: "in use" } } }
+      : { status: 200, body: { domains: [{ name: "acme.quickstark.tech" }] } },
+  );
+
+  const again = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(again.ok === true, "A DOMAIN WE ALREADY HOLD IS SUCCESS, NOT A CONFLICT");
+  has(again.already === true, "and says so, rather than claiming it just bound it");
+  has(
+    calls.some((c) => (c.method ?? "GET") === "GET" && /\/domains/.test(c.url)),
+    "which it establishes by reading the project's own list",
+    "a 409 alone cannot tell our domain from somebody else's",
+  );
+}
+
+{
+  stubFetch((url, init) =>
+    (init.method ?? "GET") === "POST"
+      ? { status: 409, body: { error: { code: "domain_already_in_use", message: "held elsewhere" } } }
+      : { status: 200, body: { domains: [{ name: "something-else.quickstark.tech" }] } },
+  );
+
+  const taken = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(taken.ok === false, "but a domain held by somebody ELSE is a real refusal");
+  has(
+    typeof taken.reason === "string" && taken.reason.length > 0,
+    "with a reason, so an operator can act on it",
+    JSON.stringify(taken),
+  );
+}
+
+{
+  stubFetch(() => ({ status: 403, body: { error: { message: "not authorised" } } }));
+  const refused = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(refused.ok === false, "a token without the scope is a refusal rather than a throw");
+
+  stubFetch(() => ({ status: 500, body: {} }));
+  has(
+    (await projectDomains("acme", creds)).length === 0,
+    "and a list that cannot be read is empty rather than an exception",
+    "nothing here may take down a publish that already succeeded",
+  );
+}
+
+/* ── And the publish path actually calls it ──────────────────────────────── */
+{
+  const { readFileSync } = await import("node:fs");
+  const settle = readFileSync(join(root, "src/lib/publish/settle.ts"), "utf8");
+
+  has(/attachProjectDomain\(/.test(settle), "the settle path binds the domain when a deployment goes live");
+  has(
+    /await reachable\(`https:\/\/\$\{domain\}`\)/.test(settle),
+    "and CONFIRMS IT ANSWERS before storing it as the address",
+    "a bind that has not propagated would put a dead URL in front of somebody who just published",
+  );
+  has(
+    /const settled = own \? \{ \.\.\.state, url: own \} : state/.test(settle),
+    "storing the vercel.app address when it does not, which works",
+  );
+
+  const preview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+  has(
+    /appDomainFor\(vercelProject\)/.test(preview),
+    "and a server-mode preview points its frame at the published domain first",
+  );
+  has(
+    /canBeFramed\(address, SITE_URL\)/.test(preview),
+    "after asking whether it can be framed, never on the assumption that it can",
   );
 }
 
