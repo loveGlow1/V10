@@ -264,6 +264,47 @@ console.log("\nThe brief the model is given");
  * happen, the page stays broken, and the reply is confidently about something
  * the customer never asked for.
  */
+/* ── The same request, in the words people actually send ─────────────────
+ *
+ * Every one of these is somebody describing a page hanging off the side of
+ * their screen, and they must all reach the same place — because what happens
+ * there is that the page gets measured and the findings are handed over. A
+ * phrasing that misses is a customer told, in effect, that their plain English
+ * was not plain enough. */
+console.log("One request, many phrasings");
+{
+  const page = {
+    type: "landing", frontend: true, backend: false, database: false,
+    authentication: false, admin: false, storage: false, payments: false,
+  };
+
+  for (const said of [
+    "Update the page to fit mobile view",
+    "edit the page so it fit for all mobile users",
+    "The page is outside borders. Make it fit to page 360 px",
+    "Make the page mobile compatible for all device",
+    "Realigned the page to fit",
+    "make it responsive",
+    "the header is cut off on my phone",
+    "it looks ugly on mobile",
+    "the page scrolls sideways",
+    "content is off the edge of the screen",
+  ]) {
+    const kind = planEdit(said, page).kind;
+    if (kind !== "responsive") fail("phrasing", `"${said}" read as ${kind}`);
+    else pass(`"${said}"`);
+  }
+
+  /* And not everything, or the brief would be attached to messages about copy. */
+  for (const said of ["change the hero heading to Fresh Laundry", "make the buttons green"]) {
+    const kind = planEdit(said, page).kind;
+    if (kind === "responsive") fail("phrasing", `"${said}" was read as a phone request`);
+    else pass(`"${said}" is not a phone request`);
+  }
+}
+
+console.log("");
+
 console.log("Words that are not requests");
 {
   const page = {

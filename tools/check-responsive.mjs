@@ -56,7 +56,7 @@ mkdirSync(shim, { recursive: true });
 try { execFileSync("ln", ["-sfn", out, join(shim, "@")]); } catch { /* already there */ }
 
 const require = createRequire(import.meta.url);
-const { staticResponsiveGate } = require(join(out, "lib/builder/qa/responsive.js"));
+const { responsiveBrief, staticResponsiveGate } = require(join(out, "lib/builder/qa/responsive.js"));
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -193,6 +193,66 @@ has(
   "\\\"be responsive\\\" produces a model's idea of responsive",
 );
 has(/px-4 sm:px-6 lg:px-8/.test(brief), "and one container rule for every section");
+
+/* ── Telling the model what is wrong, instead of making it look ──────────
+ *
+ * "Make it fit on mobile" is a perfectly clear request, and it was handed over
+ * as the whole of what the model knew. The page is forty kilobytes, the defect
+ * is four characters somewhere inside it, and the edit has under a minute — so
+ * the minute went on reading, hunting for something this codebase had already
+ * measured and could simply have said.
+ *
+ * That is the difference between understanding a request and being equipped to
+ * answer it. The gate above knows the file, the class list and the rule. None
+ * of it was reaching the one thing that could act on it. */
+{
+  const broken = page(`<div className="grid grid-cols-3"><span className="w-[1200px]">x</span></div>`);
+  const brief = responsiveBrief("", broken);
+
+  has(brief.length > 0, "a page with findings produces a brief");
+  has(/390px/.test(brief), "which says the width it was measured at", brief.split("\n")[0]);
+  has(/not guessed/.test(brief), "and that it was measured rather than guessed");
+  has(/grid-cols-3/.test(brief) && /w-\[1200px\]/.test(brief), "naming the actual classes at fault");
+  has(
+    brief.indexOf("w-[1200px]") < brief.indexOf("grid-cols-3") ||
+      brief.split("\n").findIndex((l) => /w-\[1200px\]/.test(l)) <= 2,
+    "errors before warnings, because a model acts on the top of a list",
+  );
+  has(
+    /anything else you change is a change nobody asked for/.test(brief),
+    "and it is bounded, so a layout fix does not become a redesign",
+  );
+}
+
+{
+  /* Nothing to say, nothing said. A page with no findings must not get a
+     paragraph telling it so — that is several hundred tokens of noise on a
+     prompt that has under a minute to be answered in. */
+  const sound = page(`<section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">ok</section>`);
+  has(responsiveBrief("", sound) === "", "a sound page produces no brief at all");
+
+  const unreadable = responsiveBrief("", [{ path: "lib/x.ts", content: "export const a = 1;" }]);
+  has(unreadable === "", "and neither does one this cannot read");
+}
+
+{
+  /* Wired for the request it is about, and not for every request. */
+  const route = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
+  has(
+    /plan\.kind === "responsive" \? responsiveBrief\(/.test(route),
+    "the edit path attaches it when the ask is about a phone",
+  );
+  has(
+    /responsiveBrief\(autofix\(currentHtml\)\.html\)/.test(route),
+    "measured after the mechanical fixes, so the model is not asked to redo them",
+    "autofix runs on the result either way; listing what it already fixed wastes the minute",
+  );
+  has(
+    /: ""/.test(route.slice(route.indexOf("plan.kind === \"responsive\""), route.indexOf("plan.kind === \"responsive\"") + 200)),
+    "and attaches nothing when it is not",
+    "a brief about phone layout on a message about pricing copy is pure distraction",
+  );
+}
 
 console.log(failed === 0 ? "\nAll responsive checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

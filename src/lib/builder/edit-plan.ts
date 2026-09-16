@@ -106,7 +106,14 @@ const ASPECTS: { kind: EditKind; match: RegExp }[] = [
   { kind: "routing", match: /\b(route|routing|url|link to|navigate|redirect|slug|path)\b/i },
   {
     kind: "responsive",
-    match: /\b(mobile|phone|tablet|responsive|small screen|breakpoint|on my phone|doesn't fit|overflow)\b/i,
+    /* Widened from the words people actually sent. "Update the page to fit
+       mobile view" was already read correctly; "The page is outside borders,
+       make it fit to 360px" and "realign the page to fit" were not, and they
+       are the same request — somebody describing a page hanging off the side of
+       their screen without using the word mobile. A width in the 320–480 range
+       is that request too, whatever else the sentence says. */
+    match:
+      /\b(mobile|phone|tablet|responsive|small screen|breakpoint|on my phone|doesn'?t fit|overflow|realign\w*|outside (?:the )?borders?|off the (?:side|edge|screen)|scrolls? sideways|horizontal(?:ly)? scroll|cut off|cropped on|fit (?:the |to )?(?:page|screen|width))\b|\b3[2-9]\d ?px\b|\b4[0-8]\d ?px\b/i,
   },
   /* Where the SUBJECT of a picture sits, which is not the same request as
      "make it smaller" and was being read as one.

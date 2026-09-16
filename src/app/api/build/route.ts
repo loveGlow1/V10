@@ -148,6 +148,7 @@ import {
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
 import { autofix } from "@/lib/builder/qa/autofix";
+import { responsiveBrief } from "@/lib/builder/qa/responsive";
 import { validatePage } from "@/lib/builder/validate";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
@@ -2167,6 +2168,25 @@ async function handle(
            above. */
         [
           editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* ── What is actually wrong, when the ask is about a phone ───────
+           *
+           * "Make it fit on mobile" is a perfectly clear request, and it was
+           * being handed over as the whole of what the model knew. The page is
+           * forty kilobytes, the defect is four characters somewhere inside it,
+           * and the edit has under a minute — so the minute went on reading,
+           * looking for something this codebase had already found and could
+           * simply have said.
+           *
+           * qa/responsive.ts measures the page at 390px and names the file, the
+           * class list and the rule. Measured against the page AFTER the
+           * mechanical fixes, so the model is never asked to do work autofix is
+           * about to do anyway — see the autofix call below, which runs on the
+           * result either way.
+           *
+           * Only for a request that is about this. A brief about phone layout
+           * on a message about the pricing copy is several hundred tokens of
+           * distraction. */
+          plan.kind === "responsive" ? responsiveBrief(autofix(currentHtml).html) : "",
           /* ── Somewhere to look, when the message carries a picture ───────
            *
            * The hardest request this builder gets is "use this screenshot and
