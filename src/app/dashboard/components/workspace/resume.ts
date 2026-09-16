@@ -19,6 +19,12 @@
    minutes over a build that stopped existing days ago. */
 export const RESUME_WINDOW_MS = 30 * 60 * 1000;
 
+/* How often a resumed workspace asks what the build has done since.
+   A resumed session has no stream, so this is the only way its panel advances
+   — and the steps it is asking about are seconds apart at their fastest, so
+   polling harder would spend requests to learn the same thing. */
+export const RESUME_STEP_POLL_MS = 4000;
+
 export type ResumeCheck = {
   /** The project row's status, or null when there is no project yet. */
   status?: string | null;
