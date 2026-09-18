@@ -196,6 +196,33 @@ alter table public.projects add column if not exists repo_url text;
 alter table public.projects add column if not exists admin_url text;
 alter table public.projects add column if not exists last_build_at timestamptz;
 
+-- Where a project is PUBLISHED, and how its deployment is getting on.
+--
+-- Deliberately two more columns rather than more meanings loaded onto the ones
+-- above, because the three addresses a project has are three different things
+-- and collapsing any two of them is what made Preview and Publish the same
+-- button:
+--
+--   preview_url        quickstark.tech/preview/<id>. PRIVATE. Owner-only, the
+--                      newest build, and where editing happens. Written by the
+--                      build route and by nothing else. A deployment URL must
+--                      never be written here — that is the bug this comment
+--                      exists to prevent coming back.
+--   published_url      <slug>.quickstark.tech. PUBLIC. The customer-facing
+--                      product URL, written by the publish route and upgraded
+--                      by settle.ts once the wildcard domain answers.
+--   deployment_status  building | deployed | failed. The DEPLOYMENT's own
+--                      lifecycle, which is not the build's (`status`) and not
+--                      the publication's (`published_at`). A project can be
+--                      Published with a deployment still building, and reading
+--                      either column for the other's answer is how a customer
+--                      came to be handed a link before there was anything
+--                      behind it.
+--
+-- Nullable: a project has neither until it is first published.
+alter table public.projects add column if not exists published_url text;
+alter table public.projects add column if not exists deployment_status text;
+
 alter table public.projects enable row level security;
 
 drop policy if exists "Owners read their projects" on public.projects;

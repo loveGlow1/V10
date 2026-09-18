@@ -110,6 +110,63 @@ async function attachPreviewAlias(record: {
   }
 }
 
+/* The address label this project was issued, or null.
+ *
+ * Read with the service key because settling runs on a cron as well as on the
+ * workspace's poll, and neither has a session to read RLS with. It reads one
+ * public column of a project this deployment already belongs to, so nothing is
+ * widened by it.
+ *
+ * Best effort throughout: a slug that cannot be read costs the nicer half of
+ * the address, never the deployment. */
+async function slugOf(service: SupabaseClient, projectId: string): Promise<string | null> {
+  try {
+    const { data } = await service
+      .from("projects")
+      .select("slug")
+      .eq("id", projectId)
+      .maybeSingle<{ slug: string | null }>();
+    return data?.slug ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/* Where this project's deployment got to, on the project row.
+ *
+ * `deployment_status` is the DEPLOYMENT's own lifecycle — building, deployed,
+ * failed — and it is deliberately a separate column from `status`, which is the
+ * build's, and from `published_at`, which is the publication's. Three different
+ * facts that were being read off one another before, which is how a project
+ * could read Published while its deployment was still compiling.
+ *
+ * `published_url` is written ONLY on success, and `preview_url` is never
+ * touched from here. Those are two addresses for two different things — one
+ * private and one public — and overwriting the first with the second is what
+ * took people's editing preview away the moment they published.
+ *
+ * Best effort. A column that cannot be written is a label out of date, not a
+ * deployment that did not happen. */
+async function noteDeploymentState(
+  service: SupabaseClient,
+  projectId: string,
+  status: "building" | "deployed" | "failed",
+  publishedUrl: string | null,
+): Promise<void> {
+  try {
+    await service
+      .from("projects")
+      .update({
+        deployment_status: status,
+        ...(publishedUrl ? { published_url: publishedUrl } : {}),
+      })
+      .eq("id", projectId);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("deployments: the project's deployment state could not be written:", error);
+  }
+}
+
 /* ── The address on our own domain, bound to the project ──────────────────
  *
  * `<slug>.quickstark.tech`, which is what the customer shows a client — the
@@ -125,13 +182,28 @@ async function attachPreviewAlias(record: {
  * Best effort, like the preview alias above it and for the same reason: its
  * failure mode is a plainer address, and the alternative to a plainer address
  * is not a nicer one, it is a customer whose publish failed. */
-async function attachAppDomain(record: {
-  vercelProject: string | null;
-}): Promise<string | null> {
+async function attachAppDomain(
+  record: {
+    vercelProject: string | null;
+  },
+  /* The project's own address label, which is what the customer was promised.
+   *
+   * The Vercel project name carries a disambiguating hash — `luxury-bakery-
+   * 038f1129` — because two customers may both call a project the same thing
+   * and Vercel's namespace is one account wide. Our namespace is not: a slug
+   * is unique across the platform by the index that issues it, so the address
+   * can be the clean one. Deriving the domain from the Vercel name instead put
+   * the hash in front of the customer, which is the address nobody would put
+   * on a business card.
+   *
+   * Falls back to the Vercel name, so a deployment whose project row cannot be
+   * read still gets an address rather than none. */
+  slug: string | null,
+): Promise<string | null> {
   const creds = vercelCredentials();
   if (!creds || !record.vercelProject) return null;
 
-  const domain = appDomainFor(record.vercelProject);
+  const domain = appDomainFor(slug ?? record.vercelProject);
   if (!domain) return null;
 
   try {
@@ -353,7 +425,7 @@ export async function settleOne(
        Beside the alias because both need the same thing to be true — that
        there is a build behind the address — and neither may fail a publish
        that has already succeeded. */
-    const own = await attachAppDomain(record);
+    const own = await attachAppDomain(record, await slugOf(service, record.projectId));
 
     /* What gets WRITTEN DOWN, which is what every other part of the product
        then shows: the workspace's live frame, the Open link, the row. A
@@ -367,6 +439,7 @@ export async function settleOne(
 
     await settleDeployment(service, record, settled);
     await settleJob(service, record, settled);
+    await noteDeploymentState(service, record.projectId, "deployed", settled.url);
 
     /* Said where the question was asked. Keyed on the deployment, so two
        callers arriving at once — the cron and the workspace's own poll —
@@ -445,6 +518,7 @@ export async function settleOne(
 
     await settleDeployment(service, record, state);
     await settleJob(service, record, state);
+    await noteDeploymentState(service, record.projectId, "failed", null);
 
     await recordMessage(service, {
       projectId: record.projectId,

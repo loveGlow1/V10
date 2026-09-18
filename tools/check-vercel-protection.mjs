@@ -127,9 +127,21 @@ has(creds.teamQuery.includes("team_abc"), "and carry the team", creds.teamQuery)
       `the ${label} sends ssoProtection as an explicit null`,
       JSON.stringify(call?.body),
     );
+    /* The third gate. An IP allow-list answers 403 to everybody who is not the
+       team, which on a generated project is everybody it was made for. */
     has(
-      call && "passwords" in call.body && call.body.passwords === null,
-      `the ${label} sends passwords as an explicit null`,
+      call && "trustedIps" in call.body && call.body.trustedIps === null,
+      `the ${label} sends trustedIps as an explicit null`,
+      JSON.stringify(call?.body),
+    );
+    /* `passwordProtection`, under the name the v9 project endpoint actually
+       reads. This asserted `passwords`, which is not a field Vercel has: the
+       key was accepted, ignored, and password protection stayed on — so the
+       check passed for years while the thing it was guarding did not work. A
+       login box in front of a published site is the visible half of that. */
+    has(
+      call && "passwordProtection" in call.body && call.body.passwordProtection === null,
+      `the ${label} sends passwordProtection as an explicit null`,
     );
   }
 
@@ -598,8 +610,13 @@ const TARGET = {
   );
 
   const preview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+  /* Built from the project's SLUG, not from the Vercel project name. The two
+     differ — `luxury-bakery` against `luxury-bakery-038f1129` — so deriving it
+     from the Vercel name had the preview looking up a hostname the publish
+     path never binds: the check always failed and the pane fell through to the
+     vercel.app address every time. */
   has(
-    /appDomainFor\(vercelProject\)/.test(preview),
+    /appDomainFor\(slug\)/.test(preview),
     "and a server-mode preview points its frame at the published domain first",
   );
   has(

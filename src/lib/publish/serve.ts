@@ -1,3 +1,5 @@
+import { latestDeployment, existingVercelProject } from "@/lib/publish/deployment-store";
+import { publicAddress } from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Handing a published page to whoever asked for it.
@@ -53,6 +55,38 @@ function notFound(message: string, status = 404): Response {
   );
 }
 
+/* Where this project's application is running, or null if it has none.
+ *
+ * Null is the ordinary answer and the important one: a single-page project has
+ * no deployment row at all, so it never takes the branch above and goes on
+ * being served from its snapshot exactly as it always has.
+ *
+ * The address is DERIVED rather than read off the row — see publicAddress. A
+ * stored per-deployment host sits behind Deployment Protection and would send
+ * a visitor to Vercel's login screen, which is worse than anything this is
+ * trying to fix.
+ *
+ * Best effort. Anything that goes wrong here falls through to the snapshot,
+ * which is what was being served before. */
+async function liveApplication(
+  service: ReturnType<typeof createSupabaseServiceClient>,
+  projectId: string,
+): Promise<string | null> {
+  if (!service) return null;
+
+  try {
+    const deployment = await latestDeployment(service, projectId);
+    if (!deployment || deployment.state !== "ready") return null;
+
+    const vercelProject = await existingVercelProject(service, projectId);
+    return publicAddress(deployment.url, vercelProject);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("serve: the running application could not be located:", error);
+    return null;
+  }
+}
+
 export async function servePublished(asked: Asked): Promise<Response> {
   if (!asked) return notFound("There is no site at this address.");
 
@@ -63,17 +97,19 @@ export async function servePublished(asked: Asked): Promise<Response> {
   if (!service) return notFound("This site is temporarily unavailable.", 503);
 
   let publicationId: string | null = null;
+  let projectId: string | null = null;
   let found = false;
 
   if ("slug" in asked) {
     const { data } = await service
       .from("projects")
-      .select("published_version_id, deleted_at")
+      .select("id, published_version_id, deleted_at")
       .eq("slug", asked.slug)
       .maybeSingle();
 
     if (data && !data.deleted_at) {
       found = true;
+      projectId = data.id as string;
       publicationId = data.published_version_id as string | null;
     }
   } else {
@@ -96,6 +132,7 @@ export async function servePublished(asked: Asked): Promise<Response> {
 
       if (data && !data.deleted_at) {
         found = true;
+        projectId = connected.project_id as string;
         publicationId = data.published_version_id as string | null;
       }
     }
@@ -107,6 +144,41 @@ export async function servePublished(asked: Asked): Promise<Response> {
        connected before the project was ever published. Said differently from
        "no such address" because the owner can act on it. */
     return notFound("This site hasn't been published yet.");
+  }
+
+  /* ── An application is never served as its own receipt ──────────────────
+   *
+   * A deployed project has a `project_publications` row like any other, and the
+   * html on it is the SUMMARY this platform writes for a tree build — "a web
+   * app built as a Next.js project, 19 files", a route list and a file count.
+   * It is a good receipt and it is not a website, and serving it here put that
+   * receipt at the customer's public address under their own domain. That is
+   * the "I published and got a deployment information page" report, exactly.
+   *
+   * A project that has deployed is an application, and its published address
+   * must open the application. The discriminator is the deployment row rather
+   * than the marker in the document: the marker only exists on builds made
+   * after it was added, and a project's having source files is a fact about the
+   * project that is true whenever it was built.
+   *
+   * ── Why this is a fallback and not the main path ──────────────────────────
+   *
+   * Normally nothing here runs for a deployed project at all. `<slug>.
+   * quickstark.tech` is bound to that project's own Vercel project on publish,
+   * so Vercel answers it from the application directly and this app never sees
+   * the request. This is what happens when that bind did not land — an
+   * unverified wildcard, a DNS record that has not propagated — and the request
+   * falls through to our own wildcard instead.
+   *
+   * So it hands the visitor to where the application actually is. The address
+   * bar showing the hosting provider is a real cost and it is the smaller one:
+   * the alternative is a customer's public URL showing a file listing.
+   *
+   * Only a READY deployment. A build still compiling has an address with
+   * nothing behind it, and sending somebody there trades a receipt for a 404. */
+  if (projectId) {
+    const running = await liveApplication(service, projectId);
+    if (running) return Response.redirect(running, 302);
   }
 
   const { data: publication } = await service

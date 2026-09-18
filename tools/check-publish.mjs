@@ -203,27 +203,39 @@ for (const name of ["QuickStark", "API", "Hi", "!!!", "12345", "Premium, futuris
   has(got !== null && slugIsUsable(got), `the address for ${JSON.stringify(name)} is itself usable`, got);
 }
 
-/* ── The address is a path, not a subdomain ───────────────────────────────
+/* ── The address is a subdomain ───────────────────────────────────────────
  *
- * shop.quickstark.tech is the nicer form and it needs a wildcard DNS record
- * plus a wildcard domain on the Vercel project. The DNS half fails silently:
- * a publish succeeded, took 50 credits and handed back a hostname that did not
- * resolve, which is exactly what happened on the first real publish. A path
- * works the moment the code deploys, on any plan.
+ * This guarded the opposite for as long as the path form was the decision, and
+ * the reasoning it recorded was sound: a subdomain needs a wildcard DNS record
+ * plus a wildcard domain on the Vercel project, the DNS half fails silently,
+ * and a publish once succeeded, took 50 credits and handed back a hostname that
+ * did not resolve. A path worked the moment the code deployed, on any plan.
  *
- * The slug still has to be a legal DNS label, so nothing here forecloses
- * moving to subdomains later — that is what these two checks are guarding. */
-has(publishedUrl("shop") === "https://www.quickstark.tech/shop", "a published project is served from a path", publishedUrl("shop"));
-has(!publishedUrl("shop").includes("shop.quickstark"), "and never from a subdomain", publishedUrl("shop"));
-has(publishedLabel("shop") === "www.quickstark.tech/shop", "the label drops the scheme", publishedLabel("shop"));
+ * What changed is that the wildcard is no longer a prerequisite somebody had to
+ * have arranged. `<slug>.quickstark.tech` is bound to the Vercel project as
+ * part of publishing, the bind is checked rather than assumed, and a refusal
+ * leaves the customer on an address that works — so the silent failure this
+ * check was written to prevent now reports itself.
+ *
+ * `/<slug>` still answers: src/app/[slug] is untouched and every link already
+ * shared resolves. This is about the address a customer is GIVEN. */
+has(publishedUrl("shop") === "https://shop.quickstark.tech", "a published project is served from its own subdomain", publishedUrl("shop"));
+/* The slug is the HOSTNAME's first label, never a path segment. Asked of the
+   parsed URL rather than of the string: "https://shop.quickstark.tech" does
+   contain the characters "/shop", in "//shop", which is exactly the kind of
+   substring test that passes for the wrong reason. */
+has(new URL(publishedUrl("shop")).pathname === "/", "and never as a path on the app's own hostname", publishedUrl("shop"));
+has(publishedLabel("shop") === "shop.quickstark.tech", "the label drops the scheme", publishedLabel("shop"));
 
-/* The short label is what a phone-width row shows. It has to keep the half
-   that identifies the site, because dropping the wrong half is the failure it
-   exists to prevent: every row reading "www.quickstark.tec…". */
-has(publishedShortLabel("shop") === "/shop", "the short label keeps the slug and drops the host", publishedShortLabel("shop"));
+/* The short label is what a phone-width row shows. Against a path address it
+   dropped the shared half — every row otherwise read "www.quickstark.tec…",
+   truncating away the only part that identified the site. A subdomain has no
+   shared half in front to drop: the slug is already first, so the whole
+   address survives a truncation and the short form is the full one. */
+has(publishedShortLabel("shop") === "shop.quickstark.tech", "the short label is the address itself", publishedShortLabel("shop"));
 has(
-  publishedShortLabel("peckham-sourdough").length < publishedLabel("peckham-sourdough").length,
-  "and is shorter than the full one, which is the only reason it exists",
+  publishedShortLabel("peckham-sourdough").startsWith("peckham-sourdough"),
+  "and leads with the half that identifies the site, which is the only reason it exists",
   publishedShortLabel("peckham-sourdough"),
 );
 
@@ -257,13 +269,37 @@ has(
   "and so does one whose row was read without the column",
 );
 
-/* The two addresses of one project differ by exactly one segment — that is
-   what makes publishing a change of nothing rather than a move. */
+/* ── THE PREVIEW AND THE PUBLISHED ADDRESS ARE NOT THE SAME PLACE ─────────
+ *
+ * This asserted that they differed by exactly one segment, which was true and
+ * pleasant while both were paths on this app's hostname, and is the property
+ * that has to go. They are two different things:
+ *
+ *   the preview     PRIVATE. On quickstark.tech, owner-only, the newest build,
+ *                   where editing happens. It must never leave this platform —
+ *                   not to a subdomain and not to a hosting provider.
+ *   the published   PUBLIC. <slug>.quickstark.tech, a snapshot or a deployed
+ *                   application, served to anybody.
+ *
+ * Conflating them is the whole of the bug this replaced: Preview and Publish
+ * opened the same thing, so there was no way to look at an edit before it was
+ * public, and no way to tell which of the two you were looking at. So what is
+ * guarded now is that they DIFFER, and that the preview stays here. */
 const named = { id: "x", slug: "quickstark-app" };
 has(
-  previewUrl(named) === `${publishedUrl(named.slug)}/preview`,
-  "the preview address is the published one plus /preview",
+  previewUrl(named) !== publishedUrl(named.slug),
+  "the preview address is not the published address",
   `${previewUrl(named)} vs ${publishedUrl(named.slug)}`,
+);
+has(
+  previewUrl(named).startsWith("https://www.quickstark.tech/"),
+  "the preview stays on the platform's own hostname",
+  previewUrl(named),
+);
+has(
+  !previewUrl(named).includes(".vercel.app"),
+  "and never points at the hosting provider",
+  previewUrl(named),
 );
 
 /* ── THE LIST AND THE ROUTER MUST AGREE ───────────────────────────────────
