@@ -133,10 +133,28 @@ has(
 // ── Provision only what is NEEDED ────────────────────────────────────────
 console.log("\nProvision only what is needed:");
 
+/* The GUARD is what this is about, not which function is behind it. It named
+   resolveBackend while that was the only way in; the build path now calls
+   ensureBackendFor, which resolves and — for a heavy backend that has said
+   nothing — gives the project a database of its own. Either way the question
+   is only ever asked when the manifest says there is a database layer, which
+   is the thing worth holding: resolving one would name a schema and open a
+   connection for a project that has neither, and ensureBackendFor would go
+   further and create a Supabase project for it. */
 has(
-  /architecture\.manifest\.database\s*\?\s*await resolveBackend/.test(buildRoute),
+  /architecture\.manifest\.database\s*\r?\n?\s*\?\s*await (?:resolveBackend|ensureBackendFor)/.test(
+    buildRoute,
+  ),
   "no backend is resolved for a project with no database layer",
   "resolving one would name a schema and open a connection for a project that has neither",
+);
+
+/* And the split that decides how much of one. A heavy backend on the shared
+   instance is accounts in a pool shared with every other app on it. */
+has(
+  /weightOf\(architecture\.manifest\)/.test(buildRoute),
+  "and how much backend is read from the layers, not from the brief a second time",
+  "a second reading of the same words is a second answer to disagree with the first",
 );
 
 has(

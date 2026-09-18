@@ -79,6 +79,83 @@ export function isProductionGrade(mode: BackendMode): boolean {
   return mode === "quickstark_managed" || mode === "own";
 }
 
+/* ── How much backend, which is not the same question as whether ──────────
+ *
+ * "Does this project have a database" was the only question asked, and it has
+ * two very different right answers underneath it:
+ *
+ *   A LANDING PAGE WITH A CONTACT FORM needs one table. Nobody signs in, there
+ *   is no admin, nothing is uploaded and no money moves. What it needs is a
+ *   place to put enquiries so they are not lost — and giving it a Supabase
+ *   project of its own is a monthly bill and a dashboard nobody will open, for
+ *   one table with an insert policy.
+ *
+ *   A WEB APP has accounts. The moment there are accounts, the shared instance
+ *   is the wrong home and not as a matter of taste: `auth.users` is one table
+ *   per Supabase PROJECT, so every app on it draws its identities from one
+ *   pool. Two apps cannot read each other's rows, but they share the pool, and
+ *   somebody selling to real customers is sharing it with strangers.
+ *
+ * That is the whole distinction, and it falls out of the layers rather than
+ * being guessed at: authentication, an admin, storage or payments each mean a
+ * real project of its own. A database with none of them is one or two tables
+ * that the preview instance serves perfectly well.
+ *
+ * Read from the manifest, never from the brief. The layers were decided once,
+ * carefully, in architecture.ts; a second reading of the same words here would
+ * be a second answer to disagree with the first. */
+export const BACKEND_WEIGHTS = ["none", "simple", "heavy"] as const;
+
+export type BackendWeight = (typeof BACKEND_WEIGHTS)[number];
+
+/* The layers a weight is read from, structurally.
+ *
+ * Deliberately not `ArchitectureManifest` imported from architecture.ts: this
+ * module has no imports at all, which is what lets the browser, the build route
+ * and tools/check-backend-modes.mjs each read it without pulling the builder in
+ * behind it. The five fields below are the ones that decide, and a manifest
+ * satisfies this shape without being named. */
+export type BackendNeeds = {
+  database: boolean;
+  authentication: boolean;
+  admin: boolean;
+  storage: boolean;
+  payments: boolean;
+};
+
+/** How much backend this project's layers add up to. */
+export function weightOf(needs: BackendNeeds): BackendWeight {
+  if (!needs.database) return "none";
+
+  /* Any one of these is a project of its own. Accounts are the obvious one;
+     the other three are here because each brings something the shared instance
+     cannot separate per app — a storage bucket, an admin reaching tables
+     across the schema, and a payment record that is somebody's money. */
+  if (needs.authentication || needs.admin || needs.storage || needs.payments) return "heavy";
+
+  return "simple";
+}
+
+/** What to call this, where a person is being told what their project got. */
+export const WEIGHT_LABEL: Record<BackendWeight, string> = {
+  none: "No database",
+  simple: "A table or two",
+  heavy: "A database of its own",
+};
+
+/**
+ * What a weight means for somebody reading the step list.
+ *
+ * Said in terms of what they get rather than what we run, like MODE_BLURB
+ * above — "somewhere for enquiries to go" is a sentence about their contact
+ * form, and "a schema on the shared preview instance" is a sentence about us.
+ */
+export const WEIGHT_BLURB: Record<BackendWeight, string> = {
+  none: "Nothing is stored. Everything on the page is in the page.",
+  simple: "Somewhere for form submissions to go, so they are not lost.",
+  heavy: "Its own database, with accounts kept separate from every other project.",
+};
+
 /**
  * The mode a project should get, given what it needs and what is configured.
  *
@@ -95,6 +172,12 @@ export function modeFor(input: {
   chosen?: BackendMode | null;
   /** Whether this deployment can provision a project per app. */
   canProvision: boolean;
+  /* How much backend, from weightOf. Optional, and absent reads as `heavy` —
+     every caller written before weights existed was asking about a project
+     with accounts, and answering a narrower question with a broader default is
+     the safe direction: the worst it does is give a contact form a database of
+     its own, where the other way round puts accounts on a shared pool. */
+  weight?: BackendWeight;
 }): BackendMode {
   if (!input.needsDatabase) return "none";
 
@@ -102,6 +185,21 @@ export function modeFor(input: {
      may overrule them — it is their account and their data. */
   if (input.chosen === "own") return "own";
   if (input.chosen && input.chosen !== "quickstark_managed") return input.chosen;
+
+  /* ── A table or two does not need a project of its own ─────────────────
+   *
+   * The shared instance's disqualifying flaw is its identity pool: one
+   * `auth.users` for every app on it. A simple backend HAS no accounts — that
+   * is what makes it simple — so the flaw does not reach it, and the schema
+   * isolation that is left is exactly what a contact form needs.
+   *
+   * This is the one case where `shared` is a correct answer rather than a
+   * degraded one, and it is worth saying out loud because isProductionGrade
+   * still reports it as not production grade. That reading stays right for
+   * what it is asked about: a project that later grows accounts is upgraded by
+   * capability-upgrade.ts, and this answer is re-taken then with the layers it
+   * has by then. */
+  if (input.weight === "simple") return "shared";
 
   /* Managed is the default for anything that needs a database, and falls back
      to the shared preview only where this deployment cannot provision. That

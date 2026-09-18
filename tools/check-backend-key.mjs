@@ -37,6 +37,14 @@ writeFileSync(
   JSON.stringify({
     compilerOptions: {
       outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022",
+      /* `strict`, like the root tsconfig and like check-pipeline.mjs beside
+         this. Without it a discriminated union's `ok: true | false` widens to
+         boolean and stops narrowing, so an `if (!result.ok)` branch reading
+         `result.reason` is an error here and correct everywhere else. The
+         check compiled one file that happened not to trip it; the moment
+         connection.ts imported a second one it did, and what it reported was
+         the missing flag rather than anything about the code. */
+      strict: true,
       moduleResolution: "bundler", skipLibCheck: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },

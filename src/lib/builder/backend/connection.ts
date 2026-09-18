@@ -50,7 +50,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { schemaNameFor } from "@/lib/builder/schema";
-import { type BackendMode, isBackendMode } from "@/lib/builder/backend/modes";
+import { type BackendMode, type BackendWeight, isBackendMode } from "@/lib/builder/backend/modes";
+import { configured as managedConfigured, provisionProject } from "@/lib/builder/backend/managed";
 
 /* Kept as the column's old name and meaning. `mode` is the one to read — see
    modes.ts, which has the value this could never express ("none") and the one
@@ -203,6 +204,154 @@ export async function resolveBackend(
     schema: schemaNameFor(projectId),
     ready: Boolean(data?.applied_at),
     verifiedAt: data?.verified_at ?? null,
+  };
+}
+
+/* ── Making sure a project has a backend fit for what it is ───────────────
+ *
+ * resolveBackend READS. This is the one function that may write, and it exists
+ * because reading alone had a gap the size of the product: a project with
+ * nothing linked falls through to the shared preview instance, and nothing in
+ * the build path ever asked for anything better. modeFor has declared managed
+ * the intended default since it was written, and the only caller was the
+ * backend panel's recommendation — so a generated application got a schema on
+ * a shared instance unless its owner went and pressed a button, which nobody
+ * told them about.
+ *
+ * ── The split, which is the whole point ───────────────────────────────────
+ *
+ *   SIMPLE (a table or two, nobody signs in) stays on the shared instance and
+ *   should. Its disqualifying flaw is the common `auth.users` pool, and a
+ *   backend with no accounts never touches it. A contact form does not need a
+ *   Supabase project of its own, and giving it one is a monthly bill against a
+ *   table nobody will open a dashboard to look at.
+ *
+ *   HEAVY (accounts, an admin, uploads, money) gets a project of its own. Not
+ *   a preference: identities are per Supabase project, so accounts on the
+ *   shared instance are accounts in a pool shared with strangers.
+ *
+ * ── What it will not do ───────────────────────────────────────────────────
+ *
+ * It never overrules an owner. A project whose row already names a mode has
+ * been decided — by them in the panel, or by an earlier build — and this
+ * returns that untouched. It only ever fills in a project that has said
+ * nothing, and it only ever moves UP: nothing here relocates data that exists.
+ *
+ * Never throws, and every failure degrades to what resolveBackend would have
+ * returned anyway. A Supabase that would not create a project is a build that
+ * carries on against the shared schema and says so — the same degradation the
+ * rest of provisioning already has, and for the same reason: a project whose
+ * database is plainer is worth having, and a build that dies over it is not.
+ */
+export async function ensureBackendFor(
+  service: SupabaseClient,
+  input: {
+    projectId: string;
+    userId: string;
+    /** Only used to name the Supabase project readably. See managedName. */
+    projectName: string;
+    /** From weightOf(manifest). Decides whether a project of its own is owed. */
+    weight: BackendWeight;
+  },
+): Promise<BackendConnection | null> {
+  const existing = await resolveBackend(service, input.projectId);
+
+  /* No database wanted, or the read failed. Both are already handled correctly
+     by every caller and neither is this function's business — see the note in
+     resolveBackend about why a failed read must not become a fallback. */
+  if (!existing) return null;
+
+  /* Anything but the shared fallback is a decision somebody made. Left alone. */
+  if (existing.mode !== "shared") return existing;
+
+  /* A table or two belongs exactly where it already is. */
+  if (input.weight !== "heavy") return existing;
+
+  if (!managedConfigured()) {
+    /* The operator's half. Logged once rather than surfaced: the build is
+       about to carry on against a working schema, and "your app is on a shared
+       database because this deployment has no SUPABASE_MANAGEMENT_TOKEN" is a
+       sentence for whoever runs the platform, not for the customer. */
+    // eslint-disable-next-line no-console
+    console.warn(
+      `backend: ${input.projectId} needs a database of its own and this deployment cannot provision one`,
+    );
+    return existing;
+  }
+
+  const provisioned = await provisionProject({
+    projectName: input.projectName,
+    projectId: input.projectId,
+  });
+
+  if (!provisioned.ok) {
+    /* Recorded against the project, not just logged. "Why is my app on a
+       shared database" is asked hours later and somewhere else — the same
+       argument project_backends.verification_error already carries. */
+    await service
+      .from("project_backends")
+      .upsert(
+        {
+          project_id: input.projectId,
+          user_id: input.userId,
+          kind: "shared",
+          mode: "shared",
+          verification_error: provisioned.reason,
+        },
+        { onConflict: "project_id" },
+      )
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+
+    // eslint-disable-next-line no-console
+    console.error(`backend: ${input.projectId} could not be given its own database: ${provisioned.reason}`);
+    return existing;
+  }
+
+  const { error } = await service.from("project_backends").upsert(
+    {
+      project_id: input.projectId,
+      user_id: input.userId,
+      kind: "shared",
+      mode: "quickstark_managed",
+      managed_ref: provisioned.project.ref,
+      url: provisioned.project.url,
+      anon_key: provisioned.project.anonKey,
+      /* `public`, because a project of its own has nothing to share a schema
+         namespace with. The same value the backend panel writes. */
+      schema_name: provisioned.project.schema,
+      applied_at: null,
+      verified_at: new Date().toISOString(),
+      verification_error: null,
+    },
+    { onConflict: "project_id" },
+  );
+
+  if (error) {
+    /* The Supabase project EXISTS and we have just failed to write down where.
+       An orphan in the organisation dashboard is somebody's monthly bill, so
+       the operator is told plainly. The build carries on against the shared
+       schema, which is what it would have had anyway. */
+    // eslint-disable-next-line no-console
+    console.error(
+      `backend: provisioned ${provisioned.project.ref} for ${input.projectId} and could not record it:`,
+      error.message,
+    );
+    return existing;
+  }
+
+  return {
+    kind: "shared",
+    mode: "quickstark_managed",
+    managedRef: provisioned.project.ref,
+    url: provisioned.project.url,
+    anonKey: provisioned.project.anonKey,
+    schema: provisioned.project.schema,
+    /* Nothing has been migrated into it yet — that is the caller's next step. */
+    ready: false,
+    verifiedAt: new Date().toISOString(),
   };
 }
 

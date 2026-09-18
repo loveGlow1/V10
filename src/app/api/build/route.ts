@@ -97,7 +97,9 @@ import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
-import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
+import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { weightOf } from "@/lib/builder/backend/modes";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
@@ -3196,12 +3198,73 @@ async function handle(
   /* `service` is null when the deployment has no service-role key, which is
      already a build that cannot write its own rows — so this asks for nothing
      rather than adding a second way to fail on it. */
+  /* ── How much backend, before where it lives ────────────────────────────
+   *
+   * The layers already decided whether this project has a database. This asks
+   * the second question — how much of one — and the two answers are genuinely
+   * different infrastructure:
+   *
+   *   simple   a contact form's table, on the shared schema it already has.
+   *   heavy    accounts, an admin, uploads or money, which means a Supabase
+   *            project of its own: identities are per project, so accounts on
+   *            the shared instance share one pool with every other app on it.
+   *
+   * ensureBackendFor is the only thing in the read path that may write, and it
+   * only ever fills in a project that has said nothing — an owner who chose in
+   * the panel is returned untouched. Every failure degrades to exactly what
+   * resolveBackend would have answered, so this cannot cost a build. */
+  const weight = weightOf(architecture.manifest);
+
   const backend =
-    service && architecture.manifest.database ? await resolveBackend(service, project.id) : null;
-  const dataModel = dataModelFor(
+    service && architecture.manifest.database
+      ? await ensureBackendFor(service, {
+          projectId: project.id,
+          userId: user.id,
+          projectName: project.name as string,
+          weight,
+        })
+      : null;
+  const deterministic = dataModelFor(
     architecture.manifest,
     backend?.schema ?? schemaNameFor(project.id),
   );
+
+  /* ── The tables an application needs, which no kind can supply ──────────
+   *
+   * dataModelFor models a store, a blog and a publication because those kinds
+   * ARE their tables — every store has a basket. `webapp` has no such shape: a
+   * CRM's tables are leads, a tracker's are tasks, a portal's are documents.
+   * So it answered with `profiles` and nothing else, and an application with a
+   * database got an EMPTY schema — schemaBrief then returns the empty string,
+   * and the model is told to write an app and given nowhere to put anything.
+   * A working interface over hardcoded arrays is what comes back, which is the
+   * demo this platform exists not to ship.
+   *
+   * Asked for only where it is genuinely needed and cannot be derived:
+   *
+   *   the manifest already says database, so a bakery with a contact form
+   *   never reaches this line — a database is not automatic and this does not
+   *   make it so;
+   *   the kind has no deterministic model of its own, so a store keeps the
+   *   tables that were written for it rather than having them re-guessed.
+   *
+   * Every failure degrades to `deterministic`, which is exactly what this
+   * build would have had before. See app-schema.ts: the proposal is refused
+   * whole rather than repaired, because a table that is nearly right is worse
+   * than no table — the app gets written against it and a customer finds the
+   * defect. */
+  let dataModel = deterministic;
+
+  if (architecture.manifest.database && architecture.manifest.type === "webapp") {
+    const authored = await authorSchema({ brief: brief.text, manifest: architecture.manifest });
+
+    if (authored.ok) {
+      dataModel = withAuthored(deterministic, authored.tables);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn(`schema: ${project.id} kept the default tables — ${authored.reason}`);
+    }
+  }
 
   if (service && backend && dataModel.tables.length > 0) {
     /* The stage is entered only when there is something to provision. A

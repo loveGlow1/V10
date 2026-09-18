@@ -154,6 +154,13 @@ export type ArchitectureResult = {
  * mistake in the other direction — so it starts at nothing and every layer it
  * gets is one the brief asked for. stack.ts has already read that brief for
  * auth and persistence, and its answer is merged in below.
+ *
+ * A DATABASE IS NOT AUTOMATIC, and this is the line where that is decided. A
+ * database belongs to an application that holds persistent changing data —
+ * accounts, workspaces, orders, reservations, posts — and it does not belong
+ * to a bakery with a gallery and a contact form, however much the phrase "web
+ * app" is in the brief. The layers below are what argue for one; the kind
+ * never does on its own.
  */
 const DEFAULTS: Record<BuildKind, Partial<Record<Layer, true>>> = {
   landing: {},
