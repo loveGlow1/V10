@@ -141,23 +141,38 @@ export function slugAttempt(base: string, attempt: number): string {
   return `${base.slice(0, MAX_SLUG - suffix.length).replace(/-+$/g, "")}${suffix}`;
 }
 
-/* Where a published project is served.
+/* Where a published project is served: `<slug>.quickstark.tech`.
  *
- * A PATH, not a subdomain. shop.quickstark.tech is the nicer address and it
- * needs two things this cannot assume: a wildcard DNS record, and a wildcard
- * domain on the Vercel project. The first fails silently — a publish succeeds,
- * takes the credits and hands back a hostname that does not resolve, which is
- * exactly what happened — and the second has historically needed a paid plan.
+ * A SUBDOMAIN, and the note that stood here explaining why it was a path is
+ * kept below because the reasoning was right and the prerequisite it would not
+ * assume is now met.
  *
- * This works the moment the code is deployed, on any plan, with no DNS. The
- * slug still has to be a legal label, so nothing here forecloses moving to
- * subdomains later: the same slugs would work unchanged.
+ * What it said: a subdomain needs a wildcard DNS record and a wildcard domain
+ * on the Vercel project, the first fails silently — a publish succeeds, takes
+ * the credits and hands back a hostname that does not resolve — and a path
+ * needs neither. All true. What changed is that the wildcard is now part of
+ * publishing rather than something an operator had to have done first:
+ * `<slug>.quickstark.tech` is bound to the Vercel project on every publish (see
+ * the publish route and settle.ts), the bind is checked before the address is
+ * promoted, and a bind that is refused leaves the customer on an address that
+ * works. The silent failure the path was protecting against now has a voice.
  *
- * There is no /s/ prefix, which buys a shorter address and costs a permanent
- * obligation: published slugs and this app's own routes share one namespace.
- * See APP_ROUTES above — that list and src/app/ have to agree forever. */
+ * WHY IT HAD TO MOVE. A path address puts every customer's site in this app's
+ * own namespace and its own ORIGIN: quickstark.tech/shop shares cookies, local
+ * storage and same-origin reach with the dashboard, and the only thing holding
+ * that apart is the sandbox header in serve.ts. A subdomain gets the isolation
+ * from the browser for free. And a deployed application cannot be served from a
+ * path at all — it is a Next.js app on its own hosting, answering on its own
+ * hostname, so the path form could only ever have addressed half the product.
+ *
+ * `/<slug>` REMAINS A WORKING ADDRESS. The route at src/app/[slug] is
+ * untouched, so every link anybody has already shared or bookmarked resolves
+ * exactly as it did. This decides what a customer is SHOWN, not what answers.
+ * So APP_ROUTES above still has to agree with src/app/ forever — see the note
+ * on it, and check-publish.mjs, which enforces it. */
 export function publishedUrl(slug: string): string {
-  return `${SITE_URL}/${slug}`;
+  const suffix = PUBLISH_SUBDOMAIN.startsWith(".") ? PUBLISH_SUBDOMAIN : `.${PUBLISH_SUBDOMAIN}`;
+  return `https://${slug}${suffix}`;
 }
 
 /** The same address without its scheme, for showing rather than linking. */

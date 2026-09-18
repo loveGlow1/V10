@@ -8,13 +8,16 @@ import { validatePage } from "@/lib/builder/validate";
 import { diagnoseFindings } from "@/lib/publish/diagnosis";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import {
+  appDomainFor,
+  attachProjectDomain,
   deploymentName,
   deploymentsConfigured,
   publicAddress,
   startDeployment,
+  vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
-import { publishedUrl, slugIsUsable } from "@/lib/publish/naming";
+import { previewUrl, publishedUrl, slugIsUsable } from "@/lib/publish/naming";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -189,6 +192,12 @@ export async function POST(request: Request) {
    * charge is taken after the pointer flips, which is the same order the page
    * path uses and for the same reason. */
   let liveUrl: string | null = null;
+  /* Kept apart on purpose. `publishedAddress` is ours and is what the customer
+     is shown; `hostedUrl` is Vercel's and is what this platform falls back to
+     when the wildcard is not configured. Collapsing the two is what put a
+     hosting provider's URL in front of a customer. */
+  let publishedAddress: string | null = null;
+  let hostedUrl: string | null = null;
   let deployment: { id: string; vercelProject: string; url: string; inspect: string | null } | null = null;
 
   if (isProject) {
@@ -249,7 +258,50 @@ export async function POST(request: Request) {
     /* Derived rather than taken, so a per-deployment host — which is behind
        Deployment Protection and renders unstyled — can never be handed over as
        somebody's live address. See publicAddress. */
-    liveUrl = publicAddress(started.url, vercelProject);
+    hostedUrl = publicAddress(started.url, vercelProject);
+
+    /* ── The address the customer is actually given ──────────────────────
+     *
+     * `<slug>.quickstark.tech`. Until now this route handed back whatever
+     * publicAddress derived, which is a vercel.app hostname — so the link on
+     * the Publish button was our hosting provider's, and when the derived name
+     * was not the one Vercel had actually assigned, that link opened Vercel's
+     * own "deployment not found" page instead of the customer's site. A
+     * publish is the one moment this product is judged on, and it was pointing
+     * outside the product.
+     *
+     * Bound HERE rather than only in settle.ts, and that is the whole of the
+     * change. Binding is what makes the address exist, settling is what
+     * confirms it answers, and the two were the same step — so the address was
+     * knowable only after a cron had run, which is minutes after the person
+     * pressed the button and left. A project domain follows the project's
+     * newest production deployment on its own, so binding it before the build
+     * finishes is correct: it starts answering the moment there is something
+     * behind it, with nothing to re-run.
+     *
+     * Best effort, exactly as it is in settle.ts. `*.quickstark.tech` has to be
+     * a verified wildcard on the Vercel account with its DNS pointed at Vercel,
+     * and where it is not, this is refused and the vercel.app address is what
+     * the customer gets. A plainer address is a far smaller failure than a
+     * publish that did not happen, so nothing below is allowed to fail one. */
+    const wanted = appDomainFor(slug);
+    const creds = vercelCredentials();
+
+    if (wanted && creds) {
+      try {
+        const bound = await attachProjectDomain(vercelProject, wanted, creds);
+        if (bound.ok) publishedAddress = `https://${wanted}`;
+        else {
+          // eslint-disable-next-line no-console
+          console.warn(`publish: ${wanted} could not be bound: ${bound.reason}`);
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("publish: binding the address failed:", error);
+      }
+    }
+
+    liveUrl = publishedAddress ?? hostedUrl;
   }
 
   /* ── The snapshot ────────────────────────────────────────────────────────
@@ -312,13 +364,28 @@ export async function POST(request: Request) {
   }
 
   /* ── Live ────────────────────────────────────────────────────────────────
-     The last write, and the only one that makes anything public. */
+     The last write, and the only one that makes anything public.
+
+     `published_url` and `deployment_status` are written here and `preview_url`
+     is not, which is the rule rather than an omission. The preview address is
+     where this project is EDITED — private, owner-only, and still the right
+     answer after a publish — and the published address is where the world sees
+     it. Writing the second over the first is what made "Preview" and "Publish"
+     open the same thing, and it is why a deployment URL must never be allowed
+     near that column.
+
+     A deployment is `building` at this point and not a moment sooner: the
+     upload has been accepted and nothing has compiled. settle.ts moves it to
+     `deployed` or `failed` once Vercel has an answer. A page publish has no
+     build at all, so it is `deployed` the moment it is written. */
   const { error: liveError } = await service
     .from("projects")
     .update({
       published_version_id: publication.id,
       published_at: publication.published_at,
       status: "Published",
+      published_url: liveUrl ?? publishedUrl(slug),
+      deployment_status: deployment ? "building" : "deployed",
     })
     .eq("id", projectId)
     .eq("user_id", user.id);
@@ -364,15 +431,21 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     published: true,
-    /* An application is served by Vercel and a page is served by this platform,
-       so "where is my site" has two correct answers and this is the one that
-       matches what was actually published. The Vercel domain appears HERE and
-       nowhere earlier: before a publish there is no live site, and offering its
-       future address would be offering something that does not exist yet. */
+    /* THE CUSTOMER-FACING PRODUCT URL, and the only thing in this reply that
+       is allowed to be one. `<slug>.quickstark.tech` where the wildcard is
+       configured; the platform's own path address for a page; and Vercel's
+       hostname only where neither of ours exists, because an address somebody
+       can open beats a prettier one that does not resolve. */
     url: liveUrl ?? publishedUrl(slug),
-    /* Kept alongside, because a project also has a QuickStark address and the
-       workspace shows both. */
-    previewUrl: publishedUrl(slug),
+    /* Where this project is EDITED, which is not where it is published and
+       never was. This field carried `publishedUrl(slug)` — the public address
+       under the name `previewUrl` — so anything reading it for a preview link
+       sent the owner to their own live site and the two became the same button.
+       It is the preview route now, which is what its name says. */
+    previewUrl: previewUrl({ id: projectId, slug }),
+    /* Where Vercel is hosting it, for support and for nothing else. Never
+       shown as the address of somebody's site: see the note above liveUrl. */
+    hostedUrl,
     kind: isProject ? "project" : "page",
     building: Boolean(deployment),
     slug,

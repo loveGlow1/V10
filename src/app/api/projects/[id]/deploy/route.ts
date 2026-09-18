@@ -501,12 +501,30 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     .update({ deployment_url: started.url, deployment_error: null })
     .eq("id", build.id);
 
+  /* ── What the CALLER is told, which is not what the row holds ───────────
+   *
+   * The row keeps `started.url` — the host the upload came back with, which on
+   * a team account is the per-deployment one. That is deliberate and it is
+   * already handled: publicAddress corrects a stored per-deployment host into
+   * the production alias on every read, which is why no backfill was ever
+   * needed for the rows written before it existed. Storing the raw answer is
+   * how this route records what Vercel actually said.
+   *
+   * The REPLY is a different question. It went straight into the workspace as
+   * the address of somebody's app, and a per-deployment host sits behind
+   * Deployment Protection: 401 to anyone not signed in to the team, which in a
+   * frame is a blank white rectangle and in a new tab is Vercel's login. So
+   * what leaves here is the derived address, the same one every read of the row
+   * would have produced — the caller and the reader now agree instead of
+   * differing by one hop. */
+  const settledUrl = publicAddress(started.url, vercelProject) ?? started.url;
+
   /* `building: true` rather than a bare URL, because the difference is now
      real: the address exists and the site behind it does not yet. A caller that
      showed this as "live" would be making the same promise the old blocking
      version at least waited to keep. */
   return NextResponse.json({
-    url: started.url,
+    url: settledUrl,
     building: true,
     deploymentId: started.deploymentId,
     buildId: build.id,

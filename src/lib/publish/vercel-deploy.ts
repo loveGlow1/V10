@@ -481,10 +481,25 @@ export type ProtectionResult = {
   note: string | null;
 };
 
-/* The two fields that gate a deployment. Null is Vercel's "off" — an absent key
-   means "leave as it is", which is not the same thing and is what makes this an
-   explicit null rather than a missing property. */
-const UNPROTECTED = { ssoProtection: null, passwords: null } as const;
+/* The fields that gate a deployment, under the names Vercel's project API
+ * actually reads. Null is Vercel's "off" — an absent key means "leave as it
+ * is", which is not the same thing and is what makes each of these an explicit
+ * null rather than a missing property.
+ *
+ * `passwords` was not one of them. The v9 project endpoint has no such field,
+ * so the key was accepted, ignored, and password protection stayed exactly on
+ * — which is the half of Deployment Protection that puts a login box in front
+ * of a customer's site. `passwordProtection` is the documented name and is what
+ * turns it off.
+ *
+ * `trustedIps` joins them for completeness: an allow-list is the third way a
+ * deployment answers 403 to everybody who is not the team, and a generated
+ * project must be open to the public by construction. */
+const UNPROTECTED = {
+  ssoProtection: null,
+  passwordProtection: null,
+  trustedIps: null,
+} as const;
 
 /* The prefix Next.js inlines into the bundle. The single fact everything about
    secrets on this platform turns on. */
