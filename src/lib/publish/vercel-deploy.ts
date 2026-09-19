@@ -1405,7 +1405,17 @@ export async function reachable(address: string): Promise<{ ok: true } | Unreach
     const response = await fetch(address, {
       redirect: "follow",
       signal: controller.signal,
-      headers: { "User-Agent": "QuickStark-deploy-check" },
+      /* A browser's user agent, because §5 asks this to be checked under the
+         conditions the preview actually uses and the preview is an iframe in
+         somebody's browser. It matters: Deployment Protection answers a plain
+         client with 401 and a navigation with a redirect to its sign-in page,
+         and only the second is what the customer will meet. Asking as a script
+         would test a path no visitor takes. */
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 QuickStark-deploy-check",
+        Accept: "text/html,application/xhtml+xml",
+      },
     });
 
     /* The one that matters, and the one that was being reported as success.
@@ -1419,6 +1429,85 @@ export async function reachable(address: string): Promise<{ ok: true } | Unreach
           "The app built and deployed, but Vercel is not letting the public see it — " +
           "the address answers with a sign-in wall rather than the site. This is " +
           "Deployment Protection, which is on by default on some Vercel accounts.",
+      };
+    }
+
+    /* ── A 200 IS NOT PROOF THE APP IS THERE ───────────────────────────
+     *
+     * The status check above catches the shape of protection a plain request
+     * gets: 401, or 403 once Vercel has decided who you are not. A BROWSER
+     * does not always get that. Deployment Protection can answer a navigation
+     * with a redirect to Vercel's sign-in, which is a 200 carrying an
+     * interstitial — and with redirect: "follow" that arrived here as success.
+     * So the check passed, "your app is live" was said, and the person opening
+     * the link in a private window got a login page: the exact failure this
+     * function exists to prevent, one layer further in.
+     *
+     * Two signals, strongest first. Where the response ENDED matters more than
+     * what it says: a request for the customer's app that finishes on a Vercel
+     * hostname it did not start on has been intercepted, whatever the body
+     * claims. The markers are the fallback for an interstitial served in place
+     * rather than redirected to, and they are deliberately specific — a
+     * generated app may perfectly well contain the word "vercel", so nothing
+     * here matches on that alone. */
+    const landedOn = (() => {
+      try {
+        return new URL(response.url || address).hostname;
+      } catch {
+        return "";
+      }
+    })();
+
+    const startedOn = (() => {
+      try {
+        return new URL(address).hostname;
+      } catch {
+        return "";
+      }
+    })();
+
+    if (landedOn !== startedOn && /(^|\.)vercel\.com$/i.test(landedOn)) {
+      return {
+        ok: false,
+        blocked: true,
+        reason:
+          "The app built and deployed, but opening its address lands on a Vercel " +
+          "sign-in page instead of the site. This is Deployment Protection.",
+      };
+    }
+
+    /* Read once, capped. The body is wanted for two questions and neither
+       needs more than the head of the document. */
+    const body = (await response.text().catch(() => "")).slice(0, 4000);
+
+    const INTERSTITIAL =
+      /_vercel\/sso|vercel\.com\/sso|sso-api\?|Authentication Required|You need to be signed in to (?:view|access) this deployment/i;
+
+    if (INTERSTITIAL.test(body)) {
+      return {
+        ok: false,
+        blocked: true,
+        reason:
+          "The app built and deployed, and its address is serving Vercel's " +
+          "sign-in page rather than the site. This is Deployment Protection.",
+      };
+    }
+
+    /* Vercel's own error pages come back as HTML with a code in them. A
+       deployment that is gone, or was never there, is not a site — and it is
+       not protection either, so it is reported as what it is. */
+    /* Only consulted on a response that is already a failure. A 200 carrying
+       the string NOT_FOUND is far likelier to be the app's own code — a route
+       constant, an error branch, a bundled message — than Vercel's error page,
+       and reading it as the second would condemn a working site. */
+    const VERCEL_ERROR = /DEPLOYMENT_NOT_FOUND|DEPLOYMENT_DELETED|DEPLOYMENT_DISABLED/i;
+    if (response.status === 404 || (response.status >= 400 && VERCEL_ERROR.test(body))) {
+      return {
+        ok: false,
+        blocked: false,
+        reason:
+          "The address answers, but with Vercel's own 'not found' page rather than " +
+          "the app — the deployment it points at is missing or has been removed.",
       };
     }
 
