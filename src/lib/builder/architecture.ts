@@ -55,6 +55,7 @@
 
 import type { BuildKind } from "./kinds";
 import { asksForPage, type StackNeeds } from "./stack";
+import { type Commerce, decideCommerce, needsDatabase, noCommerce } from "./commerce";
 
 /* The layers, in the order they are built and the order they are read. Frontend
    is first because everything has one; payments is last because almost nothing
@@ -98,6 +99,19 @@ export type ArchitectureManifest = {
   admin: boolean;
   storage: boolean;
   payments: boolean;
+  /* ── What this project does with PRODUCTS ─────────────────────────────
+   *
+   * A set of capabilities rather than a layer, and deliberately outside
+   * LAYERS above: those are infrastructure — is there a database, is there a
+   * session — and this is what the product IS. It was a boolean for one
+   * commit and that was one distinction too few: it could tell a catalogue
+   * from a shop and could not tell a shop that takes cards from one that
+   * invoices, or a storefront from a storefront with a back office.
+   *
+   * PRODUCTS ARE NOT COMMERCE. Every capability starts false and is switched
+   * on by something in the brief that needs it, never by the project having
+   * products. See commerce.ts. */
+  commerce: Commerce;
 };
 
 /* What is known about a project built before manifests were recorded.
@@ -119,6 +133,7 @@ export const UNKNOWN_ARCHITECTURE: ArchitectureManifest = {
   admin: false,
   storage: false,
   payments: false,
+  commerce: noCommerce(),
 };
 
 export type ArchitectureResult = {
@@ -211,7 +226,13 @@ const DEFAULT_REASON: Partial<Record<BuildKind, string>> = {
 const ADMIN = [
   /\b(admin (?:panel|area|dashboard|side|interface)|wp-?admin|back ?office)\b/i,
   /\b(cms|content management|headless cms|editor(?:ial)? (?:interface|dashboard))\b/i,
-  /\b(manage|manageable|managing|edit|add|update)\b[^.]{0,30}\b(products?|posts?|articles?|orders?|inventory|stock|content|listings?|catalogue|catalog|users?|customers?)\b/i,
+  /* "add products" is a merchant stocking a shop. "add products TO A CART" is
+     a customer shopping, and it is the commonest sentence in any store brief —
+     it matched here and gave every online store an admin area, customer
+     accounts behind it, and a database to hold them. The lookahead is what
+     tells the two apart. See the same fix in commerce.ts, which reads this
+     same sentence for its own capability. */
+  /\b(manage|manageable|managing|edit|add|update)\b[^.]{0,30}\b(products?|posts?|articles?|orders?|inventory|stock|content|listings?|catalogue|catalog|users?|customers?)\b(?![^.]{0,12}\b(?:to|into)\b[^.]{0,12}\b(?:cart|basket|bag|wish ?list)\b)/i,
   /\b(merchant|seller|vendor|staff|editor|publisher)\b[^.]{0,20}\b(dashboard|portal|area|panel|interface|side|account)\b/i,
   /\b(publish|unpublish|draft)\b[^.]{0,20}\b(posts?|articles?|pages?|products?)\b/i,
 ];
@@ -233,6 +254,34 @@ const PAYMENTS = [
   /\b(payment(?:s| gateway| processing| provider)?|checkout process|take (?:card )?payments?)\b/i,
   /\b(subscriptions?|recurring billing|billing (?:portal|system)|invoices?)\b/i,
   /\b(card payments?|credit cards?|pay online|online payments?)\b/i,
+];
+
+/* ── SHOWING WHAT IS FOR SALE IS NOT SELLING IT ───────────────────────────
+ *
+ * "A product showcase for our furniture, no cart or checkout" is about
+ * products, so kinds.ts files it as ecommerce — correctly. The defaults then
+ * gave it a basket, orders, customer accounts, an admin area and a storage
+ * bucket, for somebody who had declined the basket in the same sentence.
+ *
+ * NO_BACKEND below does not catch it: that list is about the back half as a
+ * whole — "no backend", "no database", "no accounts" — and this person wants a
+ * catalogue, which is data. What they do not want is commerce, and there was
+ * no way to say so.
+ *
+ * Two shapes, because people say it both ways: declining the machinery ("no
+ * cart", "without checkout", "not selling online") and naming the thing they
+ * do want instead ("showcase", "catalogue", "lookbook", "browse only"). Either
+ * is enough — nobody writes both.
+ *
+ * What it turns off is commerce and the layers that exist only to serve it.
+ * The catalogue keeps its database, because a catalogue is products. */
+const NO_COMMERCE = [
+  /\bno (?:cart|basket|checkout|shopping cart|online (?:sales|ordering|payments?)|payments?|orders?)\b/i,
+  /\bwithout (?:a )?(?:cart|basket|checkout|online (?:sales|ordering)|payments?)\b/i,
+  /\b(?:not|isn'?t|won'?t be)\s+(?:actually\s+)?(?:selling|taking orders?|an? (?:online )?(?:shop|store))\b/i,
+  /\b(?:product )?(?:showcase|lookbook|catalog(?:ue)? only|browse only|display only|window)\b/i,
+  /\b(?:just|only)\s+(?:a\s+)?(?:catalog(?:ue)?|showcase|gallery|product (?:list|range|display))\b/i,
+  /\benquire?\b[^.]{0,20}\b(?:instead|rather than|to (?:buy|order))\b/i,
 ];
 
 /* Somebody saying, in as many words, that the back half is not wanted. Held
@@ -268,6 +317,7 @@ function frontendOnly(kind: BuildKind): ArchitectureManifest {
     admin: false,
     storage: false,
     payments: false,
+    commerce: noCommerce(),
   };
 }
 
@@ -339,13 +389,39 @@ export function decideArchitecture(
   const defaults = DEFAULTS[kind] ?? {};
   const manifest = frontendOnly(kind);
 
+  /* ── What this project does with products, before the defaults are read ─
+   *
+   * Decided here rather than applied afterwards, because the layers a shop
+   * implies have to not be switched on in the first place: turning them off
+   * again later is the same answer arrived at by a longer route, and it is the
+   * route that goes wrong when somebody adds a layer and forgets this. */
+  const { commerce, why: commerceWhy } = decideCommerce(text);
+  manifest.commerce = commerce;
+  for (const clause of commerceWhy) why.push(clause);
+
   /* The kind's own shape. A store is a store whether or not the brief spells
      out that products have to be managed. */
   const fromKind = Object.keys(defaults) as Layer[];
   if (fromKind.length > 0) {
-    for (const layer of fromKind) manifest[layer] = true;
+    for (const layer of fromKind) {
+      /* ── A STORE'S DEFAULTS ARE A SHOP'S, AND THIS MAY NOT BE ONE ──────
+       *
+       * The ecommerce defaults describe a shop: accounts for the customers,
+       * an admin for the merchant, storage for the photography. Every one of
+       * those exists to serve a transaction, and a brief about products need
+       * not describe one — "a website showcasing our products" is content.
+       *
+       * So the transactional layers follow the capabilities read from the
+       * brief rather than the kind. The catalogue half is untouched: a
+       * project filed as ecommerce still gets its storage, because pictures
+       * of the range are the point of it. */
+      if (layer === "authentication" && !commerce.customerAccounts) continue;
+      if (layer === "admin" && !commerce.admin) continue;
+      if (layer === "database" && !needsDatabase(commerce)) continue;
+      manifest[layer] = true;
+    }
     const reason = DEFAULT_REASON[kind];
-    if (reason) why.push(reason);
+    if (reason && commerce.checkout) why.push(reason);
   }
 
   /* What stack.ts already read off the brief, rather than read again. Its two
@@ -393,6 +469,27 @@ export function decideArchitecture(
      point it was turned on: payments without a database is a checkout that
      charges a card and forgets the sale. */
   if (manifest.payments) manifest.database = true;
+
+  /* ── The commerce capabilities, back onto the layers ──────────────────
+   *
+   * Read in both directions, because the brief may describe either end. A
+   * project that says "take card payments" has the payments LAYER and the
+   * payments CAPABILITY, and whichever of the two was detected has to bring
+   * the other — otherwise a store is built with a checkout the manifest says
+   * it has no payments for, or vice versa.
+   *
+   * `database` is the one that must NOT be read from commerce as a whole.
+   * A showcase whose range is written into the page needs no database, and
+   * giving it one is the over-provisioning this is all here to stop. What
+   * needs a database is a thing that CHANGES — see needsDatabase. */
+  if (manifest.payments) manifest.commerce = { ...manifest.commerce, payments: true, enabled: true };
+  if (manifest.commerce.payments) manifest.payments = true;
+  if (manifest.commerce.customerAccounts) manifest.authentication = true;
+  if (manifest.commerce.admin) manifest.admin = true;
+  if (needsDatabase(manifest.commerce)) {
+    manifest.database = true;
+    manifest.backend = true;
+  }
   /* An admin nobody can sign into is a public back office. */
   if (manifest.admin) manifest.authentication = true;
   /* Anything past the frontend needs somewhere for the data to be. */

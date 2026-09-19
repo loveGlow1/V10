@@ -73,11 +73,31 @@ try {
       if (!path.endsWith(".js")) continue;
       const depth = path.slice(out.length + 1).split("/").length - 1;
       const prefix = depth === 0 ? "./" : "../".repeat(depth);
-      writeFileSync(path, readFileSync(path, "utf8").replace(
+      /* Two rewrites, and the second one arrived when schema.ts stopped
+         importing commerce.ts for types only. tsc leaves a relative specifier
+         exactly as written — "./commerce" — and node's ESM loader will not
+         resolve one without an extension, so the check failed reporting a
+         missing module rather than anything about the code.
+         
+         Line-based, and only on lines that ARE an import or an export: the
+         whole-file form also matches `from "../../${path}"` inside a template
+         literal in next-structure.ts, and rewrites it into a syntax error. */
+      const source = readFileSync(path, "utf8").replace(
         /(["'])@\/([^"']+)\1/g, (_, q, rest) => {
           const asFile = join(out, `${rest}.js`);
           return `${q}${prefix}${existsSync(asFile) ? `${rest}.js` : `${rest}/index.js`}${q}`;
-        }));
+        });
+
+      writeFileSync(path, source
+        .split("\n")
+        .map((line) => {
+          if (!/^\s*(?:import|export)\b/.test(line)) return line;
+          return line.replace(
+            /(from\s+["'])(\.\.?\/[^"']+?)(["'];?\s*)$/,
+            (whole, a, spec, b) => (spec.endsWith(".js") ? whole : `${a}${spec}.js${b}`),
+          );
+        })
+        .join("\n"));
     }
   };
   rewrite(out);
