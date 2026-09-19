@@ -789,7 +789,30 @@ const ROUTES: Record<BuildKind, string[]> = {
   landing: ["app/pricing/page.tsx", "app/contact/page.tsx"],
   ecommerce: ["app/products/page.tsx", "app/products/[slug]/page.tsx", "app/cart/page.tsx"],
   blog: ["app/blog/page.tsx", "app/blog/[slug]/page.tsx", "app/about/page.tsx"],
-  webapp: ["app/dashboard/page.tsx", "app/login/page.tsx"],
+  /* ── A WEB APP HAS NO UNIVERSAL ROUTES, AND THAT IS THE POINT ──────────
+   *
+   * This said `["app/dashboard/page.tsx", "app/login/page.tsx"]`, and every
+   * web app this platform has ever built got both — an invoicing product whose
+   * own areas are invoices, clients and payments was handed a route called
+   * "dashboard" because it was filed under webapp, and a login page whether or
+   * not it had accounts. That is the generic-AI-output tell: a product wearing
+   * somebody else's furniture.
+   *
+   * The other four kinds keep their lists because those routes are real. Every
+   * store has products and a basket; every blog has an index and a post. There
+   * is no equivalent for "web app" — it covers a CRM, a booking system and a
+   * unit converter — which is exactly what blueprints/webapp.ts worked out
+   * when it stopped forcing a dashboard on everything and wrote "say nothing
+   * about a dashboard unless it needs one". That lesson never reached here, so
+   * the blueprint asked for the product's own shape and the file list asked
+   * for a dashboard, and the file list wins because it names files.
+   *
+   * Empty, and the routes are named from the brief instead — see the webapp
+   * line in `write` below. Login is not here either: it is added under
+   * `manifest.authentication`, which is the thing that actually decides
+   * whether this product has accounts, and listing it twice for an app that
+   * does was the other half of this. */
+  webapp: [],
   news: ["app/[section]/page.tsx", "app/article/[slug]/page.tsx"],
 };
 
@@ -859,6 +882,15 @@ export function treeBrief(
       : "- app/globals.css — the design system as CSS custom properties, imported by the layout",
     ...routes.map((route) => `- ${route}`),
   ];
+
+  /* The product's own areas, named by the product. See ROUTES above: a web app
+     has no universal second route, so the shape is asked for rather than
+     assumed, and the example is deliberately a domain rather than a layout. */
+  if (kind === "webapp") {
+    write.push(
+      "- a route per area THIS product actually has, named in its own words — `app/invoices/page.tsx`, `app/clients/page.tsx`, `app/payments/page.tsx` for an invoicing tool. Name them for the objects in the brief. Do NOT write `app/dashboard/page.tsx` unless the product genuinely is a dashboard; an overview screen, when the product wants one, is the home page.",
+    );
+  }
 
   if (manifest.authentication) {
     write.push(
@@ -1004,6 +1036,20 @@ export function treeBrief(
        so it stops happening. */
     '- There is NO global `JSX` namespace. `JSX.Element` will not compile. Write `React.ReactNode` for anything renderable, or `import type { JSX } from "react"` in the file that needs `JSX.Element`.',
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
+    /* ── WHAT MAKES IT A PRODUCT RATHER THAN A DEMO ─────────────────────
+     *
+     * These three existed only in blueprints/webapp.ts, which governs the
+     * single-page stack — so a project built as a TREE got the correct states,
+     * the correct auth and the correct admin writes, and content that could be
+     * three rows of "Item 1". That is the whole of the generic-AI-output look,
+     * and none of it was anybody disobeying a rule: there was no rule.
+     *
+     * Worded as the blueprint words them, because that wording is the part
+     * that works — a floor with a number in it ("twenty or more") is followed
+     * and "make it realistic" is not. */
+    "- Use the product's OWN vocabulary everywhere: its words for its objects, its statuses, its actions. An invoicing tool has invoices, clients and payments — never Items, Records, Entries or Data.",
+    "- Seed it so it reads like an account in use, not one created this morning: twenty or more rows where the product has a list, varied names, dates spread over months, several different statuses, and amounts that are uneven and plausible. Three tidy rows is the tell.",
+    "- Every figure is computed from the data that is actually there. A tile, total, chart or counter that does not derive from the rows on the page is worse than no tile — it is the one thing a person checks first and the one thing that cannot be wrong.",
     /* Named here as well as in the asset manifest, and deliberately. This brief
        is the last thing the model reads before it starts writing files, and
        until the manifest learned to say "as a project" the two of them
