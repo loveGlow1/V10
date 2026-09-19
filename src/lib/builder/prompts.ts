@@ -293,11 +293,19 @@ export function sourcePrompt(
   contents: string,
   architecture?: string,
   neighbours?: string,
+  /* A site the person named, and what to do with it. Empty for every edit that
+     names none — see web-reference.ts. Placed LAST of the three briefs and
+     immediately before the change itself, because it is the only one that
+     describes something the model is about to go and read: what it says about
+     treating that page as evidence rather than as instruction should be the
+     nearest thing to the page when it arrives. */
+  reference?: string,
 ): string {
   return [
     architecture ? `${architecture}\n` : "",
     neighbours ? `${neighbours}\n` : "",
     `THE FILE — ${path}:\n\n${contents}`,
+    reference ? `\n${reference}\n` : "",
     `\nTHE CHANGE THEY ASKED FOR:\n\n${userMessage}`,
   ]
     .filter(Boolean)

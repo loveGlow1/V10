@@ -12,6 +12,7 @@ import {
   readPick,
 } from "./pick-file";
 import { type FileTree, describeTree } from "./tree";
+import { sitesNamedIn, webReferenceBrief, webReferenceTools } from "./web-reference";
 import {
   applyLineEdits,
   applyPatches,
@@ -447,6 +448,11 @@ async function ask(
      what the earlier ones left. Absent, it runs to completion, which is right
      for the short calls. */
   deadlineAt?: number,
+  /* Server tools, when this call is allowed any. Anthropic runs these on its
+     own infrastructure inside the same request, so there is no loop to drive
+     here and nothing downstream changes shape — the final message still
+     carries the text the caller parses. Empty for every ordinary edit. */
+  tools: Record<string, unknown>[] = [],
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -476,6 +482,7 @@ async function ask(
             thinking: { type: "adaptive" as const, display: "summarized" as const },
             output_config: { effort: "low" as const },
           }),
+      ...(tools.length > 0 ? { tools: tools as unknown as Anthropic.ToolUnion[] } : {}),
       system,
       messages: [
         ...prior,
@@ -1126,12 +1133,44 @@ export async function editSource(
   /* Sized on the file rather than on the project: what goes into the window is
      this one file, and a forty-file project whose every file is small is not a
      large edit. */
-  const model = editModelFor(userMessage, file.content);
+  /* ── A site somebody named, opened before anything is written ──────────
+   *
+   * "like nike.com" was a domain in a sentence and nothing on the other end:
+   * the model was asked to make something resemble a page it could not open,
+   * and answered with whatever it remembered of the brand. Naming a reference
+   * is the clearest instruction anybody gives about a design, and it was the
+   * one that arrived as a string.
+   *
+   * Only when a site is actually named — see sitesNamedIn, which is narrow on
+   * purpose, because a web call on the path of an ordinary edit is latency and
+   * credits spent on a domain that happened to be in the sentence.
+   *
+   * The STRONGER MODEL when it is, and not for quality: the dynamic-filtering
+   * server tools need Sonnet 4.6 or newer, and Haiku 4.5 — which is what most
+   * edits run on — answers their tool type with a 400. */
+  const sites = sitesNamedIn(userMessage);
+  const webTools = webReferenceTools(sites);
+
+  const model = webTools.length > 0 ? EDIT_MODEL_STRONG : editModelFor(userMessage, file.content);
   const deadlineAt = deadline ?? Date.now() + EDIT_DEADLINE_MS;
+
+  if (sites.length > 0) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `Looking at ${sites.join(" and ")} before making the change…`,
+    });
+  }
 
   const first = await ask(
     SOURCE_SYSTEM,
-    sourcePrompt(userMessage, file.path, file.content, architecture, neighbourBrief(tree, file.path)),
+    sourcePrompt(
+      userMessage,
+      file.path,
+      file.content,
+      architecture,
+      neighbourBrief(tree, file.path),
+      webReferenceBrief(sites),
+    ),
     PATCH_TOKENS,
     [],
     prior,
@@ -1139,6 +1178,7 @@ export async function editSource(
     false,
     model,
     deadlineAt,
+    webTools,
   );
 
   if (first.stop_reason === "refusal") {
