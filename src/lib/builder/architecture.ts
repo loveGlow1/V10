@@ -66,6 +66,20 @@ export const LAYERS = [
   "authentication",
   "admin",
   "storage",
+  /* Whether this project SELLS, as opposed to showing what is for sale.
+   *
+   * The distinction the ecommerce kind could not make. "A product showcase for
+   * our furniture, no cart or checkout" came back with a users table, an admin
+   * area, a storage bucket and an `orders` table — a full store, for somebody
+   * who had said in as many words that they were not running one. The kind was
+   * right (it is about products) and every layer after it was wrong.
+   *
+   * A catalogue has products, categories and pictures. A shop has those plus a
+   * basket, a checkout and orders, and the people and back office that come
+   * with them. This is the line between the two, and it sits before payments
+   * because taking money implies selling and not the other way round: a shop
+   * can take orders and invoice later. */
+  "commerce",
   "payments",
 ] as const;
 
@@ -79,6 +93,7 @@ export const LAYER_LABEL: Record<Layer, string> = {
   authentication: "Authentication",
   admin: "Admin",
   storage: "Storage",
+  commerce: "Commerce",
   payments: "Payments",
 };
 
@@ -97,6 +112,8 @@ export type ArchitectureManifest = {
   authentication: boolean;
   admin: boolean;
   storage: boolean;
+  /** Cart, checkout and orders. False for a catalogue that only shows. */
+  commerce: boolean;
   payments: boolean;
 };
 
@@ -118,6 +135,7 @@ export const UNKNOWN_ARCHITECTURE: ArchitectureManifest = {
   authentication: false,
   admin: false,
   storage: false,
+  commerce: false,
   payments: false,
 };
 
@@ -170,6 +188,7 @@ const DEFAULTS: Record<BuildKind, Partial<Record<Layer, true>>> = {
     authentication: true,
     admin: true,
     storage: true,
+    commerce: true,
   },
   blog: {
     backend: true,
@@ -235,6 +254,34 @@ const PAYMENTS = [
   /\b(card payments?|credit cards?|pay online|online payments?)\b/i,
 ];
 
+/* ── SHOWING WHAT IS FOR SALE IS NOT SELLING IT ───────────────────────────
+ *
+ * "A product showcase for our furniture, no cart or checkout" is about
+ * products, so kinds.ts files it as ecommerce — correctly. The defaults then
+ * gave it a basket, orders, customer accounts, an admin area and a storage
+ * bucket, for somebody who had declined the basket in the same sentence.
+ *
+ * NO_BACKEND below does not catch it: that list is about the back half as a
+ * whole — "no backend", "no database", "no accounts" — and this person wants a
+ * catalogue, which is data. What they do not want is commerce, and there was
+ * no way to say so.
+ *
+ * Two shapes, because people say it both ways: declining the machinery ("no
+ * cart", "without checkout", "not selling online") and naming the thing they
+ * do want instead ("showcase", "catalogue", "lookbook", "browse only"). Either
+ * is enough — nobody writes both.
+ *
+ * What it turns off is commerce and the layers that exist only to serve it.
+ * The catalogue keeps its database, because a catalogue is products. */
+const NO_COMMERCE = [
+  /\bno (?:cart|basket|checkout|shopping cart|online (?:sales|ordering|payments?)|payments?|orders?)\b/i,
+  /\bwithout (?:a )?(?:cart|basket|checkout|online (?:sales|ordering)|payments?)\b/i,
+  /\b(?:not|isn'?t|won'?t be)\s+(?:actually\s+)?(?:selling|taking orders?|an? (?:online )?(?:shop|store))\b/i,
+  /\b(?:product )?(?:showcase|lookbook|catalog(?:ue)? only|browse only|display only|window)\b/i,
+  /\b(?:just|only)\s+(?:a\s+)?(?:catalog(?:ue)?|showcase|gallery|product (?:list|range|display))\b/i,
+  /\benquire?\b[^.]{0,20}\b(?:instead|rather than|to (?:buy|order))\b/i,
+];
+
 /* Somebody saying, in as many words, that the back half is not wanted. Held
    above every default: a person who writes "no backend" has made this decision
    and the builder is not entitled to overrule them. Deliberately narrower than
@@ -267,6 +314,7 @@ function frontendOnly(kind: BuildKind): ArchitectureManifest {
     authentication: false,
     admin: false,
     storage: false,
+    commerce: false,
     payments: false,
   };
 }
@@ -339,13 +387,33 @@ export function decideArchitecture(
   const defaults = DEFAULTS[kind] ?? {};
   const manifest = frontendOnly(kind);
 
+  /* ── A catalogue, said before the store defaults are read ──────────────
+   *
+   * Held here rather than applied afterwards, because the layers a shop
+   * implies have to not be switched on in the first place: turning them off
+   * again later is the same answer arrived at by a longer route, and it is the
+   * route that goes wrong when somebody adds a layer and forgets this. */
+  const catalogue = firstMatch(NO_COMMERCE, text);
+
   /* The kind's own shape. A store is a store whether or not the brief spells
      out that products have to be managed. */
   const fromKind = Object.keys(defaults) as Layer[];
   if (fromKind.length > 0) {
-    for (const layer of fromKind) manifest[layer] = true;
-    const reason = DEFAULT_REASON[kind];
+    for (const layer of fromKind) {
+      /* Commerce, and everything a shop needs only because it is a shop. A
+         catalogue keeps the database — products are data — and loses the
+         basket, the orders, the customers who place them and the back office
+         that manages them. */
+      if (catalogue && (layer === "commerce" || layer === "authentication" || layer === "admin")) {
+        continue;
+      }
+      manifest[layer] = true;
+    }
+    const reason = catalogue ? null : DEFAULT_REASON[kind];
     if (reason) why.push(reason);
+    if (catalogue) {
+      why.push(`"${catalogue}" is showing what is for sale rather than selling it, so there is no cart, no orders and no back office`);
+    }
   }
 
   /* What stack.ts already read off the brief, rather than read again. Its two
@@ -392,6 +460,11 @@ export function decideArchitecture(
      is the one place a layer implies another after the fact rather than at the
      point it was turned on: payments without a database is a checkout that
      charges a card and forgets the sale. */
+  /* Taking money is selling, so payments brings commerce with it — the other
+     way round does not hold, which is why commerce is the earlier layer: a
+     shop can take an order and invoice for it later. */
+  if (manifest.payments) manifest.commerce = true;
+  if (manifest.commerce) manifest.database = true;
   if (manifest.payments) manifest.database = true;
   /* An admin nobody can sign into is a public back office. */
   if (manifest.admin) manifest.authentication = true;

@@ -235,7 +235,19 @@ function categories(): Table {
 /* The commerce tables. Split out because a store is the kind with the most of
    them and the most that can go wrong: an order that can be read by the wrong
    customer is the failure this whole file exists to prevent. */
-function commerce(withStorage: boolean): Table[] {
+/* The tables a shop has.
+ *
+ * `selling` splits them, and the split is the point. A CATALOGUE has products,
+ * their variants and the categories they sit in — that is data, and it is why
+ * a showcase still gets a database. A SHOP has all of that plus the rows that
+ * only exist because money changes hands: an order, the lines on it, and the
+ * discounts applied to it.
+ *
+ * Without the split, "a product showcase for our furniture, no cart or
+ * checkout" was migrated an `orders` table. Nothing would ever write to it,
+ * every policy on it was enforcing access to rows that would never exist, and
+ * it sat in the customer's database looking like a feature that had failed. */
+function commerce(withStorage: boolean, selling: boolean): Table[] {
   const tables: Table[] = [
     {
       name: "products",
@@ -440,7 +452,12 @@ function commerce(withStorage: boolean): Table[] {
     },
   ];
 
-  return tables;
+  /* Filtered on the way out rather than assembled conditionally, so the table
+     definitions above stay one readable list in the order a person would
+     expect to find them. */
+  const ONLY_WHEN_SELLING = new Set(["orders", "order_items", "discounts"]);
+
+  return selling ? tables : tables.filter((table) => !ONLY_WHEN_SELLING.has(table.name));
 }
 
 /* The publishing tables. A blog and a news publication are the same shape —
@@ -689,7 +706,7 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
   if (manifest.authentication) tables.push(profiles(adminRole));
 
   if (manifest.type === "ecommerce") {
-    tables.push(categories(), ...commerce(manifest.storage));
+    tables.push(categories(), ...commerce(manifest.storage, manifest.commerce));
     if (manifest.storage) {
       buckets.push({
         name: bucketName(schema, "product-images"),

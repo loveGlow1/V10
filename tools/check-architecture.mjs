@@ -335,6 +335,10 @@ for (const { kind, expect } of KINDS) {
     authentication: true,
     admin: true,
     storage: true,
+    /* A SHOP, which is what these expectations describe — the catalogue-only
+       case is asserted separately below, because its whole point is that it
+       does NOT get these tables. */
+    commerce: kind === "ecommerce",
     payments: kind === "ecommerce",
   };
 
@@ -778,6 +782,56 @@ if (pay.manifest.database) {
  * and the question asked again forever, which is the same failure wearing a
  * different hat. So they are checked against each other rather than each
  * against a list written here. */
+/* ── A CATALOGUE IS NOT A SHOP ────────────────────────────────────────────
+ *
+ * "A product showcase for our furniture, no cart or checkout" is about
+ * products, so it is filed as ecommerce — correctly — and the kind's defaults
+ * then gave it a basket, orders, customer accounts, an admin area and a
+ * storage bucket, for somebody who had declined the basket in the same
+ * sentence. The `orders` table in particular was migrated into their database
+ * where nothing would ever write to it.
+ *
+ * The layers are checked as well as the tables, because the tables follow from
+ * them and asserting only the tables would pass on a manifest that was wrong
+ * in a way dataModelFor happened to ignore. */
+console.log("\nA catalogue is not a shop:");
+
+const showcase = decideArchitecture(
+  "a product showcase for our furniture, no cart or checkout",
+  "ecommerce",
+  decideStack("a product showcase for our furniture, no cart or checkout"),
+);
+
+for (const [layer, wanted] of [
+  ["database", true],
+  ["commerce", false],
+  ["authentication", false],
+  ["admin", false],
+]) {
+  if (showcase.manifest[layer] === wanted) pass(`a showcase has ${wanted ? "" : "no "}${layer}`);
+  else fail(`a showcase has ${wanted ? "" : "no "}${layer}`, describeArchitecture(showcase.manifest));
+}
+
+const showcaseTables = dataModelFor(showcase.manifest, schemaNameFor("11111111-2222-3333-4444-555555555555"))
+  .tables.map((table) => table.name);
+
+if (showcaseTables.includes("products")) pass("and still gets its products — a catalogue is data");
+else fail("and still gets its products — a catalogue is data", showcaseTables.join(", "));
+
+const sellingOnly = ["orders", "order_items", "discounts"].filter((name) => showcaseTables.includes(name));
+if (sellingOnly.length === 0) pass("and none of the tables that exist only because money changes hands");
+else fail("and none of the tables that exist only because money changes hands", sellingOnly.join(", "));
+
+/* And the shop still is one. Removing commerce from a real store would be a
+   different bug, and a louder one. */
+const store = decideArchitecture(
+  "build me an online store for handmade candles",
+  "ecommerce",
+  decideStack("build me an online store for handmade candles"),
+);
+if (store.manifest.commerce && store.manifest.authentication) pass("a real store still sells");
+else fail("a real store still sells", describeArchitecture(store.manifest));
+
 console.log("\nThe architecture question:");
 
 const chips = architectureOptions("ecommerce");

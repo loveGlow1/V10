@@ -109,6 +109,7 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
         authentication: layer("authentication"),
         admin: layer("admin"),
         storage: layer("storage"),
+        commerce: layer("commerce"),
         payments: layer("payments"),
       };
     }
@@ -123,6 +124,7 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
     authentication: false,
     admin: false,
     storage: false,
+    commerce: false,
     payments: false,
   };
 }
