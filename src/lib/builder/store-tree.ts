@@ -104,9 +104,21 @@ const LOOK_BACK = 25;
  * single join would carry twenty-five builds' worth of file CONTENT across the
  * wire to answer a question about existence.
  */
-async function newestStoredTree(
+export async function newestStoredTree(
   service: SupabaseClient,
   projectId: string,
+  /* Builds to look PAST.
+   *
+   * Exported with this because undo needs the same search this already does,
+   * asked one build earlier: "the newest source that is not the source I am
+   * looking at". Without it, revert on a file-tree project had no way to find
+   * the tree it was meant to restore, and inserted a build row carrying the
+   * previous SUMMARY with no files attached — after which currentTree
+   * recovered the unchanged source and the undo had changed nothing.
+   *
+   * A parameter rather than a second function, because "the newest build that
+   * has files" is one question and two implementations of it would drift. */
+  options: { excluding?: readonly string[] } = {},
 ): Promise<{ tree: FileTree; buildId: string } | null> {
   const { data: recent } = await service
     .from("project_builds")
@@ -115,7 +127,8 @@ async function newestStoredTree(
     .order("created_at", { ascending: false })
     .limit(LOOK_BACK);
 
-  const ids = (recent ?? []).map((row) => row.id as string);
+  const skip = new Set(options.excluding ?? []);
+  const ids = (recent ?? []).map((row) => row.id as string).filter((id) => !skip.has(id));
   if (ids.length === 0) return null;
 
   const { data: holding } = await service

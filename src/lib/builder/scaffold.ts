@@ -26,6 +26,7 @@
 import type { ArchitectureManifest } from "./architecture";
 import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
+import { allCommerce } from "./commerce";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
 import { repairStructure } from "./next-structure";
@@ -787,7 +788,16 @@ export function missingFrom(tree: FileTree): string[] {
  * now has to delete. These are the ones whose absence would be noticed. */
 const ROUTES: Record<BuildKind, string[]> = {
   landing: ["app/pricing/page.tsx", "app/contact/page.tsx"],
-  ecommerce: ["app/products/page.tsx", "app/products/[slug]/page.tsx", "app/cart/page.tsx"],
+  /* Checkout joins the list now that the list is filtered: a store with a
+     basket and nowhere to complete the order was a cart that could only ever
+     be filled. It is written only when the manifest says this project checks
+     out, which a catalogue does not. */
+  ecommerce: [
+    "app/products/page.tsx",
+    "app/products/[slug]/page.tsx",
+    "app/cart/page.tsx",
+    "app/checkout/page.tsx",
+  ],
   blog: ["app/blog/page.tsx", "app/blog/[slug]/page.tsx", "app/about/page.tsx"],
   /* ── A WEB APP HAS NO UNIVERSAL ROUTES, AND THAT IS THE POINT ──────────
    *
@@ -870,9 +880,43 @@ export function treeBrief(
      gets the one that is right 95% of the time. */
   mode: BuildMode = "static",
 ): string {
-  const routes = ROUTES[kind] ?? [];
-  const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
-  const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []) : [];
+  /* ── A STORE'S ROUTES ARE ITS CAPABILITIES' ─────────────────────────────
+   *
+   * ROUTES.ecommerce listed a cart for every project filed as a store, and
+   * ADMIN_ROUTES listed an orders screen for every project with an admin. So
+   * "create a website showcasing our products" — a catalogue, with no cart in
+   * its manifest — was handed `app/cart/page.tsx` to write, and a catalogue
+   * whose owner wanted to edit it got an admin for orders it does not take.
+   *
+   * Exactly the defect the hardcoded webapp dashboard had: the manifest knew,
+   * and the file list did not ask, and a file list wins because it names
+   * files. So the store's routes are filtered by what this project actually
+   * does with products.
+   *
+   * A manifest written before commerce was decomposed reads as the full shop
+   * it meant at the time — see allCommerce. Those rows are read back on every
+   * edit of an existing project, and dropping a running store's cart route
+   * would be worse than any route written that need not be. */
+  const shop = manifest.commerce ?? allCommerce();
+
+  const NEEDS_CAPABILITY: Record<string, boolean> = {
+    "app/products/page.tsx": shop.catalog,
+    "app/products/[slug]/page.tsx": shop.productDetails,
+    "app/cart/page.tsx": shop.cart,
+    "app/checkout/page.tsx": shop.checkout,
+    "app/admin/products/page.tsx": shop.admin,
+    "app/admin/orders/page.tsx": shop.admin && shop.orders,
+    "app/account/orders/page.tsx": shop.orders,
+  };
+
+  /* Only a store's routes are filtered. A blog's post index is not a
+     capability anybody switches off, and reading this map over every kind
+     would be one lookup pretending to be a rule. */
+  const wanted = (route: string) => kind !== "ecommerce" || (NEEDS_CAPABILITY[route] ?? true);
+
+  const routes = (ROUTES[kind] ?? []).filter(wanted);
+  const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]).filter(wanted) : [];
+  const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []).filter(wanted) : [];
 
   const write = [
     "- app/page.tsx — the home page, and the one that matters most",

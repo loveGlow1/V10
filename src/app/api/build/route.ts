@@ -93,6 +93,7 @@ import {
   UNKNOWN_ARCHITECTURE,
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
+import { allIssues, runQaLoop } from "@/lib/builder/qa";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
@@ -106,9 +107,9 @@ import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
-import { currentTree, storeTree } from "@/lib/builder/store-tree";
+import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { isSinglePage } from "@/lib/builder/tree";
-import { indexTree } from "@/lib/context/project-index";
+import { indexTree, retrieve } from "@/lib/context/project-index";
 import {
   deploymentName,
   deploymentsConfigured,
@@ -1130,17 +1131,98 @@ async function handle(
       });
     }
 
-    /* Restored by putting the old page back on top as a new version, never by
-       deleting the newer one. Undo should be undoable. */
+    /* ── UNDO HAS TO UNDO THE SOURCE ────────────────────────────────────
+     *
+     * This inserted a build row carrying the previous `html` and stopped, and
+     * for a single-page project that IS the whole of it: the page is the html
+     * column. For a file-tree project it is not. That column holds the SUMMARY
+     * this platform writes for such a build, so the insert rewound a receipt
+     * and left every source file exactly as the edit had left it — and then
+     * currentTree, finding no files on the new row, recovered them from the
+     * build before it, which is the version being undone. "Undo last change"
+     * reported success and changed nothing anybody could see.
+     *
+     * So the files are restored too, through the same storeTree every other
+     * write uses. Which project this is gets read rather than assumed: a tree
+     * of one reconstituted page is a single-page build, not a project, and
+     * treating it as one would put this path on the stack it does not belong
+     * to. See currentTree and isSinglePage. */
     steps.mark("history", "Read the last two versions");
-    await service.from("project_builds").insert({
-      project_id: project.id,
-      user_id: user.id,
-      prompt: `Reverted: ${prompt}`.slice(0, 500),
-      html: previous.html,
-      model: null,
-      files_touched: 0,
-    });
+
+    const live = await currentTree(service, project.id);
+    const isTreeProject = live.tree.length > 0 && !isSinglePage(live.tree);
+
+    /* Looked for PAST the build the live source actually came from, which is
+       not always the newest row — a build can exist without files, and
+       currentTree says which one it really read. Excluding the newest row
+       instead would "restore" the version that is already running. */
+    const restored = isTreeProject
+      ? await newestStoredTree(service, project.id, {
+          excluding: live.buildId ? [live.buildId] : [],
+        })
+      : null;
+
+    if (isTreeProject && !restored) {
+      /* Explicit rather than silent. Reaching here means this project's source
+         exists in exactly one version, so there is nothing behind it to go
+         back to — and saying "done" would be the same lie in a quieter voice. */
+      const message =
+        "I can't undo this one — there's only one version of this project's source saved, so there's nothing behind it to go back to.";
+      const stored = await deliver(message, { tone: "error", key: "revert-no-source" });
+      return NextResponse.json(
+        { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+        { status: 409 },
+      );
+    }
+
+    /* Restored by putting the old version back on top as a new one, never by
+       deleting the newer one. Undo should be undoable. */
+    const { data: restoredBuild, error: revertError } = await service
+      .from("project_builds")
+      .insert({
+        project_id: project.id,
+        user_id: user.id,
+        prompt: `Reverted: ${prompt}`.slice(0, 500),
+        html: previous.html,
+        model: null,
+        files_touched: restored ? restored.tree.length : 0,
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (revertError || !restoredBuild) {
+      const message = "That couldn't be undone just now. Nothing has changed — try again.";
+      const stored = await deliver(message, { tone: "error", key: "revert-failed" });
+      return NextResponse.json(
+        { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+        { status: 502 },
+      );
+    }
+
+    if (restored) {
+      try {
+        await storeTree(
+          service,
+          { buildId: restoredBuild.id, projectId: project.id, userId: user.id },
+          restored.tree,
+        );
+      } catch (error) {
+        /* A build row claiming files it does not have is worse than no row —
+           the save route withdraws one for the same reason. Withdrawn here so
+           currentTree keeps resolving to the version that is really running
+           rather than to an empty row on top of it. */
+        await service.from("project_builds").delete().eq("id", restoredBuild.id);
+        // eslint-disable-next-line no-console
+        console.error("revert: the restored files could not be stored:", error);
+
+        const message = "That couldn't be undone just now — the previous files wouldn't save. Nothing has changed.";
+        const stored = await deliver(message, { tone: "error", key: "revert-failed" });
+        return NextResponse.json(
+          { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+          { status: 502 },
+        );
+      }
+    }
 
     await service
       .from("projects")
@@ -1572,7 +1654,55 @@ async function handle(
     if (project_.tree.length > 0 && project_.buildId && !isSinglePage(project_.tree)) {
       steps.begin("file", "Finding the file", "reading the project's own listing…");
 
-      const picked = await pickFile(stageRequest ?? prompt, project_.tree);
+      /* ── THE MAP THIS PLATFORM ALREADY KEEPS ───────────────────────────
+       *
+       * writeProjectIndex runs at the end of this very branch, recording every
+       * component, route, section and symbol in the tree — and readProjectIndex
+       * had exactly one caller, on the single-page path, where a tree index is
+       * least useful. So the project's own map was written after every edit
+       * and read before none of them, and targeting fell back to filenames:
+       * "update the hero" reached app/page.tsx on a project whose hero lives in
+       * components/Hero.tsx, the search blocks matched nothing, and the
+       * customer was told we could not place their change.
+       *
+       * `retrieve` ranks the index against the request in the person's own
+       * words — it has scored entries this way since it was written, for the
+       * context path. Here it feeds the pick.
+       *
+       * EVIDENCE, NOT AN ANSWER. The ranking is a score over names and
+       * symbols: usually right, never authoritative. It is handed to pickFile
+       * as a hint that the model weighs against the listing, and pickFile's own
+       * order is untouched — the local rules still settle most edits before any
+       * of this is read. An index that is stale, empty, or matches nothing
+       * yields an empty hint and the pick behaves exactly as it did before,
+       * which is what stops a missing entry becoming "I can't find the file".
+       *
+       * Best effort: a map that cannot be read costs a better pick, never the
+       * edit. */
+      const indexHint = await (async () => {
+        try {
+          const entries = await readProjectIndex(service, project.id);
+          if (entries.length === 0) return undefined;
+
+          const ranked = retrieve(entries, stageRequest ?? prompt, 8).filter(
+            (hit) => hit.entry.path,
+          );
+          if (ranked.length === 0) return undefined;
+
+          return ranked
+            .map((hit) => {
+              const what = hit.entry.summary ?? hit.entry.symbols.slice(0, 6).join(", ");
+              return `- ${hit.entry.path} — ${hit.entry.kind} ${hit.entry.name}${what ? `: ${what}` : ""}`;
+            })
+            .join("\n");
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.warn(`edit: ${project.id} — the project index could not be read:`, error);
+          return undefined;
+        }
+      })();
+
+      const picked = await pickFile(stageRequest ?? prompt, project_.tree, undefined, indexHint);
       const target = picked
         ? project_.tree.find((file) => file.path === picked.path)
         : undefined;
@@ -1762,6 +1892,49 @@ async function handle(
         );
       }
 
+      /* ── THE GATES A TREE EDIT NEVER PASSED THROUGH ────────────────────
+       *
+       * runQaLoop has taken a `tree` since it was written, and two of its
+       * gates read one properly: staticResponsiveGate walks every .tsx in the
+       * project and reads its class lists, and functionalGate checks the
+       * routes against the manifest. Neither had ever run on an edit. The only
+       * production caller was the save route, so a project was inspected when
+       * it was BUILT and never again — and every edit after that went to
+       * Vercel with its layout unexamined, which is what "the page on a mobile
+       * screen isn't well aligned" sounds like from the other side.
+       *
+       * No repair function, deliberately. The document repair the save route
+       * passes is autofix, which rewrites HTML and has no meaning for a
+       * directory of .tsx; the tree's repair is repairStructure, and it has
+       * already run above. So this is one pass: measure, record, report.
+       *
+       * The summary is passed as the document because that is what the save
+       * route passes for a tree build, and one convention wrongly shared beats
+       * two conventions that disagree. The document gates find little in it;
+       * the tree gates are the ones doing the work here.
+       *
+       * Never fails the edit. The change is the customer's, the files are
+       * sound (repairStructure said so) and throwing away paid work over a
+       * layout warning would be the worse mistake. What it does is stop the
+       * result being called validated when it is not — the verdict is written
+       * to the build row, and the deploy below is gated on it. */
+      const inspection = await runQaLoop({
+        html: currentHtml ?? "",
+        tree: edited,
+        manifest: manifestNow,
+        design: knownDesign,
+      });
+
+      const qa = inspection.result;
+      const qaErrors = allIssues(qa).filter((issue) => issue.severity === "error");
+
+      if (qaErrors.length > 0) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `edit: ${project.id} QA ${qa.status} — ${qaErrors.map((issue) => issue.rule).join(", ")}`,
+        );
+      }
+
       steps.begin("version", "Saving the new version", "storing the project so you can undo back to this…");
       const { data: newBuild, error: buildError } = await service
         .from("project_builds")
@@ -1777,6 +1950,16 @@ async function handle(
           html: currentHtml ?? "",
           model: `${source.model} (${source.path})`,
           files_touched: 1,
+          /* The verdict, kept with the build it is about — the same three
+             columns the save route writes, because "was this version ever
+             actually checked" is asked much later and by somebody looking at a
+             site that is already live. Errors only, and at most twenty: this
+             is a record, not a log. */
+          qa_status: qa.status,
+          qa_issues: qaErrors
+            .slice(0, 20)
+            .map((issue) => ({ rule: issue.rule, message: issue.message, viewport: issue.viewport ?? null })),
+          qa_fixes: repairs.map((repair) => repair.what),
         })
         .select("id")
         .single();
@@ -1877,6 +2060,27 @@ async function handle(
         await deliver(
           `${diagnosis?.summary ?? "This change leaves something the build will refuse."}\n\nYour change is saved and the preview shows it. The live site is still serving the version before it, so nothing your visitors see is broken. Tell me what you want done about this and I'll fix it.`,
           { tone: "error", key: "edit-not-deployable" },
+        );
+      } else if (deploymentsConfigured() && redeploy.deploy && qaErrors.length > 0) {
+        /* ── Stored, and not put in front of anybody ──────────────────────
+         *
+         * The change is saved and the preview shows it, because it is theirs
+         * and the files compile — inspectStructure said so on the line above.
+         * What does not happen is it going live: QA found something that is
+         * wrong for a visitor rather than for a compiler, and the live site is
+         * still serving the version before it.
+         *
+         * This is the difference between failing an edit and declining to
+         * publish one. Failing it would throw away work somebody paid for over
+         * a layout warning; publishing it silently is how a project reaches
+         * customers with its layout unexamined, which is exactly what the
+         * whole of this pass is for. */
+        await deliver(
+          `I've made the change and saved it — the preview shows it. I haven't put it live, because checking it turned up ${qaErrors.length === 1 ? "something" : `${qaErrors.length} things`} a visitor would see:\n\n${qaErrors
+            .slice(0, 4)
+            .map((issue) => `- ${issue.message}`)
+            .join("\n")}\n\nThe live site is still serving the version before this, so nothing your visitors see is broken. Tell me to fix these, or to put it live anyway.`,
+          { tone: "error", key: "edit-qa-failed" },
         );
       } else if (deploymentsConfigured() && redeploy.deploy) {
         const backendForDeploy = knownArchitecture?.database

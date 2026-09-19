@@ -54,6 +54,24 @@ export type CommerceCapability = (typeof COMMERCE_CAPABILITIES)[number];
 
 export type Commerce = { enabled: boolean } & Record<CommerceCapability, boolean>;
 
+/* Everything on: what an ecommerce project meant before commerce was
+ * decomposed.
+ *
+ * Used for one thing only — a manifest stored before this field existed. Those
+ * rows are read back on every edit of an existing project, and an absent field
+ * has to read as the full shop it meant at the time rather than as nothing:
+ * treating a running store as a catalogue would drop its cart, its orders and
+ * the tables behind them out from under it.
+ *
+ * Exported so schema.ts and scaffold.ts share one definition. They each had
+ * their own idea of what "no commerce field" meant, which is two answers to
+ * one question waiting to disagree. */
+export function allCommerce(): Commerce {
+  const all = { enabled: true } as Commerce;
+  for (const capability of COMMERCE_CAPABILITIES) all[capability] = true;
+  return all;
+}
+
 /** Nothing on. What every project starts as, and what most of them stay. */
 export function noCommerce(): Commerce {
   const commerce = { enabled: false } as Commerce;

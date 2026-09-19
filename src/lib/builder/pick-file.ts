@@ -245,8 +245,33 @@ You are given the file list and the request. Answer with the path and nothing el
 - Design tokens — colours, fonts, spacing — live in the stylesheet, not in the markup that uses them.
 - If nothing fits, answer with the home page's path.`;
 
-export function pickPrompt(message: string, listing: string): string {
-  return `${listing}\n\nTHE REQUESTED CHANGE: ${message}\n\nWhich single file?`;
+/* ── WHAT THE PROJECT ACTUALLY CONTAINS ───────────────────────────────────
+ *
+ * `listing` is describeTree: paths and nothing else. A model asked "which file
+ * is the hero in" and handed a list of filenames can only answer from the
+ * filenames, which is how "update the hero" reached app/page.tsx on a project
+ * whose hero lives in components/Hero.tsx.
+ *
+ * The project index knows better and has since it was written: writeProjectIndex
+ * records every component, route, section and symbol in the tree, and
+ * `retrieve` ranks those entries against a natural-language request. Nothing on
+ * the edit path had ever asked it.
+ *
+ * Passed as evidence rather than as an answer. The ranking is a regex score
+ * over names and symbols; it is usually right and it is not authoritative, so
+ * it goes in front of the model as "these look relevant" and the model still
+ * chooses. An empty hint — a stale index, a project indexed before this
+ * existed, a request that matches nothing — leaves the prompt exactly as it
+ * was, which is the fallback this must never lose. */
+export function pickPrompt(message: string, listing: string, hint?: string): string {
+  return [
+    listing,
+    hint ? `\nWHAT THESE FILES CONTAIN, for the parts that look relevant:\n${hint}` : "",
+    `\nTHE REQUESTED CHANGE: ${message}`,
+    "\nWhich single file?",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n");
 }
 
 /**
