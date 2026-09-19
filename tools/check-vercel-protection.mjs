@@ -651,6 +651,34 @@ const TARGET = {
     "one is rebuilt and the other is a setting",
   );
 
+  /* ── A 200 IS NOT PROOF THE APP IS THERE ───────────────────────────────
+   *
+   * The status check catches what a plain request gets: 401, or 403. A BROWSER
+   * does not always get that — Deployment Protection can answer a navigation
+   * with a redirect to Vercel's sign-in, which is a 200 carrying an
+   * interstitial, and with redirect: "follow" that arrived as success. So the
+   * check passed, "your app is live" was said, and the person opening the link
+   * in a private window got a login page. */
+  has(
+    /landedOn !== startedOn/.test(deploy),
+    "a response that ends on a Vercel hostname is protection, whatever its status",
+    "where the request ENDED matters more than what the body claims",
+  );
+  has(
+    /_vercel\\\/sso/.test(deploy) || /_vercel\/sso/.test(deploy),
+    "and an interstitial served in place is recognised too",
+  );
+  has(
+    /Mozilla\/5\.0/.test(deploy),
+    "the check asks as a browser, because that is what the preview is",
+    "asking as a script tests a path no visitor takes",
+  );
+  has(
+    /response\.status >= 400 && VERCEL_ERROR\.test\(body\)/.test(deploy),
+    "Vercel's error page is only read out of a response that already failed",
+    "a 200 containing NOT_FOUND is likelier to be the app's own code",
+  );
+
   /* §8: not silently. */
   has(
     /deployment protection was not cleared/.test(deploy),
