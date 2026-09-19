@@ -1030,6 +1030,35 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
    * .vercel.app name, which is the alias by construction. Falling back to the
    * deployment host when Vercel sends no aliases keeps this no worse than it
    * was. */
+  /* ── §8: not silently ────────────────────────────────────────────────
+   *
+   * `protectionNote` has been returned since this function was written and
+   * read by none of its five callers, so a project whose access settings could
+   * not be changed went out with nobody told. It is still returned — a caller
+   * that wants to surface it can — and it is now recorded here, where the
+   * details actually are.
+   *
+   * An operator diagnostic rather than a message to the customer, deliberately.
+   * This is the moment the upload is accepted, which is BEFORE anything has
+   * been verified: deploymentState tries the setting again once the deployment
+   * is finished and asks the address itself, and that answer is the one worth
+   * putting in front of somebody. Saying "your app may be protected" here and
+   * "your app is live" ninety seconds later would be two answers to one
+   * question, in that order. */
+  if (!protection.cleared) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "deploy: deployment protection was not cleared",
+      JSON.stringify({
+        vercelProject: target.name,
+        deploymentId: deployment.id,
+        address: `https://${stableHost(deployment.aliases, deployment.url, target.name)}`,
+        attempted: "POST /v10/projects + PATCH /v9/projects/{name} with ssoProtection, passwordProtection, trustedIps all null",
+        vercelSaid: protection.note,
+      }),
+    );
+  }
+
   return {
     ok: true,
     deploymentId: deployment.id,
@@ -1043,6 +1072,15 @@ export type DeploymentState =
   | { state: "queued" }
   | { state: "ready"; url: string }
   | { state: "error" | "cancelled"; reason: string }
+  /* READY, and answering strangers with a sign-in wall.
+   *
+   * Its own state because every response to it differs from a failure's. The
+   * build is perfect and must not be repaired; the deployment is correct and
+   * must not be re-run, because the next one is protected in exactly the same
+   * way and only spends Vercel quota to prove it. What it needs is the
+   * project's access configuration changed — which is attempted before this is
+   * ever returned, so reaching here means the attempt did not take. */
+  | { state: "protected"; reason: string; url: string }
   /* Vercel could not be reached. Distinct from "error" on purpose: a
      deployment whose STATUS could not be read has not failed, and marking it
      failed would take down a site that is very likely live. The caller leaves
@@ -1095,6 +1133,52 @@ export async function deploymentState(
        is the path that usually gets there: the function that started the
        deployment is long gone and the cron is what finds it finished. */
     const reached = await reachable(address);
+
+    if (!reached.ok && reached.blocked) {
+      /* ── Cleared here, not left for somebody to do by hand ──────────────
+       *
+       * clearProtection already runs before every upload, and the project is
+       * created carrying the settings — so reaching this line means one of
+       * three things: the project existed and was made before that ran, a team
+       * policy re-applied the default over what we asked for, or the token
+       * lacked the scope to change it.
+       *
+       * The first two are fixable from here and this is the only moment we
+       * know they happened: the deployment is finished and a real request has
+       * just been refused. So the settings are written again and the SAME
+       * deployment is asked a second time — Deployment Protection is a project
+       * setting, so turning it off applies to the build that already exists
+       * and there is nothing to rebuild.
+       *
+       * Scoped to this project. Nothing here touches team settings, the
+       * firewall, or any other project — see clearProtection, which PATCHes
+       * one project by name. */
+      /* Only when the project is KNOWN. Deriving a name from the deployment
+         host would be guessing which project to change, and the one thing this
+         must never do is alter the access settings of a project nobody asked
+         about. Without a name, the state is reported and nothing is touched. */
+      const retry = projectName
+        ? await clearProtection(projectName, creds)
+        : {
+            cleared: false,
+            note: "this deployment's Vercel project is not recorded here, so its protection setting was left alone.",
+          };
+      /* Only asked again when something actually changed. Re-fetching after a
+         PATCH that was refused would spend a request to be told the same
+         thing. */
+      const second = retry.cleared ? await reachable(address) : reached;
+
+      if (second.ok) return { state: "ready", url: address };
+
+      return {
+        state: "protected",
+        url: address,
+        reason: retry.cleared
+          ? `${reached.reason} The setting was turned off for this project automatically, and the address is still refusing — which usually means a team-wide policy is re-applying it.`
+          : `${reached.reason} ${retry.note ?? "It could not be turned off automatically."}`,
+      };
+    }
+
     if (!reached.ok) {
       return { state: "error", reason: `${reached.reason}\n\nThe build itself succeeded: ${address}` };
     }
@@ -1304,7 +1388,16 @@ async function settledLog(
  * answers that mean nobody can see the app at all. */
 const HEALTH_TIMEOUT_MS = 15_000;
 
-export async function reachable(address: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+/* Why an address could not be opened, when the difference matters.
+ *
+ * `blocked` is Deployment Protection specifically: the build is perfect, the
+ * URL is right, and Vercel is answering strangers with a sign-in wall. It is
+ * separated from every other failure because the RESPONSE to it is different —
+ * a protected deployment is not a broken build, must not be repaired by a
+ * model, and must not be redeployed, because the next one is protected too. */
+export type Unreachable = { ok: false; reason: string; blocked: boolean };
+
+export async function reachable(address: string): Promise<{ ok: true } | Unreachable> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
@@ -1321,18 +1414,18 @@ export async function reachable(address: string): Promise<{ ok: true } | { ok: f
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,
+        blocked: true,
         reason:
           "The app built and deployed, but Vercel is not letting the public see it — " +
           "the address answers with a sign-in wall rather than the site. This is " +
-          "Deployment Protection, which is on by default on some Vercel accounts. " +
-          "Turn it off for this project (Vercel → the project → Settings → Deployment " +
-          "Protection) and the same deployment becomes public with nothing to rebuild.",
+          "Deployment Protection, which is on by default on some Vercel accounts.",
       };
     }
 
     if (response.status >= 500) {
       return {
         ok: false,
+        blocked: false,
         reason:
           `The app deployed but answers ${response.status} when it is opened, so the ` +
           "build succeeded and the running site is failing. The deployment's own logs " +
@@ -1347,6 +1440,7 @@ export async function reachable(address: string): Promise<{ ok: true } | { ok: f
        than as the app being broken. */
     return {
       ok: false,
+      blocked: false,
       reason:
         "The app deployed, but this server could not open it to check that it " +
         `works (${error instanceof Error ? error.message : "the request failed"}). ` +
