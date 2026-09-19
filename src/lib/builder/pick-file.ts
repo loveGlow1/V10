@@ -36,7 +36,22 @@ export type FilePick = {
  * page, a colour is in globals.css because that is where the design system is
  * written. Where a project puts something somewhere else, the model decides —
  * this only skips asking when the answer is not in doubt. */
-const CONVENTIONS: { says: RegExp; prefer: RegExp[] }[] = [
+/* ── ADDING A SECTION IS A PAGE EDIT ──────────────────────────────────────
+ *
+ * "add a testimonials section" names testimonials and is not about
+ * components/Testimonials.tsx — most often that file does not exist yet, and
+ * where it does, the change that matters is the page learning to render it.
+ * Sending this to the component is the rule firing on a request it does not
+ * understand, which this file's closing note calls worse than no rule at all:
+ * it sends the edit somewhere confidently wrong.
+ *
+ * So a section rule stands down on it and the model decides, which is what the
+ * model is for. Deliberately narrow — it is the verbs that mean "this does not
+ * exist yet", not every verb that could precede a section name. "Update",
+ * "change", "remove" and "redesign" all act on something that is there. */
+const CREATES = /\b(add|create|insert|include|put in|build me|need)\b[^.]{0,24}\b(section|block|band|area|part|component)\b/i;
+
+const CONVENTIONS: { says: RegExp; prefer: RegExp[]; unless?: RegExp }[] = [
   /* The shell — present on every page, so it lives in the thing that wraps
      every page rather than in any one of them.
    *
@@ -62,13 +77,69 @@ const CONVENTIONS: { says: RegExp; prefer: RegExp[] }[] = [
     prefer: [/^app\/globals\.css$/, /^tailwind\.config\.[tj]s$/],
   },
   {
-    /* The home page, which is what "the page" means when nobody says which. */
-    says: /\b(home ?page|landing|hero|above the fold|first screen)\b/i,
+    /* The home page, which is what "the page" means when nobody says which.
+       Only the words that mean the WHOLE page — the section words moved below,
+       for the reason written there. */
+    says: /\b(home ?page|landing page|landing)\b/i,
     prefer: [/^app\/page\.tsx$/],
   },
+  /* ── A SECTION IS NOT THE PAGE IT SITS ON ────────────────────────────────
+   *
+   * "hero" was in the rule above, preferring app/page.tsx and nothing else. On
+   * a project whose hero is a component that is the wrong file every time and
+   * confidently: app/page.tsx holds `import Hero from "@/components/Hero"` and
+   * not one line of the markup somebody is asking to change. The model is
+   * shown that file, writes SEARCH blocks describing a hero, every one of them
+   * misses, and the answer is "I couldn't place that change in app/page.tsx" —
+   * a sentence about the person's words describing a fault in our routing,
+   * which is the exact failure this file's header names.
+   *
+   * It is the same defect the footer and nav rules above were split to fix,
+   * left in the one rule nobody had hit yet. The shape of the fix is theirs:
+   * the component first WHEN THERE IS ONE, and the page it sits on when there
+   * is not — scaffold.ts tells the generator to keep a section used once in
+   * the page that uses it, so both layouts are real and neither may be
+   * assumed.
+   *
+   * One entry per section rather than one rule for all of them, for the reason
+   * the footer split records: a rule that knows a message is about SOME
+   * section but not which one picks the shortest matching component path and
+   * is wrong about half the time. Every section named here is one the
+   * blueprints actually emit — see blueprints/landing.ts. */
   {
+    says: /\b(hero|above the fold|first screen)\b/i,
+    unless: CREATES,
+    prefer: [/^components\/.*hero/i, /^app\/page\.tsx$/],
+  },
+  {
+    says: /\b(testimonials?|reviews?|quotes?|case stud(?:y|ies))\b/i,
+    unless: CREATES,
+    prefer: [/^components\/.*(testimonial|review|quote|case)/i, /^app\/page\.tsx$/],
+  },
+  {
+    says: /\b(features?|benefits?)\b/i,
+    unless: CREATES,
+    prefer: [/^components\/.*(feature|benefit)/i, /^app\/page\.tsx$/],
+  },
+  {
+    says: /\b(faqs?|questions?|objections?)\b/i,
+    unless: CREATES,
+    prefer: [/^components\/.*(faq|question)/i, /^app\/page\.tsx$/],
+  },
+  {
+    says: /\b(gallery|galleries|portfolio|lookbook)\b/i,
+    unless: CREATES,
+    prefer: [/^components\/.*(gallery|portfolio|lookbook)/i, /^app\/page\.tsx$/],
+  },
+  {
+    says: /\b(contact|get in touch|enquiry|inquiry)\b/i,
+    prefer: [/^components\/.*contact/i, /^app\/contact\/page\.tsx$/, /^app\/page\.tsx$/],
+  },
+  {
+    /* Pricing keeps its own route first — a tiers page is a route far more
+       often than it is a section, which is why this entry predates the rest. */
     says: /\b(pricing|plans?|tiers?)\b/i,
-    prefer: [/^app\/pricing\/page\.tsx$/, /^components\/.*pricing/i],
+    prefer: [/^app\/pricing\/page\.tsx$/, /^components\/.*pricing/i, /^app\/page\.tsx$/],
   },
   {
     says: /\b(metadata|title tag|favicon|seo|open ?graph)\b/i,
@@ -150,6 +221,7 @@ export function pickFileLocally(message: string, tree: FileTree): FilePick | nul
 
   for (const convention of CONVENTIONS) {
     if (!convention.says.test(message)) continue;
+    if (convention.unless?.test(message)) continue;
 
     for (const prefer of convention.prefer) {
       /* Among several matches the shortest path wins: components/Nav.tsx over
