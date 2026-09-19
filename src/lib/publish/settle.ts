@@ -150,7 +150,11 @@ async function slugOf(service: SupabaseClient, projectId: string): Promise<strin
 async function noteDeploymentState(
   service: SupabaseClient,
   projectId: string,
-  status: "building" | "deployed" | "failed",
+  /* `protected` is READY BUT PROTECTED — the build succeeded and the address
+     refuses the public. Distinct from `failed`, which is a build that did not
+     finish, because the two need opposite responses: one is rebuilt, and the
+     other is a setting. */
+  status: "building" | "deployed" | "failed" | "protected",
   publishedUrl: string | null,
 ): Promise<void> {
   try {
@@ -455,6 +459,41 @@ export async function settleOne(
       ],
       kind: "build_ready",
       dedupeKey: `deployed:${record.deploymentId}`,
+    });
+    return "settled";
+  }
+
+  /* ── READY, AND NOT LETTING ANYBODY IN ──────────────────────────────────
+   *
+   * Handled before the failure branch, and that ordering is the fix. A
+   * protected deployment used to arrive here as `error`, which sent it through
+   * repairAndRedeploy — a model call asked to fix CODE for a problem that is a
+   * project setting — and then, since the reason matches none of the compiler
+   * patterns, through canRetry, which redeployed it. The next deployment was
+   * protected in exactly the same way. That is the loop the comment below
+   * warns about, reached by the one route it did not anticipate.
+   *
+   * Nothing is repaired and nothing is re-run. deploymentState has already
+   * tried to turn the setting off and asked the address a second time, so
+   * arriving here means that did not take — which is a thing to say, not a
+   * thing to spend another build on. */
+  if (state.state === "protected") {
+    await settleDeployment(service, record, { state: "error", reason: state.reason });
+    await settleJob(service, record, { state: "error", reason: state.reason });
+    /* §8: the state says READY BUT PROTECTED rather than "failed", because the
+       build did not fail — the diagnostic is the reason, kept on the row. */
+    await noteDeploymentState(service, record.projectId, "protected", null);
+
+    await recordMessage(service, {
+      projectId: record.projectId,
+      userId: record.userId,
+      role: "system",
+      body:
+        `Your app built and deployed, and Vercel is not letting the public see it yet — ${state.reason}\n\n` +
+        "Nothing is wrong with the build, and there is nothing to rebuild: the moment that setting is off, this same deployment is public.",
+      tone: "error",
+      kind: "build_failed",
+      dedupeKey: `protected:${record.deploymentId}`,
     });
     return "settled";
   }

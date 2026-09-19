@@ -593,6 +593,71 @@ const TARGET = {
   );
 }
 
+/* ── READY IS NOT THE SAME AS REACHABLE ───────────────────────────────────
+ *
+ * A deployment behind Deployment Protection is READY, correct, and answers
+ * every stranger with a sign-in wall. It used to come back from deploymentState
+ * as `error`, which sent it through repairAndRedeploy — a model call asked to
+ * fix CODE for a problem that is a project setting — and then through canRetry,
+ * which redeployed it. The next deployment was protected in exactly the same
+ * way. Each round spent a model call and a Vercel build to reach the same
+ * answer.
+ *
+ * Asserted on the source, because the behaviour needs a live Vercel to
+ * exercise and the wiring is what regresses. */
+{
+  const { readFileSync } = await import("node:fs");
+  const deploy = readFileSync(join(root, "src/lib/publish/vercel-deploy.ts"), "utf8");
+  const settle = readFileSync(join(root, "src/lib/publish/settle.ts"), "utf8");
+
+  has(
+    /state: "protected"/.test(deploy),
+    "a protected deployment has a state of its own",
+    "as `error` it was repaired and redeployed, and the next one was protected too",
+  );
+  has(
+    /blocked: true/.test(deploy),
+    "and reachable says WHY it could not be opened",
+    "a sign-in wall and a 500 need opposite responses",
+  );
+
+  /* The automation this exists for: clear it and ask again, rather than
+     telling somebody to go and click it themselves. */
+  has(
+    deploy.indexOf("reached.blocked") < deploy.indexOf("await clearProtection(projectName"),
+    "detecting protection leads to clearing it, not to reporting it",
+  );
+  has(
+    /retry\.cleared \? await reachable\(address\)/.test(deploy),
+    "and the address is asked a second time before anything is claimed",
+    "a PATCH that returned 200 is not evidence the page opens",
+  );
+
+  /* §3: scoped. Guessing a project name from a hostname would change the
+     access settings of a project nobody asked about. */
+  has(
+    /projectName\s*\?\s*await clearProtection\(projectName, creds\)/.test(deploy),
+    "and only ever on a project it can name",
+    "deriving one from the deployment host is guessing which project to change",
+  );
+
+  has(
+    settle.indexOf('state.state === "protected"') < settle.indexOf('state.state === "error"'),
+    "settle handles protected before failure, so it is never repaired",
+  );
+  has(
+    /noteDeploymentState\(service, record\.projectId, "protected"/.test(settle),
+    "and records READY BUT PROTECTED rather than failed",
+    "one is rebuilt and the other is a setting",
+  );
+
+  /* §8: not silently. */
+  has(
+    /deployment protection was not cleared/.test(deploy),
+    "a protection setting that would not change is written down with its details",
+  );
+}
+
 /* ── And the publish path actually calls it ──────────────────────────────── */
 {
   const { readFileSync } = await import("node:fs");
