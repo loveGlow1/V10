@@ -695,7 +695,14 @@ export async function pickFile(
   userMessage: string,
   tree: FileTree,
   onProgress?: OnProgress,
+  /* What the project index says is relevant to this request, already ranked —
+     see indexHint in the edit path. Empty or absent leaves this function
+     behaving exactly as it did before the index was wired to it, which is the
+     fallback that must survive a stale index. */
+  hint?: string,
 ): Promise<FilePick | null> {
+  /* The local rules first, unchanged. They settle most edits from the words
+     alone and an index cannot improve on a message that names its own file. */
   const local = pickFileLocally(userMessage, tree);
   if (local) return local;
 
@@ -704,7 +711,7 @@ export async function pickFile(
   try {
     const answer = await ask(
       PICK_SYSTEM,
-      pickPrompt(userMessage, describeTree(tree)),
+      pickPrompt(userMessage, describeTree(tree), hint),
       /* One path. Anything past this is the model explaining itself, which it
          was told not to do and which readPick discards anyway. */
       100,

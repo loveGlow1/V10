@@ -169,6 +169,76 @@ has(
   "a skip that is not written down is indistinguishable from a stage that broke",
 );
 
+// ── The edit path reaches the stages this platform already built ─────────
+/* Every one of these was a module that existed, worked, and was called by
+   nobody on the path that needed it. Asserted as ORDER rather than presence,
+   because presence was never the problem: runQaLoop after the row is written
+   is a verdict about a version already persisted, and an index read after the
+   pick is a map consulted once the turning has been taken. */
+console.log("\nThe edit path reaches what the platform already has:");
+
+const at = (needle) => buildRoute.indexOf(needle);
+
+/* UNDO HAS TO UNDO THE SOURCE. The revert branch rewound the html column and
+   left every file as the edit had left it, then currentTree recovered the
+   unchanged source from the build before — "Undo last change" reported success
+   and changed nothing. */
+has(
+  /newestStoredTree\(service, project\.id, \{/.test(buildRoute),
+  "revert looks for the previous stored tree",
+  "rewinding the html column undoes a receipt, not a Next.js project",
+);
+has(
+  at("revert-no-source") > 0,
+  "and says so plainly when there is no earlier source",
+  "a silent success is the same lie in a quieter voice",
+);
+has(
+  at("newestStoredTree(service, project.id, {") < at('key: "revert-no-source"'),
+  "looking for it before deciding it cannot be done",
+);
+
+/* QA ON AN EDIT. runQaLoop has accepted a tree since it was written, and
+   staticResponsiveGate walks every .tsx in one. Its only caller was the save
+   route, so a project was inspected when it was BUILT and never again. */
+has(/runQaLoop\(\{/.test(buildRoute), "a tree edit runs QA at all");
+has(
+  at("runQaLoop({") < at("qa_status:"),
+  "before the build row that records its verdict",
+);
+has(
+  at("qa_status:") > 0 && /qa_issues:/.test(buildRoute),
+  "and the verdict is kept with the build, not only spoken",
+  "'was this version ever checked' is asked much later, by somebody looking at a live site",
+);
+has(
+  at('key: "edit-qa-failed"') > 0,
+  "a tree that fails QA is saved but not put live",
+  "failing the edit throws away paid work; publishing it silently is what this pass exists to stop",
+);
+
+/* TARGETING. writeProjectIndex runs at the end of this same branch and
+   readProjectIndex had one caller, on the page path, where a tree index is
+   least useful. */
+has(
+  at("readProjectIndex(service, project.id)") > 0,
+  "the tree edit reads the project index it maintains",
+);
+has(
+  at("readProjectIndex(service, project.id)") < at("await pickFile("),
+  "before choosing the file, not after",
+  "a map consulted after the turning has been taken is not a map",
+);
+has(
+  /retrieve\(entries, stageRequest \?\? prompt/.test(buildRoute),
+  "ranked against the request in the person's own words",
+);
+has(
+  /pickFile\(stageRequest \?\? prompt, project_\.tree, undefined, indexHint\)/.test(buildRoute),
+  "and handed to the pick as evidence rather than as an answer",
+  "an empty hint has to leave targeting exactly as it was",
+);
+
 // ── The mapping holds together ───────────────────────────────────────────
 console.log("\nThe description and the machine agree:");
 
