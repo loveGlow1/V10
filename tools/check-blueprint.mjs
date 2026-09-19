@@ -272,8 +272,52 @@ try {
        story is the same size has not been edited, and that is the whole
        distinction from a blog. The others are the usual bleed. */
     news: ["equal cards", "marketing hero", "pricing", "cart", "dashboard"],
-    webapp: ["marketing hero", "storefront", "fake dashboard"],
+    webapp: ["marketing hero", "storefront", "fake dashboard", "demo credentials"],
   };
+
+  /* ── AN APP OPENS INTO THE APP ─────────────────────────────────────────
+   *
+   * A real report. The webapp blueprint required, in capitals, a protected
+   * area that does not render until somebody signs in and ONE SEEDED DEMO
+   * ACCOUNT WHOSE EMAIL AND PASSWORD ARE PRINTED ON THE SIGN-IN SCREEN. The
+   * reasoning was sound — "a preview nobody can get into is a locked door" —
+   * and what it produced was a locked door with the key taped to it: an
+   * invoicing app whose entire preview was one card reading "LOCKED — Sign in
+   * to open the ledger", the credentials under it in monospace, and the
+   * product invisible behind it.
+   *
+   * The capability stays and the door goes. Asserted on the composed text
+   * rather than on one field, because the requirement and the exclusion have
+   * to agree — this went wrong when one of them said the app may open on its
+   * sign-in and nothing contradicted it. */
+  {
+    const webapp = BLUEPRINTS.webapp;
+    const composed = JSON.stringify(webapp).toLowerCase();
+
+    const MUST_NOT = [
+      [/printed on the sign-in screen/i, "webapp never asks for credentials printed on a screen",
+       "an email and password on screen is the first thing a customer shows somebody else"],
+    ];
+    const MUST = [
+      [/opens already signed in/i, "webapp opens already signed in, on the product",
+       "nobody previewing their own app should have to sign in to it"],
+      [/demo credentials/i, "and says so as an exclusion too, so the two halves agree",
+       "one half permitting what the other forbids is how this went wrong the first time"],
+      /* The sign-in itself is still built — this is about where the app OPENS,
+         not about dropping a capability the brief asked for. */
+      [/sign-in, sign-up and sign-out that work/i, "while sign-in, sign-up and sign-out are still built", 
+       "removing the capability would be a different failure, not a fix"],
+    ];
+
+    for (const [pattern, what, why] of MUST_NOT) {
+      if (pattern.test(composed)) fail(what, why);
+      else console.log(`ok   ${what}`);
+    }
+    for (const [pattern, what, why] of MUST) {
+      if (!pattern.test(composed)) fail(what, why);
+      else console.log(`ok   ${what}`);
+    }
+  }
 
   /* One brief, used for every kind, so the composed prompts differ only by
      blueprint. It is deliberately a real sentence: a prompt that only holds
