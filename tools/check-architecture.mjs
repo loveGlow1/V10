@@ -81,9 +81,15 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib")]) {
   }
 }
 
-const { decideArchitecture, describeArchitecture, raiseArchitecture } = await import(
-  join(out, "lib/builder/architecture.js")
-);
+const {
+  architectureFromChoice,
+  architectureOptions,
+  architectureQuestion,
+  decideArchitecture,
+  describeArchitecture,
+  isArchitectureChoice,
+  raiseArchitecture,
+} = await import(join(out, "lib/builder/architecture.js"));
 const { dataModelFor, schemaNameFor, toSql, toTypes } = await import(
   join(out, "lib/builder/schema.js")
 );
@@ -758,6 +764,85 @@ if (pay.manifest.database) {
   pass("payments cannot be added without somewhere to record the sale");
 } else {
   fail("payments cannot be added without somewhere to record the sale");
+}
+
+/* ── The question, and the three answers to it ───────────────────────────
+ *
+ * None of this had a check, which is how it came to have no caller at all:
+ * decideArchitecture returned `certain`, architectureQuestion had the words
+ * and architectureOptions had the chips, and for months nothing read any of
+ * them — so a guess was spent on rather than asked about, and "build me a
+ * shop" arrived with a users table nobody wanted.
+ *
+ * The chips and the parser have to agree or an answer is silently discarded
+ * and the question asked again forever, which is the same failure wearing a
+ * different hat. So they are checked against each other rather than each
+ * against a list written here. */
+console.log("\nThe architecture question:");
+
+const chips = architectureOptions("ecommerce");
+
+if (chips.length === 3) {
+  pass("three answers are offered");
+} else {
+  fail("three answers are offered", `${chips.length} — never force somebody onto our infrastructure to get an app`);
+}
+
+if (chips.every((chip) => isArchitectureChoice(chip.value))) {
+  pass("and every chip offered is one the parser accepts");
+} else {
+  fail(
+    "and every chip offered is one the parser accepts",
+    chips.filter((chip) => !isArchitectureChoice(chip.value)).map((chip) => chip.value).join(", "),
+  );
+}
+
+if (chips.some((chip) => chip.value === "own")) {
+  pass("one of them is the customer's own backend");
+} else {
+  fail("one of them is the customer's own backend", "the spec's rule is that this is never forced");
+}
+
+if (!isArchitectureChoice("anything-else") && !isArchitectureChoice(null)) {
+  pass("and nothing else is accepted as an answer");
+} else {
+  fail("and nothing else is accepted as an answer");
+}
+
+const decidedStore = decideArchitecture("an online store with accounts and an admin", "ecommerce", decideStack("an online store with accounts and an admin"));
+
+/* FRONTEND is a real answer, not a smaller version of the other two. */
+const asFrontend = architectureFromChoice("frontend", "ecommerce", decidedStore);
+if (!asFrontend.manifest.database && !asFrontend.manifest.authentication && !asFrontend.needsProject) {
+  pass("choosing the front of it turns every layer off");
+} else {
+  fail("choosing the front of it turns every layer off", describeArchitecture(asFrontend.manifest));
+}
+
+/* THE ONE. "My own backend" is the SAME application — the layers are what the
+   app is made of, and building fewer of them because of where the database
+   lives would be a different product. */
+const asOwn = architectureFromChoice("own", "ecommerce", decidedStore);
+if (asOwn.manifest.database && asOwn.manifest.authentication) {
+  pass("choosing your own backend keeps every layer the app needs");
+} else {
+  fail(
+    "choosing your own backend keeps every layer the app needs",
+    "it changes where the data lives, not what the app is",
+  );
+}
+
+if (asOwn.certain && asFrontend.certain) {
+  pass("and an answered question is not asked again");
+} else {
+  fail("and an answered question is not asked again");
+}
+
+const asked = architectureQuestion("ecommerce", decidedStore.manifest);
+if (chips.every((chip) => asked.toLowerCase().includes(chip.label.toLowerCase()))) {
+  pass("the question names every option it offers");
+} else {
+  fail("the question names every option it offers", asked);
 }
 
 console.log("All good.\n");

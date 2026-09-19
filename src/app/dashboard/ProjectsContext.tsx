@@ -67,7 +67,7 @@ export type BuildReply = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
-  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  architectureOptions?: { value: "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -99,7 +99,7 @@ type BuildPayload = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
-  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  architectureOptions?: { value: "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -153,7 +153,7 @@ export type BuildOptions = {
    * when its own planner reports the decision as a guess. See
    * lib/builder/architecture.ts.
    */
-  architecture?: "full" | "frontend" | null;
+  architecture?: "full" | "frontend" | "own" | null;
   /**
    * Which model to build with, as the composer's picker has it.
    *
