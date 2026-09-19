@@ -56,6 +56,8 @@ const TREE = [
   "app/blog/[slug]/page.tsx",
   "components/Nav.tsx",
   "components/Footer.tsx",
+  "components/Hero.tsx",
+  "components/Testimonials.tsx",
   "components/PricingTable.tsx",
   "lib/supabase.ts",
   "package.json",
@@ -166,6 +168,45 @@ picks("add a link to the header", "components/Nav.tsx", "convention");
 picks("the footer needs the year updating", "components/Footer.tsx", "convention");
 picks("the logo is too small, increase it", "components/Nav.tsx", "convention");
 
+/* ── A SECTION IS NOT THE PAGE IT SITS ON ──────────────────────────────────
+ *
+ * A real report, and the failure it produced is the one this whole file exists
+ * to prevent. "update the hero page like nike.com" routed to app/page.tsx,
+ * which on this project holds `import Hero from "@/components/Hero"` and not
+ * one line of hero markup. Every SEARCH block the model wrote described a hero
+ * and missed, and the customer was told "I couldn't place that change in
+ * app/page.tsx" — twice, because they rephrased and it happened again.
+ *
+ * The footer and nav rules had already been split for exactly this. The hero
+ * was left in the home-page rule, preferring app/page.tsx and nothing else, so
+ * it was wrong every time on a project that factors its sections out. */
+picks("update the hero page like nike.com", "components/Hero.tsx", "convention");
+picks("make the hero bigger", "components/Hero.tsx", "convention");
+picks("redesign the hero section", "components/Hero.tsx", "convention");
+picks("remove testimonials", "components/Testimonials.tsx", "convention");
+picks("the testimonials look fake", "components/Testimonials.tsx", "convention");
+
+/* And the words that still mean the WHOLE page, which is why the section words
+   had to be taken out of that rule rather than the rule widened. */
+picks("make the landing page darker", "app/page.tsx", "convention");
+picks("rewrite the home page copy", "app/page.tsx", "convention");
+
+/* A project that keeps its sections inline — scaffold.ts tells the generator
+   that a section used once belongs in the page that uses it, so this layout is
+   just as real and the component must not be assumed. */
+const INLINE = ["app/layout.tsx", "app/page.tsx", "app/globals.css"].map((path) => ({
+  path,
+  content: "// x",
+}));
+
+for (const message of ["update the hero like nike.com", "remove testimonials", "make the hero bigger"]) {
+  has(
+    pickFileLocally(message, INLINE)?.path === "app/page.tsx",
+    `"${message}" -> app/page.tsx when there is no component to prefer`,
+    JSON.stringify(pickFileLocally(message, INLINE)),
+  );
+}
+
 /* Design tokens are in the stylesheet, not in whichever markup uses them —
    the single most common way to edit the wrong file. */
 picks("make the colours darker", "app/globals.css", "convention");
@@ -173,7 +214,10 @@ picks("change the accent colour to cyan", "app/globals.css", "convention");
 picks("the spacing feels cramped", "app/globals.css", "convention");
 picks("use a different font", "app/globals.css", "convention");
 
-picks("make the hero more cinematic", "app/page.tsx", "convention");
+/* Was app/page.tsx while the hero rule preferred nothing else. The tree above
+   now has the component this project would really have, and that is the file
+   the change belongs in. */
+picks("make the hero more cinematic", "components/Hero.tsx", "convention");
 picks("the landing page needs a stronger headline", "app/page.tsx", "convention");
 picks("add a plan to the pricing", "app/pricing/page.tsx", "convention");
 picks("change the page title and favicon", "app/layout.tsx", "convention");
