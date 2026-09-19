@@ -146,6 +146,52 @@ has(
   "a total that is not computed is the first thing a person checks",
 );
 
+console.log("\nA store's routes are its capabilities':");
+
+/* ROUTES.ecommerce listed a cart for every project filed as a store, and
+   ADMIN_ROUTES listed an orders screen for every project with an admin. So a
+   catalogue — no cart anywhere in its manifest — was handed app/cart/page.tsx
+   to write, and a catalogue whose owner wanted to edit it got an admin for
+   orders it does not take. The manifest knew and the file list did not ask,
+   which is the same defect the hardcoded webapp dashboard had. */
+const { decideCommerce } = await import(join(out, "lib/builder/commerce.js"));
+
+const shopManifest = (brief, over = {}) => ({
+  ...manifest(),
+  type: "ecommerce",
+  storage: true,
+  commerce: decideCommerce(brief).commerce,
+  ...over,
+});
+
+const SHOWCASE = "Create a website showcasing our products.";
+const showcase = treeBrief("ecommerce", shopManifest(SHOWCASE), model);
+
+has(/^- app\/products\/page\.tsx/m.test(showcase), "a catalogue gets its products");
+has(!/^- app\/cart\/page\.tsx/m.test(showcase), "and no cart, because it has none",
+  "a cart route is a cart, however plainly the manifest says otherwise");
+has(!/^- app\/checkout\/page\.tsx/m.test(showcase), "and no checkout");
+
+const STORE = "Build me an online store where customers can add products to a cart and buy them.";
+const store = treeBrief("ecommerce", shopManifest(STORE), model);
+
+has(/^- app\/cart\/page\.tsx/m.test(store), "a store gets its cart");
+has(/^- app\/checkout\/page\.tsx/m.test(store), "and somewhere to complete the order",
+  "a basket with nowhere to check out can only ever be filled");
+
+const MANAGED = "a store where I can manage products from an admin dashboard";
+const managed = treeBrief("ecommerce", shopManifest(MANAGED, { admin: true, authentication: true }), model);
+
+has(/^- app\/admin\/products\/page\.tsx/m.test(managed), "an admin gets its product screens");
+has(!/^- app\/admin\/orders\/page\.tsx/m.test(managed), "and no orders screen for orders it does not take");
+has(!/^- app\/account\/orders\/page\.tsx/m.test(managed), "nor an order history behind the account");
+
+/* A manifest written before commerce was decomposed is read back on every edit
+   of an existing project. Dropping a running store's cart route would be far
+   worse than writing one that need not be. */
+const legacy = treeBrief("ecommerce", { ...manifest(), type: "ecommerce", commerce: undefined }, model);
+has(/^- app\/cart\/page\.tsx/m.test(legacy), "a manifest from before commerce existed keeps the full shop");
+
 console.log("\nThe other kinds keep the routes they really have:");
 
 /* These were never the problem: every store has products and a basket, every

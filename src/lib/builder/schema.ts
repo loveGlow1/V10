@@ -46,7 +46,7 @@
  */
 
 import type { ArchitectureManifest } from "./architecture";
-import { COMMERCE_CAPABILITIES, type Commerce } from "./commerce";
+import { allCommerce, type Commerce } from "./commerce";
 
 export type ColumnType =
   | "uuid"
@@ -248,14 +248,6 @@ function categories(): Table {
  * checkout" was migrated an `orders` table. Nothing would ever write to it,
  * every policy on it was enforcing access to rows that would never exist, and
  * it sat in the customer's database looking like a feature that had failed. */
-/* What an ecommerce manifest meant before commerce was decomposed: all of it.
-   Used only for rows written back then — see the note at the call site. */
-function everySale(): Commerce {
-  const all = { enabled: true } as Commerce;
-  for (const capability of COMMERCE_CAPABILITIES) all[capability] = true;
-  return all;
-}
-
 function commerce(withStorage: boolean, capabilities: Commerce): Table[] {
   const tables: Table[] = [
     {
@@ -737,7 +729,7 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
      * direction is the point: these rows were written when an ecommerce
      * project meant all of it, so that IS what those projects have. Treating
      * them as a catalogue would drop tables out from under a running store. */
-    tables.push(categories(), ...commerce(manifest.storage, manifest.commerce ?? everySale()));
+    tables.push(categories(), ...commerce(manifest.storage, manifest.commerce ?? allCommerce()));
     if (manifest.storage) {
       buckets.push({
         name: bucketName(schema, "product-images"),
