@@ -279,5 +279,38 @@ has(/cost/i.test(question), "and the question itself warns before a build is spe
    is worse than an honest comparison. */
 has(!/\b\d+\s*credits?\b/i.test(projectOption.blurb + pageOption.blurb), "without quoting a figure it cannot know");
 
+/* ── A SITE WITH PAGES, AND OBJECTS THAT OUTLIVE THE TAB ──────────────────
+ *
+ * Two gaps found by reading the spec against the code, both the same shape:
+ * the patterns caught a brief that DESCRIBES what it needs and missed one that
+ * simply names a product that needs it.
+ *
+ * Nobody writes "multi-page website". They list the pages. And nobody writing
+ * "a spotify-like app with playlists and a library" says the word save — yet
+ * it cannot work without a database, and it came back with none, so the model
+ * was asked to build a music app over hardcoded arrays. */
+console.log("\nA site that lists its pages is a site:");
+
+app("a company website for our building firm with home, about, services, projects, blog and contact pages");
+app("our agency site: home, about, work, services and contact");
+
+/* THE FLOOR. One or two of those words is a landing page naming its own
+   bands — every landing page on earth has an about section and a contact form,
+   and reading those as routes would turn the commonest build on this platform
+   into a project nobody asked for. */
+page("a landing page for our studio with an about section and a contact form");
+page("a landing page for my dental practice in Leeds");
+
+console.log("\nAnd objects somebody accumulates need somewhere to live:");
+
+app("a spotify-like app for streaming music with playlists and a library");
+app("a task tracker where I can add and complete tasks");
+app("a reading app that keeps my saved articles and reading history");
+
+/* Still not everything that mentions one of those nouns. A brief about a
+   gallery of work is a marketing page; a brief about THEIR gallery is not. */
+page("a one-pager for my coffee shop");
+page("a photographer's landing page with a gallery of recent work");
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
