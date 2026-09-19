@@ -94,6 +94,11 @@ export type ProjectContext = {
      beside the stage plan for the same reason it does — it modifies what may
      be BUILT, not how to build it. */
   integrations?: string;
+  /* What this project does with products — see commerce.ts. Empty for every
+     project that has none, which is most of them. Says what is built AND what
+     is not, because the absent instruction is the one that gets invented: a
+     model told a project has a catalogue will add a basket to it unprompted. */
+  commerce?: string;
   /* Which market's conventions the content defaults to — see
      src/lib/builder/market.ts. Only a default: the locale section it selects
      opens by handing precedence back to the brief. */
@@ -285,7 +290,7 @@ ${context.architecture ? `${architectureBrief(context.architecture)}\n\n──�
 THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${context.integrations ? `\n────────────────────────────────────────\n\n${context.integrations}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}
+${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${context.integrations ? `\n────────────────────────────────────────\n\n${context.integrations}\n` : ""}${context.commerce ? `\n────────────────────────────────────────\n\n${context.commerce}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 ${

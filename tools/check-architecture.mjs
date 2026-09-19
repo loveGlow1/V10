@@ -128,11 +128,20 @@ const CASES = [
   },
   {
     /* The case the whole promotion mechanism exists for: nothing here says
-       database, login or route, and a store without them is a picture. */
+       database, login or route, and a store without them is a picture.
+     *
+       WHAT CHANGED. This expected authentication and an admin and no
+       payments, which was the old reading of "store" — one shape, every layer
+       a shop could have. A store sells, so it now gets the cart, the checkout
+       and the way to pay, and it does NOT get customer accounts or a back
+       office, because this brief asks for neither: an admin is a thing
+       somebody runs, not a thing a storefront implies, and a shop can take
+       guest orders. Both arrive the moment the brief asks — see the two cases
+       below, where they do. */
     brief: "build me an online store for handmade candles",
     kind: "ecommerce",
-    on: ["backend", "database", "authentication", "admin", "storage"],
-    off: ["payments"],
+    on: ["backend", "database", "storage", "payments"],
+    off: ["authentication", "admin"],
     promoted: true,
   },
   {
@@ -782,55 +791,100 @@ if (pay.manifest.database) {
  * and the question asked again forever, which is the same failure wearing a
  * different hat. So they are checked against each other rather than each
  * against a list written here. */
-/* ── A CATALOGUE IS NOT A SHOP ────────────────────────────────────────────
+/* ── PRODUCTS ARE NOT COMMERCE ────────────────────────────────────────────
  *
- * "A product showcase for our furniture, no cart or checkout" is about
- * products, so it is filed as ecommerce — correctly — and the kind's defaults
- * then gave it a basket, orders, customer accounts, an admin area and a
- * storage bucket, for somebody who had declined the basket in the same
- * sentence. The `orders` table in particular was migrated into their database
- * where nothing would ever write to it.
+ * "A product showcase for our furniture, no cart or checkout" came back with
+ * customer accounts, an admin area, a storage bucket and an `orders` table.
+ * The kind was right — it is about products — and every layer after it was
+ * wrong, for somebody who had declined the basket in the same sentence.
  *
- * The layers are checked as well as the tables, because the tables follow from
- * them and asserting only the tables would pass on a manifest that was wrong
- * in a way dataModelFor happened to ignore. */
-console.log("\nA catalogue is not a shop:");
+ * A boolean fixed the worst of that and was one distinction short: it could
+ * tell a catalogue from a shop and not a shop that takes cards from one that
+ * invoices, or a storefront from a storefront with a back office. So commerce
+ * is fifteen capabilities, each starting false.
+ *
+ * The three cases below are the spec's own examples, and the third is the one
+ * that keeps the first two honest. */
+console.log("\nProducts are not commerce:");
 
-const showcase = decideArchitecture(
-  "a product showcase for our furniture, no cart or checkout",
-  "ecommerce",
-  decideStack("a product showcase for our furniture, no cart or checkout"),
-);
+const readCommerce = (brief, kind = "ecommerce") =>
+  decideArchitecture(brief, kind, decideStack(brief)).manifest;
 
-for (const [layer, wanted] of [
-  ["database", true],
-  ["commerce", false],
-  ["authentication", false],
-  ["admin", false],
+const showcase = readCommerce("Create a website showcasing our products.");
+
+/* A SHOWCASE. Its range is content, so it needs nothing behind it — that is
+   the half the boolean got wrong, by reasoning that a catalogue is data and
+   giving it a database it has no use for. */
+for (const [what, got, wanted] of [
+  ["a catalogue", showcase.commerce.catalog, true],
+  ["product pages", showcase.commerce.productDetails, true],
+  ["a cart", showcase.commerce.cart, false],
+  ["a checkout", showcase.commerce.checkout, false],
+  ["orders", showcase.commerce.orders, false],
+  ["customer accounts", showcase.commerce.customerAccounts, false],
+  ["an admin", showcase.commerce.admin, false],
+  ["a database", showcase.database, false],
+  ["authentication", showcase.authentication, false],
 ]) {
-  if (showcase.manifest[layer] === wanted) pass(`a showcase has ${wanted ? "" : "no "}${layer}`);
-  else fail(`a showcase has ${wanted ? "" : "no "}${layer}`, describeArchitecture(showcase.manifest));
+  if (got === wanted) pass(`a showcase has ${wanted ? "" : "no "}${what}`);
+  else fail(`a showcase has ${wanted ? "" : "no "}${what}`, JSON.stringify(showcase.commerce));
 }
 
-const showcaseTables = dataModelFor(showcase.manifest, schemaNameFor("11111111-2222-3333-4444-555555555555"))
+/* A SHOP. Named as one, naming no capability — and a shop with no way to buy
+   anything is a picture of a shop. */
+const store = readCommerce("Build me an online store where customers can add products to a cart and buy them.");
+
+for (const capability of ["catalog", "productDetails", "cart", "checkout", "payments", "orders"]) {
+  if (store.commerce[capability]) pass(`a store has ${capability}`);
+  else fail(`a store has ${capability}`, JSON.stringify(store.commerce));
+}
+
+/* THE ONE THAT KEEPS THE OTHERS HONEST. "Add products to a cart" is a customer
+   shopping; "add products" alone is a merchant stocking the shop. Both the
+   admin pattern here and the one in commerce.ts matched the first as the
+   second, so every online store was given a back office, the accounts to sign
+   into it, and a database to hold them. */
+if (!store.commerce.admin) pass("and no admin, because adding to a CART is not managing a catalogue");
+else fail("and no admin, because adding to a CART is not managing a catalogue", JSON.stringify(store.commerce));
+if (!store.authentication) pass("and no customer accounts, because this brief asks for none");
+else fail("and no customer accounts, because this brief asks for none", describeArchitecture(store));
+
+/* And the moment somebody does ask for the back office, it arrives — with the
+   sign-in it cannot work without. */
+const managed = readCommerce("a store where I can manage products from an admin dashboard");
+if (managed.commerce.admin && managed.admin && managed.authentication && managed.database) {
+  pass("while 'manage products from an admin' brings the admin, the sign-in and the database");
+} else {
+  fail("while 'manage products from an admin' brings the admin, the sign-in and the database", describeArchitecture(managed));
+}
+
+/* Tables follow the capabilities. A showcase was migrated an `orders` table
+   that nothing would ever write to, every policy on it guarding rows that
+   would never exist. */
+const storeTables = dataModelFor(store, schemaNameFor("11111111-2222-3333-4444-555555555555"))
   .tables.map((table) => table.name);
 
-if (showcaseTables.includes("products")) pass("and still gets its products — a catalogue is data");
-else fail("and still gets its products — a catalogue is data", showcaseTables.join(", "));
+if (storeTables.includes("orders") && storeTables.includes("order_items")) pass("a store gets its orders");
+else fail("a store gets its orders", storeTables.join(", "));
+if (!storeTables.includes("discounts")) pass("and no discounts table, because it runs no discounts");
+else fail("and no discounts table, because it runs no discounts", storeTables.join(", "));
 
-const sellingOnly = ["orders", "order_items", "discounts"].filter((name) => showcaseTables.includes(name));
-if (sellingOnly.length === 0) pass("and none of the tables that exist only because money changes hands");
-else fail("and none of the tables that exist only because money changes hands", sellingOnly.join(", "));
-
-/* And the shop still is one. Removing commerce from a real store would be a
-   different bug, and a louder one. */
-const store = decideArchitecture(
-  "build me an online store for handmade candles",
-  "ecommerce",
-  decideStack("build me an online store for handmade candles"),
-);
-if (store.manifest.commerce && store.manifest.authentication) pass("a real store still sells");
-else fail("a real store still sells", describeArchitecture(store.manifest));
+/* A manifest written before commerce was decomposed has no such field, and
+   they are read back on every edit of an existing project. Reading a
+   capability off one throws, which would turn "add a contact form to my shop"
+   into a failed build for every customer who already has one. */
+const old = { ...store, commerce: undefined };
+try {
+  const tables = dataModelFor(old, schemaNameFor("11111111-2222-3333-4444-555555555555")).tables;
+  if (tables.some((table) => table.name === "orders")) {
+    pass("a manifest from before commerce existed still reads as the full shop it was");
+  } else {
+    fail("a manifest from before commerce existed still reads as the full shop it was",
+      "treating it as a catalogue drops tables out from under a running store");
+  }
+} catch (error) {
+  fail("a manifest from before commerce existed still reads as the full shop it was", String(error));
+}
 
 console.log("\nThe architecture question:");
 

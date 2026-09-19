@@ -46,6 +46,7 @@
  */
 
 import type { ArchitectureManifest } from "./architecture";
+import { COMMERCE_CAPABILITIES, type Commerce } from "./commerce";
 
 export type ColumnType =
   | "uuid"
@@ -247,7 +248,15 @@ function categories(): Table {
  * checkout" was migrated an `orders` table. Nothing would ever write to it,
  * every policy on it was enforcing access to rows that would never exist, and
  * it sat in the customer's database looking like a feature that had failed. */
-function commerce(withStorage: boolean, selling: boolean): Table[] {
+/* What an ecommerce manifest meant before commerce was decomposed: all of it.
+   Used only for rows written back then — see the note at the call site. */
+function everySale(): Commerce {
+  const all = { enabled: true } as Commerce;
+  for (const capability of COMMERCE_CAPABILITIES) all[capability] = true;
+  return all;
+}
+
+function commerce(withStorage: boolean, capabilities: Commerce): Table[] {
   const tables: Table[] = [
     {
       name: "products",
@@ -454,10 +463,20 @@ function commerce(withStorage: boolean, selling: boolean): Table[] {
 
   /* Filtered on the way out rather than assembled conditionally, so the table
      definitions above stay one readable list in the order a person would
-     expect to find them. */
-  const ONLY_WHEN_SELLING = new Set(["orders", "order_items", "discounts"]);
+     expect to find them.
+     
+     One capability per table, because they are genuinely separate asks: a shop
+     that takes orders need not run discount codes, and a catalogue with stock
+     counts need not take orders at all. Before this they arrived together, so
+     a showcase was migrated an `orders` table nothing would ever write to. */
+  const NEEDS: Record<string, boolean> = {
+    orders: capabilities.orders,
+    order_items: capabilities.orders,
+    discounts: capabilities.coupons,
+    product_variants: capabilities.variants,
+  };
 
-  return selling ? tables : tables.filter((table) => !ONLY_WHEN_SELLING.has(table.name));
+  return tables.filter((table) => NEEDS[table.name] ?? true);
 }
 
 /* The publishing tables. A blog and a news publication are the same shape —
@@ -706,7 +725,19 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
   if (manifest.authentication) tables.push(profiles(adminRole));
 
   if (manifest.type === "ecommerce") {
-    tables.push(categories(), ...commerce(manifest.storage, manifest.commerce));
+    /* ── A manifest written before commerce existed ────────────────────
+     *
+     * Every project built before this field was added has a stored manifest
+     * without it, and they are read back by capability-upgrade.ts on the next
+     * edit. Reading `manifest.commerce.orders` off one of those throws, which
+     * would turn "add a contact form to my shop" into a failed build for
+     * every existing customer.
+     *
+     * An absent field reads as a full shop rather than as nothing, and the
+     * direction is the point: these rows were written when an ecommerce
+     * project meant all of it, so that IS what those projects have. Treating
+     * them as a catalogue would drop tables out from under a running store. */
+    tables.push(categories(), ...commerce(manifest.storage, manifest.commerce ?? everySale()));
     if (manifest.storage) {
       buckets.push({
         name: bucketName(schema, "product-images"),

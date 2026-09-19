@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
 import { carriedContextWords, countWords } from "@/lib/builder/brief";
+import { noCommerce, withDependencies } from "@/lib/builder/commerce";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
@@ -109,8 +110,16 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
         authentication: layer("authentication"),
         admin: layer("admin"),
         storage: layer("storage"),
-        commerce: layer("commerce"),
         payments: layer("payments"),
+        /* Not a layer any more — a capability set. A caller that sends the
+           old boolean means "this sells", which withDependencies turns into
+           the smallest set that can. */
+        commerce: withDependencies({
+          ...noCommerce(),
+          ...((sent as Record<string, unknown>).commerce === true
+            ? { catalog: true, productDetails: true, cart: true, checkout: true, orders: true }
+            : {}),
+        }),
       };
     }
   }
@@ -124,8 +133,8 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
     authentication: false,
     admin: false,
     storage: false,
-    commerce: false,
     payments: false,
+    commerce: noCommerce(),
   };
 }
 

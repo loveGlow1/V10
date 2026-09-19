@@ -99,6 +99,7 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { weightOf } from "@/lib/builder/backend/modes";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
@@ -3615,6 +3616,9 @@ async function handle(
          connected Stripe was shown an app saying payments were not connected
          yet. Empty for a project with no keys, which is almost all of them. */
       integrations: integrationBrief(connected),
+      /* What this project does with products, and what it deliberately does
+         not. PRODUCTS ARE NOT COMMERCE — see commerce.ts. */
+      commerce: commerceBrief(architecture.manifest.commerce),
     };
 
     const systemPrompt = composeBuildPrompt(kind.kind, brief.text, promptContext);
