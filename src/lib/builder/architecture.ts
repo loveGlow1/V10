@@ -459,7 +459,7 @@ export function architectureQuestion(kind: BuildKind, manifest: ArchitectureMani
   const managed =
     kind === "ecommerce" ? "products, stock and orders" : "posts, categories and media";
 
-  return `Two ways to build this ${thing}.
+  return `Three ways to build this ${thing}.
 
 **The real thing** — a ${thing} with a database behind it and an admin area where you manage ${managed}. What you change in the admin changes on the site. People can sign in. This takes longer to build and gives you something you can actually run.
 
@@ -467,13 +467,31 @@ export function architectureQuestion(kind: BuildKind, manifest: ArchitectureMani
     kind === "ecommerce" ? "catalogue" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
+**Your own backend** — the same ${thing}, built against a database you already have. Nothing is created on our side and nothing is migrated into anybody's account but yours. You connect your Supabase under Backend, and the build waits for it rather than putting your data somewhere you did not choose.
+
 Which one?`;
 }
 
-/** The two answers, for the chips the question is offered with. */
+/* ── The three answers ────────────────────────────────────────────────────
+ *
+ * The third one is not a variant of the first. "The real thing" builds the
+ * app AND provisions the database it runs on, which means a Supabase project
+ * in this platform's organisation holding somebody's rows. That is a perfectly
+ * good default and it must not be the only way to say yes to an application:
+ * somebody who already has a database, an API or a team's infrastructure is
+ * being told to move onto ours in order to get the thing they asked for.
+ *
+ * So "your own backend" keeps every layer the brief argued for — it IS the
+ * real thing — and changes only where the data lives. Nothing is provisioned,
+ * nothing is migrated, and the build carries on with the schema pending until
+ * the owner connects their Supabase under Backend. See resolveBackend, which
+ * is the half that makes this honest: a project that chose `own` and has not
+ * connected yet gets NO backend rather than quietly getting ours. */
+export type ArchitectureChoice = "full" | "frontend" | "own";
+
 export function architectureOptions(
   kind: BuildKind,
-): { value: "full" | "frontend"; label: string; blurb: string }[] {
+): { value: ArchitectureChoice; label: string; blurb: string }[] {
   const thing = kind === "ecommerce" ? "store" : kind === "news" ? "publication" : "site";
 
   return [
@@ -487,12 +505,17 @@ export function architectureOptions(
       label: "The front of it",
       blurb: "The design, with the content in the page. Faster.",
     },
+    {
+      value: "own",
+      label: "Your own backend",
+      blurb: "The same app, against a database you already have. Nothing is created on our side.",
+    },
   ];
 }
 
-/** Whether a value came back from the browser as one of the two answers. */
-export function isArchitectureChoice(value: unknown): value is "full" | "frontend" {
-  return value === "full" || value === "frontend";
+/** Whether a value came back from the browser as one of the three answers. */
+export function isArchitectureChoice(value: unknown): value is ArchitectureChoice {
+  return value === "full" || value === "frontend" || value === "own";
 }
 
 /**
@@ -518,7 +541,7 @@ export function isArchitectureChoice(value: unknown): value is "full" | "fronten
  * on the next message would be the builder forgetting.
  */
 export function architectureFromChoice(
-  choice: "full" | "frontend",
+  choice: ArchitectureChoice,
   kind: BuildKind,
   decided: ArchitectureResult,
 ): ArchitectureResult {
@@ -528,6 +551,20 @@ export function architectureFromChoice(
       why: ["you chose the front of it, so nothing behind it is built"],
       needsProject: false,
       promoted: false,
+      certain: true,
+    };
+  }
+
+  /* OWN is the same application as FULL. It has to be: the layers are what the
+     app is made of, and a project built with fewer of them because of where
+     its database lives would be a different product. What the answer changes
+     is recorded against the project rather than in the manifest — see the
+     build route, which writes the mode, and resolveBackend, which is what
+     stops the build reaching for ours in the meantime. */
+  if (choice === "own") {
+    return {
+      ...decided,
+      why: [...decided.why, "you are connecting your own backend, so nothing is created on our side"],
       certain: true,
     };
   }

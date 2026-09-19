@@ -218,7 +218,7 @@ export default function ChatPanel({
       text: string;
       kind?: BuildKind;
       stack?: "standalone-html" | "nextjs";
-      options: { value: "full" | "frontend"; label: string; blurb: string }[];
+      options: { value: "full" | "frontend" | "own"; label: string; blurb: string }[];
     } | null
   >(null);
   /* Files chosen for the message being written. They belong to the message, not
@@ -913,7 +913,7 @@ export default function ChatPanel({
       stack?: "standalone-html" | "nextjs";
       /* And to "the real thing, or the front of it" — see pendingArchitecture.
          The broader of the two: it decides whether there is a database at all. */
-      architecture?: "full" | "frontend";
+      architecture?: "full" | "frontend" | "own";
     } = {},
   ) {
     const text = (prompt ?? draft).trim();

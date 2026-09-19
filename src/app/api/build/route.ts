@@ -3033,6 +3033,41 @@ async function handle(
     } else if (architecture.needsProject) {
       needs.stack = "nextjs";
     }
+
+    /* ── "My own backend", written down where it binds ──────────────────
+     *
+     * Recorded on the project rather than held for the length of this
+     * request, because it is a standing decision and not an answer to one
+     * build: the next message must not re-ask it, and ensureBackendFor below
+     * must not provision a Supabase project for somebody who has just
+     * declined one. A row saying `own` is what both of those read.
+     *
+     * No url and no anon key, deliberately — those are theirs to paste under
+     * Backend, and this is the intent rather than the connection.
+     * resolveBackend answers null for exactly this row, so the build carries
+     * on and the migration is reported pending instead of being applied to an
+     * instance they did not choose.
+     *
+     * Best effort. A row that cannot be written costs the next build a
+     * repeated question, which is a great deal better than failing a build
+     * somebody has paid for. */
+    if (chosenArchitecture === "own" && service) {
+      const { error: backendError } = await service.from("project_backends").upsert(
+        {
+          project_id: project.id,
+          user_id: user.id,
+          kind: "own",
+          mode: "own",
+          verification_error: null,
+        },
+        { onConflict: "project_id" },
+      );
+
+      if (backendError) {
+        // eslint-disable-next-line no-console
+        console.error(`build: ${project.id} chose its own backend and it could not be recorded:`, backendError.message);
+      }
+    }
   }
 
   if (!architecture.certain && ASK_WHEN_UNSURE) {

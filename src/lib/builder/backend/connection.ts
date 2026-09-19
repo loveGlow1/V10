@@ -174,6 +174,25 @@ export async function resolveBackend(
     };
   }
 
+  /* ── CHOSEN THEIRS, AND NOT CONNECTED YET ───────────────────────────────
+   *
+   * An `own` row with no url and no anon key is somebody who has answered
+   * "connect my own backend" and not yet pasted their credentials. Until this
+   * existed it fell through every branch below and landed on the shared
+   * instance — so a person who explicitly declined this platform's
+   * infrastructure had a schema created on it anyway, their app built against
+   * it, and their data written into an account they do not own. That is the
+   * one outcome the question was added to prevent, arriving through the
+   * fallback underneath it.
+   *
+   * Null instead, which every caller already handles as "no database this
+   * time": the build carries on, no .env.production is written, the migration
+   * is skipped and reported pending. They connect their Supabase under Backend
+   * and the next build has somewhere to put it. A build that does less is
+   * recoverable; a build that put their rows somewhere they did not choose is
+   * not. */
+  if (stored === "own") return null;
+
   /* Rows written before `mode` existed. `kind` is all there is, and it means
      what it always meant. */
   if (!stored && data?.kind === "own" && data.url && data.anon_key) {
