@@ -99,6 +99,7 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { weightOf } from "@/lib/builder/backend/modes";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
@@ -110,7 +111,9 @@ import { indexTree } from "@/lib/context/project-index";
 import {
   deploymentName,
   deploymentsConfigured,
+  projectSecretNames,
   startDeployment,
+  vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { diagnoseFindings } from "@/lib/publish/diagnosis";
@@ -3540,6 +3543,32 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
+    /* ── What this project is already wired to ──────────────────────────
+     *
+     * Read from Vercel, because that is where the truth is: the secrets route
+     * deliberately stores nothing here, so the only way to know a project has
+     * a Stripe key is to ask the place it was sent. Names only — a value is
+     * never returned by Vercel and would never be asked for.
+     *
+     * Best effort throughout. A project that has never deployed has no Vercel
+     * project to ask about, a token without scope answers nothing, and both of
+     * those are a build that carries on with no services declared — exactly
+     * what every build did before this existed. */
+    const connected = await (async () => {
+      const creds = vercelCredentials();
+      if (!creds || !service) return [];
+
+      try {
+        const vercelProject = await existingVercelProject(service, project.id);
+        if (!vercelProject) return [];
+        return connectedServices(await projectSecretNames(vercelProject, creds));
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(`build: ${project.id} — the connected services could not be read:`, error);
+        return [];
+      }
+    })();
+
     /* Held as a value rather than inlined, because the brief may have to be
        restructured below and the prompt recomposed around it — and two
        literals are two chances for the second one to differ from the first. */
@@ -3580,6 +3609,12 @@ async function handle(
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
       stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
+      /* And which outside services are really wired to this project. See
+         integrations.ts: the keys have been reaching Vercel correctly all
+         along and nothing ever told the generator, so a customer who had
+         connected Stripe was shown an app saying payments were not connected
+         yet. Empty for a project with no keys, which is almost all of them. */
+      integrations: integrationBrief(connected),
     };
 
     const systemPrompt = composeBuildPrompt(kind.kind, brief.text, promptContext);
