@@ -508,7 +508,39 @@ export async function GET(
           .eq("id", projectId)
           .maybeSingle();
 
-        const document = appPreviewDocument({ tree, projectName: project?.name as string | null });
+        /* The project's own `process.env`, for the browser renderer.
+         *
+         * A backend project's lib/supabase.ts reads these three (scaffold.ts
+         * writes it), and `next build` inlines them. The preview compiles the
+         * tree in a browser instead, where nothing inlines and `process` does
+         * not exist — so until this was passed, every screen importing the
+         * Supabase client threw `process is not defined` and the pane showed a
+         * screen that could not be rendered.
+         *
+         * NEXT_PUBLIC_ only, deliberately. These are compiled into any real
+         * build of the generated project and served to every visitor, so a
+         * sandboxed document that also has them knows nothing new. The
+         * service-role key must never appear here: this runs source a
+         * customer's prompt produced.
+         *
+         * Each is included only when set, so an unconfigured deployment sends
+         * an empty object and the generated client says it is unconfigured on
+         * first use instead of throwing on import. */
+        const previewEnv: Record<string, string> = {};
+        for (const name of [
+          "NEXT_PUBLIC_SUPABASE_URL",
+          "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+          "NEXT_PUBLIC_SUPABASE_SCHEMA",
+        ] as const) {
+          const value = process.env[name];
+          if (value) previewEnv[name] = value;
+        }
+
+        const document = appPreviewDocument({
+          tree,
+          projectName: project?.name as string | null,
+          env: previewEnv,
+        });
         if (document) {
           return new Response(document, {
             headers: {
