@@ -807,26 +807,44 @@ export default function PreviewPanel({
            * the per-build one carrying a hash, which its team settings put
            * behind a login, and the project's own alias, which is public. The
            * second is what arrives here — see stableHost — and it is the one
-           * worth putting in front of somebody. */}
-          {deployed && building ? (
+           * worth putting in front of somebody.
+           *
+           * AND ONLY ONCE IT IS PUBLISHED. This read `deployed`, which is the
+           * raw deployment and exists long before anybody agrees to be public:
+           * the workspace's own run control makes one, and a build used to make
+           * one by itself. So a customer who had published nothing was handed
+           * quickstark-app-2.quickstark.tech — a live address on the wildcard
+           * domain, for a project they had not decided to show anyone — and
+           * pressing Publish then appeared to do nothing, because the address
+           * was already sitting there.
+           *
+           * The rule is written out at `publishedLive` above and this was the
+           * one place that went around it. Published: the public domain, which
+           * is what Publish is for and what a custom domain is bought on top
+           * of. Not published: the QuickStark preview, private to its owner,
+           * which is the only address they have actually asked for. */}
+          {building ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                 Building your app
               </p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
-                It will answer at the address below in a minute or two. Until then this pane keeps
-                showing what you already had.
+                {publishedLive
+                  ? "It will answer at the address below in a minute or two. Until then this pane keeps showing what you already had."
+                  : "Until it finishes, this pane keeps showing what you already had. Publish it when you want an address anyone can open."}
               </p>
-              <a
-                href={deployed}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1.5 inline-flex items-center gap-1 break-all text-[12px] font-medium text-emerald-300 underline underline-offset-2"
-              >
-                {deployed.replace(/^https?:\/\//, "")}
-                <ExternalLink className="h-3 w-3 shrink-0" />
-              </a>
+              {(publishedLive ?? previewUrl) ? (
+                <a
+                  href={(publishedLive ?? previewUrl) as string}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-flex items-center gap-1 break-all text-[12px] font-medium text-emerald-300 underline underline-offset-2"
+                >
+                  {((publishedLive ?? previewUrl) as string).replace(/^https?:\/\//, "")}
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                </a>
+              ) : null}
             </div>
           ) : null}
 
