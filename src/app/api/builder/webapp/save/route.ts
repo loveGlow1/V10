@@ -476,6 +476,38 @@ export async function POST(request: Request) {
       exclude: await previouslyUsedPhotos(supabase, project.id as string),
     });
     tree = projectPhotos.tree;
+
+    /* A slot the fill could not see.
+     *
+     * fillImages matches `data-shot="..."` — a literal, double-quoted
+     * attribute on the <img> itself (images.ts). A build that factors the slot
+     * into a shared component writes `data-shot={shot}` instead, and that
+     * matches nothing: the tag ships with no src, renders as the neutral panel
+     * it was styled with, and the build reports success. That is the whole of
+     * the "images show as blank placeholders" report, and it was SILENT —
+     * fillTreeImages returned filled: 0 and nothing asked why.
+     *
+     * Counted, not repaired. The art direction lives in a prop fed from a data
+     * array, so there is no subject here to search a provider on, and inventing
+     * one would put an unrelated photograph in a catalogue. What this buys is
+     * that the next occurrence is in a log with the files named, instead of
+     * being found by a customer looking at their own storefront. The prompt
+     * rule in scaffold.ts is the fix; this is how we learn it slipped. */
+    const unmatched = tree
+      .filter(
+        (file) =>
+          /\.(?:tsx|jsx)$/.test(file.path) &&
+          /<img\b[^>]*\bdata-shot\s*=\s*\{/.test(file.content),
+      )
+      .map((file) => file.path);
+
+    if (unmatched.length > 0) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `save: ${unmatched.length} file(s) declare a photograph slot the fill cannot match — ` +
+          `data-shot must be a literal string on the <img>, not an expression: ${unmatched.join(", ")}`,
+      );
+    }
   }
 
   let html: string;
