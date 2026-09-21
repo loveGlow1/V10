@@ -1,7 +1,18 @@
 # n8n — AI Agent with Postgres Memory and Supabase RAG
 
-Workflow `tgLFph6yjJ5q8nDL` on `neauraissystems.app.n8n.cloud`. Separate from the
-Build Orchestrator (`n8n/README.md`); the two share nothing but the instance.
+Workflow `tgLFph6yjJ5q8nDL` on `neauraissystems.app.n8n.cloud` — the **old**
+instance. Separate from the Build Orchestrator (`n8n/README.md`); the two used
+to share nothing but the instance, and now they do not even share that.
+
+> **Not migrated.** The move to `neauralist3.app.n8n.cloud` brought the Build
+> Orchestrator across and nothing else: `search_workflows` on the new instance
+> returns one workflow. This agent still exists only on the old account, so
+> everything below describes a workflow that is not running anywhere the app
+> can reach. Nothing in the app calls it — `grep` for its URL finds no caller —
+> so this is a dormant document rather than a broken dependency. Re-import the
+> JSON on the new instance when it is wanted, and note that its credentials
+> (Anthropic, Postgres chat memory, Supabase vector store, Google Drive) all
+> have to be recreated there by hand, for the reason in `n8n/README.md`.
 
 A chat agent that answers from a Supabase vector store and keeps its conversation
 history in Postgres, plus a Google Drive branch that chunks, embeds and upserts
