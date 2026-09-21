@@ -161,69 +161,107 @@ export default function PreviewPanel({
     setDiagnosis(null);
     setShowLog(false);
 
-    fetch(`/api/projects/${id}/deploy`)
-      .then((response) => (response.ok ? response.json() : { available: false }))
-      .then((body: {
-        available?: boolean;
-        ready?: boolean;
-        url?: string | null;
-        /* Whether that address is serving the newest build. */
-        current?: boolean;
-        /* True while the newest deployment is still compiling. The address is
-           real; the site behind it is not up yet. */
-        building?: boolean;
-        /* Whether it can be shown in this pane, and why not when it cannot. */
-        viewable?: boolean;
-        viewableReason?: string | null;
-        /* Why the last attempt produced no address. Distinct from `reason`,
-           which is about this DEPLOYMENT's configuration rather than about
-           this project's last build. */
-        failure?: string | null;
-        /* The readable form of `failure`, built on the server so the workspace
-           and the chat say the same thing about the same failure. */
-        diagnosis?: Diagnosis | null;
-        /* A failure that did NOT take the site down: the newest build would
-           not deploy and an older one is still serving. Separate from
-           `failure` on purpose — see the deploy route. The pane keeps framing
-           the site that works and says this beside it. */
-        behind?: Diagnosis | null;
-        reason?: string | null;
-      }) => {
-        if (!current) return;
-        /* Straight into the pane. This runs when the workspace opens, so a
-           project that was deployed an hour ago is showing its app before
-           anybody presses anything. */
-        if (body.url) setDeployed(body.url);
-        setLiveIsCurrent(body.current !== false);
-        setBuilding(body.building === true);
-        setLiveViewable(body.viewable !== false);
-        setLiveBlockedReason(body.viewableReason ?? null);
-        /* Carried before anything is pressed. If hosting is not configured, the
-           account that can configure it should be able to read that from the
-           button rather than from a failed attempt. */
-        if (body.available === true && body.ready === false && body.reason) {
-          setDeployError(body.reason);
-          setDiagnosis(body.diagnosis ?? null);
-        } else if (body.failure) {
-          /* The last attempt's own diagnosis, from the build row. Read on load
-             so somebody returning to a project that did not host still finds
-             out why — it used to exist only in the tab where it happened and
-             then be gone. */
-          setDeployError(body.failure);
-          setDiagnosis(body.diagnosis ?? null);
-        }
-        /* Set whatever the two above decided. It is not an error state: the
-           address stays, the frame stays, and nothing about the pane changes
-           except that one line appears over it. */
-        setBehind(body.behind ?? null);
-      })
-      .catch(() => {
-        /* The workspace works without this answer: it only decides what is
-           said about a live address, and there is not one. */
-      });
+    /* Asked again while it is still compiling.
+     *
+     * This used to be one fetch. `building` was set from it and never looked at
+     * again, so the banner it drives — "Building your app … in a minute or two"
+     * — outlived the build that justified it: the deployment finished, the site
+     * came up, and the pane kept spinning until somebody switched project or
+     * reloaded the page. A progress indicator that cannot notice it is done is
+     * worse than none, because it teaches people to ignore it.
+     *
+     * So it re-asks while, and only while, the answer says a build is in
+     * flight. A project that is not deploying asks once and stops — this is not
+     * a poll the pane runs in the background; it is the tail of an answer that
+     * was incomplete when it arrived.
+     *
+     * And it gives up. Ten minutes is well past any deployment this builds, so
+     * past that the honest thing is to stop claiming a build is running: the
+     * banner goes rather than spinning forever on a deployment that died
+     * somewhere we cannot see. The address stays either way. */
+    const POLL_MS = 8_000;
+    const MAX_POLLS = 75;
+    let polls = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const check = () => {
+      fetch(`/api/projects/${id}/deploy`)
+        .then((response) => (response.ok ? response.json() : { available: false }))
+        .then((body: {
+          available?: boolean;
+          ready?: boolean;
+          url?: string | null;
+          /* Whether that address is serving the newest build. */
+          current?: boolean;
+          /* True while the newest deployment is still compiling. The address is
+             real; the site behind it is not up yet. */
+          building?: boolean;
+          /* Whether it can be shown in this pane, and why not when it cannot. */
+          viewable?: boolean;
+          viewableReason?: string | null;
+          /* Why the last attempt produced no address. Distinct from `reason`,
+             which is about this DEPLOYMENT's configuration rather than about
+             this project's last build. */
+          failure?: string | null;
+          /* The readable form of `failure`, built on the server so the workspace
+             and the chat say the same thing about the same failure. */
+          diagnosis?: Diagnosis | null;
+          /* A failure that did NOT take the site down: the newest build would
+             not deploy and an older one is still serving. Separate from
+             `failure` on purpose — see the deploy route. The pane keeps framing
+             the site that works and says this beside it. */
+          behind?: Diagnosis | null;
+          reason?: string | null;
+        }) => {
+          if (!current) return;
+          /* Straight into the pane. This runs when the workspace opens, so a
+             project that was deployed an hour ago is showing its app before
+             anybody presses anything. */
+          if (body.url) setDeployed(body.url);
+          setLiveIsCurrent(body.current !== false);
+          setBuilding(body.building === true);
+          setLiveViewable(body.viewable !== false);
+          setLiveBlockedReason(body.viewableReason ?? null);
+          /* Carried before anything is pressed. If hosting is not configured, the
+             account that can configure it should be able to read that from the
+             button rather than from a failed attempt. */
+          if (body.available === true && body.ready === false && body.reason) {
+            setDeployError(body.reason);
+            setDiagnosis(body.diagnosis ?? null);
+          } else if (body.failure) {
+            /* The last attempt's own diagnosis, from the build row. Read on load
+               so somebody returning to a project that did not host still finds
+               out why — it used to exist only in the tab where it happened and
+               then be gone. */
+            setDeployError(body.failure);
+            setDiagnosis(body.diagnosis ?? null);
+          }
+          /* Set whatever the two above decided. It is not an error state: the
+             address stays, the frame stays, and nothing about the pane changes
+             except that one line appears over it. */
+          setBehind(body.behind ?? null);
+
+          /* Done, failed, or never started: nothing more to ask. */
+          if (body.building !== true) return;
+
+          polls += 1;
+          if (polls >= MAX_POLLS) {
+            setBuilding(false);
+            return;
+          }
+          timer = setTimeout(check, POLL_MS);
+        })
+        .catch(() => {
+          /* The workspace works without this answer: it only decides what is
+             said about a live address, and there is not one. */
+        });
+    };
+
+    check();
 
     return () => {
       current = false;
+      if (timer) clearTimeout(timer);
     };
   }, [project?.id]);
 
@@ -331,7 +369,12 @@ export default function PreviewPanel({
     setPageFailed(false);
     setIsReceipt(false);
 
-    void fetch(previewPath, { cache: "no-store" })
+    /* ?chrome=0: the app without our page-switcher bar.
+       The full-screen preview omits it and keeps the bar, which is the only
+       place it belongs — see the note on the route. */
+    const paneUrl = `${previewPath}${previewPath.includes("?") ? "&" : "?"}chrome=0`;
+
+    void fetch(paneUrl, { cache: "no-store" })
       .then((response) => (response.ok ? response.text() : null))
       .then((html) => {
         if (cancelled) return;

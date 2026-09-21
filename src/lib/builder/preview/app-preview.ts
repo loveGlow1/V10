@@ -236,6 +236,15 @@ const SHELL = `
 export type AppPreviewInput = {
   tree: FileTree;
   projectName?: string | null;
+  /** Whether to draw the page-switcher bar above the app.
+   *
+   *  False in the workspace pane, where the bar is chrome the customer did not
+   *  ask for sitting on top of the thing they did: it is not part of their
+   *  project, it does not appear on the deployed site, and in a narrow pane it
+   *  is the first row of what should be their own header. The full-screen
+   *  preview keeps it, because there the routes are the only way to move
+   *  around a project that has no navigation of its own yet. */
+  chrome?: boolean;
   /** The `process.env` a generated module sees. See `window.__QS_ENV` below.
    *  NEXT_PUBLIC_ values only — anything else would be handing a secret to a
    *  document built to be untrusted. */
@@ -263,7 +272,7 @@ export function canRenderApp(tree: FileTree): boolean {
  * down for the same reason deployment used to.
  */
 export function appPreviewDocument(input: AppPreviewInput): string | null {
-  const { tree, env } = input;
+  const { tree, env, chrome = true } = input;
   const routes = routesOf(tree);
   if (routes.length === 0) return null;
 
@@ -314,7 +323,7 @@ ${styles ? `<style>${nativeCss(styles).replace(/<\/style/gi, "<\\/style")}</styl
 ${styles ? `<style type="text/tailwindcss">${styles.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 </head>
 <body>
-<nav class="qs-bar" aria-label="Pages in this project">${switcher}</nav>
+${chrome ? `<nav class="qs-bar" aria-label="Pages in this project">${switcher}</nav>` : ""}
 <div id="qs-root"></div>
 <script src="${REACT}" crossorigin></script>
 <script src="${REACT_DOM}" crossorigin></script>

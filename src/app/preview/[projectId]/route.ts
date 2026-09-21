@@ -271,6 +271,15 @@ export async function GET(
      `renderable` below: the preview shows the product, and the receipt is
      diagnostics somebody asks for. */
   const wantsDiagnostics = params.get("diagnostics") === "1";
+  /* ?chrome=0 drops the page-switcher bar.
+   *
+   * The workspace pane asks for it. That pane is meant to show the customer
+   * their application, and a row of route chips above it is ours, not theirs —
+   * it is not in the project, it is not on the deployed site, and in a narrow
+   * pane it reads as the first line of their own header. Opened full screen the
+   * bar stays, because there it is the only way to reach a route in a project
+   * whose own navigation does not exist yet. */
+  const wantsChrome = params.get("chrome") !== "0";
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return notFound("Previews are unavailable — Supabase is not configured.");
@@ -540,6 +549,7 @@ export async function GET(
           tree,
           projectName: project?.name as string | null,
           env: previewEnv,
+          chrome: wantsChrome,
         });
         if (document) {
           return new Response(document, {
