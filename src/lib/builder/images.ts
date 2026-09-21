@@ -154,12 +154,25 @@ export function readSlots(html: string): ImageSlot[] {
  * varied rather than a grid of identical grey rectangles, and stable so that
  * rebuilding the same page does not reshuffle its colours. */
 export function placeholderFor(slot: ImageSlot): string {
+  return tonedPanel(`${slot.shot}${slot.alt}`, slot.ratio);
+}
+
+/**
+ * The same panel, for a caller that has a seed and a ratio rather than a slot.
+ *
+ * Split out for the last-resort sweep in tree-images.ts, which repairs an <img>
+ * that reached the end of the pipeline with no `src` at all. That one has a tag
+ * and its attributes, not an ImageSlot, and a panel is the difference between a
+ * page that looks unfinished on purpose and a browser's broken-image icon with
+ * the alt text spilling out beside it.
+ */
+export function tonedPanel(seed: string, ratio: string): string {
   let hash = 0;
-  for (const character of `${slot.shot}${slot.alt}`) {
+  for (const character of seed) {
     hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   }
   const hue = hash % 360;
-  const [w, h] = ratioSize(slot.ratio);
+  const [w, h] = ratioSize(ratio);
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 14% 88%)"/><stop offset="1" stop-color="hsl(${hue} 16% 79%)"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/></svg>`;
 
