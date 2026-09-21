@@ -109,3 +109,40 @@ export async function rememberPhotos(
     console.error("photos: could not record what this build used:", error.message);
   }
 }
+
+/**
+ * This project's resolved photographs, newest first.
+ *
+ * The addresses rather than the identities: `previouslyUsedPhotos` reads
+ * content keys so the next build can avoid repeating a picture, and this reads
+ * URLs so a repair can actually put one on a page.
+ *
+ * For the last-resort sweep in tree-images.ts. These were chosen for this
+ * project's brief and its visual direction, so a page repaired with them
+ * carries the photographs it was always meant to rather than something
+ * generic — which is the difference between a rescue and a patch.
+ */
+export async function projectPhotoUrls(
+  service: SupabaseClient,
+  projectId: string,
+  limit = 24,
+): Promise<string[]> {
+  const { data, error } = await service
+    .from("project_assets")
+    .select("url")
+    .eq("project_id", projectId)
+    .eq("status", "ready")
+    .not("url", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("photos: could not read this project's addresses:", error.message);
+    return [];
+  }
+
+  return ((data ?? []) as { url: string | null }[])
+    .map((row) => row.url)
+    .filter((url): url is string => typeof url === "string" && /^https?:\/\//.test(url));
+}

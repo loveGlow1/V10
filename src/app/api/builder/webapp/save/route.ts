@@ -7,10 +7,10 @@ import { noCommerce, withDependencies } from "@/lib/builder/commerce";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
-import { fillTreeImages } from "@/lib/builder/tree-images";
+import { ensureImageSources, fillTreeImages } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
-import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
+import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName, withTokens } from "@/lib/builder/design";
@@ -477,35 +477,42 @@ export async function POST(request: Request) {
     });
     tree = projectPhotos.tree;
 
-    /* A slot the fill could not see.
+    /* And then: no <img> leaves here without a source.
      *
-     * fillImages matches `data-shot="..."` — a literal, double-quoted
-     * attribute on the <img> itself (images.ts). A build that factors the slot
-     * into a shared component writes `data-shot={shot}` instead, and that
-     * matches nothing: the tag ships with no src, renders as the neutral panel
-     * it was styled with, and the build reports success. That is the whole of
-     * the "images show as blank placeholders" report, and it was SILENT —
-     * fillTreeImages returned filled: 0 and nothing asked why.
+     * The fill above is the intended path and it can still be missed. A slot
+     * whose art direction is an expression — `<img data-shot={shot}>` inside a
+     * shared component — matches nothing in images.ts, so it is not filled and
+     * what ships is a tag with no `src` at all. A browser draws that as its
+     * broken-image icon with the alt text beside it, which is what a catalogue
+     * of "Running collection" in a grey rectangle was.
      *
-     * Counted, not repaired. The art direction lives in a prop fed from a data
-     * array, so there is no subject here to search a provider on, and inventing
-     * one would put an unrelated photograph in a catalogue. What this buys is
-     * that the next occurrence is in a log with the files named, instead of
-     * being found by a customer looking at their own storefront. The prompt
-     * rule in scaffold.ts is the fix; this is how we learn it slipped. */
-    const unmatched = tree
-      .filter(
-        (file) =>
-          /\.(?:tsx|jsx)$/.test(file.path) &&
-          /<img\b[^>]*\bdata-shot\s*=\s*\{/.test(file.content),
-      )
-      .map((file) => file.path);
+     * Nothing about it is an error. Not to the browser, not to `next build`,
+     * not to the deploy — so it shipped, and was reported as a success, and the
+     * first thing that noticed was a person looking at their own storefront.
+     * That is the whole reason this runs rather than a warning being logged.
+     *
+     * Repaired with this project's OWN photographs — the stock URLs already
+     * resolved for its brief and visual direction — so a rescued page carries
+     * the pictures it was meant to. With none to hand, the toned panel every
+     * slot ships with, which reads as a photograph still loading rather than a
+     * mistake. Either way the tag has a source. */
+    const sweep = ensureImageSources(
+      tree,
+      await projectPhotoUrls(supabase, project.id as string),
+    );
+    tree = sweep.tree;
 
-    if (unmatched.length > 0) {
+    if (sweep.repaired > 0) {
+      /* Loud, because a repair here means the generator was told something it
+         should not have been, or ignored it. The page is saved either way; this
+         is how the cause gets found rather than the symptom being lived with. */
       // eslint-disable-next-line no-console
       console.error(
-        `save: ${unmatched.length} file(s) declare a photograph slot the fill cannot match — ` +
-          `data-shot must be a literal string on the <img>, not an expression: ${unmatched.join(", ")}`,
+        `save: repaired ${sweep.repaired} image tag(s) that had no source — ` +
+          `a slot was declared as an expression rather than a literal, so the fill could not match it` +
+          (sweep.unrepaired.length > 0
+            ? `; ${sweep.unrepaired.length} left as they were for size: ${sweep.unrepaired.join(", ")}`
+            : ""),
       );
     }
   }
