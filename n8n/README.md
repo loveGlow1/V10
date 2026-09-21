@@ -2,8 +2,8 @@
 
 The workflow behind the QuickStark.Ai chat "build my app" flow.
 
-- **Workflow**: `QuickStark.Ai — Build Orchestrator` (`pIJ3Fu5QpGTotf2m`)
-- **Editor**: https://neauraissystems.app.n8n.cloud/workflow/pIJ3Fu5QpGTotf2m
+- **Workflow**: `QuickStark.Ai — Build Orchestrator` (`v9nipTDZsSkMlg8Z`)
+- **Editor**: https://neauralist3.app.n8n.cloud/workflow/v9nipTDZsSkMlg8Z
 - **Reference**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
 
   **Regenerated from the live workflow on 2026-09-03**, and a mirror of it:
@@ -107,14 +107,19 @@ must not be able to fail the request.
   only be written to the project row.
 ```
 
-> **Deployed defect.** `Generate With Claude` has a *second* success connection
-> straight to `Save Page`, alongside the right one into `Collect Generation`.
-> That edge hands `Save Page` the raw Anthropic response, which has no `html`
-> field, so it posts `html: undefined`, is refused, and takes its error output
-> to `Flag Build Failure` — marking the project Failed even when the real path
-> through `Extract Page` succeeded. `Generate With OpenAI` and
-> `Generate With Gemini` do not have it. The fix is to delete that one
-> connection in the editor; nothing else changes.
+> **Deployed defect — fixed by the migration (2026-09-21).** On the old
+> instance `Generate With Claude` had a *second* success connection straight to
+> `Save Page`, alongside the right one into `Collect Generation`. That edge
+> handed `Save Page` the raw Anthropic response, which has no `html` field, so
+> it posted `html: undefined`, was refused, and took its error output to
+> `Flag Build Failure` — marking the project Failed even when the real path
+> through `Extract Page` had succeeded.
+>
+> The edge is **not** in the workflow on `neauralist3`: `Generate With Claude`
+> now fans out to `Collect Generation` on output 0 and `Say What Failed` on
+> output 1, which is correct and matches `Generate With OpenAI` and
+> `Generate With Gemini`. Verified against `get_workflow_details`. Nothing
+> needs deleting in the editor — do not go looking for it.
 
 **The reply comes before the page.** Everything above the response line takes a
 few seconds — a classification, nothing more. Generating a page takes a minute
@@ -170,7 +175,7 @@ save is never billed, which is the right answer for a build nobody got.
 
 ## Request
 
-`POST https://neauraissystems.app.n8n.cloud/webhook/api/v1/build`
+`POST https://neauralist3.app.n8n.cloud/webhook/api/v1/build`
 
 ```json
 {
@@ -252,16 +257,63 @@ chat was answered.
 
 ## Before this can run for real
 
-Where this stands: the workflow is **published** and wired end to end. The
-Webhook node carries a Header Auth credential, `Sync Project Row` and
-`Flag Build Failure` the Supabase one, `Generate With Claude` the Anthropic one,
-and the app holds the two environment variables in step 1. Builds reach n8n, route to a branch, sync to
-Supabase and answer the chat — verified by production executions 209 and 210.
+> ## Migrated instance — credentials must be recreated (2026-09-21)
+>
+> The workflow now lives on **`neauralist3.app.n8n.cloud`** as
+> **`v9nipTDZsSkMlg8Z`**, imported from JSON off the old
+> `neauraissystems.app.n8n.cloud` account.
+>
+> **The import carried the graph and lost every credential**, and that is the
+> whole reason the chat cannot build. n8n never puts secrets in an exported
+> workflow — a node's `credentials` block is a *reference* to a row in the
+> instance's own credential store, so importing the JSON into a different
+> account leaves 26 nodes with their parameters intact and nothing behind the
+> ones that authenticate. `list_credentials` on the new instance returns
+> **zero**. Nothing was misconfigured in the move; there is simply nothing to
+> configure against yet.
+>
+> So the workflow is **unpublished and cannot be published**, and n8n names the
+> four nodes that block it:
+>
+> ```
+> Cannot publish workflow: 4 nodes have configuration issues:
+>   Node "Build Request Webhook":  Missing required credential: httpHeaderAuth
+>   Node "Sync Project Row":       Missing required credential: supabaseApi
+>   Node "Flag Build Failure":     Missing required credential: supabaseApi
+>   Node "Tell The Customer":      Missing required credential: supabaseApi
+> ```
+>
+> Unpublished means the production webhook answers **404**, which the app
+> reports as "the builder answered 404 — the workflow is probably not published
+> yet". That is the symptom to expect until step 1 and step 3 below are done.
+>
+> The three generation nodes are **not** in that list and are still broken. n8n
+> only gates publishing on nodes whose credential is structurally required, and
+> `Generate With Claude` / `…OpenAI` / `…Gemini` use
+> `authentication: predefinedCredentialType`, which it does not check. They fail
+> at *run* time instead — after the chat has already been answered — so a build
+> gets "your build is underway" and then a `Failed` row. Attach all three.
+>
+> Nothing in the app or in this repo needed a code change: the connection is one
+> environment variable. Point `N8N_WEBHOOK_URL` at the new host and the app
+> reaches the new instance.
+>
+> **Gateway credits do not help here.** The new instance offers them for
+> `anthropicApi`, `openAiApi` and `googlePalmApi`, but only to the
+> `@n8n/n8n-nodes-langchain.*` nodes they list. Generation runs through
+> `n8n-nodes-base.httpRequest`, which is not covered, and deliberately so — see
+> the note on `Generate With Claude`. Real keys are required.
+>
+> Everything below the checklist describes the workflow as it *behaves*, which
+> the migration did not change. Only the credential and publish state moved
+> backwards.
 
-Builds are real: the branch generates a page and stores it. Verify the chain
-with `npm run check:builder`.
-
-The graph is wired and tested; the outbound integrations are not yet connected.
+What that replaced: this section used to open by saying the workflow was
+published and wired end to end, with the Webhook, Supabase and Anthropic
+credentials all attached, verified by production executions 209 and 210. That
+was true of the **old** instance and is the kind of claim worth dating, because
+it is exactly what somebody reads before concluding the break must be in the
+app.
 
 Two different questions are easy to conflate here. **Running** the workflow needs
 nothing — a manual execution works today, and did (see Testing). **Publishing**
@@ -371,7 +423,10 @@ that is gated on every enabled node having a credential attached.
    should do.
 
 3. **Credentials** — connect these in n8n:
-   - `Supabase QuickStark.Ai` on `Sync Project Row`. Credential type
+   - `Supabase QuickStark.Ai` on **all three** Supabase nodes —
+     `Sync Project Row`, `Flag Build Failure` and `Tell The Customer`. One
+     credential, attached three times; n8n's publish check names each node
+     separately, which reads like three problems and is one. Credential type
      **Supabase API**, with two fields:
 
      | Field | Value |
@@ -414,11 +469,23 @@ that is gated on every enabled node having a credential attached.
 4. **The generation credentials** — one per provider, because a credential is
    bound to a node in n8n and cannot be an expression.
 
-   | Node | Credential type | State |
-   | --- | --- | --- |
-   | `Generate With Claude` | `anthropicApi` | Attached (`Anthropic account`). |
-   | `Generate With OpenAI` | `openAiApi` | Attached, but it is the shared "n8n free OpenAI API credits" pool, which is **exhausted** — `400 … used all your free n8n AI credits`. Replace with a real key before offering GPT models. |
-   | `Generate With Gemini` | `googlePalmApi` | **None attached**, and no Google credential exists on the instance. A build picking a Gemini model fails at this node and is flagged. |
+   On the migrated instance **none of the three is attached**, because no
+   credential of any kind exists there yet. Claude is the only one that has to
+   be connected for the product to work: it is the fallback in
+   `Route By Provider`, so it is the credential every build uses unless the
+   person picked otherwise.
+
+   | Node | Credential type | State on `neauralist3` | Needed? |
+   | --- | --- | --- | --- |
+   | `Generate With Claude` | `anthropicApi` | **None.** Was `Anthropic account` on the old instance; the key itself did not travel. | **Yes** — the `Route By Provider` fallback, so every build lands here. |
+   | `Generate With OpenAI` | `openAiApi` | **None.** On the old instance this was the shared "n8n free OpenAI API credits" pool, and it was **exhausted** (`400 … used all your free n8n AI credits`). Do not recreate it that way. | Only to offer GPT models, and then only with a real key. |
+   | `Generate With Gemini` | `googlePalmApi` | **None**, as on the old instance — no Google credential was ever created. Make one from an AI Studio key. | Only to offer Gemini models. |
+
+   A provider with no credential is not a silent failure, but it is a *late*
+   one: the chat has already said the build is underway, so it surfaces as a
+   `Failed` project row and a `build_failed` message in the thread rather than
+   an error in the chat. `Say What Failed` writes the vendor's own sentence
+   there, which for a missing credential is n8n's, not the vendor's.
 
    None of these three nodes knows anything about models. The wire id,
    `max_tokens`, thinking and effort all arrive inside `generationBody`, built
@@ -441,16 +508,18 @@ that is gated on every enabled node having a credential attached.
    and names them:
 
    ```
-   Cannot publish workflow: 2 nodes have configuration issues:
-     Node "Sync Project Row":          Missing required credential: supabaseApi
-     Node "Generate With Gemini":      Missing required credential: googlePalmApi
+   Cannot publish workflow: 4 nodes have configuration issues:
+     Node "Build Request Webhook":  Missing required credential: httpHeaderAuth
+     Node "Sync Project Row":       Missing required credential: supabaseApi
+     Node "Flag Build Failure":     Missing required credential: supabaseApi
+     Node "Tell The Customer":      Missing required credential: supabaseApi
    ```
 
-   (The message above is illustrative — the second line named
-   `Intent Classifier Model` when it was first recorded, and that node is gone.
-   `Generate With Gemini` is the node with no credential today.)
-
-   Supabase is a credential this account can supply, so it is the real gate.
+   That is the **real** message from `neauralist3` on 2026-09-21, not an
+   example. Note what it does *not* say: the three generation nodes are absent
+   from it even though they have no credential either, because n8n does not
+   check `predefinedCredentialType`. Publishing successfully therefore does not
+   mean the workflow can build — it means the webhook will answer.
    Until the workflow is published the production webhook answers 404, which the
    app reports as "the workflow is probably not published yet".
 
