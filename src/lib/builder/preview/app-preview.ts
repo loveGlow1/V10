@@ -236,6 +236,10 @@ const SHELL = `
 export type AppPreviewInput = {
   tree: FileTree;
   projectName?: string | null;
+  /** The `process.env` a generated module sees. See `window.__QS_ENV` below.
+   *  NEXT_PUBLIC_ values only — anything else would be handing a secret to a
+   *  document built to be untrusted. */
+  env?: Record<string, string> | null;
 };
 
 /**
@@ -259,7 +263,7 @@ export function canRenderApp(tree: FileTree): boolean {
  * down for the same reason deployment used to.
  */
 export function appPreviewDocument(input: AppPreviewInput): string | null {
-  const { tree } = input;
+  const { tree, env } = input;
   const routes = routesOf(tree);
   if (routes.length === 0) return null;
 
@@ -327,6 +331,24 @@ window.__QS_ROUTES = ${embed(
     })),
   )};
 window.__QS_ENTRY = ${embed(entry)};
+/* What the project's modules get as process.env.
+ *
+ * lib/supabase.ts reads NEXT_PUBLIC_SUPABASE_URL and its siblings from it —
+ * see builder/scaffold.ts. A real build inlines those; nothing here does, so
+ * before this existed the identifier "process" reached the browser intact and
+ * every screen importing the Supabase client died on
+ * "ReferenceError: process is not defined". runtime.ts hands this to each
+ * module as a parameter.
+ *
+ * No backticks in this comment: it sits inside the template literal that
+ * builds this document, and one would end it.
+ *
+ * NEXT_PUBLIC_ only, and that is not a shortcut: those three are compiled into
+ * any real build of this project and served to every visitor, so this document
+ * learns nothing a deployed copy would not already publish. Empty is a working
+ * state too — the generated client then reports itself unconfigured on first
+ * use rather than throwing on import. */
+window.__QS_ENV = ${embed(env ?? {})};
 </script>
 <script>${PREVIEW_RUNTIME}</script>
 <script>

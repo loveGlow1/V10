@@ -48,6 +48,34 @@ export const PREVIEW_RUNTIME = `
   var ROUTES = window.__QS_ROUTES || [];
   var ENTRY = window.__QS_ENTRY || '/';
 
+  /* 'process', because generated code reads it.
+   *
+   * lib/supabase.ts in every backend project reads
+   * process.env.NEXT_PUBLIC_SUPABASE_URL and its two siblings - see
+   * builder/scaffold.ts, which writes that file. Under next build those reads
+   * are inlined at build time and 'process' never survives into the browser.
+   * Nothing inlines anything here, so the identifier was still there at
+   * evaluation, and a browser has no 'process'.
+   *
+   * So every screen that imported the Supabase client threw
+   * 'ReferenceError: process is not defined' the moment the module was
+   * required, and the pane reported a screen that could not be rendered -
+   * true, and silent about why. Pages that did not touch the client rendered
+   * normally, which made it look like one bad page rather than one missing
+   * global.
+   *
+   * Passed as a module parameter rather than set on window: the project's
+   * modules get it, nothing else on this document does, and it cannot be
+   * reassigned from inside a generated file.
+   *
+   * env carries only the NEXT_PUBLIC_ values, which any real build compiles
+   * into the bundle and serves to every visitor - so there is nothing here a
+   * deployed copy of this project would not already hand out. When the host
+   * sends none, env is empty and the generated client reports itself
+   * unconfigured on first use, which is exactly what scaffold.ts wrote it to
+   * do. Either way the screen renders. */
+  var PROCESS = { env: window.__QS_ENV || {} };
+
   var React = window.React;
   var ReactDOM = window.ReactDOM;
   var h = React.createElement;
@@ -184,8 +212,8 @@ export const PREVIEW_RUNTIME = `
     loading[path] = module;
     try {
       var code = compile(path);
-      var fn = new Function('require', 'module', 'exports', '__qsPath', code);
-      fn(function (specifier) { return requireFrom(specifier, path); }, module, module.exports, path);
+      var fn = new Function('require', 'module', 'exports', '__qsPath', 'process', code);
+      fn(function (specifier) { return requireFrom(specifier, path); }, module, module.exports, path, PROCESS);
     } finally {
       delete loading[path];
     }
