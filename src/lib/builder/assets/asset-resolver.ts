@@ -304,6 +304,29 @@ function unfilled(projectId: string, request: AssetRequest): Asset {
  * why, and what is missing are the same facts either way — only where they go
  * differs.
  */
+/**
+ * How many photographs this build actually has.
+ *
+ * Every slot the plan asked for appears in `manifest.assets`; the ones nothing
+ * could answer carry an empty string. So this is the count of slots with a real
+ * URL behind them, and it is the number the code generator's brief branches on:
+ * with photographs it is told to use these URLs, without them it is told to
+ * declare fillable slots instead.
+ *
+ * It takes the MANIFEST rather than a number, and that is the whole point of it
+ * existing. The caller used to compute the count itself and passed
+ * `imageUrls.length` — the reference images the customer attached, which is 0
+ * on nearly every build. So the generator was told it had no pictures while the
+ * manifest printed above it listed real ones, and it believed the brief: a
+ * catalogue of grey panels, with Unsplash answering perfectly the whole time.
+ * A number is a thing any other number can be mistaken for; a manifest is not.
+ */
+export function resolvedPhotographs(manifest: AssetManifest): number {
+  return Object.values(manifest.assets).filter(
+    (url) => typeof url === "string" && url.length > 0,
+  ).length;
+}
+
 export function manifestForPrompt(manifest: AssetManifest, asProject = false): string {
   const lines = Object.entries(manifest.assets).map(([slot, url]) => {
     if (url) return `- ${slot}: ${url}   (alt: ${manifest.alt[slot] ?? ""})`;

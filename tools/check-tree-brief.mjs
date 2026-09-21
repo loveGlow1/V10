@@ -200,5 +200,57 @@ has(/app\/products\/page\.tsx/.test(treeBrief("ecommerce", manifest(), model)), 
 has(/app\/cart\/page\.tsx/.test(treeBrief("ecommerce", manifest(), model)), "and a basket");
 has(/app\/blog\/page\.tsx/.test(treeBrief("blog", manifest(), model)), "a blog still gets its index");
 
+console.log("\nPhotographs: the generator is told what it actually has:");
+
+/* The production complaint this guards: a catalogue that shipped as grey
+   rounded rectangles with alt text in them, while Unsplash was answering
+   normally and the resolved URLs were sitting in the prompt a few lines above.
+ *
+ * treeBrief was handed `imageUrls.length` — a count of the REFERENCE IMAGES THE
+ * CUSTOMER ATTACHED, which is 0 on nearly every build — so it told the model
+ * "No pictures were resolved ahead of this build" while manifestForPrompt was
+ * telling it "use these exact URLs and no others". The model believed the
+ * second instruction and declared slots it then factored into a component,
+ * which images.ts cannot match.
+ *
+ * Nothing about the asset pipeline was wrong, and nothing about it is being
+ * tested here. What is pinned is narrower and is the thing that broke: the two
+ * branches must stay exactly opposite, so that a count arriving wrong can never
+ * again leave the brief agreeing with itself while contradicting the manifest. */
+
+const withPhotos = treeBrief("ecommerce", manifest(), model, undefined, 4);
+const noPhotos = treeBrief("ecommerce", manifest(), model, undefined, 0);
+
+has(
+  /lib\/images\.ts/.test(withPhotos),
+  "with photographs resolved, the brief points at lib/images.ts",
+  "A build whose manifest carries real URLs must be told to use them.",
+);
+has(
+  !/DECLARED, NOT DRAWN/.test(withPhotos),
+  "and does not also tell it no pictures were resolved",
+  "This is the contradiction itself: both instructions in one prompt.",
+);
+
+has(
+  /DECLARED, NOT DRAWN/.test(noPhotos),
+  "with none resolved, the brief asks for fillable slots",
+  "Slots are the correct path when the pipeline genuinely found nothing.",
+);
+has(
+  !/lib\/images\.ts/.test(noPhotos),
+  "and does not point at a list of URLs that is not there",
+);
+
+/* A slot is only fillable if its art direction is a literal on the tag.
+   `<img data-shot={shot}>` inside a shared component matches nothing in
+   images.ts, and that is how every card in a catalogue stays empty while the
+   build reports success. */
+has(
+  /literal/i.test(noPhotos) && /component/i.test(noPhotos),
+  "and says the slot must be a literal tag rather than a component",
+  "Without this the model factors the slot into <ProductPhoto shot={p.shot} />.",
+);
+
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

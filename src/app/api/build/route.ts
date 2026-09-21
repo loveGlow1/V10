@@ -78,7 +78,7 @@ import {
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
-import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
+import { resolveAssets, resolvedPhotographs } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
@@ -3829,9 +3829,7 @@ async function handle(
                  So: the resolved count, which is what the parameter has always
                  said it wanted. A slot with no picture is an empty string in
                  the manifest, so the falsy ones are not counted. */
-              Object.values(pictures.manifest.assets).filter(
-                (url) => typeof url === "string" && url.length > 0,
-              ).length,
+              resolvedPhotographs(pictures.manifest),
             )
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
