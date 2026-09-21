@@ -369,12 +369,7 @@ export default function PreviewPanel({
     setPageFailed(false);
     setIsReceipt(false);
 
-    /* ?chrome=0: the app without our page-switcher bar.
-       The full-screen preview omits it and keeps the bar, which is the only
-       place it belongs — see the note on the route. */
-    const paneUrl = `${previewPath}${previewPath.includes("?") ? "&" : "?"}chrome=0`;
-
-    void fetch(paneUrl, { cache: "no-store" })
+    void fetch(previewPath, { cache: "no-store" })
       .then((response) => (response.ok ? response.text() : null))
       .then((html) => {
         if (cancelled) return;

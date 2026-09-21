@@ -3807,8 +3807,31 @@ async function handle(
                  there and tells the model to declare fillable slots instead,
                  which tree-images.ts then fills after generation. Passing this
                  is what stops a project shipping grey panels where photographs
-                 belong. */
-              imageUrls.length,
+                 belong.
+
+                 It was `imageUrls.length`, and that is a count of the REFERENCE
+                 IMAGES THE CUSTOMER ATTACHED — a screenshot, a mockup, a
+                 moodboard (see asset-intake.ts). It has nothing to do with how
+                 many photographs the asset pipeline found, and almost nobody
+                 attaches one, so this was 0 on essentially every build.
+
+                 Which put two contradictory instructions in one prompt.
+                 manifestForPrompt, a few lines above, listed real resolved URLs
+                 under "use these exact URLs and no others"; this then said "No
+                 pictures were resolved ahead of this build, write each one as a
+                 slot". The model believed the second, declared slots, and — on
+                 a project, where the same picture is wanted in a dozen cards —
+                 factored them into a component taking its art direction as a
+                 prop. `data-shot={shot}` matches nothing in images.ts, so every
+                 slot stayed empty and the catalogue shipped as grey rounded
+                 rectangles with alt text in them.
+
+                 So: the resolved count, which is what the parameter has always
+                 said it wanted. A slot with no picture is an empty string in
+                 the manifest, so the falsy ones are not counted. */
+              Object.values(pictures.manifest.assets).filter(
+                (url) => typeof url === "string" && url.length > 0,
+              ).length,
             )
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty

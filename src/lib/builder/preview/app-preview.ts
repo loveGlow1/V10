@@ -198,7 +198,15 @@ function nativeCss(styles: string): string {
     .trim();
 }
 
-/* The chrome around the app: a route switcher and the failure states.
+/* The chrome around the app: the failure states, and nothing else.
+ *
+ * There was a route-switcher bar here — a sticky row of chips naming every
+ * route, /admin and /account among them, pinned above the customer's own
+ * design at z-index 2147483000. It was ours, not theirs: not in their
+ * project, not on their deployed site, and the first thing anyone saw of
+ * the thing they had asked us to build. It is gone from every preview,
+ * embedded and full screen alike. Routes are reached through the project's
+ * own navigation, which is the only honest way to look at it.
  *
  * Deliberately minimal and deliberately OUTSIDE the app's own styling. The
  * project brings Tailwind and its own tokens, and a preview shell that used the
@@ -207,21 +215,6 @@ const SHELL = `
   :root { color-scheme: light; }
   html, body { margin: 0; padding: 0; }
   #qs-root { min-height: 100dvh; }
-  .qs-bar {
-    position: sticky; top: 0; z-index: 2147483000;
-    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
-    padding: 7px 10px;
-    background: #0b1120; color: #cbd5f5;
-    font: 12px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    border-bottom: 1px solid rgba(148,163,184,0.22);
-  }
-  .qs-bar button {
-    appearance: none; border: 1px solid rgba(148,163,184,0.28);
-    background: rgba(148,163,184,0.10); color: inherit;
-    border-radius: 999px; padding: 3px 10px; font: inherit; cursor: pointer;
-  }
-  .qs-bar button:hover { background: rgba(148,163,184,0.2); }
-  .qs-bar button[aria-current="true"] { background: #e2e8f0; color: #0b1120; border-color: #e2e8f0; }
   .qs-failure {
     margin: 0; min-height: 60dvh; display: grid; align-content: center; justify-items: center;
     gap: 8px; padding: 40px 24px; text-align: center;
@@ -236,15 +229,6 @@ const SHELL = `
 export type AppPreviewInput = {
   tree: FileTree;
   projectName?: string | null;
-  /** Whether to draw the page-switcher bar above the app.
-   *
-   *  False in the workspace pane, where the bar is chrome the customer did not
-   *  ask for sitting on top of the thing they did: it is not part of their
-   *  project, it does not appear on the deployed site, and in a narrow pane it
-   *  is the first row of what should be their own header. The full-screen
-   *  preview keeps it, because there the routes are the only way to move
-   *  around a project that has no navigation of its own yet. */
-  chrome?: boolean;
   /** The `process.env` a generated module sees. See `window.__QS_ENV` below.
    *  NEXT_PUBLIC_ values only — anything else would be handing a secret to a
    *  document built to be untrusted. */
@@ -272,7 +256,7 @@ export function canRenderApp(tree: FileTree): boolean {
  * down for the same reason deployment used to.
  */
 export function appPreviewDocument(input: AppPreviewInput): string | null {
-  const { tree, env, chrome = true } = input;
+  const { tree, env } = input;
   const routes = routesOf(tree);
   if (routes.length === 0) return null;
 
@@ -286,24 +270,6 @@ export function appPreviewDocument(input: AppPreviewInput): string | null {
   const styles = stylesheetOf(tree);
   const title = escapeHtml(input.projectName?.trim() || "Preview");
 
-  /* The route switcher. A generated project's own nav covers the pages a
-     visitor is meant to reach; this covers the ones they are not — an admin
-     route, a dynamic page, anything reachable only by typing an address — so
-     the customer can check every screen that was built for them. */
-  const switcher = routes
-    .map((route) => {
-      const target = route.dynamic
-        ? route.segments
-            .map((segment) =>
-              segment.kind === "static"
-                ? segment.value
-                : segment.param.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "item",
-            )
-            .reduce((path, segment) => `${path}/${segment}`, "") || "/"
-        : route.pattern;
-      return `<button type="button" data-href="${escapeHtml(target)}">${escapeHtml(route.pattern)}</button>`;
-    })
-    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -323,7 +289,7 @@ ${styles ? `<style>${nativeCss(styles).replace(/<\/style/gi, "<\\/style")}</styl
 ${styles ? `<style type="text/tailwindcss">${styles.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 </head>
 <body>
-${chrome ? `<nav class="qs-bar" aria-label="Pages in this project">${switcher}</nav>` : ""}
+
 <div id="qs-root"></div>
 <script src="${REACT}" crossorigin></script>
 <script src="${REACT_DOM}" crossorigin></script>
@@ -360,21 +326,6 @@ window.__QS_ENTRY = ${embed(entry)};
 window.__QS_ENV = ${embed(env ?? {})};
 </script>
 <script>${PREVIEW_RUNTIME}</script>
-<script>
-(function () {
-  var bar = document.querySelector('.qs-bar');
-  if (!bar) return;
-  bar.addEventListener('click', function (event) {
-    var button = event.target.closest('button[data-href]');
-    if (!button || !window.__qsNavigate) return;
-    window.__qsNavigate(button.getAttribute('data-href'));
-    var all = bar.querySelectorAll('button[data-href]');
-    for (var i = 0; i < all.length; i += 1) all[i].setAttribute('aria-current', String(all[i] === button));
-  });
-  var first = bar.querySelector('button[data-href]');
-  if (first) first.setAttribute('aria-current', 'true');
-})();
-</script>
 </body>
 </html>`;
 }
