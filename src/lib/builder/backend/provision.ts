@@ -262,6 +262,47 @@ export async function provision(
     return { ok: false, applied: false, reason };
   }
 
+  /* ── The one failure that is certain before anything is attempted ──────
+   *
+   * Supabase's DIRECT endpoint, db.<ref>.supabase.co, publishes only an IPv6
+   * address. A serverless function has no IPv6 egress, so the name cannot
+   * resolve, no connection is attempted, and the migration cannot run. Not
+   * sometimes — every time, for every project, until the string changes.
+   *
+   * diagnose() below has said exactly this since the day it cost a deployment
+   * a day of "why are my app's tables missing". But it only says it AFTER a
+   * connection attempt returns ENOTFOUND, and only if the driver's wording
+   * matches: a timeout, a DNS server that answers slowly, a runtime that
+   * reports the same condition differently, and the diagnosis is skipped and
+   * the raw error stands alone again.
+   *
+   * Its own comment is the argument for moving it: "There is one cause and one
+   * fix, both derivable from the string without connecting to anything." So it
+   * is derived from the string, before connecting to anything.
+   *
+   * What this changes in practice: the failure is named the first time rather
+   * than the twentieth, and it cannot be mistaken for a database that is
+   * merely slow to appear. Every project in a deployment configured this way
+   * has a schema that does not exist, and the app built against it fails on
+   * its first query — which is a generated sign-up form answering "Something
+   * went wrong. Please try again." */
+  const directHost = dsn.match(/@(db\.[a-z0-9]+\.supabase\.co)(?::|\/|$)/i)?.[1];
+  if (directHost) {
+    const ref = directHost.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1] ?? "<project-ref>";
+    const reason =
+      `SUPABASE_DB_URL points at ${directHost}, Supabase's direct endpoint, which publishes ` +
+      `only an IPv6 address. A serverless function has no IPv6 egress, so no connection can ` +
+      `be made and no schema can be created — for this project or any other. Use the Session ` +
+      `pooler: in Supabase, Connect → Session pooler. It looks like ` +
+      `postgresql://postgres.${ref}:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres — ` +
+      `the username is postgres.${ref} rather than postgres. Set SUPABASE_DB_URL to that and redeploy.`;
+
+    // eslint-disable-next-line no-console
+    console.error(`provision: ${projectId} cannot be given a schema — ${reason}`);
+    await recordFailure(service, projectId, userId, connection, reason);
+    return { ok: false, applied: false, reason };
+  }
+
   const started = Date.now();
 
   /* Imported here rather than at the top of the file. `pg` is a Node module
