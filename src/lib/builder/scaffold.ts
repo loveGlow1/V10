@@ -685,6 +685,20 @@ function withServerDependencies(tree: FileTree, manifest: ArchitectureManifest):
   }
 }
 
+/**
+ * Whether this platform writes the file, rather than the model.
+ *
+ * Exported for the EDIT path, which had no idea. An edit whose target is one
+ * of these cannot land — completeTree discards the model's version of an owned
+ * path and writes ours over it on the very next build — so patching one is
+ * work that is thrown away, and a customer asking for it is told "I couldn't
+ * place that change in lib/supabase.ts" about a file nothing was ever going to
+ * change. See pickFile, which now keeps them out of the candidates.
+ */
+export function isPlatformOwned(path: string): boolean {
+  return PLATFORM_OWNED.has(path);
+}
+
 const PLATFORM_OWNED = new Set([
   "lib/supabase.ts",
   "lib/database.types.ts",
