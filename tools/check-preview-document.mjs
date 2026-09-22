@@ -397,5 +397,40 @@ has(
   );
 }
 
+/* ── Nothing of ours sits on top of the project ──────────────────────────
+ *
+ * There was a route-switcher bar above every preview: a sticky row of chips
+ * naming each route — /admin, /account, /cart, /products/[slug] — at
+ * z-index 2147483000, over the customer's own design. It was reported twice,
+ * the second time after it had been removed from the embedded pane but was
+ * still there in a new tab, because the first fix only hid it in one of the
+ * two places a preview is opened.
+ *
+ * That is the shape of mistake worth a test rather than a rule: chrome added
+ * for a good reason, in a document whose entire job is to show somebody their
+ * own application and nothing else. A preview link shows the preview.
+ *
+ * Pinned by the class names and the markup rather than by a flag, so it holds
+ * however the bar comes back — a new component, a badge, a floating control.
+ * The failure states are the one exception and stay: they replace the project
+ * when it cannot render, rather than hovering over it. */
+{
+  const doc = appPreviewDocument({ tree: minimal, projectName: "Lumen" });
+
+  has(!doc.includes("qs-bar"), "no route-switcher bar", "It is chrome over the customer's design.");
+  has(!/<nav\b/i.test(doc), "no navigation of ours in the document");
+  has(!/<button\b/i.test(doc), "no controls of ours in the document");
+  has(
+    !/position:\s*(?:sticky|fixed)/i.test(doc.slice(0, doc.indexOf("__QS_FILES"))),
+    "nothing of ours is pinned over the page",
+    "A sticky or fixed element in the shell hovers on the project.",
+  );
+  has(!/data-href/.test(doc), "no route chips");
+
+  /* The project itself still arrives, so this is not passing by rendering
+     nothing — which is the way a test like this goes quietly wrong. */
+  has(doc.includes("__QS_FILES"), "and the project is still what the document carries");
+}
+
 console.log(failed === 0 ? "\nAll preview document checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

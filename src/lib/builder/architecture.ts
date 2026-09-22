@@ -584,7 +584,21 @@ Which one?`;
  * the owner connects their Supabase under Backend. See resolveBackend, which
  * is the half that makes this honest: a project that chose `own` and has not
  * connected yet gets NO backend rather than quietly getting ours. */
-export type ArchitectureChoice = "full" | "frontend" | "own";
+/* "full" is still accepted and means "managed".
+ *
+ * It was the old name for the same answer, and a client mid-request may still
+ * be holding it. Mapping it rather than refusing it matters because of what
+ * the answer AUTHORISES: somebody who picked "The real thing" did consent to a
+ * database on our side, so honouring that is right. What is no longer possible
+ * is arriving here having answered nothing. */
+export type ArchitectureChoice = "managed" | "full" | "frontend" | "own";
+
+/** The three real answers. "full" collapses onto "managed". */
+export type DatabaseChoice = "managed" | "frontend" | "own";
+
+export function databaseChoice(choice: ArchitectureChoice): DatabaseChoice {
+  return choice === "full" ? "managed" : choice;
+}
 
 export function architectureOptions(
   kind: BuildKind,
@@ -593,9 +607,15 @@ export function architectureOptions(
 
   return [
     {
-      value: "full",
-      label: "The real thing",
-      blurb: `Database, accounts and an admin area. A ${thing} you can run.`,
+      /* Ours, said as ours. This was "The real thing", which is a true
+         description of the app and says nothing about WHOSE database it runs
+         on — so a person answering it had consented to a schema, an admin and
+         an account system without being told that a Supabase project would be
+         created for them and a credit spent on it. Both halves belong in the
+         label somebody clicks. */
+      value: "managed",
+      label: "QuickStark managed database",
+      blurb: `Database, accounts and an admin area, set up for you. A ${thing} you can run. Costs one credit.`,
     },
     {
       value: "frontend",
@@ -604,8 +624,9 @@ export function architectureOptions(
     },
     {
       value: "own",
-      label: "Your own backend",
-      blurb: "The same app, against a database you already have. Nothing is created on our side.",
+      label: "Connect my own database",
+      blurb:
+        "The same app, against a database you already have — Supabase or anything that speaks Postgres. Nothing is created on our side, and no credit is spent.",
     },
   ];
 }
@@ -666,6 +687,9 @@ export function architectureFromChoice(
     };
   }
 
+  /* managed, or "full" under its old name. The layers the brief argued for,
+     kept exactly as decided, and the database decision recorded against the
+     project by the build route. */
   return { ...decided, certain: true };
 }
 

@@ -51,7 +51,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { schemaNameFor } from "@/lib/builder/schema";
 import { type BackendMode, type BackendWeight, isBackendMode } from "@/lib/builder/backend/modes";
-import { configured as managedConfigured, provisionProject } from "@/lib/builder/backend/managed";
+import {
+  configureAuth,
+  configured as managedConfigured,
+  provisionProject,
+} from "@/lib/builder/backend/managed";
+import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
+import { publishedUrl } from "@/lib/publish/naming";
 
 /* Kept as the column's old name and meaning. `mode` is the one to read — see
    modes.ts, which has the value this could never express ("none") and the one
@@ -269,8 +275,11 @@ export async function ensureBackendFor(
     userId: string;
     /** Only used to name the Supabase project readably. See managedName. */
     projectName: string;
-    /** From weightOf(manifest). Decides whether a project of its own is owed. */
-    weight: BackendWeight;
+    /* `weight` used to live here and decided whether a project of its own was
+       owed. That decision is the customer's now — they are asked, and the
+       answer is recorded — so nothing in this function reads it. weightOf
+       still exists and still describes a manifest; it simply no longer
+       overrules somebody who asked for a database. */
   },
 ): Promise<BackendConnection | null> {
   const existing = await resolveBackend(service, input.projectId);
@@ -280,11 +289,49 @@ export async function ensureBackendFor(
      resolveBackend about why a failed read must not become a fallback. */
   if (!existing) return null;
 
-  /* Anything but the shared fallback is a decision somebody made. Left alone. */
-  if (existing.mode !== "shared") return existing;
+  /* ── A database is never given to somebody who was not asked ──────────
+   *
+   * This used to provision on mode `shared` plus a heavy manifest: a project
+   * whose brief obviously needed data got a Supabase project created for it
+   * and a credit spent, and nothing anywhere had put the question. The
+   * architecture question was only asked when the decision was UNCERTAIN, and
+   * a brief that plainly needs a database is the certain case — which is
+   * exactly when this fired. The clearer the need, the less likely anybody was
+   * asked.
+   *
+   * So the gate is now the recorded decision rather than the manifest.
+   * `quickstark_managed` is written by the build route when somebody chooses
+   * it, and nothing else reaches the provisioning below:
+   *
+   *   own    theirs. Never ours to create, and resolveBackend already refuses
+   *          to hand ours over while they connect it.
+   *   none   they said no database.
+   *   shared the fallback NOBODY chose. Not consent, and the one state that
+   *          must not be built on. The build carries on against the shared
+   *          schema, which is what it would have had anyway and is fine for a
+   *          preview — it simply does not spend a credit to get there.
+   */
+  if (existing.mode !== "quickstark_managed") return existing;
 
-  /* A table or two belongs exactly where it already is. */
-  if (input.weight !== "heavy") return existing;
+  /* Chosen and already provisioned. A ref is what says so. */
+  if (existing.managedRef) return existing;
+
+  /* Asked for, so provisioned — however small it is.
+   *
+   * `weight` used to gate this: a light manifest kept its tables on the shared
+   * schema, on the reasoning that a table or two belongs where it already is.
+   * That reasoning was sound while this ran on a GUESS, because the cost of
+   * guessing wrong was an empty Supabase project nobody opened.
+   *
+   * It is wrong now that it runs on an ANSWER. Somebody who chose a managed
+   * database and spent a credit on it has said what they want, and a two-table
+   * app on the shared preview schema is a two-table app that cannot have real
+   * customers — which is the whole of what they were buying. Small is not the
+   * same as temporary, and deciding it is for them is how you deliver less
+   * than was asked for while reporting success.
+   *
+   * weight is still what decides whether to OFFER one; it no longer overrides
+   * somebody who took the offer. */
 
   if (!managedConfigured()) {
     /* The operator's half. Logged once rather than surfaced: the build is
@@ -361,6 +408,41 @@ export async function ensureBackendFor(
     return existing;
   }
 
+  /* And point its auth at where the app will actually live.
+   *
+   * Without this the project keeps Supabase's defaults — site_url
+   * http://localhost:3000, an empty redirect allow-list, email confirmation on
+   * — and the result does not look like an auth problem at all. The database
+   * answers, the tables read, the app is plainly wired; sign-up even appears to
+   * work. Then the confirmation email's link points at localhost, the account
+   * is never confirmed, and sign-in fails for good.
+   *
+   * After the row is written rather than before, and never fatal: a project
+   * whose auth settings did not take still has a working database, and that is
+   * worth strictly more than a build that failed here. The operator is told;
+   * the customer is not, because there is nothing for them to do about it.
+   *
+   * AND site_url IS PASSED, which it was not when this was written. The
+   * reasoning then was that a wildcarded allow-list permits every address, and
+   * auto-confirmed sign-up needs no link to land anywhere — both true, and
+   * both about SIGN-UP. Password recovery is the other email, it is not
+   * auto-anything, and its link goes to site_url. Left at Supabase's default
+   * that is http://localhost:3000, so "reset my password" mailed a link to the
+   * customer's own machine. Sign-in worked and recovery was broken, which is a
+   * worse failure than both being broken because nobody looks for it.
+   *
+   * The project's own published address, from its slug. The slug is reserved
+   * before a build gets this far in the ordinary case; where it is not, the
+   * platform address is still a real page rather than a loopback, and publish
+   * is where it becomes exact. */
+  const auth = await configureAuth(provisioned.project.ref, await recoveryAddress(service, input.projectId));
+  if (!auth.ok) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `backend: provisioned ${provisioned.project.ref} for ${input.projectId} but its auth settings did not take: ${auth.reason}`,
+    );
+  }
+
   return {
     kind: "shared",
     mode: "quickstark_managed",
@@ -372,6 +454,50 @@ export async function ensureBackendFor(
     ready: false,
     verifiedAt: new Date().toISOString(),
   };
+}
+
+/* Where a password-recovery link should land.
+ *
+ * The project's own published address when it has a slug — that is the site
+ * whose user is resetting a password, and the only address the link makes
+ * sense at. Without one yet, this app's address: not correct, but a real page
+ * on the internet rather than localhost, which is what "no site_url" means.
+ *
+ * Read rather than derived. addressFor() can compute a slug from a name, but
+ * the one a project actually answers on is settled by the database, and a
+ * recovery link sent to a computed-but-unreserved address is a link to
+ * nothing. */
+async function recoveryAddress(service: SupabaseClient, projectId: string): Promise<string> {
+  try {
+    const { data } = await service.from("projects").select("slug").eq("id", projectId).maybeSingle();
+    const slug = (data as { slug?: string | null } | null)?.slug;
+    return slug ? publishedUrl(slug) : SITE_URL;
+  } catch {
+    return SITE_URL;
+  }
+}
+
+/* ── The half we cannot do for somebody ───────────────────────────────────
+ *
+ * On `own`, the customer's Supabase is theirs: we hold a URL and an anon key,
+ * which authorise reading and writing under their policies and authorise
+ * NOTHING about their project's configuration. So the redirect allow-list that
+ * configureAuth sets on a managed project cannot be set here, and sign-in on
+ * their deployed app fails in exactly the way described above — silently, and
+ * looking like our bug.
+ *
+ * Saying so is the whole of what we can do, and it was not being said. This is
+ * the sentence, with the values already filled in, so it can be pasted rather
+ * than worked out. */
+export function describeOwnAuthSetup(publishedAddress?: string | null): string {
+  const ours = PUBLISH_SUBDOMAIN.replace(/^\./, "");
+  return [
+    "Your own Supabase needs two settings before sign-in works on the deployed app.",
+    "In the Supabase dashboard, under Authentication → URL Configuration:",
+    `- Redirect URLs: add https://*.${ours}/** (and http://localhost:3000/** if you run it locally)`,
+    `- Site URL: ${publishedAddress ?? `https://<your-project>.${ours}`}`,
+    "Until that redirect URL is there, sign-up succeeds and sign-in never does — the link in the confirmation email points somewhere else.",
+  ].join("\n");
 }
 
 /**

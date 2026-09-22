@@ -200,6 +200,31 @@ has(/app\/products\/page\.tsx/.test(treeBrief("ecommerce", manifest(), model)), 
 has(/app\/cart\/page\.tsx/.test(treeBrief("ecommerce", manifest(), model)), "and a basket");
 has(/app\/blog\/page\.tsx/.test(treeBrief("blog", manifest(), model)), "a blog still gets its index");
 
+console.log("\nAn overview screen is a screen:");
+
+/* The complaint: "dashboards should be an actual dashboard with live
+   components consistent with the project request". The brief already required
+   every figure to be COMPUTED, and that was satisfied by four correct tiles
+   and a heading — a page nobody opens twice. These pin the three parts that
+   make it a tool rather than a report, and they are pinned because each is a
+   floor with something checkable in it: a control that re-queries, the
+   product's own words, and a loading state. */
+{
+  const brief = treeBrief("webapp", manifest({ admin: true, authentication: true }), model);
+
+  has(/re-?quer/i.test(brief), "it must carry a control that re-queries");
+  has(
+    /overview/i.test(brief) && /recent/i.test(brief),
+    "and the recent rows of its main object",
+  );
+  has(
+    /Total Revenue/i.test(brief),
+    "the generic tiles are named as the thing to avoid",
+    "Naming them is what stops them: 'be specific' is not followed and 'never write Total Revenue on a product that has no revenue' is.",
+  );
+  has(/empty state/i.test(brief), "and it has a loading and an empty state");
+}
+
 console.log("\nPhotographs: the generator is told what it actually has:");
 
 /* The production complaint this guards: a catalogue that shipped as grey

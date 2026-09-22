@@ -49,6 +49,9 @@
  * asserted; the behaviour is not. Treat the first real run as a test.
  */
 
+import { SITE_URL } from "@/lib/site";
+import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
+
 const API = "https://api.supabase.com";
 
 /* Creating a project is a slow call — Supabase provisions a Postgres instance
@@ -335,4 +338,90 @@ export async function connectionStringFor(ref: string): Promise<string | null> {
     : [];
   const session = entries.find((entry) => entry.database_type === "PRIMARY");
   return typeof session?.connection_string === "string" ? session.connection_string : null;
+}
+
+/* ── Auth, which nothing configured until now ─────────────────────────────
+ *
+ * A provisioned project had its database, its schema, its policies and its
+ * pooler set up, and its AUTH left on Supabase's defaults. Those defaults are
+ * `site_url: http://localhost:3000`, an empty redirect allow-list and email
+ * confirmation on — which is right for somebody running Supabase locally and
+ * wrong for every project this platform creates.
+ *
+ * What that produced is the failure worth describing, because it does not look
+ * like an auth failure. The database works: queries with the anon key answer,
+ * tables read, the app is plainly wired. Sign-up even appears to succeed. Then
+ * Supabase sends a confirmation email whose link points at localhost, the
+ * account is never confirmed, and sign-in fails for good. The app was fine and
+ * the project it was pointed at had never been told where it lived.
+ *
+ * MANAGED ONLY, and that is a hard limit rather than an omission. This works
+ * because these projects are in our organisation and SUPABASE_MANAGEMENT_TOKEN
+ * authorises them. For a customer's own Supabase we hold a URL and an anon
+ * key — which authorise nothing — so their auth cannot be configured from
+ * here at all, and the honest thing is to tell them the two values to paste.
+ * See describeOwnAuthSetup in connection.ts.
+ */
+
+/* A wildcard rather than one project's address, so this is set ONCE at
+   provision and covers every address the project will ever answer on: its
+   published subdomain, a rebuild under a different slug, and the preview.
+   Waiting for the exact address would mean a second Management API call at
+   deploy time, at the one moment a build is already slow, and a project whose
+   auth silently lagged a rename. */
+function allowList(): string {
+  return [
+    AUTH_REDIRECT_GLOB,
+    `${SITE_URL}/**`,
+    /* The downloaded project, run locally. The generated README tells people to
+       do exactly this, and it is the one address Supabase's own default got
+       right. */
+    "http://localhost:3000/**",
+  ].join(",");
+}
+
+/**
+ * Points a managed project's auth at where the app actually lives.
+ *
+ * Never throws and never blocks a build: a project with unconfigured auth is
+ * worse than one with configured auth, and both are better than a build that
+ * failed. The reason comes back for the caller to log.
+ *
+ * `siteUrl` is where a confirmation or recovery link lands when Supabase has no
+ * better idea — the project's own published address once it has a slug. The
+ * allow-list is what actually permits a redirect, and it is wildcarded, so a
+ * project that is renamed or published later needs nothing done to it.
+ */
+export async function configureAuth(
+  ref: string,
+  siteUrl?: string | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const creds = credentials();
+  if (!creds) return { ok: false, reason: unconfiguredReason() ?? "managed backends are not configured" };
+
+  const got = await call(
+    `/v1/projects/${encodeURIComponent(ref)}/config/auth`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        /* Straight in on sign-up. A generated app is shown to people within
+           minutes of being built, and a confirmation email is a dependency on
+           Supabase's shared mailer — rate-limited, and on a fresh project it
+           lands in spam more often than not. The cost is that an address is
+           unverified, which is the right trade for an app at this stage and
+           the wrong one for a bank. */
+        mailer_autoconfirm: true,
+        ...(siteUrl ? { site_url: siteUrl } : {}),
+        uri_allow_list: allowList(),
+      }),
+    },
+    creds.token,
+    POLL_TIMEOUT_MS,
+  );
+
+  if (!got.ok) return { ok: false, reason: got.reason };
+  if (got.status >= 400) {
+    return { ok: false, reason: `Supabase refused the auth settings (${got.status})` };
+  }
+  return { ok: true };
 }

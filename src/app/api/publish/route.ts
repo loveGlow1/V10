@@ -18,6 +18,7 @@ import {
 } from "@/lib/publish/vercel-deploy";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { previewUrl, publishedUrl, slugIsUsable } from "@/lib/publish/naming";
+import { configureAuth } from "@/lib/builder/backend/managed";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -178,6 +179,35 @@ export async function POST(request: Request) {
   }
 
   const slug = reserved.slug;
+
+  /* ── The address a recovery email should point at, now that it is final ──
+   *
+   * configureAuth set site_url when the database was provisioned, from
+   * whatever slug the project had then. Publishing is when that address stops
+   * being provisional: reserveSlug above may have qualified or changed it, and
+   * from here on this is the site whose users will be resetting passwords.
+   *
+   * A wildcard cannot do this job. The redirect allow-list is wildcarded and
+   * covers every address already — site_url is a single value, the default
+   * landing place when a link carries no redirectTo of its own, and password
+   * recovery is exactly that case. Wrong here means a reset link to somebody
+   * else's address, or to localhost.
+   *
+   * Managed only, and quietly: a project on somebody's own Supabase is theirs
+   * to configure, and a publish must never fail because an auth setting did
+   * not take. */
+  {
+    const backend = await resolveBackend(service, projectId);
+    if (backend?.mode === "quickstark_managed" && backend.managedRef) {
+      const auth = await configureAuth(backend.managedRef, publishedUrl(slug));
+      if (!auth.ok) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `publish: ${projectId} went live and its auth site_url did not follow: ${auth.reason}`,
+        );
+      }
+    }
+  }
 
   /* ── Putting a PROJECT online ────────────────────────────────────────────
    *
