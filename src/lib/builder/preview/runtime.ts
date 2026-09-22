@@ -134,6 +134,41 @@ export const PREVIEW_RUNTIME = `
 
   window.__qsNavigate = navigate;
 
+  /* What the pane is offered. A dynamic segment is given something concrete to
+     stand in for it, because /products/[slug] is not an address a browser can
+     open and the point is to SEE the screen. */
+  function routePatterns() {
+    var out = [];
+    for (var i = 0; i < ROUTES.length; i += 1) {
+      var route = ROUTES[i];
+      var segments = route.segments || [];
+      var path = '';
+      for (var j = 0; j < segments.length; j += 1) {
+        var segment = segments[j];
+        var value = segment.kind === 'static'
+          ? segment.value
+          : String(segment.param || 'item').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'item';
+        path += '/' + value;
+      }
+      out.push({ pattern: route.pattern, href: path || '/' });
+    }
+    return out;
+  }
+
+  /* And a way in, so the pane's control can move this document.
+   *
+   * Accepted only from the parent frame and only in our own shape. This
+   * document is sandboxed into an opaque origin precisely because it runs code
+   * a prompt produced, and a listener that took navigation from anywhere would
+   * be a way for that code to drive the pane around it. */
+  window.addEventListener('message', function (event) {
+    if (event.source !== parent) return;
+    var data = event.data;
+    if (!data || data.source !== 'quickstark-workspace') return;
+    if (typeof data.navigate !== 'string') return;
+    navigate(data.navigate);
+  });
+
   /* ── Module resolution ─────────────────────────────────────────────────
    *
    * The project's own files, addressed the way its source addresses them:
@@ -756,7 +791,17 @@ export const PREVIEW_RUNTIME = `
     var root = document.getElementById('qs-root');
     try {
       ReactDOM.createRoot(root).render(h(App, null));
-      report('ready', null);
+      /* The routes travel out with the boot report.
+       *
+       * A project has screens a visitor cannot reach by clicking — an admin
+       * area, an account page, a dynamic route — and the customer has to be
+       * able to look at what was built for them. That used to be a bar of
+       * chips ON the page, which is chrome over their own design and is gone.
+       *
+       * So the list goes to the pane instead, and the pane puts the control
+       * in its own toolbar where it belongs: ours in our furniture, theirs
+       * left alone. Patterns only — nothing about the files. */
+      report('ready', { routes: routePatterns() });
     } catch (error) {
       report('error', String((error && error.message) || error));
       root.innerHTML = '';

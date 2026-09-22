@@ -272,6 +272,53 @@ export default function PreviewPanel({
      available here: it is another origin, and deliberately sandboxed. */
   const [reloads, setReloads] = useState(0);
 
+  /* ── Reaching the screens a visitor cannot click to ────────────────────
+   *
+   * An admin area, an account page, a dynamic route: built, and unreachable
+   * from the home page. That used to be a bar of chips drawn ON the project,
+   * which is our furniture over somebody's own design, and it is gone.
+   *
+   * So the routes come out of the document instead — the runtime sends them
+   * with its boot report — and the control lives here, in the pane's own
+   * strip. Ours in our furniture; the page itself left alone.
+   *
+   * Cleared whenever the document changes, because a route list belongs to the
+   * build that reported it. */
+  const [routes, setRoutes] = useState<{ pattern: string; href: string }[]>([]);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [route, setRoute] = useState("/");
+
+  /* What the preview says about itself.
+   *
+   * report() in the runtime has been posting 'ready', 'error' and 'navigate'
+   * since it was written and NOTHING was listening — the messages went into
+   * the void. This reads the one that matters: the routes, on boot.
+   *
+   * Filtered on the shape rather than the origin, because a sandboxed frame
+   * has an opaque origin and there is no origin to compare against. It carries
+   * no authority either way: the worst a forged message can do is offer a
+   * route that does not exist, and clicking it renders the project's own
+   * not-found. */
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data as
+        | { source?: string; state?: string; detail?: { routes?: { pattern: string; href: string }[] } }
+        | null;
+      if (!data || data.source !== "quickstark-preview") return;
+      if (data.state !== "ready") return;
+      const offered = Array.isArray(data.detail?.routes) ? data.detail.routes : [];
+      setRoutes(
+        offered.filter(
+          (entry) =>
+            entry && typeof entry.pattern === "string" && typeof entry.href === "string",
+        ),
+      );
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
 
   /* These come from the build orchestrator by way of the projects row, so they
@@ -331,6 +378,13 @@ export default function PreviewPanel({
      itself, which is the same string for every build this project ever has. */
   const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
+
+  /* A route list belongs to the document that reported it. */
+  useEffect(() => {
+    setRoutes([]);
+    setRoute("/");
+  }, [pageHtml]);
+
   const [pageFailed, setPageFailed] = useState(false);
   /* Whether what came back is a receipt rather than a page.
    *
