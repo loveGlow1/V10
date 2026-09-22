@@ -103,7 +103,6 @@ import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
-import { weightOf } from "@/lib/builder/backend/modes";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
@@ -3514,15 +3513,12 @@ async function handle(
    * only ever fills in a project that has said nothing — an owner who chose in
    * the panel is returned untouched. Every failure degrades to exactly what
    * resolveBackend would have answered, so this cannot cost a build. */
-  const weight = weightOf(architecture.manifest);
-
   const backend =
     service && architecture.manifest.database
       ? await ensureBackendFor(service, {
           projectId: project.id,
           userId: user.id,
           projectName: project.name as string,
-          weight,
         })
       : null;
   const deterministic = dataModelFor(
