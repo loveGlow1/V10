@@ -10,6 +10,7 @@ import {
   pickFileLocally,
   pickPrompt,
   readPick,
+  namedIn,
 } from "./pick-file";
 import { type FileTree, describeTree } from "./tree";
 import { sitesNamedIn, webReferenceBrief, webReferenceTools } from "./web-reference";
@@ -1138,6 +1139,10 @@ export async function editSource(
   architecture?: string,
   /* As editPage — see editDeadline. */
   deadline?: number,
+  /* How many times this may hand itself to a file the model named instead.
+     One: the first answer is worth following and a second is a model
+     wandering through the tree on somebody's build. */
+  hops = 1,
 ): Promise<SourceEdit> {
   /* Sized on the file rather than on the project: what goes into the window is
      this one file, and a forty-file project whose every file is small is not a
@@ -1201,6 +1206,57 @@ export async function editSource(
   let result = applyPatches(file.content, output);
   let outputTokens = first.usage?.output_tokens ?? 0;
   let retried = false;
+
+  /* ── It told us the right file. Go there. ──────────────────────────────
+   *
+   * SOURCE_SYSTEM ends with "If the change genuinely belongs in a different
+   * file, emit no blocks and say so in one sentence, naming the file you would
+   * change." The model does that, correctly and often — a change to a header
+   * that lives in components/Header.tsx, asked for while looking at a page
+   * that merely renders it — and NOTHING READ THE ANSWER. The prose was
+   * discarded, two more attempts were spent on the wrong file, and the person
+   * was told "I couldn't place that change in lib/products-data.ts … or tell
+   * me which file you meant."
+   *
+   * They had told us. We had told ourselves. This is the blackout: the one
+   * question being asked was the one already answered in the reply we threw
+   * away.
+   *
+   * Only when nothing applied, so a real patch is never abandoned for a
+   * sentence beside it. Only to a DIFFERENT file that is actually in the tree,
+   * which namedIn guarantees. And only once — a second hop is a model
+   * wandering, and the deadline is carried through so it cannot outlive the
+   * request. */
+  if (result.applied === 0 && hops > 0) {
+    /* The file we were reading is taken out of the text first, and that is not
+       a detail. The sentence a model actually writes names BOTH files — "the
+       change is not in lib/products-data.ts; it belongs in
+       components/Nav.tsx" — and namedIn answers with the longest path it can
+       see, which is as likely to be the one we are already in. The guard below
+       would then read that as "no other file named" and give up, on exactly
+       the reply that was most useful. */
+    const elsewhere = namedIn(output.split(file.path).join("[this file]"), tree);
+    if (elsewhere && elsewhere !== file.path) {
+      const target = tree.find((entry) => entry.path === elsewhere);
+      if (target) {
+        onProgress?.({
+          kind: "reasoning",
+          text: `That change belongs in ${elsewhere}. Reading that instead…`,
+        });
+        return editSource(
+          userMessage,
+          target,
+          "named",
+          tree,
+          prior,
+          onProgress,
+          architecture,
+          deadlineAt,
+          hops - 1,
+        );
+      }
+    }
+  }
 
   /* Out of time is its own answer and not a reason to start again — there is by
      definition no budget left. What landed is kept; if nothing landed, the

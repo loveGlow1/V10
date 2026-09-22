@@ -147,8 +147,14 @@ const CONVENTIONS: { says: RegExp; prefer: RegExp[]; unless?: RegExp }[] = [
   },
 ];
 
-/** The file a path-shaped word in the message names, if it names one. */
-function namedIn(message: string, tree: FileTree): string | null {
+/** The file a path-shaped word in the message names, if it names one.
+ *
+ * Exported because the EDIT path needs it too, not just the picker. SOURCE_SYSTEM
+ * tells the model that if a change belongs in another file it should name that
+ * file instead of patching — and this is what reads the answer. Everything it
+ * forgives about a person's typing (a missing `app/`, an invented `src/`, a
+ * bare filename) it forgives about a model's prose for the same reasons. */
+export function namedIn(message: string, tree: FileTree): string | null {
   /* An exact path, which is what somebody types once they have seen the file
      list. Longest first so `app/blog/[slug]/page.tsx` wins over `app/page.tsx`
      when both appear — the longer match is the more specific statement. */
