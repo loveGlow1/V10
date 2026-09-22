@@ -51,7 +51,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { schemaNameFor } from "@/lib/builder/schema";
 import { type BackendMode, type BackendWeight, isBackendMode } from "@/lib/builder/backend/modes";
-import { configured as managedConfigured, provisionProject } from "@/lib/builder/backend/managed";
+import {
+  configureAuth,
+  configured as managedConfigured,
+  provisionProject,
+} from "@/lib/builder/backend/managed";
+import { PUBLISH_SUBDOMAIN } from "@/lib/site";
 
 /* Kept as the column's old name and meaning. `mode` is the one to read — see
    modes.ts, which has the value this could never express ("none") and the one
@@ -361,6 +366,33 @@ export async function ensureBackendFor(
     return existing;
   }
 
+  /* And point its auth at where the app will actually live.
+   *
+   * Without this the project keeps Supabase's defaults — site_url
+   * http://localhost:3000, an empty redirect allow-list, email confirmation on
+   * — and the result does not look like an auth problem at all. The database
+   * answers, the tables read, the app is plainly wired; sign-up even appears to
+   * work. Then the confirmation email's link points at localhost, the account
+   * is never confirmed, and sign-in fails for good.
+   *
+   * After the row is written rather than before, and never fatal: a project
+   * whose auth settings did not take still has a working database, and that is
+   * worth strictly more than a build that failed here. The operator is told;
+   * the customer is not, because there is nothing for them to do about it.
+   *
+   * No site_url passed. The allow-list is wildcarded, so every address this
+   * project will answer on is already permitted, and with sign-up
+   * auto-confirmed nothing needs a link to land anywhere. site_url matters for
+   * password recovery, and the right moment to set it is publish, when the
+   * address is final — see configureAuth. */
+  const auth = await configureAuth(provisioned.project.ref);
+  if (!auth.ok) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `backend: provisioned ${provisioned.project.ref} for ${input.projectId} but its auth settings did not take: ${auth.reason}`,
+    );
+  }
+
   return {
     kind: "shared",
     mode: "quickstark_managed",
@@ -372,6 +404,29 @@ export async function ensureBackendFor(
     ready: false,
     verifiedAt: new Date().toISOString(),
   };
+}
+
+/* ── The half we cannot do for somebody ───────────────────────────────────
+ *
+ * On `own`, the customer's Supabase is theirs: we hold a URL and an anon key,
+ * which authorise reading and writing under their policies and authorise
+ * NOTHING about their project's configuration. So the redirect allow-list that
+ * configureAuth sets on a managed project cannot be set here, and sign-in on
+ * their deployed app fails in exactly the way described above — silently, and
+ * looking like our bug.
+ *
+ * Saying so is the whole of what we can do, and it was not being said. This is
+ * the sentence, with the values already filled in, so it can be pasted rather
+ * than worked out. */
+export function describeOwnAuthSetup(publishedAddress?: string | null): string {
+  const ours = PUBLISH_SUBDOMAIN.replace(/^\./, "");
+  return [
+    "Your own Supabase needs two settings before sign-in works on the deployed app.",
+    "In the Supabase dashboard, under Authentication → URL Configuration:",
+    `- Redirect URLs: add https://*.${ours}/** (and http://localhost:3000/** if you run it locally)`,
+    `- Site URL: ${publishedAddress ?? `https://<your-project>.${ours}`}`,
+    "Until that redirect URL is there, sign-up succeeds and sign-in never does — the link in the confirmation email points somewhere else.",
+  ].join("\n");
 }
 
 /**

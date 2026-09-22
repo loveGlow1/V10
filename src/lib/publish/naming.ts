@@ -170,6 +170,18 @@ export function slugAttempt(base: string, attempt: number): string {
  * exactly as it did. This decides what a customer is SHOWN, not what answers.
  * So APP_ROUTES above still has to agree with src/app/ forever — see the note
  * on it, and check-publish.mjs, which enforces it. */
+/* The redirect pattern a project's Supabase has to allow for sign-in to work.
+ *
+ * One definition, because it is set in two places that must not drift: the
+ * platform writes it into a MANAGED project's auth config itself (see
+ * configureAuth), and shows it to be pasted by hand for somebody's OWN
+ * Supabase, which we have no authority to configure.
+ *
+ * A wildcard over the publish domain rather than one project's address, so it
+ * covers every project, every rename and every future one, and needs setting
+ * exactly once. */
+export const AUTH_REDIRECT_GLOB = `https://*.${PUBLISH_SUBDOMAIN.replace(/^\./, "")}/**`;
+
 export function publishedUrl(slug: string): string {
   const suffix = PUBLISH_SUBDOMAIN.startsWith(".") ? PUBLISH_SUBDOMAIN : `.${PUBLISH_SUBDOMAIN}`;
   return `https://${slug}${suffix}`;

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "lucide-react";
 
+import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
+
 /* Where this app's data lives, and how to move it.
  *
  * The whole of this exists on the server already — /api/projects/[id]/backend
@@ -424,6 +426,44 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                     <span className="text-muted">Not checked from our servers yet</span>
                   )}
                 </Row>
+              </div>
+            )}
+
+            {backend.mode === "own" && (
+              /* The two settings we cannot make for them.
+               *
+               * On a managed project the platform sets the redirect allow-list
+               * itself, through the Management API. On somebody's own Supabase
+               * we hold a URL and an anon key — which authorise queries under
+               * their policies and nothing whatsoever about their project's
+               * configuration — so this is theirs to do, and until it is done
+               * sign-in on the deployed app fails while everything else works.
+               *
+               * Said HERE, on the card that says the database is connected,
+               * because that is the moment somebody believes they are finished.
+               * A person whose queries answer and whose sign-in does not will
+               * look for the bug in their own app, and find nothing, because
+               * there is nothing there to find. */
+              <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5">
+                <p className="text-[12px] font-medium text-amber-300">
+                  Two settings in your Supabase before sign-in works
+                </p>
+                <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                  Authentication → URL Configuration. Without the redirect URL, sign-up succeeds and
+                  sign-in never does — the confirmation link points somewhere else.
+                </p>
+                <dl className="mt-2 space-y-1">
+                  <div className="flex gap-2 text-[12px]">
+                    <dt className="shrink-0 text-muted">Redirect URLs</dt>
+                    <dd className="break-all font-mono text-ink">{AUTH_REDIRECT_GLOB}</dd>
+                  </div>
+                  <div className="flex gap-2 text-[12px]">
+                    <dt className="shrink-0 text-muted">Site URL</dt>
+                    <dd className="break-all font-mono text-ink">
+                      your published address
+                    </dd>
+                  </div>
+                </dl>
               </div>
             )}
 
