@@ -33,6 +33,8 @@ import {
   questionPrompt,
   retryPrompt,
   sourcePrompt,
+  SOURCE_LINES_SYSTEM,
+  sourceLinesPrompt,
 } from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
@@ -1245,12 +1247,77 @@ export async function editSource(
   }
 
   if (result.applied === 0) {
-    /* Named, and the file is named with it. "I couldn't place that change" over
-       a project is a sentence about the person's words; naming the file we were
-       looking in is at least a fact they can correct. */
+    /* ── Stop asking it to quote the file ──────────────────────────────────
+     *
+     * The page path has had this third attempt since it was written; a project
+     * file never got one, and the asymmetry is the bug. Two rounds of
+     * search/replace had failed and the customer was told "I couldn't place
+     * that change in lib/products-data.ts, so nothing was altered. Naming the
+     * component or quoting a line from it usually gets a clean result" — which
+     * puts the failure on their wording, when two failures in a row are much
+     * better read as the model getting the TRANSCRIPTION wrong. Asking a third
+     * time for text copied character-for-character is the same question that
+     * has already come back wrong twice.
+     *
+     * So the job changes rather than the model: line numbers down the margin,
+     * a range named instead of quoted, nothing to copy. The failure that got
+     * here cannot happen to it. See SOURCE_LINES_SYSTEM for what it gives up —
+     * a range rewrites everything between its ends — and why that trade is
+     * right at this point and not before it. */
+    const whyPatchesFailed =
+      result.failures.length > 0
+        ? describeFailures(result.failures)
+        : "Both attempts returned no usable search/replace blocks.";
+
+    onProgress?.({
+      kind: "reasoning",
+      text: `Quoting ${file.path} isn't landing. Reading it by line number instead…`,
+    });
+
+    const third = await ask(
+      SOURCE_LINES_SYSTEM,
+      sourceLinesPrompt(
+        userMessage,
+        file.path,
+        numberLines(file.content),
+        whyPatchesFailed,
+        architecture,
+        neighbourBrief(tree, file.path),
+      ),
+      PATCH_TOKENS,
+      [],
+      prior,
+      onProgress,
+      false,
+      EDIT_MODEL_STRONG,
+      deadlineAt,
+    );
+
+    outputTokens += third.usage?.output_tokens ?? 0;
+    const byLine = applyLineEdits(file.content, textOf(third));
+
+    if (byLine.applied > 0) {
+      return {
+        path: file.path,
+        why,
+        contents: byLine.html,
+        applied: byLine.applied,
+        failures: byLine.failures,
+        note: noteAfterPatches(textOf(third)),
+        outputTokens,
+        retried: true,
+        model: EDIT_MODEL_STRONG,
+      };
+    }
+
+    /* Three attempts, two ways of describing a change, and nothing landed. Now
+       it is worth saying so — and saying which file was being read, because
+       that is a fact the person can correct rather than a guess about their
+       wording. */
     throw new EditError(
       `I couldn't place that change in ${file.path}, so nothing was altered. Naming the component or quoting a line from it usually gets a clean result — or tell me which file you meant.`,
       422,
+      [...result.failures, ...byLine.failures],
     );
   }
 

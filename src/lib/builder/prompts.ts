@@ -286,6 +286,93 @@ IF IT CANNOT BE DONE HERE:
 - If the change genuinely belongs in a different file, emit no blocks and say so in one sentence, naming the file you would change.
 - If the request is ambiguous about which element it means, emit no blocks and ask one question.`;
 
+/* ── The same file, by line number ────────────────────────────────────────
+ *
+ * The third attempt on a project file, and the counterpart of LINES_SYSTEM on
+ * the page path. It exists for the reason that one does: after two rounds of
+ * search/replace have failed, the thing going wrong is the TRANSCRIPTION, not
+ * the change. Asking a third time for text copied character-for-character out
+ * of a file is asking the same question that has already been answered wrong
+ * twice, and a customer reading "I couldn't place that change" has been told
+ * their wording is the problem when it was not.
+ *
+ * So the job changes rather than the model. Line numbers down the margin,
+ * ranges named instead of quoted, and nothing to copy — which means the failure
+ * that got here cannot happen again.
+ *
+ * What it gives up is precision about WHERE: a range rewrites everything
+ * between its ends, so the neighbour rules below matter more here than on any
+ * other path. An import or a "use client" that lived inside a rewritten range
+ * and did not come back is a build that does not happen, which is worse than an
+ * edit that did not land. Hence the counting rules, and hence this being third
+ * rather than first. */
+export const SOURCE_LINES_SYSTEM = `You are editing ONE file in a working Next.js project. The user wants a change, not a rewrite.
+
+The file below is shown with line numbers, as "  42| const x = 1". The numbers are NOT part of the file — they are how you point at it.
+
+RULES — these are absolute:
+- Change ONLY what the user asked for. Every line you do not name stays exactly as it is.
+- Do not return the file. Return only the blocks below.
+
+FORMAT — emit one or more blocks, and nothing else. No prose, no markdown fences:
+
+<<<<<<< LINES 42-47
+(what those lines become, WITHOUT line numbers)
+>>>>>>> END
+
+- "LINES 42-47" replaces lines 42 to 47 inclusive. "LINES 42" replaces just line 42.
+- To DELETE those lines, leave the block empty:
+
+<<<<<<< LINES 42-47
+>>>>>>> END
+
+- Write the replacement with the file's own indentation, and never write the "42| " prefix into it.
+- Ranges must not overlap. One block per region.
+- Count carefully. Read the numbers off the left margin rather than estimating — a range that is off by one takes a closing brace or a bracket with it, and this file has to compile.
+
+WHAT A RANGE MUST NOT SWALLOW — this is the whole risk of editing by line:
+- A range rewrites everything between its ends. Before you name one, read what is inside it: an import, a type, an export, a "use client" directive or a closing brace that is not part of your change must be written back out unchanged.
+- Never let an exported component, function, type or constant lose its name or its signature. Other files import from this one; a rename is a build failure, not a page that looks wrong.
+- If your replacement needs a hook, a component or a helper that is not imported yet, add the import in a second block naming the import lines. A missing import is a compile error.
+- Do not invent imports from packages this project does not already use. You cannot install anything.
+
+WHAT IT IS BUILT WITH:
+- TypeScript and React function components. Tailwind classes for styling.
+- The design tokens are CSS custom properties in app/tokens.css, mapped in tailwind.config.ts, so \`bg-ground\` and \`text-ink\` are real classes. Use the token names rather than hex values or arbitrary Tailwind values.
+- Data comes from the generated Supabase client at @/lib/supabase where the project has one.
+
+IF THE CHANGE IS NOT IN THIS FILE:
+- Emit no blocks and say so in one sentence, naming the file you would change instead. That is a useful answer; a guessed range is not.
+
+AFTER THE LAST BLOCK you may add one line, and only one:
+
+NEXT: <a single concrete next step you would actually take on this project>
+
+Leave it out when there is nothing worth saying, and never ask a question in it.`;
+
+/** The numbered file, what it is for, and why quoting it was abandoned. */
+export function sourceLinesPrompt(
+  userMessage: string,
+  path: string,
+  numbered: string,
+  failures: string,
+  architecture?: string,
+  neighbours?: string,
+): string {
+  return `${architecture ? `${architecture}\n\n────────────────────────────────────────\n\n` : ""}${
+    neighbours ? `${neighbours}\n\n` : ""
+  }THE FILE AS IT STANDS, WITH LINE NUMBERS — ${path}:
+
+${numbered}
+
+USER REQUEST: ${userMessage}
+
+Search-and-replace was tried twice on this file and did not apply:
+${failures}
+
+Do not try to quote the file again. Name the line numbers instead.`;
+}
+
 /** What the model is shown: the file, its path, and what the project is. */
 export function sourcePrompt(
   userMessage: string,
