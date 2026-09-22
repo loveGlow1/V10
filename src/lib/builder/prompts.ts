@@ -282,6 +282,12 @@ WHAT IT IS BUILT WITH:
 - The design tokens are CSS custom properties defined in app/tokens.css and mapped in tailwind.config.ts, so \`bg-ground\` and \`text-ink\` are real classes. Use the token names rather than hex values or arbitrary Tailwind values — a colour written as \`bg-[#0b0f19]\` is outside the design system and will not follow it when the system changes.
 - Data comes from the generated Supabase client at @/lib/supabase where the project has one. Do not add a different client, and do not put a key in a file.
 
+PHOTOGRAPHS — "this image is broken", "use a different picture here":
+- NEVER write an image URL. Not a stock address, not a CDN path, not one you remember. Every invented URL is a broken picture, and a broken picture is what you were asked to fix.
+- Replace the tag with a SLOT instead: \`<img data-shot="folded ochre linen, raking light, neutral seamless" data-ratio="4/5" alt="Ochre linen throw">\` — art direction in data-shot, and no src at all. Real pixels are put in after your change is applied.
+- Every one of those attributes is a literal quoted string on the <img> itself. \`data-shot={something}\` is not a slot; it is an <img> with no src, and it stays empty.
+- An image that is already working is not yours to change. Leave its src exactly as it is unless the request is about that picture.
+
 IF IT CANNOT BE DONE HERE:
 - If the change genuinely belongs in a different file, emit no blocks and say so in one sentence, naming the file you would change.
 - If the request is ambiguous about which element it means, emit no blocks and ask one question.`;

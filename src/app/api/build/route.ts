@@ -107,6 +107,8 @@ import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
+import { ensureImageSources } from "@/lib/builder/tree-images";
+import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { isSinglePage } from "@/lib/builder/tree";
 import { indexTree, retrieve } from "@/lib/context/project-index";
@@ -1848,6 +1850,37 @@ async function handle(
        * still the customer's own source with one change in it. */
       const { tree: repaired, repairs } = repairStructure(changed);
 
+      /* ── And the same photographs a fresh build gets ────────────────────
+       *
+       * The image passes ran in the SAVE route and nowhere else, which is to
+       * say they ran on generation and never on an edit. So "the image at the
+       * top is broken, fix it" could not be answered: the model is told never
+       * to invent an image URL — rightly, every invented one is a broken
+       * picture — so the best it can do is declare a slot, and nothing on the
+       * edit path had ever filled a slot. The customer asked for a broken
+       * image to be fixed and got the same broken image with different markup
+       * behind it.
+       *
+       * Same argument as repairStructure above, which was added here for
+       * exactly this reason: a pass a fresh build gets, that an edit went
+       * nowhere near.
+       *
+       * ensureImageSources rather than the provider search: it needs no
+       * network and no budget, which matters on a path that already has a
+       * deadline, and it draws on the photographs this project has already
+       * resolved — the ones chosen for its own brief and visual direction. A
+       * tag that ends the edit with no source gets one; a tag that has one is
+       * not touched. */
+      const editedPhotos = service ? await projectPhotoUrls(service, project.id) : [];
+      const imageSweep = ensureImageSources(repaired, editedPhotos);
+
+      if (imageSweep.repaired > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `edit: ${project.id} — gave ${imageSweep.repaired} image tag(s) a source they did not have`,
+        );
+      }
+
       /* ── And the config, if this edit changed what the project IS ───────
        *
        * A landing page acquires a contact form; the form acquires a route
@@ -1868,7 +1901,7 @@ async function handle(
       const manifestNow =
         upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture ?? UNKNOWN_ARCHITECTURE;
       const retuned = retuneBuild(
-        repaired,
+        imageSweep.tree,
         (project.name as string | null) ?? "app",
         manifestNow,
         dataModelFor(manifestNow, schemaNameFor(project.id)),
