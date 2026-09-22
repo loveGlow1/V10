@@ -1156,7 +1156,30 @@ export function treeBrief(
     "- Use the product's OWN vocabulary everywhere: its words for its objects, its statuses, its actions. An invoicing tool has invoices, clients and payments — never Items, Records, Entries or Data.",
     "- Seed it so it reads like an account in use, not one created this morning: twenty or more rows where the product has a list, varied names, dates spread over months, several different statuses, and amounts that are uneven and plausible. Three tidy rows is the tell.",
     "- Every figure is computed from the data that is actually there. A tile, total, chart or counter that does not derive from the rows on the page is worse than no tile — it is the one thing a person checks first and the one thing that cannot be wrong.",
-    /* Named here as well as in the asset manifest, and deliberately. This brief
+
+    /* ── AND AN OVERVIEW SCREEN IS A SCREEN, NOT A ROW OF TILES ─────────
+     *
+     * The rule above already says a figure must be computed. What nothing
+     * said is what an overview IS, so what came back was four tiles and a
+     * heading: correct numbers, derived from real rows, and nothing anybody
+     * would open twice. "It should be an actual dashboard with live
+     * components consistent with the project request" is the complaint, and
+     * it is about the screen rather than the arithmetic.
+     *
+     * Named for the product, because this is where generic output shows
+     * worst: Total Revenue, Active Users and Conversion Rate appear on the
+     * overview of a product that measures none of them, and they appear
+     * because they are what a dashboard looks like in the abstract.
+     *
+     * One working control, because that is the difference between a report
+     * and a tool. A range, a status tab or a filter that re-queries is
+     * ordinary to write and is the thing that makes the page answer a
+     * question somebody actually has. Decorative controls are worse than
+     * none: a select that changes nothing is a broken feature, not a
+     * simpler one. */
+    "- IF THIS PRODUCT WANTS AN OVERVIEW, BUILD A SCREEN RATHER THAN A ROW OF TILES. It reads the same tables every other page reads, and it has: the few figures that matter to THIS product, each computed; the most recent rows of its main object, as a real list with its real statuses, linking through to the thing itself; and at least one control — a date range, a status tab, a filter — that RE-QUERIES and visibly changes what is shown. A control that does not change anything is a broken feature rather than a simpler one.",
+    "- Name what the overview measures in the product's own terms. An invoicing tool shows outstanding, overdue and paid this month; a gym shows members, classes this week and attendance. Total Revenue, Active Users and Conversion Rate on a product that measures none of them is the generic-dashboard look, and it is the fastest way to tell nobody thought about the product.",
+    "- It loads like a real screen: a skeleton or a spinner while the queries run, and an empty state that says what to do first when the account genuinely has nothing in it yet. Never a zero presented as a result before the data has arrived.",    /* Named here as well as in the asset manifest, and deliberately. This brief
        is the last thing the model reads before it starts writing files, and
        until the manifest learned to say "as a project" the two of them
        disagreed — this one said next/image, that one said <img> — over a flat
