@@ -13,6 +13,7 @@ import {
   namedIn,
 } from "./pick-file";
 import { type FileTree, describeTree } from "./tree";
+import { isPlatformOwned } from "./scaffold";
 import { sitesNamedIn, webReferenceBrief, webReferenceTools } from "./web-reference";
 import {
   applyLineEdits,
@@ -704,9 +705,48 @@ export async function pickFile(
      fallback that must survive a stale index. */
   hint?: string,
 ): Promise<FilePick | null> {
+  /* ── The files this platform writes are not edit targets ──────────────
+   *
+   * lib/supabase.ts, next.config.mjs, tailwind.config.ts, app/tokens.css and
+   * the rest are OURS: completeTree discards the model's version of an owned
+   * path and writes ours over it on the very next build. So an edit aimed at
+   * one cannot land — not because the model failed, but because there is
+   * nothing there that a patch would survive.
+   *
+   * And they are magnets. "The auth on my store isn't wired up" reads, to a
+   * picker choosing from filenames, exactly like lib/supabase.ts; the model
+   * then finds a file of platform boilerplate with nothing in it resembling
+   * the request, correctly emits no blocks, and the customer is told "I
+   * couldn't place that change in lib/supabase.ts, so nothing was altered.
+   * Naming the component or quoting a line from it usually gets a clean
+   * result" — advice that cannot work, about a file they were right to think
+   * was involved.
+   *
+   * Taken out of the candidates rather than refused later, so the picker's
+   * second choice is the one it always should have made: the provider, the
+   * layout or the login page, which is where wiring auth into a project
+   * actually happens. */
+  const editable = tree.filter((file) => !isPlatformOwned(file.path));
+  const candidates = editable.length > 0 ? editable : tree;
+
+  /* Said out loud when somebody names one of ours.
+   *
+   * They are not wrong to: "the auth in lib/supabase.ts is not wired up" is a
+   * reasonable sentence about a real file. Quietly editing somewhere else
+   * would answer it and look like we ignored them, so the note says which file
+   * is managed and that the search continues — and the edit then lands where
+   * wiring auth actually happens. */
+  const namedOurs = namedIn(userMessage, tree.filter((file) => isPlatformOwned(file.path)));
+  if (namedOurs) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `${namedOurs} is written by QuickStark and rewritten on every build, so a change there would not survive. Finding where this belongs instead…`,
+    });
+  }
+
   /* The local rules first, unchanged. They settle most edits from the words
      alone and an index cannot improve on a message that names its own file. */
-  const local = pickFileLocally(userMessage, tree);
+  const local = pickFileLocally(userMessage, candidates);
   if (local) return local;
 
   onProgress?.({ kind: "reasoning", text: "Working out which file that belongs in…" });
@@ -714,7 +754,7 @@ export async function pickFile(
   try {
     const answer = await ask(
       PICK_SYSTEM,
-      pickPrompt(userMessage, describeTree(tree), hint),
+      pickPrompt(userMessage, describeTree(candidates), hint),
       /* One path. Anything past this is the model explaining itself, which it
          was told not to do and which readPick discards anyway. */
       100,
@@ -725,13 +765,13 @@ export async function pickFile(
       EDIT_MODEL,
     );
 
-    const path = readPick(textOf(answer), tree);
+    const path = readPick(textOf(answer), candidates);
     if (path) return { path, why: "model" };
   } catch {
     /* A picker that cannot run must not take the edit down with it. */
   }
 
-  const home = homePageOf(tree);
+  const home = homePageOf(candidates);
   return home ? { path: home, why: "convention" } : null;
 }
 
