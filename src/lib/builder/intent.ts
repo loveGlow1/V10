@@ -25,6 +25,42 @@ import Anthropic from "@anthropic-ai/sdk";
  * requests below, or by the router deciding so — and it never comes from the
  * fallback, which stays "edit". */
 
+/* ── "connect database", "connect auth", "hook up supabase" ───────────────
+ *
+ * None of the five intents fits, and that is the bug rather than a gap in the
+ * list. Asked to connect a database, the classifier reached for the nearest
+ * thing — an edit — and the edit machinery then went looking for the FILE that
+ * a database belongs in. There is no such file: where a project's data lives
+ * is a setting on the project, not a line in its source. So the picker landed
+ * on lib/supabase.ts or the layout, the model found nothing matching the
+ * request, and the answer was "I couldn't place that change", for a request
+ * that was never a change.
+ *
+ * Narrow on purpose. It has to catch somebody asking to CONNECT one and must
+ * not catch somebody asking to build with one — "a store with accounts" is a
+ * brief and belongs in the build path, where the database question is already
+ * asked. So both halves are required: a connecting verb, and the thing being
+ * connected. "Add a login page" stays an edit, because it is one. */
+const CONNECTING = /\b(connect|hook|wire|link|set ?up|setup|attach|enable|configure)\b/i;
+const CONNECTABLE = /\b(database|db|backend|supabase|postgres|auth|authentication|sign[- ]?in|sign[- ]?up|login|accounts?)\b/i;
+/* A brief rather than a request to connect: these describe something to BUILD,
+   and the build path asks about the database itself. */
+const BUILDING = /\b(build|make|create|design|generate|turn (it|this) into|i want a|i need a)\b/i;
+
+/**
+ * Whether this message asks to connect a database or authentication, rather
+ * than asking for a change to the source.
+ *
+ * Answered with the two real options instead of being sent to the file picker,
+ * which cannot succeed: there is no file in which a project's backend lives.
+ */
+export function asksToConnectBackend(message: string): boolean {
+  const said = message.trim();
+  if (said.length === 0 || said.length > 240) return false;
+  if (BUILDING.test(said)) return false;
+  return CONNECTING.test(said) && CONNECTABLE.test(said);
+}
+
 export type Intent = "edit" | "new_project" | "question" | "revert" | "clarify";
 
 export type IntentResult = {

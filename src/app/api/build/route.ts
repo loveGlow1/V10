@@ -101,6 +101,7 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { MODE_BLURB, MODE_LABEL } from "@/lib/builder/backend/modes";
 import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
@@ -126,7 +127,10 @@ import type { PublishState } from "@/lib/project-status";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
-import { classifyIntent, type Intent,
+import {
+  asksToConnectBackend,
+  classifyIntent,
+  type Intent,
   remainderAfterRevert,
 } from "@/lib/builder/intent";
 import {
@@ -1543,6 +1547,56 @@ async function handle(
    * different artefacts with different rules: a component has no <html> to
    * balance, no stashed images, and neighbours that import it. See editSource.
    */
+  /* ── "connect database", "connect auth" ────────────────────────────────
+   *
+   * Answered, rather than sent to the file picker. Where a project's data
+   * lives is a setting on the project, not a line in its source, so there is
+   * no file for this to be an edit to — and the edit path, asked for one,
+   * landed on lib/supabase.ts or the layout, found nothing resembling the
+   * request, and said "I couldn't place that change". For a request that was
+   * never a change.
+   *
+   * Before the edit branch and before anything is charged: this costs nothing
+   * because nothing is generated.
+   *
+   * It names the two real options rather than only pointing at a panel. The
+   * question a person is actually asking is "what are my choices and what do
+   * they cost", and the panel is where the choice is made, not what the choice
+   * IS. */
+  if (asksToConnectBackend(prompt)) {
+    const current = service ? await resolveBackend(service, project.id) : null;
+    const connected =
+      current && current.mode !== "shared" && current.url
+        ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
+        : "";
+
+    const said =
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace and pick one:\n\n` +
+      `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n` +
+      `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Paste your project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n` +
+      `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
+
+    const stored = await deliver(said, { key: "connect-backend" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "question",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: said,
+      },
+      project: null,
+    });
+  }
+
   if (intent === "edit" && service) {
     /* ── An edit becomes a task before it becomes a change ────────────────
      *
