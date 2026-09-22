@@ -285,10 +285,37 @@ export async function ensureBackendFor(
      resolveBackend about why a failed read must not become a fallback. */
   if (!existing) return null;
 
-  /* Anything but the shared fallback is a decision somebody made. Left alone. */
-  if (existing.mode !== "shared") return existing;
+  /* ── A database is never given to somebody who was not asked ──────────
+   *
+   * This used to provision on mode `shared` plus a heavy manifest: a project
+   * whose brief obviously needed data got a Supabase project created for it
+   * and a credit spent, and nothing anywhere had put the question. The
+   * architecture question was only asked when the decision was UNCERTAIN, and
+   * a brief that plainly needs a database is the certain case — which is
+   * exactly when this fired. The clearer the need, the less likely anybody was
+   * asked.
+   *
+   * So the gate is now the recorded decision rather than the manifest.
+   * `quickstark_managed` is written by the build route when somebody chooses
+   * it, and nothing else reaches the provisioning below:
+   *
+   *   own    theirs. Never ours to create, and resolveBackend already refuses
+   *          to hand ours over while they connect it.
+   *   none   they said no database.
+   *   shared the fallback NOBODY chose. Not consent, and the one state that
+   *          must not be built on. The build carries on against the shared
+   *          schema, which is what it would have had anyway and is fine for a
+   *          preview — it simply does not spend a credit to get there.
+   */
+  if (existing.mode !== "quickstark_managed") return existing;
 
-  /* A table or two belongs exactly where it already is. */
+  /* Chosen and already provisioned. A ref is what says so. */
+  if (existing.managedRef) return existing;
+
+  /* Asked for, and warranted. `weight` still has a say: a table or two is
+     better off where it already is, and somebody who chose a managed database
+     for a project that turns out not to need one has lost nothing by not
+     getting an empty Supabase project they will never open. */
   if (input.weight !== "heavy") return existing;
 
   if (!managedConfigured()) {

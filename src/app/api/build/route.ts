@@ -91,6 +91,7 @@ import {
   describeArchitecture,
   isArchitectureChoice,
   UNKNOWN_ARCHITECTURE,
+  databaseChoice,
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
 import { allIssues, runQaLoop } from "@/lib/builder/qa";
@@ -3276,9 +3277,66 @@ async function handle(
         console.error(`build: ${project.id} chose its own backend and it could not be recorded:`, backendError.message);
       }
     }
+
+    /* ── "Yours, please", written down where it authorises ───────────────
+     *
+     * The other half of the same decision, and it has to be recorded for the
+     * same reason: ensureBackendFor no longer provisions from the `shared`
+     * fallback, because that fallback is what a project has when NOBODY was
+     * asked. A managed database now happens only where somebody asked for
+     * one, and this row is the asking.
+     *
+     * No url, no ref, no anon key: this is the consent, and the provisioning
+     * that follows fills them in. A row with mode quickstark_managed and no
+     * managed_ref is precisely "wanted, not yet created", which is what
+     * ensureBackendFor reads.
+     *
+     * Best effort, as above. A row that cannot be written costs the next
+     * build a repeated question, which beats failing a build somebody paid
+     * for — and beats spending their credit on a guess. */
+    if (databaseChoice(chosenArchitecture) === "managed" && service) {
+      const { error: managedError } = await service.from("project_backends").upsert(
+        {
+          project_id: project.id,
+          user_id: user.id,
+          kind: "shared",
+          mode: "quickstark_managed",
+          verification_error: null,
+        },
+        { onConflict: "project_id" },
+      );
+
+      if (managedError) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `build: ${project.id} asked for a managed database and it could not be recorded:`,
+          managedError.message,
+        );
+      }
+    }
   }
 
-  if (!architecture.certain && ASK_WHEN_UNSURE) {
+  /* ── Whose database, asked before one is created ───────────────────────
+   *
+   * The gate used to be uncertainty alone: ask when the reading of the brief
+   * was a guess, and otherwise get on with it. Which meant the clearer it was
+   * that a project needed data, the less likely anybody was asked about it —
+   * and ensureBackendFor then provisioned a Supabase project and spent a
+   * credit on the strength of the manifest.
+   *
+   * So a project that would touch a database is asked as well, once, whatever
+   * the confidence. `shared` is the fallback nobody chose, so a row carrying
+   * it — or no row at all — means the question has not been answered yet. Any
+   * other mode is an answer and is not asked again: `own` and
+   * quickstark_managed are standing decisions, and `none` is a no.
+   *
+   * A frontend-only project is never asked, because no database is in
+   * question and a choice with one real option is not a choice. */
+  const wouldUseData = architecture.manifest.backend || architecture.manifest.database;
+  const decidedBackend = wouldUseData && service ? await resolveBackend(service, project.id) : null;
+  const backendUndecided = wouldUseData && (!decidedBackend || decidedBackend.mode === "shared");
+
+  if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE) {
     const asked = architectureQuestion(kind.kind, architecture.manifest);
     const stored = await deliver(asked, { key: "which-architecture" });
 
