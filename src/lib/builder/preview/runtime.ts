@@ -484,8 +484,22 @@ export const PREVIEW_RUNTIME = `
         getUser: function () { return Promise.resolve({ data: { user: null }, error: null }); },
         getSession: function () { return Promise.resolve({ data: { session: null }, error: null }); },
         onAuthStateChange: function () { return { data: { subscription: { unsubscribe: function () {} } } }; },
-        signInWithPassword: function () { return Promise.resolve({ data: { user: null }, error: { message: 'Sign-in is not available in preview.' } }); },
-        signUp: function () { return Promise.resolve({ data: { user: null }, error: { message: 'Sign-up is not available in preview.' } }); },
+        /* These say where sign-in DOES work, not only that it does not work
+           here.
+         *
+           The preview has to stub auth: it compiles a project in an
+           opaque-origin sandbox with no cookies and no session, so there is
+           nothing for a real one to attach to. That part is right and stays.
+         *
+           What was wrong is that the sentence arrives in the form's error slot,
+           in red, indistinguishable from a real failure — and the author of the
+           app is the person reading it. "Sign-in is not available in preview"
+           reads as "your sign-in is broken", and it was read that way, by
+           somebody who had just been debugging a genuine auth failure on their
+           deployed site. A limitation that looks like a defect costs more than
+           the limitation does. */
+        signInWithPassword: function () { return Promise.resolve({ data: { user: null }, error: { message: 'This is a preview, so there is no session to sign into. Sign-in works on the deployed site.' } }); },
+        signUp: function () { return Promise.resolve({ data: { user: null }, error: { message: 'This is a preview, so no account is created. Sign-up works on the deployed site.' } }); },
         signOut: function () { return Promise.resolve({ error: null }); }
       }
     };
