@@ -149,6 +149,7 @@ import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
 import { autofix } from "@/lib/builder/qa/autofix";
 import { validatePage } from "@/lib/builder/validate";
+import { describeVerification, repairBrief, verifyEdit } from "@/lib/builder/verify-edit";
 import { SITE_URL } from "@/lib/site";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
@@ -311,6 +312,22 @@ const RETRIEVAL_TOKENS = 4_000;
    guessed inside the fit. See fitEdit, which uses the same figure when a caller
    cannot supply one. */
 const EDIT_SYSTEM_TOKENS = 4_000;
+
+/* How much of the request has to be left before a second attempt is worth
+   starting.
+ *
+ * An edit that did not land can be repaired — see verifyEdit — but a repair is
+ * another model call inside the same 46-second budget, and one started with
+ * eight seconds left does not produce a repaired page. It produces a socket the
+ * platform kills at sixty, which the browser reports as "Load failed" with the
+ * credits already spent: the exact failure the deadline machinery in edit.ts
+ * exists to prevent, reintroduced by the stage meant to improve the result.
+ *
+ * Twelve seconds is a small edit's worth of room — the repair is a handful of
+ * blocks against a page the model has effectively just read. Below that the
+ * person is told plainly what did not land, which they can act on, rather than
+ * shown a dead connection, which they cannot. */
+const REPAIR_FLOOR_MS = 12_000;
 
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
@@ -2088,6 +2105,10 @@ async function handle(
     const editPrompt = fitted.prompt;
 
     let edited;
+    /* Hoisted out of the try below because the verifier after it needs the
+       same plan: what the change was classified as decides which criteria the
+       result is held to. See verify-edit.ts. */
+    let plan: ReturnType<typeof planEdit> | null = null;
     try {
       /* Seconds, not minutes: the model returns a handful of search/replace
          blocks rather than the whole document, which is why this can run here
@@ -2107,7 +2128,7 @@ async function handle(
        * layers already work and are not part of this request does not touch
        * them; a model told nothing has no reason not to, which is how a
        * question about one section comes back having restyled the site. */
-      const plan = planEdit(editPrompt, knownArchitecture);
+      plan = planEdit(editPrompt, knownArchitecture);
       steps.mark("plan", describeEdit(plan), plan.why[0]);
 
       /* ── And whether this page can hold what is being asked of it ────────
@@ -2357,6 +2378,142 @@ async function handle(
       broke.length === 0 ? undefined : broke.join("; "),
     );
 
+    /* ── And the question nobody was asking ────────────────────────────────
+     *
+     * Everything above asks whether the edit BROKE something. Nothing asked
+     * whether it DID something — whether the change the person requested is
+     * actually in the page they are about to be shown.
+     *
+     * All three checks above pass on an edit that did nothing of the sort. The
+     * patch matched a line and replaced it with a near-identical one. The
+     * document balances. The nav still works. So the reply said "Done." and the
+     * person found out by looking at their own site, and then typed the same
+     * request again in different words — which is the loop this whole path
+     * exists inside and the reason it is worth a second call to leave.
+     *
+     * verifyEdit turns the request into things that must be TRUE of the
+     * resulting document and checks each against it: the named section's markup
+     * moved, the thing to be removed is gone, a page asked to fit a phone has
+     * nothing wider than one. Measured, never asked of a model — the model that
+     * made the change does not get to be the thing that decides it was made.
+     * See src/lib/builder/verify-edit.ts, and note how few of its criteria
+     * block: a verifier that refuses a good edit it cannot recognise would
+     * throw away work somebody paid for, which is the worse failure of the two.
+     *
+     * It costs nothing. It is regexes over two documents, so it runs on every
+     * edit whether or not there is time to act on what it finds. */
+    let verification = verifyEdit({
+      message: editPrompt,
+      plan,
+      before: currentHtml,
+      after: edited.html,
+    });
+
+    /* ── One repair round, when there is time to make it ──────────────────
+     *
+     * §17: the verifier's findings go back into the edit rather than into a
+     * log. The brief it writes is the measured difference between what was
+     * asked for and what is in front of it — "the header's markup is
+     * unchanged, so nothing in it was edited" is a far better instruction than
+     * the original sentence was, because it names what the last attempt got
+     * wrong.
+     *
+     * ONE round, and only with real time left in the request. The edit path
+     * lives inside a 46-second budget that the classify, the retrieval, the
+     * planning and the edit itself have already spent most of — see
+     * editDeadline. A repair started with eight seconds left is a dead socket
+     * and the browser's own "Load failed", which is a worse outcome than the
+     * honest sentence below. So the clock decides, and when it says no the
+     * person is told what is missing rather than left to find it.
+     *
+     * Text only: the attachments are not re-sent. A second copy of a
+     * photograph is most of the budget for a call whose instruction is already
+     * a list of measurements, and the landmark map below is what a picture was
+     * being read for in the first place. */
+    const timeLeft = editDeadline(requestStartedAt) - Date.now();
+
+    if (!verification.complete && timeLeft > REPAIR_FLOOR_MS) {
+      steps.begin("repair", "Putting that right", verification.reason ?? "the change did not land");
+
+      try {
+        const again = await editPage(
+          repairBrief(verification, editPrompt),
+          edited.html,
+          [],
+          [],
+          narrate("repair", "Putting that right"),
+          [
+            plan ? editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null) : "",
+            landmarkBrief(edited.html),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          /* Whatever did the first attempt, not whatever usually would. A
+             repair handed to a weaker model than the one that already failed
+             at it is a round spent to reach the same place. */
+          edited.model,
+          editDeadline(requestStartedAt),
+        );
+
+        const tidied = autofix(again.html);
+        const candidate = tidied.applied.length > 0 ? tidied.html : again.html;
+        const stillHolds = validatePage(currentHtml, candidate);
+        const after = stillHolds.ok
+          ? verifyEdit({ message: editPrompt, plan, before: currentHtml, after: candidate })
+          : null;
+
+        /* Kept only if it is actually better. A repair that broke the document
+           or left the same criteria failing is a worse version of a page
+           somebody is waiting for, and the first attempt — which at least
+           landed something — is the one to ship. */
+        if (after && after.unmet.length < verification.unmet.length) {
+          edited = {
+            ...edited,
+            html: candidate,
+            /* Both rounds did work and the charge has to reflect both: a
+               second model call billed as one is the mistake this file has
+               made before, in the other direction. */
+            applied: edited.applied + again.applied,
+            outputTokens: edited.outputTokens + again.outputTokens,
+          };
+          verification = after;
+          steps.mark(
+            "repair",
+            after.complete
+              ? "The change is in the page now"
+              : `Closer — ${after.unmet.length} part${after.unmet.length === 1 ? "" : "s"} of that still did not land`,
+            `${again.applied} further ${again.applied === 1 ? "change" : "changes"}`,
+          );
+        } else {
+          steps.mark(
+            "repair",
+            "Kept the first version",
+            stillHolds.ok ? "the second attempt was no closer" : stillHolds.problem,
+          );
+        }
+      } catch {
+        /* A repair that could not run leaves the first attempt exactly as it
+           was. The edit is real, it is in the page, and the sentence below
+           says what is missing from it — which is the whole outcome this stage
+           was added to produce. */
+        steps.mark("repair", "Kept the first version", "the second attempt could not be made");
+      }
+    }
+
+    /* Nothing was repaired and something is still missing — either there was no
+       room left in the request for a second call, or the one that was made did
+       not get closer. Recorded as a step because the reply says the same thing
+       in prose, and a tracker that shows only the good outcomes is a tracker
+       people stop reading. */
+    if (!verification.complete) {
+      steps.mark(
+        "verify",
+        `That did not fully land — ${verification.unmet.length} part${verification.unmet.length === 1 ? "" : "s"} of the request ${verification.unmet.length === 1 ? "is" : "are"} not in the page`,
+        verification.unmet.map((result) => result.detail ?? result.what).join("; "),
+      );
+    }
+
+
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
@@ -2398,7 +2555,23 @@ async function handle(
           `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} before running out of time — that's as much as fits in one edit. Ask for the rest and I'll carry on from here.`
         : edited.failures.length > 0
           ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
-          : "Done.",
+          : /* ── "Done." has to have been earned ──────────────────────────
+             *
+             * This said "Done." whenever the blocks applied, which is a claim
+             * about the model's output rather than about the page. An edit
+             * that patched a line and changed nothing anybody asked about
+             * applied perfectly and was reported as finished — and the person
+             * found out by looking at their own site, then asked again in
+             * different words, which is the loop this sentence kept them in.
+             *
+             * So the word is spent only where the verifier could find the
+             * change in the page. Where it could not, what it measured is said
+             * instead: what is missing, and that the rest was kept. See
+             * describeVerification, and verify-edit.ts for why a criterion
+             * that could not be checked is never counted against the edit. */
+            verification.complete
+            ? "Done."
+            : describeVerification(verification),
       /* What the change knocked loose on its way through.
        *
        * Said before the model's own suggestion, because it outranks it: a
@@ -2412,7 +2585,10 @@ async function handle(
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
-      edited.note ? `Next: ${edited.note}` : null,
+      /* Withheld when the request itself did not land. A next step offered on
+         top of a change that is not in the page reads as the subject being
+         changed, and the thing to do next is the thing that was asked for. */
+      edited.note && verification.complete ? `Next: ${edited.note}` : null,
     ]
       .filter(Boolean)
       .join(" ");

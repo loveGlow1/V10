@@ -76,16 +76,27 @@ function text(html: string, limit = 90): string | null {
   return stripped.length > limit ? `${stripped.slice(0, limit).trimEnd()}…` : stripped;
 }
 
-/**
- * The document's places, in order.
+/** One block of the page with the markup that makes it, for comparing two versions. */
+export type Region = {
+  order: number;
+  tag: string;
+  id: string | null;
+  heading: string | null;
+  /** The markup between this block's opening tag and the next block's. */
+  source: string;
+};
+
+/* The blocks, walked once.
  *
- * Bounded rather than complete. A page with two hundred sections is a page
- * where a list of two hundred is no more useful than a list of forty and costs
- * five times as much to send — and the sections somebody points at in a
- * screenshot are overwhelmingly near the top.
+ * Both readers below want the same walk and differ only in what they keep, so
+ * the walk lives here rather than twice: `pageLandmarks` keeps a description
+ * for a model to read, `pageRegions` keeps the markup itself for a verifier to
+ * diff. Two copies of this loop would drift, and the numbering is the one
+ * thing that has to agree between them — a landmark the model was told is
+ * "3." and a region the verifier checked as "3." must be the same block.
  */
-export function pageLandmarks(html: string, limit = 40): Landmark[] {
-  const found: Landmark[] = [];
+function walk(html: string, limit: number): { order: number; tag: string; attributes: string; inside: string }[] {
+  const found: { order: number; tag: string; attributes: string; inside: string }[] = [];
   BLOCK.lastIndex = 0;
 
   let match: RegExpExecArray | null;
@@ -105,8 +116,22 @@ export function pageLandmarks(html: string, limit = 40): Landmark[] {
     const nextStart = BLOCK.exec(html)?.index ?? html.length;
     BLOCK.lastIndex = from;
 
-    const inside = html.slice(from, nextStart);
+    found.push({ order, tag: tag.toLowerCase(), attributes, inside: html.slice(from, nextStart) });
+  }
 
+  return found;
+}
+
+/**
+ * The document's places, in order.
+ *
+ * Bounded rather than complete. A page with two hundred sections is a page
+ * where a list of two hundred is no more useful than a list of forty and costs
+ * five times as much to send — and the sections somebody points at in a
+ * screenshot are overwhelmingly near the top.
+ */
+export function pageLandmarks(html: string, limit = 40): Landmark[] {
+  return walk(html, limit).map(({ order, tag, attributes, inside }) => {
     const pictures: Landmark["pictures"] = [];
     IMG.lastIndex = 0;
     let picture: RegExpExecArray | null;
@@ -119,17 +144,33 @@ export function pageLandmarks(html: string, limit = 40): Landmark[] {
       });
     }
 
-    found.push({
+    return {
       order,
-      tag: tag.toLowerCase(),
+      tag,
       id: attributes.match(ID)?.[1] ?? null,
       heading: text(inside.match(HEADING)?.[1] ?? "", 60),
       opening: text(inside.replace(HEADING, " "), 90),
       pictures: pictures.slice(0, 6),
-    });
-  }
+    };
+  });
+}
 
-  return found;
+/**
+ * The same blocks, with the markup kept.
+ *
+ * For asking whether a particular part of the page actually changed, which is
+ * a question about the source and cannot be answered from a description of it.
+ * See verify-edit.ts: an edit that claims to have made the logo smaller and
+ * left the header's markup byte-identical did not make the logo smaller.
+ */
+export function pageRegions(html: string, limit = 40): Region[] {
+  return walk(html, limit).map(({ order, tag, attributes, inside }) => ({
+    order,
+    tag,
+    id: attributes.match(ID)?.[1] ?? null,
+    heading: text(inside.match(HEADING)?.[1] ?? "", 60),
+    source: inside,
+  }));
 }
 
 /**
