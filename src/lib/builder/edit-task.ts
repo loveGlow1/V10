@@ -66,6 +66,13 @@ export const EDIT_STEPS = [
   "plan",
   "edit",
   "check",
+  /* The two that only happen when the check found the change missing from the
+     page — see verify-edit.ts. Named here because a stage an edit really moves
+     through belongs in the list somebody reads to know what an edit does, and
+     because `repair` is the one stage during which a second model call is
+     running and the panel would otherwise sit on "validating". */
+  "repair",
+  "verify",
   "version",
   "deploy",
   "charge",
@@ -108,6 +115,11 @@ const STEP_STAGE: Partial<Record<string, JobState>> = {
   plan: "planning",
   edit: "generating",
   check: "validating",
+  /* `repairing` goes backwards to validating, which is exactly this shape: the
+     check found something, a repair runs, the check runs again. See
+     lib/jobs/state.ts, where that transition is deliberate. */
+  repair: "repairing",
+  verify: "validating",
   version: "validating",
   deploy: "deploying",
   charge: "deploying",
