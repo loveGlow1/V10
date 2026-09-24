@@ -72,6 +72,79 @@ export async function loadTree(
   }));
 }
 
+/* How far back to look for a project's source. Twenty-five builds is more
+   than any project here has between one real generation and the next, and it
+   is a bounded query rather than a scan of a project's whole history. */
+const LOOK_BACK = 25;
+
+/**
+ * The newest build of this project that actually has files, and its files.
+ *
+ * ── Why a project's source is not always on its newest build ──────────────
+ *
+ * Because a build row can be written without its files. The insert in
+ * storeTree throws and the caller is supposed to treat that as a failed build,
+ * but a build stored by a path that never reached storeTree at all — an older
+ * save route, an orchestrator step that wrote the summary and stopped — leaves
+ * a row whose html column holds the RECEIPT and whose file rows do not exist.
+ *
+ * What that did to the customer is the whole reason this exists. currentTree
+ * reported `sourceMissing`, the preview could not route an empty tree, and the
+ * pane showed the receipt: a list of "Routes 9, Database created, Files" where
+ * their application should have been. Three projects in production are in
+ * exactly that state right now, and two of them have a complete tree sitting
+ * on the build immediately before.
+ *
+ * "The files are gone" was the wrong reading. The files are gone from that
+ * ROW. The project still has source, and showing it is better than showing an
+ * inventory of it by every measure that matters.
+ *
+ * Two cheap queries rather than one expensive one: the build ids first, then
+ * which of them have any file rows at all, and only then the tree itself. A
+ * single join would carry twenty-five builds' worth of file CONTENT across the
+ * wire to answer a question about existence.
+ */
+export async function newestStoredTree(
+  service: SupabaseClient,
+  projectId: string,
+  /* Builds to look PAST.
+   *
+   * Exported with this because undo needs the same search this already does,
+   * asked one build earlier: "the newest source that is not the source I am
+   * looking at". Without it, revert on a file-tree project had no way to find
+   * the tree it was meant to restore, and inserted a build row carrying the
+   * previous SUMMARY with no files attached — after which currentTree
+   * recovered the unchanged source and the undo had changed nothing.
+   *
+   * A parameter rather than a second function, because "the newest build that
+   * has files" is one question and two implementations of it would drift. */
+  options: { excluding?: readonly string[] } = {},
+): Promise<{ tree: FileTree; buildId: string } | null> {
+  const { data: recent } = await service
+    .from("project_builds")
+    .select("id")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(LOOK_BACK);
+
+  const skip = new Set(options.excluding ?? []);
+  const ids = (recent ?? []).map((row) => row.id as string).filter((id) => !skip.has(id));
+  if (ids.length === 0) return null;
+
+  const { data: holding } = await service
+    .from("project_files")
+    .select("build_id")
+    .in("build_id", ids);
+
+  const withFiles = new Set((holding ?? []).map((row) => row.build_id as string));
+  /* `ids` is already newest-first, so the first match is the newest build that
+     has source — not merely any build that does. */
+  const found = ids.find((id) => withFiles.has(id));
+  if (!found) return null;
+
+  return { tree: await loadTree(service, found), buildId: found };
+}
+
 /**
  * The current files of a project, whichever stack it was built with.
  *
@@ -92,6 +165,9 @@ export async function currentTree(
      single-page build, and it has to be: the caller's correct response to one
      is "edit the page" and to the other is "stop". See below. */
   sourceMissing: boolean;
+  /* The build these files came from, when it is not the newest one — so a
+     caller that wants to mention it can, and one that does not, need not. */
+  recoveredFrom: string | null;
 }> {
   const { data: build } = await service
     .from("project_builds")
@@ -101,7 +177,7 @@ export async function currentTree(
     .limit(1)
     .maybeSingle();
 
-  if (!build) return { tree: [], buildId: null, html: null, sourceMissing: false };
+  if (!build) return { tree: [], buildId: null, html: null, sourceMissing: false, recoveredFrom: null };
 
   const buildId = build.id as string;
   const html = (build.html as string | null) ?? null;
@@ -128,7 +204,35 @@ export async function currentTree(
    * the files are gone and no amount of editing a receipt brings them back.
    * The caller's job is to say so. */
   if (stored.length === 0 && isProjectSummary(html)) {
-    return { tree: [], buildId, html, sourceMissing: true };
+    /* ── Before giving up, ask the PROJECT rather than the row ───────────
+     *
+     * A build row without its files does not mean the project has no source.
+     * It means this row does not have it, and the build before very often
+     * does — which is true of two of the three projects in production that
+     * are in this state today.
+     *
+     * So the receipt is the answer of last resort rather than the first one.
+     * When there is real source anywhere in this project's recent history it
+     * is what the preview renders and what an edit changes, because showing
+     * somebody their application is better than showing them an inventory of
+     * it by every measure that matters. See newestStoredTree. */
+    const recovered = await newestStoredTree(service, projectId);
+    if (recovered) {
+      return {
+        tree: recovered.tree,
+        /* The build the FILES came from, so anything that writes against this
+           tree writes against the build it actually read. */
+        buildId: recovered.buildId,
+        html,
+        sourceMissing: false,
+        recoveredFrom: recovered.buildId === buildId ? null : recovered.buildId,
+      };
+    }
+
+    /* Nothing anywhere. Now it is true, and it is reported rather than
+       repaired: no amount of editing a receipt brings a project's source
+       back, and the caller's job is to say so. */
+    return { tree: [], buildId, html, sourceMissing: true, recoveredFrom: null };
   }
 
   return {
@@ -136,5 +240,6 @@ export async function currentTree(
     buildId,
     html,
     sourceMissing: false,
+    recoveredFrom: null,
   };
 }

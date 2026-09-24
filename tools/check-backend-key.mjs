@@ -37,6 +37,14 @@ writeFileSync(
   JSON.stringify({
     compilerOptions: {
       outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022",
+      /* `strict`, like the root tsconfig and like check-pipeline.mjs beside
+         this. Without it a discriminated union's `ok: true | false` widens to
+         boolean and stops narrowing, so an `if (!result.ok)` branch reading
+         `result.reason` is an error here and correct everywhere else. The
+         check compiled one file that happened not to trip it; the moment
+         connection.ts imported a second one it did, and what it reported was
+         the missing flag rather than anything about the code. */
+      strict: true,
       moduleResolution: "bundler", skipLibCheck: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
@@ -65,11 +73,31 @@ try {
       if (!path.endsWith(".js")) continue;
       const depth = path.slice(out.length + 1).split("/").length - 1;
       const prefix = depth === 0 ? "./" : "../".repeat(depth);
-      writeFileSync(path, readFileSync(path, "utf8").replace(
+      /* Two rewrites, and the second one arrived when schema.ts stopped
+         importing commerce.ts for types only. tsc leaves a relative specifier
+         exactly as written — "./commerce" — and node's ESM loader will not
+         resolve one without an extension, so the check failed reporting a
+         missing module rather than anything about the code.
+         
+         Line-based, and only on lines that ARE an import or an export: the
+         whole-file form also matches `from "../../${path}"` inside a template
+         literal in next-structure.ts, and rewrites it into a syntax error. */
+      const source = readFileSync(path, "utf8").replace(
         /(["'])@\/([^"']+)\1/g, (_, q, rest) => {
           const asFile = join(out, `${rest}.js`);
           return `${q}${prefix}${existsSync(asFile) ? `${rest}.js` : `${rest}/index.js`}${q}`;
-        }));
+        });
+
+      writeFileSync(path, source
+        .split("\n")
+        .map((line) => {
+          if (!/^\s*(?:import|export)\b/.test(line)) return line;
+          return line.replace(
+            /(from\s+["'])(\.\.?\/[^"']+?)(["'];?\s*)$/,
+            (whole, a, spec, b) => (spec.endsWith(".js") ? whole : `${a}${spec}.js${b}`),
+          );
+        })
+        .join("\n"));
     }
   };
   rewrite(out);

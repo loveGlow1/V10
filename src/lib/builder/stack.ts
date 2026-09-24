@@ -157,7 +157,61 @@ const BACKEND = [
   /\b(orders?|inventory|stock levels?|customers?)\b[^.]{0,30}\b(manage|track|system)\b/i,
   /\b(admin (?:panel|area|dashboard)|back ?office|cms)\b/i,
   /\b(upload|submit)\w*\b[^.]{0,30}\b(and (?:save|store|keep)|to the database)\b/i,
+  /* ── Objects a person ACCUMULATES ───────────────────────────────────────
+   *
+   * The patterns above catch a brief that describes persistence — "save the
+   * submissions", "manage orders". They miss one that simply names a product
+   * whose objects ARE persistence, which is how most people describe an app:
+   * "a spotify-like app with playlists and a library" says nothing about
+   * saving anything and cannot work without a database. It came back with no
+   * database layer at all, so lib/supabase.ts was never written and the model
+   * was asked to build a music app over hardcoded arrays.
+   *
+   * Every noun here is a collection somebody builds up over time — it is
+   * meaningless if it empties when the tab closes, which is the test for
+   * whether a thing needs a database. Listed rather than left open, like
+   * everything else in this file: "a gallery of our work" is a marketing page
+   * and "their gallery" is not.
+   *
+   * The plural or the possessive is doing the work in each case. A bare
+   * "library" is a building, "playlist" needs no owner to be a word, and
+   * neither means an application on its own. */
+  /\b(playlists?|watch ?lists?|reading lists?|libraries)\b/i,
+  /\b(?:their|his|her|my|your|user|users'?|member)\s+(?:own\s+)?(?:library|feed|timeline|collection|uploads?|gallery|inbox|notes?|entries)\b/i,
+  /\b(liked|saved|favou?rited|bookmarked|starred)\s+(?:songs?|tracks?|albums?|items?|posts?|articles?|products?|recipes?|videos?|photos?)\b/i,
+  /\b(listening|watch|viewing|browsing|purchase|order|activity)\s+history\b/i,
+  /\b(messages?|chats?|conversations?|threads?|comments?|reviews?|ratings?)\b[^.]{0,30}\b(between|from|post|send|leave|reply|receive)\w*\b/i,
+  /\b(tasks?|tickets?|issues?|boards?|projects?|listings?|invoices?|expenses?|habits?|workouts?)\b[^.]{0,36}\b(create|add|track|assign|complete|manage|log|record)\w*\b/i,
+  /\b(create|add|track|assign|complete|manage|log|record)\w*\b[^.]{0,24}\b(tasks?|tickets?|issues?|boards?|projects?|listings?|invoices?|expenses?|habits?|workouts?)\b/i,
 ];
+
+/* ── A SITE WITH PAGES IS NOT A PAGE ──────────────────────────────────────
+ *
+ * The ROUTES patterns below catch somebody SAYING they want several pages —
+ * "multi-page", "separate pages", "a page for each". They miss the commoner
+ * thing by far, which is somebody LISTING the pages: "a company website with
+ * home, about, services, projects, blog and contact pages". That named six
+ * addresses and produced one HTML document, because no phrase in it matched
+ * and nothing counted the nouns.
+ *
+ * Counted rather than matched, and three is the floor. One or two of these
+ * words is a landing page describing its own sections — every landing page on
+ * earth has an "about" band and a "contact" form, and reading those as routes
+ * would turn the commonest build on this platform into a project. Three named
+ * areas is somebody describing a site map. */
+const PAGE_NOUNS =
+  /\b(home|homepage|about|about us|services?|products?|projects?|portfolio|work|blog|news|contact|contact us|faq|pricing|team|careers|gallery|testimonials|case stud(?:y|ies)|shop|store)\b/gi;
+
+const PAGES_NAMED = 3;
+
+/** How many distinct page names a brief lists. */
+function namedPages(text: string): string[] {
+  PAGE_NOUNS.lastIndex = 0;
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = PAGE_NOUNS.exec(text)) !== null) seen.add(match[0].toLowerCase());
+  return [...seen];
+}
 
 /* More than one address. A page scrolls; it does not navigate. */
 const ROUTES = [
@@ -260,8 +314,15 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
   if (backendPhrase) why.push(`"${backendPhrase}" is data that has to still be there tomorrow`);
 
   const routePhrase = firstMatch(ROUTES, text);
-  const routes = routePhrase !== null;
+  /* Or a brief that lists its pages rather than saying it has several. See
+     namedPages: three distinct ones, because one or two is a landing page
+     naming its own sections. */
+  const listed = namedPages(text);
+  const routes = routePhrase !== null || listed.length >= PAGES_NAMED;
   if (routePhrase) why.push(`"${routePhrase}" is more than one address`);
+  else if (routes) {
+    why.push(`${listed.length} pages are named — ${listed.slice(0, 4).join(", ")} — which is a site rather than a page`);
+  }
 
   const askedPhrase = firstMatch(ASKS_FOR_APP, text);
   if (askedPhrase) why.push(`"${askedPhrase}" is the project being asked for by name`);
@@ -275,7 +336,7 @@ export function decideStack(brief: string, kind?: BuildKind): StackNeeds {
 
   /* Hard evidence: something in the brief that cannot be done on one page, or
      the project asked for by name. Any of these settles it. */
-  const hardEvidence = auth || backendPhrase !== null || routePhrase !== null || askedPhrase !== null;
+  const hardEvidence = auth || backendPhrase !== null || routes || askedPhrase !== null;
 
   /* Soft evidence: the shape of the thing rather than anything it said. A kind
      of "software people sign into" that never mentions signing in, or a word

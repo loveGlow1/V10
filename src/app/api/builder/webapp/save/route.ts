@@ -3,13 +3,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
 import { carriedContextWords, countWords } from "@/lib/builder/brief";
+import { noCommerce, withDependencies } from "@/lib/builder/commerce";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
-import { fillTreeImages } from "@/lib/builder/tree-images";
+import { ensureImageSources, fillTreeImages } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
-import { previouslyUsedPhotos, rememberPhotos } from "@/lib/builder/photo-memory";
+import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { systemByName, withTokens } from "@/lib/builder/design";
@@ -110,6 +111,15 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
         admin: layer("admin"),
         storage: layer("storage"),
         payments: layer("payments"),
+        /* Not a layer any more — a capability set. A caller that sends the
+           old boolean means "this sells", which withDependencies turns into
+           the smallest set that can. */
+        commerce: withDependencies({
+          ...noCommerce(),
+          ...((sent as Record<string, unknown>).commerce === true
+            ? { catalog: true, productDetails: true, cart: true, checkout: true, orders: true }
+            : {}),
+        }),
       };
     }
   }
@@ -124,6 +134,7 @@ function architectureFor(body: SaveRequest): ArchitectureManifest {
     admin: false,
     storage: false,
     payments: false,
+    commerce: noCommerce(),
   };
 }
 
@@ -465,6 +476,45 @@ export async function POST(request: Request) {
       exclude: await previouslyUsedPhotos(supabase, project.id as string),
     });
     tree = projectPhotos.tree;
+
+    /* And then: no <img> leaves here without a source.
+     *
+     * The fill above is the intended path and it can still be missed. A slot
+     * whose art direction is an expression — `<img data-shot={shot}>` inside a
+     * shared component — matches nothing in images.ts, so it is not filled and
+     * what ships is a tag with no `src` at all. A browser draws that as its
+     * broken-image icon with the alt text beside it, which is what a catalogue
+     * of "Running collection" in a grey rectangle was.
+     *
+     * Nothing about it is an error. Not to the browser, not to `next build`,
+     * not to the deploy — so it shipped, and was reported as a success, and the
+     * first thing that noticed was a person looking at their own storefront.
+     * That is the whole reason this runs rather than a warning being logged.
+     *
+     * Repaired with this project's OWN photographs — the stock URLs already
+     * resolved for its brief and visual direction — so a rescued page carries
+     * the pictures it was meant to. With none to hand, the toned panel every
+     * slot ships with, which reads as a photograph still loading rather than a
+     * mistake. Either way the tag has a source. */
+    const sweep = ensureImageSources(
+      tree,
+      await projectPhotoUrls(supabase, project.id as string),
+    );
+    tree = sweep.tree;
+
+    if (sweep.repaired > 0) {
+      /* Loud, because a repair here means the generator was told something it
+         should not have been, or ignored it. The page is saved either way; this
+         is how the cause gets found rather than the symptom being lived with. */
+      // eslint-disable-next-line no-console
+      console.error(
+        `save: repaired ${sweep.repaired} image tag(s) that had no source — ` +
+          `a slot was declared as an expression rather than a literal, so the fill could not match it` +
+          (sweep.unrepaired.length > 0
+            ? `; ${sweep.unrepaired.length} left as they were for size: ${sweep.unrepaired.join(", ")}`
+            : ""),
+      );
+    }
   }
 
   let html: string;

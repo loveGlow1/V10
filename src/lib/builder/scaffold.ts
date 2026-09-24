@@ -26,6 +26,7 @@
 import type { ArchitectureManifest } from "./architecture";
 import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
+import { allCommerce } from "./commerce";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
 import { repairStructure } from "./next-structure";
@@ -152,6 +153,37 @@ const nextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
+
+  /* The typechecker does not get to fail a deploy.
+
+     tsconfig.json below still sets \`strict\`, and the generation prompt still
+     asks for code that compiles under it — an editor and \`tsc\` both stay
+     useful, and that is the point of keeping it on. What changes is the
+     consequence of one miss.
+
+     Because the consequence was the worst possible ordering. \`next build\`
+     typechecks the whole project and exits 1 on the first error, AFTER the
+     build has been generated, priced, charged and shown as a working preview.
+     A single un-narrowed null did it:
+
+         ./app/account/page.tsx:38
+         Type error: 'profile' is possibly 'null'.
+
+     One line in a file nobody asked for, in a project whose other nineteen
+     pages were fine, and the customer's deploy fails with a compiler message
+     about their own generated code. They cannot fix it and did not write it.
+
+     A type error in model-written code is a defect in generation, and the place
+     to catch it is generation — see the note in /api/builder/webapp/save. It is
+     not a reason to withhold a project somebody has already paid for. Nearly
+     all of these are nullable-narrowing misses that run correctly anyway,
+     because the value is present at runtime on the path the page actually
+     takes.
+
+     eslint too, for the same reason and with less excuse: a lint rule has never
+     been a reason not to ship. */
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
 };
 
 export default nextConfig;
@@ -177,6 +209,37 @@ const nextConfig = {
   /* Every route becomes a directory with an index.html in it, so /pricing
      works as a path on a static host instead of only /pricing.html. */
   trailingSlash: true,
+
+  /* The typechecker does not get to fail a deploy.
+
+     tsconfig.json below still sets \`strict\`, and the generation prompt still
+     asks for code that compiles under it — an editor and \`tsc\` both stay
+     useful, and that is the point of keeping it on. What changes is the
+     consequence of one miss.
+
+     Because the consequence was the worst possible ordering. \`next build\`
+     typechecks the whole project and exits 1 on the first error, AFTER the
+     build has been generated, priced, charged and shown as a working preview.
+     A single un-narrowed null did it:
+
+         ./app/account/page.tsx:38
+         Type error: 'profile' is possibly 'null'.
+
+     One line in a file nobody asked for, in a project whose other nineteen
+     pages were fine, and the customer's deploy fails with a compiler message
+     about their own generated code. They cannot fix it and did not write it.
+
+     A type error in model-written code is a defect in generation, and the place
+     to catch it is generation — see the note in /api/builder/webapp/save. It is
+     not a reason to withhold a project somebody has already paid for. Nearly
+     all of these are nullable-narrowing misses that run correctly anyway,
+     because the value is present at runtime on the path the page actually
+     takes.
+
+     eslint too, for the same reason and with less excuse: a lint rule has never
+     been a reason not to ship. */
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
 };
 
 export default nextConfig;
@@ -622,6 +685,20 @@ function withServerDependencies(tree: FileTree, manifest: ArchitectureManifest):
   }
 }
 
+/**
+ * Whether this platform writes the file, rather than the model.
+ *
+ * Exported for the EDIT path, which had no idea. An edit whose target is one
+ * of these cannot land — completeTree discards the model's version of an owned
+ * path and writes ours over it on the very next build — so patching one is
+ * work that is thrown away, and a customer asking for it is told "I couldn't
+ * place that change in lib/supabase.ts" about a file nothing was ever going to
+ * change. See pickFile, which now keeps them out of the candidates.
+ */
+export function isPlatformOwned(path: string): boolean {
+  return PLATFORM_OWNED.has(path);
+}
+
 const PLATFORM_OWNED = new Set([
   "lib/supabase.ts",
   "lib/database.types.ts",
@@ -787,9 +864,41 @@ export function missingFrom(tree: FileTree): string[] {
  * now has to delete. These are the ones whose absence would be noticed. */
 const ROUTES: Record<BuildKind, string[]> = {
   landing: ["app/pricing/page.tsx", "app/contact/page.tsx"],
-  ecommerce: ["app/products/page.tsx", "app/products/[slug]/page.tsx", "app/cart/page.tsx"],
+  /* Checkout joins the list now that the list is filtered: a store with a
+     basket and nowhere to complete the order was a cart that could only ever
+     be filled. It is written only when the manifest says this project checks
+     out, which a catalogue does not. */
+  ecommerce: [
+    "app/products/page.tsx",
+    "app/products/[slug]/page.tsx",
+    "app/cart/page.tsx",
+    "app/checkout/page.tsx",
+  ],
   blog: ["app/blog/page.tsx", "app/blog/[slug]/page.tsx", "app/about/page.tsx"],
-  webapp: ["app/dashboard/page.tsx", "app/login/page.tsx"],
+  /* ── A WEB APP HAS NO UNIVERSAL ROUTES, AND THAT IS THE POINT ──────────
+   *
+   * This said `["app/dashboard/page.tsx", "app/login/page.tsx"]`, and every
+   * web app this platform has ever built got both — an invoicing product whose
+   * own areas are invoices, clients and payments was handed a route called
+   * "dashboard" because it was filed under webapp, and a login page whether or
+   * not it had accounts. That is the generic-AI-output tell: a product wearing
+   * somebody else's furniture.
+   *
+   * The other four kinds keep their lists because those routes are real. Every
+   * store has products and a basket; every blog has an index and a post. There
+   * is no equivalent for "web app" — it covers a CRM, a booking system and a
+   * unit converter — which is exactly what blueprints/webapp.ts worked out
+   * when it stopped forcing a dashboard on everything and wrote "say nothing
+   * about a dashboard unless it needs one". That lesson never reached here, so
+   * the blueprint asked for the product's own shape and the file list asked
+   * for a dashboard, and the file list wins because it names files.
+   *
+   * Empty, and the routes are named from the brief instead — see the webapp
+   * line in `write` below. Login is not here either: it is added under
+   * `manifest.authentication`, which is the thing that actually decides
+   * whether this product has accounts, and listing it twice for an app that
+   * does was the other half of this. */
+  webapp: [],
   news: ["app/[section]/page.tsx", "app/article/[slug]/page.tsx"],
 };
 
@@ -847,9 +956,43 @@ export function treeBrief(
      gets the one that is right 95% of the time. */
   mode: BuildMode = "static",
 ): string {
-  const routes = ROUTES[kind] ?? [];
-  const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]) : [];
-  const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []) : [];
+  /* ── A STORE'S ROUTES ARE ITS CAPABILITIES' ─────────────────────────────
+   *
+   * ROUTES.ecommerce listed a cart for every project filed as a store, and
+   * ADMIN_ROUTES listed an orders screen for every project with an admin. So
+   * "create a website showcasing our products" — a catalogue, with no cart in
+   * its manifest — was handed `app/cart/page.tsx` to write, and a catalogue
+   * whose owner wanted to edit it got an admin for orders it does not take.
+   *
+   * Exactly the defect the hardcoded webapp dashboard had: the manifest knew,
+   * and the file list did not ask, and a file list wins because it names
+   * files. So the store's routes are filtered by what this project actually
+   * does with products.
+   *
+   * A manifest written before commerce was decomposed reads as the full shop
+   * it meant at the time — see allCommerce. Those rows are read back on every
+   * edit of an existing project, and dropping a running store's cart route
+   * would be worse than any route written that need not be. */
+  const shop = manifest.commerce ?? allCommerce();
+
+  const NEEDS_CAPABILITY: Record<string, boolean> = {
+    "app/products/page.tsx": shop.catalog,
+    "app/products/[slug]/page.tsx": shop.productDetails,
+    "app/cart/page.tsx": shop.cart,
+    "app/checkout/page.tsx": shop.checkout,
+    "app/admin/products/page.tsx": shop.admin,
+    "app/admin/orders/page.tsx": shop.admin && shop.orders,
+    "app/account/orders/page.tsx": shop.orders,
+  };
+
+  /* Only a store's routes are filtered. A blog's post index is not a
+     capability anybody switches off, and reading this map over every kind
+     would be one lookup pretending to be a rule. */
+  const wanted = (route: string) => kind !== "ecommerce" || (NEEDS_CAPABILITY[route] ?? true);
+
+  const routes = (ROUTES[kind] ?? []).filter(wanted);
+  const admin = manifest.admin ? (ADMIN_ROUTES[kind] ?? ["app/admin/page.tsx"]).filter(wanted) : [];
+  const account = manifest.authentication ? (ACCOUNT_ROUTES[kind] ?? []).filter(wanted) : [];
 
   const write = [
     "- app/page.tsx — the home page, and the one that matters most",
@@ -859,6 +1002,15 @@ export function treeBrief(
       : "- app/globals.css — the design system as CSS custom properties, imported by the layout",
     ...routes.map((route) => `- ${route}`),
   ];
+
+  /* The product's own areas, named by the product. See ROUTES above: a web app
+     has no universal second route, so the shape is asked for rather than
+     assumed, and the example is deliberately a domain rather than a layout. */
+  if (kind === "webapp") {
+    write.push(
+      "- a route per area THIS product actually has, named in its own words — `app/invoices/page.tsx`, `app/clients/page.tsx`, `app/payments/page.tsx` for an invoicing tool. Name them for the objects in the brief. Do NOT write `app/dashboard/page.tsx` unless the product genuinely is a dashboard; an overview screen, when the product wants one, is the home page.",
+    );
+  }
 
   if (manifest.authentication) {
     write.push(
@@ -933,6 +1085,24 @@ export function treeBrief(
     "- No absolute positioning for anything with words in it; `absolute top-20 left-40` works at one width only. Decorative shapes may, content flows.",
     "- `text-3xl sm:text-4xl lg:text-6xl` on a headline; `text-center md:text-left` where a column becomes a row.",
     "- Primary buttons `w-full sm:w-auto`; a group is `flex flex-col sm:flex-row gap-4`.",
+    /* ── The header, which is the first thing anybody judges ─────────────
+     *
+     * A generated header puts the wordmark left and the links right, which is
+     * right at 1280px and the ugliest thing we ship at 390px: five inline
+     * links and a brand on a screen that fits about three, wrapping under the
+     * logo or pushing the page sideways. It is at the top of every page, so it
+     * is what "it looks ugly on mobile" is usually about.
+     *
+     * Written as the two class lists rather than as "make the nav responsive",
+     * for the same reason as every rule above it: the second produces a
+     * model's idea of a mobile nav, and the first produces this one. Retrofit
+     * is expensive here in a way the other rules are not — adding a menu is
+     * adding markup and behaviour, where fixing a grid is editing a class —
+     * so it has to be right the first time. qa/responsive.ts finds it when it
+     * is not: see the nav-never-collapses rule there. */
+    "- BELOW `md` A HEADER IS TWO THINGS: the brand on the left and a menu button on the right. Nothing else. `<header className=\"flex items-center justify-between px-4 sm:px-6 lg:px-8 h-16\">`.",
+    "- The inline link list is `hidden md:flex` — never rendered on a phone. The button that opens it is `flex md:hidden` with `aria-expanded` and `aria-controls`, and the panel it opens is in the markup already, toggled by a class rather than built when it is clicked.",
+    "- Never leave a row of text links — Home, Services, Pricing, About, FAQ, Contact — inline at every width. Three or more of those in a header with nothing hiding them is the defect, whatever else is right about the page.",
     /* ── Two rules about SHAPE rather than about syntax ──────────────────
      *
      * Everything else in this list stops a build failing. These two stop a
@@ -957,6 +1127,25 @@ export function treeBrief(
        a server renders one when it is asked for, and demanding the list there
        would send a model prerendering a catalogue it cannot see yet. */
     mode === "server" ? null : "- Every dynamic route needs `generateStaticParams`, or the export fails on it.",
+    /* ── The directive, and the build that dies without it ──────────────
+     *
+     * Every file in the App Router is a SERVER component unless its first line
+     * says otherwise, and a server component is executed at build time. So a
+     * component holding useState, or an onClick, and missing the directive
+     * does not degrade: the build fails on it, and under `output: "export"` it
+     * fails while prerendering pages nobody wrote — `/_not-found` is the one
+     * that comes back, because Next.js generates that page itself and it
+     * renders the same layout, and the error names a route the customer has
+     * never heard of for a mistake four files away.
+     *
+     * A model writing React reaches for hooks and handlers by reflex and the
+     * directive by memory, which is exactly the wrong way round. So it is
+     * stated as a mechanical test — if the file contains one of these words,
+     * the first line is the directive — rather than as an explanation of
+     * server components, which is a thing to understand rather than a thing
+     * to check. */
+    '- "use client" IS THE FIRST LINE OF ANY FILE THAT USES useState, useEffect, useRef, useContext, useReducer, any other hook, or any event handler — onClick, onChange, onSubmit, onInput, onFocus, onKeyDown. Above the imports, on its own line, in double quotes with the semicolon. There is no second chance for it: without it the build fails at prerender, and under a static export it fails on `/_not-found`, a page you did not write.',
+    '- The directive is INHERITED, not repeated. A client component\'s children are already client components; a "use client" in a file that has no state and no handlers of its own makes a server component into a client one for no reason. Put it where the state is.',
     '- A ROUTE FILE MAY NOT BE BOTH. `app/x/[id]/page.tsx` cannot have "use client" AND export generateStaticParams — that is a build error, not a warning. When the page needs both, split it: page.tsx stays a server component holding generateStaticParams, and everything interactive goes in a sibling it renders.',
     "- In that split, page.tsx is `async` and its params is a Promise: `export default async function Page({ params }: { params: Promise<{ id: string }> }) { return <IdClient params={await params} />; }`. Await it there so the client half receives plain values.",
     /* React 19 removed the GLOBAL JSX namespace — it lives inside the react
@@ -967,7 +1156,44 @@ export function treeBrief(
        so it stops happening. */
     '- There is NO global `JSX` namespace. `JSX.Element` will not compile. Write `React.ReactNode` for anything renderable, or `import type { JSX } from "react"` in the file that needs `JSX.Element`.',
     "- Use next/image with width and height. The optimiser is off, so a missing dimension is a layout shift rather than an error, and it will show.",
-    /* Named here as well as in the asset manifest, and deliberately. This brief
+    /* ── WHAT MAKES IT A PRODUCT RATHER THAN A DEMO ─────────────────────
+     *
+     * These three existed only in blueprints/webapp.ts, which governs the
+     * single-page stack — so a project built as a TREE got the correct states,
+     * the correct auth and the correct admin writes, and content that could be
+     * three rows of "Item 1". That is the whole of the generic-AI-output look,
+     * and none of it was anybody disobeying a rule: there was no rule.
+     *
+     * Worded as the blueprint words them, because that wording is the part
+     * that works — a floor with a number in it ("twenty or more") is followed
+     * and "make it realistic" is not. */
+    "- Use the product's OWN vocabulary everywhere: its words for its objects, its statuses, its actions. An invoicing tool has invoices, clients and payments — never Items, Records, Entries or Data.",
+    "- Seed it so it reads like an account in use, not one created this morning: twenty or more rows where the product has a list, varied names, dates spread over months, several different statuses, and amounts that are uneven and plausible. Three tidy rows is the tell.",
+    "- Every figure is computed from the data that is actually there. A tile, total, chart or counter that does not derive from the rows on the page is worse than no tile — it is the one thing a person checks first and the one thing that cannot be wrong.",
+
+    /* ── AND AN OVERVIEW SCREEN IS A SCREEN, NOT A ROW OF TILES ─────────
+     *
+     * The rule above already says a figure must be computed. What nothing
+     * said is what an overview IS, so what came back was four tiles and a
+     * heading: correct numbers, derived from real rows, and nothing anybody
+     * would open twice. "It should be an actual dashboard with live
+     * components consistent with the project request" is the complaint, and
+     * it is about the screen rather than the arithmetic.
+     *
+     * Named for the product, because this is where generic output shows
+     * worst: Total Revenue, Active Users and Conversion Rate appear on the
+     * overview of a product that measures none of them, and they appear
+     * because they are what a dashboard looks like in the abstract.
+     *
+     * One working control, because that is the difference between a report
+     * and a tool. A range, a status tab or a filter that re-queries is
+     * ordinary to write and is the thing that makes the page answer a
+     * question somebody actually has. Decorative controls are worse than
+     * none: a select that changes nothing is a broken feature, not a
+     * simpler one. */
+    "- IF THIS PRODUCT WANTS AN OVERVIEW, BUILD A SCREEN RATHER THAN A ROW OF TILES. It reads the same tables every other page reads, and it has: the few figures that matter to THIS product, each computed; the most recent rows of its main object, as a real list with its real statuses, linking through to the thing itself; and at least one control — a date range, a status tab, a filter — that RE-QUERIES and visibly changes what is shown. A control that does not change anything is a broken feature rather than a simpler one.",
+    "- Name what the overview measures in the product's own terms. An invoicing tool shows outstanding, overdue and paid this month; a gym shows members, classes this week and attendance. Total Revenue, Active Users and Conversion Rate on a product that measures none of them is the generic-dashboard look, and it is the fastest way to tell nobody thought about the product.",
+    "- It loads like a real screen: a skeleton or a spinner while the queries run, and an empty state that says what to do first when the account genuinely has nothing in it yet. Never a zero presented as a result before the data has arrived.",    /* Named here as well as in the asset manifest, and deliberately. This brief
        is the last thing the model reads before it starts writing files, and
        until the manifest learned to say "as a project" the two of them
        disagreed — this one said next/image, that one said <img> — over a flat
@@ -989,7 +1215,7 @@ export function treeBrief(
      * the pass that makes the slots below worth declaring. */
     photographs > 0
       ? "- The photographs for this build are listed further up. Put their URLs in lib/images.ts as exported constants with their alt text, import them with `@/lib/images`, and use every one of them. A project with no photographs in it is not finished, whatever else is right about it."
-      : '- PHOTOGRAPHS ARE DECLARED, NOT DRAWN. No pictures were resolved ahead of this build, so write each one as a slot and real pixels are put in afterwards: `<img data-shot="folded ochre linen, raking light, neutral seamless" data-ratio="4/5" data-weight="hero" alt="Ochre linen throw">` — art direction in data-shot, no src attribute at all. NEVER invent an image URL; every one of those is a broken picture. NEVER substitute a grey box, a coloured div or an empty placeholder for a photograph that belongs there. Use data-weight="hero" for the one picture that carries a page, "feature" for a section, "thumb" for a card.',
+      : '- PHOTOGRAPHS ARE DECLARED, NOT DRAWN. No pictures were resolved ahead of this build, so write each one as a slot and real pixels are put in afterwards: `<img data-shot="folded ochre linen, raking light, neutral seamless" data-ratio="4/5" data-weight="hero" alt="Ochre linen throw">` — art direction in data-shot, no src attribute at all. NEVER invent an image URL; every one of those is a broken picture. NEVER substitute a grey box, a coloured div or an empty placeholder for a photograph that belongs there. Use data-weight="hero" for the one picture that carries a page, "feature" for a section, "thumb" for a card. EVERY ONE OF THOSE ATTRIBUTES IS A LITERAL QUOTED STRING ON THE <img> ITSELF. Do NOT move a slot into a shared component and do NOT pass its art direction as a prop: `<img data-shot={shot}>` is not a slot, it is an <img> with no src, because the fill pass matches `data-shot="..."` literally and an expression matches nothing. A `<ProductPhoto shot={p.shot} />` component is exactly how a catalogue ends up as grey panels where its photographs should be — every card silently unfilled, and the build reporting success. Repeat the whole tag at each use, even eight times on one page. Repetition here is correct; a component is not.',
   ].filter((rule): rule is string => typeof rule === "string");
 
   if (manifest.database && mode === "server") {

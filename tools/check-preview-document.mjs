@@ -243,10 +243,76 @@ has(
  * That is true of a project stored last week and of one stored ten minutes ago,
  * and it needs no marker to have been written at the time. */
 const previewRoute = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+const storeTree = readFileSync(join(root, "src/lib/builder/store-tree.ts"), "utf8");
 
+/* ── THE ONE THAT BROKE EVERY SINGLE-PAGE BUILD ─────────────────────────
+ *
+ * currentTree hands a single-page build back as a ONE-FILE tree under
+ * index.html, so the download and the file listing do not each have to ask
+ * which kind of build they hold. Wiring it into this route without allowing
+ * for that turned every single-page preview blank in one commit: the tree was
+ * no longer empty, `isProject` read true, the renderer looked for
+ * app/page.tsx in a tree whose only file is index.html, found none, and served
+ * "could not be rendered". That is the commonest kind of build this platform
+ * makes — most of the projects in production are one page.
+ *
+ * The distinction this route needs is "does the project have SOURCE FILES",
+ * and a page reconstituted from the html column is not that.
+ *
+ * Asserted against the route's own text because the decision is three awaited
+ * database calls deep. The two halves are what matter: the page-derived tree
+ * is dropped, and `isProject` is asked of what is left. */
 has(
-  /const tree = wantsDiagnostics \? \[\] : await loadTree\(/.test(previewRoute),
-  "the route loads the build's files before deciding what it is holding",
+  /const tree = isSinglePage\(current\.tree\) \? \[\] : current\.tree/.test(previewRoute),
+  "A SINGLE-PAGE BUILD IS NEVER MISTAKEN FOR A PROJECT",
+  "a tree of one index.html sends the renderer looking for app/page.tsx, " +
+    "finds none, and serves a blank pane instead of somebody's site",
+);
+has(
+  /const isProject = tree\.length > 0 \|\| isProjectSummary/.test(previewRoute),
+  "and the project test is asked of the tree AFTER that, not before",
+);
+
+/* The renderer's own half of it, which is where the blank came from. */
+{
+  const onePage = [file("index.html", "<!doctype html><html><body><h1>A landing page</h1></body></html>")];
+  has(
+    canRenderApp(onePage) === false,
+    "canRenderApp says no to a tree whose only file is index.html",
+    "which is correct — and is exactly why such a tree must never reach it",
+  );
+  has(
+    appPreviewDocument({ tree: onePage, projectName: "One page" }) === null,
+    "and the document builder returns null rather than an empty shell",
+  );
+}
+
+/* And then the same lesson, one level up.
+ *
+ * `loadTree(build.id)` is the right question about a BUILD and the wrong one
+ * about a PROJECT. A build row can exist without its files — an older save
+ * path, an orchestrator step that wrote the summary and stopped — and when the
+ * newest one is like that, the empty tree left the renderer nothing to route
+ * and the pane fell through to the receipt all over again.
+ *
+ * Three projects in production are in that state, and two of them have a
+ * complete tree on the build immediately before. */
+has(
+  /await currentTree\(supabase, projectId\)/.test(previewRoute),
+  "the route asks the PROJECT for its files, not just the newest build row",
+);
+has(
+  /async function newestStoredTree\(/.test(storeTree),
+  "a build row without its files does not mean the project has no source",
+  "two of the three projects in this state have a complete tree one build back",
+);
+has(
+  /const found = ids\.find\(\(id\) => withFiles\.has\(id\)\)/.test(storeTree),
+  "and the NEWEST build that has source is the one it recovers",
+);
+has(
+  /sourceMissing: true/.test(storeTree),
+  "with the receipt kept as the answer of last resort, for a project with none anywhere",
 );
 
 has(
@@ -266,6 +332,105 @@ has(
   "a tree that cannot be routed says so rather than being handed the receipt",
   "the summary stays at ?diagnostics=1, which is where somebody goes to look for it",
 );
+
+/* ── A design that does not hang on one third-party script ───────────────
+ *
+ * A project's whole stylesheet — its tokens, its base element styles, its
+ * container rule — used to go into `<style type="text/tailwindcss">` and
+ * nowhere else. A browser does not apply a style element with an unknown
+ * type; only the Tailwind CDN script does, after it loads, by reading that
+ * block and compiling it.
+ *
+ * Measured in Chromium against a real project with that one request failing:
+ * the page still RENDERS correctly — heading, cards, footer, the header
+ * collapsing at 390px — and it renders in Times New Roman with no palette, no
+ * gutters and blue underlined links, text against the edge of the glass.
+ * Indistinguishable, to the person looking at it, from us having built them
+ * something broken.
+ *
+ * So the stylesheet is emitted twice: natively first, then in the Tailwind
+ * block as before. With the CDN up the second wins on order and nothing
+ * changes. Without it, the design survives. */
+{
+  const styled = [
+    ...minimal,
+    file("app/tokens.css", ":root { --ground: #FBFAF8; --ink: #16150F; --container: 1200px; }"),
+    file(
+      "app/globals.css",
+      "@import './tokens.css';\n\n@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n" +
+        "body { background: var(--ground); color: var(--ink); }\n" +
+        ".container { max-width: var(--container); margin: 0 auto; padding: 0 24px; }",
+    ),
+  ];
+
+  const doc = appPreviewDocument({ tree: styled, projectName: "Styled" });
+
+  const native = doc.match(/<style>([\s\S]*?)<\/style>/g) ?? [];
+  const carriesDesign = native.some(
+    (block) => /--ground/.test(block) && /\.container/.test(block),
+  );
+
+  has(
+    carriesDesign,
+    "THE PROJECT'S CSS IS IN A PLAIN <style> THE BROWSER APPLIES",
+    "without this the whole design is contingent on cdn.tailwindcss.com loading",
+  );
+  has(
+    /<style type="text\/tailwindcss">/.test(doc),
+    "and still in the Tailwind block, so utility classes keep working",
+  );
+  has(
+    doc.indexOf("<style>") < doc.indexOf('<style type="text/tailwindcss">'),
+    "with the native copy FIRST, so a CDN that does load still wins on order",
+    "otherwise this would change how every styled preview looks today",
+  );
+
+  const nativeBlock = native.find((block) => /--ground/.test(block)) ?? "";
+  has(
+    !/@tailwind\s/.test(nativeBlock),
+    "the @tailwind directives are stripped from the native copy",
+    "they mean nothing to a browser and only litter the console",
+  );
+  has(
+    !/@import\s+['"]\.\//.test(nativeBlock),
+    "and so is the relative @import, which stylesheetOf has already inlined",
+  );
+}
+
+/* ── Nothing of ours sits on top of the project ──────────────────────────
+ *
+ * There was a route-switcher bar above every preview: a sticky row of chips
+ * naming each route — /admin, /account, /cart, /products/[slug] — at
+ * z-index 2147483000, over the customer's own design. It was reported twice,
+ * the second time after it had been removed from the embedded pane but was
+ * still there in a new tab, because the first fix only hid it in one of the
+ * two places a preview is opened.
+ *
+ * That is the shape of mistake worth a test rather than a rule: chrome added
+ * for a good reason, in a document whose entire job is to show somebody their
+ * own application and nothing else. A preview link shows the preview.
+ *
+ * Pinned by the class names and the markup rather than by a flag, so it holds
+ * however the bar comes back — a new component, a badge, a floating control.
+ * The failure states are the one exception and stay: they replace the project
+ * when it cannot render, rather than hovering over it. */
+{
+  const doc = appPreviewDocument({ tree: minimal, projectName: "Lumen" });
+
+  has(!doc.includes("qs-bar"), "no route-switcher bar", "It is chrome over the customer's design.");
+  has(!/<nav\b/i.test(doc), "no navigation of ours in the document");
+  has(!/<button\b/i.test(doc), "no controls of ours in the document");
+  has(
+    !/position:\s*(?:sticky|fixed)/i.test(doc.slice(0, doc.indexOf("__QS_FILES"))),
+    "nothing of ours is pinned over the page",
+    "A sticky or fixed element in the shell hovers on the project.",
+  );
+  has(!/data-href/.test(doc), "no route chips");
+
+  /* The project itself still arrives, so this is not passing by rendering
+     nothing — which is the way a test like this goes quietly wrong. */
+  has(doc.includes("__QS_FILES"), "and the project is still what the document carries");
+}
 
 console.log(failed === 0 ? "\nAll preview document checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

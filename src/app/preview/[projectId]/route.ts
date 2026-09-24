@@ -2,11 +2,12 @@ import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-prev
 import { buildModeOf } from "@/lib/builder/build-mode";
 import { existingVercelProject } from "@/lib/publish/deployment-store";
 import { canBeFramed } from "@/lib/publish/framable";
-import { previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
+import { appDomainFor, previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { isProjectSummary } from "@/lib/builder/project-summary";
-import { loadTree } from "@/lib/builder/store-tree";
+import { currentTree, loadTree } from "@/lib/builder/store-tree";
+import { isSinglePage, type FileTree } from "@/lib/builder/tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -138,6 +139,19 @@ async function liveAddress(projectId: string): Promise<string | null> {
     const vercelProject = await existingVercelProject(service, projectId);
     const vercel = publicAddress(data?.deployment_url ?? null, vercelProject);
 
+    /* The address label this project was issued, which is what its published
+       domain is built from — `luxury-bakery`, not the Vercel project name
+       `luxury-bakery-038f1129`. Read here so the pane looks for the same
+       hostname the publish route binds; deriving it from the Vercel name
+       instead meant looking up a domain nothing had ever attached, so the
+       check always failed and the pane fell through to vercel.app. */
+    const { data: named } = await service
+      .from("projects")
+      .select("slug")
+      .eq("id", projectId)
+      .maybeSingle<{ slug: string | null }>();
+    const slug = named?.slug ?? null;
+
     /* ── This platform's own address first ─────────────────────────────
      *
      * `<slug>.preview.quickstark.tech` rather than `<project>.vercel.app`,
@@ -154,9 +168,32 @@ async function liveAddress(projectId: string): Promise<string | null> {
      * exact failure this route keeps being rewritten to avoid. So it is
      * fetched once, and the vercel.app address is what happens when it does
      * not answer. */
-    const alias = vercelProject ? previewAliasFor(vercelProject) : null;
-    if (alias) {
-      const address = `https://${alias}`;
+    /* ── In order of what somebody would rather be looking at ─────────
+     *
+     * The PUBLISHED address first — `<slug>.quickstark.tech`, bound to the
+     * Vercel project when the deployment went live (see settle.ts). It is the
+     * address the customer gives people, and a preview pane pointed at it is
+     * showing the same site their visitors see, on the same origin: the
+     * session cookie, the auth redirect and the server action all behave
+     * exactly as they will in production, which is the whole reason a
+     * server-mode preview is a frame around the real thing rather than a
+     * rendering of it.
+     *
+     * Then the preview alias, then the vercel.app address.
+     *
+     * ASKED AT EVERY STEP, never assumed. Both of ours need a wildcard that
+     * is verified on the Vercel account with DNS pointing at it, and where
+     * that is not true the bind is refused and logs a warning nobody reads.
+     * Redirecting the pane at a host that does not resolve would turn a
+     * working preview into a blank rectangle — the exact failure this route
+     * keeps being rewritten to avoid. So each is fetched once, and the
+     * vercel.app address is what happens when neither answers. */
+    for (const host of [
+      slug ? appDomainFor(slug) : null,
+      vercelProject ? previewAliasFor(vercelProject) : null,
+    ]) {
+      if (!host) continue;
+      const address = `https://${host}`;
       const reachable = await canBeFramed(address, SITE_URL);
       if (reachable.ok) return address;
     }
@@ -174,6 +211,34 @@ function needsServer(reason: string | null): string {
     ? `<p style="max-width:44ch;margin:8px 0 0;font-size:13px;opacity:.75">${escapeHtml(reason)}</p>`
     : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title></head><body style="margin:0;min-height:100dvh;display:grid;place-items:center;background:#f8fafc;color:#475569;font:14px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif"><div style="max-width:44ch;text-align:center;padding:24px"><p style="margin:0">This app runs on a server, so there is nothing to show until it is published. Publish it and this pane will show the running site.</p>${why}</div></body></html>`;
+}
+
+/* The running copy, FRAMED rather than redirected to.
+ *
+ * This returned `Response.redirect(live, 302)`, which took the browser off
+ * quickstark.tech and left it on the hosting provider's domain. Everything
+ * about that was wrong for a preview: the address bar stopped saying
+ * QuickStark, the back button went somewhere else, the workspace's own frame
+ * navigated out from under itself, and what somebody copied out of the bar to
+ * send a colleague was a deployment URL rather than their project. It is also
+ * exactly how "preview" and "publish" came to be the same thing — both ended
+ * at the same host, so there was no visible difference between the private
+ * thing and the public one.
+ *
+ * So the preview stays at /preview/<id> and the running app is shown INSIDE it.
+ * Same pixels, same server, same behaviour — and the URL never leaves this
+ * platform.
+ *
+ * `sandbox` on the frame keeps allow-same-origin, which reads as the opposite
+ * of every other sandbox in this codebase and is right here for a reason the
+ * others do not share: this frame holds a SEPARATE ORIGIN already — somebody
+ * else's deployment on its own hostname — so same-origin means "as itself",
+ * not "as quickstark.tech". Withholding it would break the running app's own
+ * session, which is the one thing a server-mode preview exists to show. It
+ * cannot reach this page: a cross-origin frame has no more access to its
+ * parent for carrying that flag. */
+function runningCopy(address: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title><style>html,body{margin:0;height:100%;background:#f8fafc}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe src="${escapeHtml(address)}" sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals allow-downloads" referrerpolicy="no-referrer"></iframe></body></html>`;
 }
 
 function escapeHtml(value: string): string {
@@ -347,7 +412,44 @@ export async function GET(
    * cannot answer: a project whose files are missing. Its html is a receipt,
    * and a receipt must not be framed as a preview then either — that falls to
    * cannotRender below, which says so in a line. */
-  const tree = wantsDiagnostics ? [] : await loadTree(supabase, build.id as string);
+  /* ── Read for the PROJECT, not for the row ───────────────────────────
+   *
+   * This read `loadTree(build.id)`, which is the right question about a build
+   * and the wrong one about a project. A build row can exist without its
+   * files — an older save path, an orchestrator step that wrote the summary
+   * and stopped — and when the newest one is like that, an empty tree here
+   * meant the renderer had nothing to route and the pane fell through to the
+   * receipt: "Routes 9, Database created, Files", framed where somebody's
+   * application should be.
+   *
+   * Three projects in production are in that state, and two of them have a
+   * complete tree on the build immediately before. currentTree looks back for
+   * it and only reports sourceMissing when there is genuinely no source
+   * anywhere — see newestStoredTree in lib/builder/store-tree.ts. */
+  const current = wantsDiagnostics
+    ? { tree: [] as FileTree, sourceMissing: false }
+    : await currentTree(supabase, projectId);
+
+  /* ── A TREE OF ONE PAGE IS NOT A PROJECT ─────────────────────────────
+   *
+   * currentTree hands a single-page build back as a one-file tree under
+   * index.html, so that the download and the file listing do not each have to
+   * ask which of the two kinds of build they are holding. That is right for
+   * reading and wrong HERE, because this is the line that decides whether the
+   * renderer runs at all.
+   *
+   * Left in, it broke every single-page build on the platform in one commit:
+   * the tree was no longer empty, so `isProject` read true, so the branch
+   * below took over, so canRenderApp looked for app/**​/page.tsx in a tree
+   * whose only file is index.html, found none, and served the "could not be
+   * rendered" page. A blank rectangle where somebody's site had been, for the
+   * commonest kind of build this platform makes.
+   *
+   * The distinction the route actually needs is "does this project have SOURCE
+   * FILES", and a page reconstituted from the html column is not that. So the
+   * page-derived tree is dropped and the document below serves it, which is
+   * exactly what happened before currentTree was wired in here. */
+  const tree = isSinglePage(current.tree) ? [] : current.tree;
   const isProject = tree.length > 0 || isProjectSummary(build.html as string);
 
   if (!wantsDiagnostics && isProject) {
@@ -370,7 +472,22 @@ export async function GET(
     const build_mode = buildModeOf(tree);
     if (build_mode.mode === "server") {
       const live = await liveAddress(projectId);
-      if (live) return Response.redirect(live, 302);
+      if (live) {
+        return new Response(runningCopy(live), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            /* No sandbox header here, and that is deliberate: this document is
+               ours, it is four lines long, and the untrusted half is inside the
+               frame it writes — which carries its own sandbox attribute. A
+               `Content-Security-Policy: sandbox` on the outer document would
+               put the frame in an opaque origin too, and take the running
+               app's own cookies and storage away from it. */
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
 
       return new Response(needsServer(build_mode.because[0] ?? null), {
         status: 200,
@@ -391,7 +508,39 @@ export async function GET(
           .eq("id", projectId)
           .maybeSingle();
 
-        const document = appPreviewDocument({ tree, projectName: project?.name as string | null });
+        /* The project's own `process.env`, for the browser renderer.
+         *
+         * A backend project's lib/supabase.ts reads these three (scaffold.ts
+         * writes it), and `next build` inlines them. The preview compiles the
+         * tree in a browser instead, where nothing inlines and `process` does
+         * not exist — so until this was passed, every screen importing the
+         * Supabase client threw `process is not defined` and the pane showed a
+         * screen that could not be rendered.
+         *
+         * NEXT_PUBLIC_ only, deliberately. These are compiled into any real
+         * build of the generated project and served to every visitor, so a
+         * sandboxed document that also has them knows nothing new. The
+         * service-role key must never appear here: this runs source a
+         * customer's prompt produced.
+         *
+         * Each is included only when set, so an unconfigured deployment sends
+         * an empty object and the generated client says it is unconfigured on
+         * first use instead of throwing on import. */
+        const previewEnv: Record<string, string> = {};
+        for (const name of [
+          "NEXT_PUBLIC_SUPABASE_URL",
+          "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+          "NEXT_PUBLIC_SUPABASE_SCHEMA",
+        ] as const) {
+          const value = process.env[name];
+          if (value) previewEnv[name] = value;
+        }
+
+        const document = appPreviewDocument({
+          tree,
+          projectName: project?.name as string | null,
+          env: previewEnv,
+        });
         if (document) {
           return new Response(document, {
             headers: {

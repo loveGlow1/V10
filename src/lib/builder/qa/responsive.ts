@@ -78,6 +78,72 @@ function pixels(token: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/* ── The header, which is the one everybody sees first ────────────────────
+ *
+ * A generated header puts the brand on the left and the link list on the
+ * right, and at 1280px that is exactly right. At 390px it is the single
+ * ugliest thing this platform ships: five inline links and a wordmark on a
+ * screen that fits about three, so they wrap under the logo, collide with it,
+ * or push the page sideways. It is the first thing on the page, so it is the
+ * first thing anybody judges.
+ *
+ * There is one shape that works and it is not a matter of taste: below `md`
+ * the header is the brand and a button, and the links live behind the button.
+ * Above it, the links come back. In Tailwind that is exactly two class lists —
+ * `hidden md:flex` on the list, `flex md:hidden` on the button — which is
+ * cheap to write at generation time and expensive to retrofit afterwards,
+ * because retrofitting it means adding markup rather than editing a class.
+ *
+ * ── What is read, and why it is scoped this tightly ───────────────────────
+ *
+ * Only <header> and <nav>, and never inside a <footer>. A footer with eight
+ * stacked links is correct on a phone and always has been; flagging it would
+ * be the gate refusing a working page over a stray attribute, which is a
+ * disease this codebase has caught twice already.
+ *
+ * ── AND TAILWIND IS NOT THE ONLY WAY TO DO IT RIGHT ──────────────────────
+ *
+ * The first version of this rule read Tailwind classes only and was an error,
+ * and the first real file it was run against — components/SiteHeader.tsx from
+ * a project in production — failed it. That header is CORRECT. It hides the
+ * link list with an inline `display: none`, shows a menu button, and flips
+ * both in a `@media (min-width: 768px)` block in its own <style> element. Ten
+ * anchors, no Tailwind breakpoint anywhere, and a layout that works on a
+ * phone. The rule would have blocked that build.
+ *
+ * So two things changed, and the second matters more than the first.
+ *
+ * A media query that sets `display` counts as a collapse, read over the whole
+ * FILE rather than the header region — the stylesheet that does the flipping
+ * is as likely to be in globals.css as inside the element.
+ *
+ * And it is a WARNING, never an error. The rule at the top of this file is
+ * that only findings true in EVERY document that has them may block, and a
+ * header with many links is plainly not one of those: the file above has ten
+ * and is right. The prompt is what makes headers collapse (see treeBrief and
+ * BASE, which give the two class lists); this is the backstop that reports it
+ * and feeds responsiveBrief when somebody asks for a mobile fix. A backstop
+ * that fails a working build is worse than no backstop. */
+const COLLAPSES =
+  /\bhidden\s+(?:sm|md|lg|xl):(?:flex|block|grid|inline-flex|inline-block)\b|\b(?:sm|md|lg|xl):hidden\b|\bmax-(?:sm|md|lg|xl):hidden\b/;
+
+/* The same decision written as CSS: a width breakpoint that changes what is
+   displayed. Deliberately loose — this is the test that keeps a correct page
+   from being reported, so it should err towards silence. */
+const MEDIA_COLLAPSE = /@media[^{]*(?:min-width|max-width)[^{]*\{[\s\S]{0,600}?display\s*:/i;
+
+/** A link in a header: an anchor, a next/link, or a router link by any name. */
+const NAV_LINK = /<(?:a|Link|NavLink)\b/gi;
+
+function navRegions(source: string): string[] {
+  /* The footer goes first, so a <nav> inside it is never read. */
+  const withoutFooter = source.replace(/<footer\b[\s\S]*?<\/footer>/gi, "");
+  return [
+    ...(withoutFooter.match(/<header\b[\s\S]*?<\/header>/gi) ?? []),
+    ...(withoutFooter.match(/<nav\b[\s\S]*?<\/nav>/gi) ?? []),
+  ];
+}
+
 function issue(
   severity: Issue["severity"],
   rule: string,
@@ -94,15 +160,22 @@ function issue(
  * .tsx and a single page's lives in its html, and the same rules apply to both.
  */
 export function staticResponsiveGate(html: string, tree: FileTree = []): GateResult {
-  const lists: Lists = [];
+  /* Kept whole as well as split into class lists. Most rules here read one
+     class list at a time, but the header rule is about a REGION — how many
+     links are inside a <header> and whether anything hides them — and a class
+     list on its own cannot answer that. */
+  const sources: { file: string; source: string }[] = [];
 
   for (const file of tree) {
     if (!/\.(?:tsx?|jsx?)$/.test(file.path)) continue;
-    lists.push(...classListsIn(file.content, file.path));
+    sources.push({ file: file.path, source: file.content });
   }
   /* A single-page build has no tree worth reading — treeFromPage would hand
      back the document under index.html and we already have it. */
-  if (tree.length === 0 && html) lists.push(...classListsIn(html, "the page"));
+  if (tree.length === 0 && html) sources.push({ file: "the page", source: html });
+
+  const lists: Lists = [];
+  for (const { file, source } of sources) lists.push(...classListsIn(source, file));
 
   const issues: Issue[] = [];
   const said = new Set<string>();
@@ -116,6 +189,24 @@ export function staticResponsiveGate(html: string, tree: FileTree = []): GateRes
     said.add(key);
     issues.push(found);
   };
+
+  for (const { file, source } of sources) {
+    /* Read once per file, not per region: the media query that collapses a
+       header is as often in the stylesheet as in the element. */
+    if (MEDIA_COLLAPSE.test(source)) continue;
+
+    for (const region of navRegions(source)) {
+      const links = (region.match(NAV_LINK) ?? []).length;
+      if (links < 3 || COLLAPSES.test(region)) continue;
+
+      once(issue(
+        "warning",
+        "nav-never-collapses",
+        `This header keeps ${links} inline links at every width, so on a phone they wrap under the logo or push the page sideways. Below \`md\` a header is the brand and a menu button and nothing else: put \`hidden md:flex\` on the link list and \`flex md:hidden\` on the button that opens it.`,
+        file,
+      ));
+    }
+  }
 
   for (const { file, classes } of lists) {
     const tokens = classes.split(/\s+/).filter(Boolean);
@@ -218,11 +309,52 @@ export function staticResponsiveGate(html: string, tree: FileTree = []): GateRes
   /* Nothing to read is not a pass. A project whose files carry no class list at
      all has not been checked, and saying so is the same rule the rendered gate
      follows. */
-  if (lists.length === 0) return emptyGate(false);
+  if (lists.length === 0 && issues.length === 0) return emptyGate(false);
 
   return {
     ran: true,
     passed: !issues.some((found) => found.severity === "error"),
     issues,
   };
+}
+
+/**
+ * What is wrong with this page on a phone, written for the model about to fix it.
+ *
+ * ── Why a brief and not just the instruction ──────────────────────────────
+ *
+ * "Make it fit on mobile" is a perfectly clear request and it was being handed
+ * over as the whole of what the model knew. The page is forty kilobytes, the
+ * defect is four characters somewhere inside it, and the edit has under a
+ * minute — so the model spent that minute reading, looking for something that
+ * this codebase had already found and could have simply said.
+ *
+ * It is the difference between understanding a request and being equipped to
+ * answer it. The gate above knows the file, the class list and the rule; none
+ * of that was reaching the one thing that could act on it.
+ *
+ * Empty when there is nothing to report, so a page with no findings does not
+ * get a paragraph telling it so — and the model then works exactly as it did,
+ * which is the right fallback for a page this cannot read.
+ */
+export function responsiveBrief(html: string, tree: FileTree = []): string {
+  const gate = staticResponsiveGate(html, tree);
+  if (!gate.ran || gate.issues.length === 0) return "";
+
+  /* Errors first: they are the ones that certainly break the page, and a model
+     reading a list acts on the top of it. */
+  const ordered = [...gate.issues].sort((a, b) =>
+    a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1,
+  );
+
+  const lines = ordered
+    .slice(0, 12)
+    .map((issue) => `- ${issue.where ? `${issue.where}: ` : ""}${issue.message}`);
+
+  return [
+    `WHAT IS ACTUALLY WRONG ON A PHONE — found by measuring this page at ${PHONE}px, not guessed:`,
+    ...lines,
+    "",
+    "Fix these. They are the reason the page does not fit; anything else you change is a change nobody asked for.",
+  ].join("\n");
 }

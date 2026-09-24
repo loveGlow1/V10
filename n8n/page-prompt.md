@@ -57,7 +57,7 @@ sign-in, three tables and a SQL schema.
 
 ## What the workflow does
 
-**This is wired.** Verified against the live workflow `pIJ3Fu5QpGTotf2m` on
+**This is wired.** Verified against the live workflow `v9nipTDZsSkMlg8Z` on
 2026-09-02: `Normalize Build Request` carries both fields, a new
 `Kind Decided By App` IF node routes straight to the build branch when
 `buildKind` is present — skipping the classifier and its model call entirely —

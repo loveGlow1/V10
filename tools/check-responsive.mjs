@@ -56,7 +56,7 @@ mkdirSync(shim, { recursive: true });
 try { execFileSync("ln", ["-sfn", out, join(shim, "@")]); } catch { /* already there */ }
 
 const require = createRequire(import.meta.url);
-const { staticResponsiveGate } = require(join(out, "lib/builder/qa/responsive.js"));
+const { responsiveBrief, staticResponsiveGate } = require(join(out, "lib/builder/qa/responsive.js"));
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -89,6 +89,138 @@ const errors = (result) => result.issues.filter((i) => i.severity === "error").m
   has(
     result.issues.some((i) => /110px|side by side/.test(i.message)),
     "and says what three columns on a phone actually means",
+  );
+}
+
+/* ── The header, which is the one people photograph ──────────────────────
+ *
+ * Wordmark left, six inline links right. Correct at 1280px and the ugliest
+ * thing this platform ships at 390px: the links wrap under the logo, collide
+ * with it, or push the page sideways. It is the top of every page, so it is
+ * what "it looks ugly on mobile" is usually about. */
+{
+  const header = page(`<header className="flex items-center justify-between px-4">
+      <a href="/" className="font-bold">Brand</a>
+      <nav className="flex gap-6">
+        <a href="#services">Services</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#about">About</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </header>`);
+  const result = staticResponsiveGate("", header);
+
+  has(
+    rules(result).includes("nav-never-collapses"),
+    "a header of inline links with nothing hiding them is reported",
+    JSON.stringify(rules(result)),
+  );
+  has(
+    !errors(result).includes("nav-never-collapses"),
+    "AS A WARNING, because a header with many links is not broken in every document",
+    "the first real file this was run against had ten links and was correct — " +
+      "an error here would have failed a build that works",
+  );
+  has(
+    result.issues.some((i) => /hidden md:flex/.test(i.message)),
+    "and the finding carries the class list that fixes it",
+  );
+  has(
+    result.issues.some((i) => /flex md:hidden/.test(i.message)),
+    "including the one on the button, which is the half that needs new markup",
+  );
+}
+
+/* And the shape that is correct is not reported, which is the harder half:
+   a gate that refuses a working page is a disease this codebase has caught
+   twice already. */
+{
+  const done = page(`<header className="flex items-center justify-between px-4">
+      <a href="/" className="font-bold">Brand</a>
+      <nav className="hidden md:flex gap-6">
+        <a href="#services">Services</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#about">About</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <button className="flex md:hidden" aria-expanded="false" aria-controls="menu">Menu</button>
+    </header>`);
+  has(
+    !rules(staticResponsiveGate("", done)).includes("nav-never-collapses"),
+    "a header that collapses below md is left alone",
+  );
+}
+
+/* ── THE ONE FROM PRODUCTION ─────────────────────────────────────────────
+ *
+ * components/SiteHeader.tsx, from a real project. Ten anchors, not one
+ * Tailwind breakpoint, and completely correct: the link list is hidden with an
+ * inline `display: none`, a menu button sits beside it, and a
+ * `@media (min-width: 768px)` block in the element's own <style> flips both.
+ *
+ * The first version of this rule failed it, as an ERROR, which would have
+ * blocked that build. Tailwind is not the only way to write a responsive
+ * header and this gate does not get to pretend otherwise. */
+{
+  const real = page("");
+  real[0] = {
+    path: "components/SiteHeader.tsx",
+    content: `export default function SiteHeader() {
+      return (
+        <header style={{ borderBottom: "1px solid var(--line)" }}>
+          <div className="container" style={{ display: "flex", justifyContent: "space-between" }}>
+            <Link href="/">NOVA</Link>
+            <nav style={{ display: "none" }} className="nav-desktop">
+              <Link href="/">Shop</Link><Link href="/">New Arrivals</Link>
+              <Link href="/">Collections</Link><Link href="/">About</Link>
+            </nav>
+            <button className="nav-toggle" aria-label="Menu">menu</button>
+          </div>
+          <style>{\`
+            @media (min-width: 768px) {
+              .nav-desktop { display: flex !important; }
+              .nav-toggle { display: none !important; }
+            }
+          \`}</style>
+        </header>
+      );
+    }`,
+  };
+
+  const found = staticResponsiveGate("", real);
+  has(
+    !rules(found).includes("nav-never-collapses"),
+    "A HEADER THAT COLLAPSES WITH A MEDIA QUERY IS LEFT ALONE",
+    JSON.stringify(rules(found)),
+  );
+  has(found.passed === true, "and the gate passes it", JSON.stringify(found.issues));
+}
+
+/* A footer full of links is correct on a phone and always has been. */
+{
+  const footer = page(`<footer><nav className="flex flex-col gap-2">
+      <a href="/a">Terms</a><a href="/b">Privacy</a><a href="/c">Contact</a>
+      <a href="/d">Careers</a><a href="/e">Press</a><a href="/f">Help</a>
+    </nav></footer>`);
+  has(
+    !rules(staticResponsiveGate("", footer)).includes("nav-never-collapses"),
+    "and a footer's link list is never mistaken for a header's",
+    "flagging it would be the gate refusing a page that is right",
+  );
+}
+
+/* A single page is read the same way — it is the same defect in one file. */
+{
+  const html = `<!doctype html><html><body><header class="flex justify-between">
+    <a href="/">Brand</a>
+    <nav class="flex gap-6"><a href="#a">Services</a><a href="#b">Pricing</a>
+    <a href="#c">About</a><a href="#d">FAQ</a><a href="#e">Contact</a></nav>
+  </header></body></html>`;
+  has(
+    rules(staticResponsiveGate(html, [])).includes("nav-never-collapses"),
+    "a single-page build is held to it too",
   );
 }
 
@@ -193,6 +325,89 @@ has(
   "\\\"be responsive\\\" produces a model's idea of responsive",
 );
 has(/px-4 sm:px-6 lg:px-8/.test(brief), "and one container rule for every section");
+
+/* ── And the header rule is in the prompt, not only in the gate ──────────
+ *
+ * Retrofit is expensive here in a way the other responsive rules are not:
+ * fixing a grid is editing a class, and fixing a header is adding markup and
+ * behaviour. So this one has to be right the first time, which means the model
+ * has to be told the two class lists before it writes the file rather than
+ * after a gate has found it. */
+has(
+  /hidden md:flex/.test(brief) && /flex md:hidden/.test(brief),
+  "the project brief names both halves of a collapsing header",
+);
+has(
+  /BELOW `md` A HEADER IS TWO THINGS/.test(brief),
+  "and says what a header IS below md, rather than asking for a responsive nav",
+);
+
+const base = readFileSync(join(root, "src/lib/builder/blueprints/base.ts"), "utf8");
+has(
+  /hidden md:flex/.test(base) && /flex md:hidden/.test(base),
+  "and the single-page prompt carries the same rule",
+  "one page and a project are the same header on the same phone",
+);
+
+/* ── Telling the model what is wrong, instead of making it look ──────────
+ *
+ * "Make it fit on mobile" is a perfectly clear request, and it was handed over
+ * as the whole of what the model knew. The page is forty kilobytes, the defect
+ * is four characters somewhere inside it, and the edit has under a minute — so
+ * the minute went on reading, hunting for something this codebase had already
+ * measured and could simply have said.
+ *
+ * That is the difference between understanding a request and being equipped to
+ * answer it. The gate above knows the file, the class list and the rule. None
+ * of it was reaching the one thing that could act on it. */
+{
+  const broken = page(`<div className="grid grid-cols-3"><span className="w-[1200px]">x</span></div>`);
+  const brief = responsiveBrief("", broken);
+
+  has(brief.length > 0, "a page with findings produces a brief");
+  has(/390px/.test(brief), "which says the width it was measured at", brief.split("\n")[0]);
+  has(/not guessed/.test(brief), "and that it was measured rather than guessed");
+  has(/grid-cols-3/.test(brief) && /w-\[1200px\]/.test(brief), "naming the actual classes at fault");
+  has(
+    brief.indexOf("w-[1200px]") < brief.indexOf("grid-cols-3") ||
+      brief.split("\n").findIndex((l) => /w-\[1200px\]/.test(l)) <= 2,
+    "errors before warnings, because a model acts on the top of a list",
+  );
+  has(
+    /anything else you change is a change nobody asked for/.test(brief),
+    "and it is bounded, so a layout fix does not become a redesign",
+  );
+}
+
+{
+  /* Nothing to say, nothing said. A page with no findings must not get a
+     paragraph telling it so — that is several hundred tokens of noise on a
+     prompt that has under a minute to be answered in. */
+  const sound = page(`<section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">ok</section>`);
+  has(responsiveBrief("", sound) === "", "a sound page produces no brief at all");
+
+  const unreadable = responsiveBrief("", [{ path: "lib/x.ts", content: "export const a = 1;" }]);
+  has(unreadable === "", "and neither does one this cannot read");
+}
+
+{
+  /* Wired for the request it is about, and not for every request. */
+  const route = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
+  has(
+    /plan\.kind === "responsive" \? responsiveBrief\(/.test(route),
+    "the edit path attaches it when the ask is about a phone",
+  );
+  has(
+    /responsiveBrief\(autofix\(currentHtml\)\.html\)/.test(route),
+    "measured after the mechanical fixes, so the model is not asked to redo them",
+    "autofix runs on the result either way; listing what it already fixed wastes the minute",
+  );
+  has(
+    /: ""/.test(route.slice(route.indexOf("plan.kind === \"responsive\""), route.indexOf("plan.kind === \"responsive\"") + 200)),
+    "and attaches nothing when it is not",
+    "a brief about phone layout on a message about pricing copy is pure distraction",
+  );
+}
 
 console.log(failed === 0 ? "\nAll responsive checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

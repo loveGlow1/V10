@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
+import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { isPublishedProject } from "@/lib/project-status";
@@ -66,7 +67,7 @@ export type BuildReply = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
-  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  architectureOptions?: { value: "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -98,7 +99,7 @@ type BuildPayload = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
-  architectureOptions?: { value: "full" | "frontend"; label: string; blurb: string }[];
+  architectureOptions?: { value: "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -152,7 +153,7 @@ export type BuildOptions = {
    * when its own planner reports the decision as a guess. See
    * lib/builder/architecture.ts.
    */
-  architecture?: "full" | "frontend" | null;
+  architecture?: "full" | "frontend" | "own" | null;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -409,6 +410,11 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
      rather than as a banner over the whole list. */
   const build = useCallback(
     async (id: string, prompt: string, options: BuildOptions = {}): Promise<BuildReply> => {
+      /* When this went out. Half of naming a failure accurately is knowing how
+         long it lasted: a run that ended at 57 seconds hit the ceiling, and one
+         that ended at 2 never left. See lib/builder/run-failure.ts. */
+      const requestedAt = Date.now();
+
       const response = await fetch("/api/build", {
         method: "POST",
         signal: options.signal,
@@ -443,6 +449,11 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
          status, because a stream commits its headers before any of the work has
          run — see the note on POST in the route. */
       let status = response.status;
+      /* Facts about the run, for naming a failure accurately if it does not
+         answer. Whether the work STARTED separates "it never left" from "it ran
+         out of time", which are opposite problems with opposite advice. See
+         lib/builder/run-failure.ts. */
+      let started = false;
       /* Collected rather than assigned to a variable declared out here. The
          only write is inside the reader's callback, which TypeScript's flow
          analysis does not follow — it would carry the initial null forward and
@@ -480,6 +491,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (parsed.type === "step" && parsed.step) {
+              started = true;
               options.onStep?.(parsed.step);
             } else if (parsed.type === "text" && typeof parsed.delta === "string") {
               options.onText?.(parsed.delta);
@@ -506,13 +518,34 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
          the page is untouched and the person needs to read why — and throwing
          made it indistinguishable in the chat from the app falling over. */
       if (status >= 400 || !payload?.build) {
+        /* ── Named, rather than apologised for ──────────────────────────
+         *
+         * This used to end in one sentence for every way a run can fail:
+         * "I couldn't send that one. Your message is still in the box — try it
+         * again." It names no cause, and its advice is actively wrong for the
+         * commonest case — a request killed by the sixty-second ceiling is
+         * killed again at sixty seconds, every time. A customer followed that
+         * instruction four times in nine minutes while the thing they needed
+         * to know was never said by anything.
+         *
+         * describeRunFailure is handed what this actually knows — how long it
+         * ran, whether the work began, what the server managed to say — and
+         * returns a cause and a remedy. See lib/builder/run-failure.ts. */
+        const failure = describeRunFailure({
+          status,
+          answered: Boolean(payload),
+          started,
+          elapsedMs: Date.now() - requestedAt,
+          said: payload?.error ?? null,
+        });
+
         return {
           intent: payload?.intent,
           /* Carried on a refusal too. A message that was classified, read and
              then declined did real work, and the steps are how someone sees
              where it stopped. */
           steps: payload?.steps,
-          error: payload?.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
+          error: sayFailure(failure).trim(),
           stored: payload?.stored === true,
         };
       }

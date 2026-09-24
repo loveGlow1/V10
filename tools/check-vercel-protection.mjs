@@ -68,8 +68,9 @@ process.env.VERCEL_TEAM_ID = "team_abc";
 
 const require = createRequire(import.meta.url);
 const mod = require(join(out, "lib/publish/vercel-deploy.js"));
-const { clearProtection, aliasDeployment, deploymentFiles, previewAliasFor, projectEnvironment, projectSecretNames,
-        removeProjectSecret, secretKeyProblem, setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
+const { appDomainFor, attachProjectDomain, clearProtection, aliasDeployment, deploymentFiles, previewAliasFor,
+        projectDomains, projectEnvironment, projectSecretNames, removeProjectSecret, secretKeyProblem,
+        setProjectEnvironment, setProjectSecret, vercelCredentials } = mod;
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -126,9 +127,21 @@ has(creds.teamQuery.includes("team_abc"), "and carry the team", creds.teamQuery)
       `the ${label} sends ssoProtection as an explicit null`,
       JSON.stringify(call?.body),
     );
+    /* The third gate. An IP allow-list answers 403 to everybody who is not the
+       team, which on a generated project is everybody it was made for. */
     has(
-      call && "passwords" in call.body && call.body.passwords === null,
-      `the ${label} sends passwords as an explicit null`,
+      call && "trustedIps" in call.body && call.body.trustedIps === null,
+      `the ${label} sends trustedIps as an explicit null`,
+      JSON.stringify(call?.body),
+    );
+    /* `passwordProtection`, under the name the v9 project endpoint actually
+       reads. This asserted `passwords`, which is not a field Vercel has: the
+       key was accepted, ignored, and password protection stayed on — so the
+       check passed for years while the thing it was guarding did not work. A
+       login box in front of a published site is the visible half of that. */
+    has(
+      call && "passwordProtection" in call.body && call.body.passwordProtection === null,
+      `the ${label} sends passwordProtection as an explicit null`,
     );
   }
 
@@ -476,6 +489,232 @@ const TARGET = {
     !none.some((f) => f.file === ".env.production"),
     "a project with no backend gets no env file at all",
     "a file of somebody else's credentials in a site that never asked for a database",
+  );
+}
+
+/* ── The customer's own address, bound to the project ────────────────────
+ *
+ * `<slug>.quickstark.tech` rather than `<slug>.vercel.app`, which is not
+ * decoration: the vercel.app address tells every visitor whose hosting this is
+ * on a site somebody is about to show a client.
+ *
+ * WHAT IS PINNED HERE IS THAT IT IS A PROJECT DOMAIN AND NOT A DEPLOYMENT
+ * ALIAS, because the two look identical the day they are written and diverge
+ * afterwards. An alias points at ONE build, so every publish after it has to
+ * re-point the alias or the clean address quietly serves a version from three
+ * edits ago — while the vercel.app address moves on. Both addresses work and
+ * only one is right, which is the worst shape a bug can have. A domain bound
+ * to the PROJECT follows its newest production deployment on its own. */
+{
+  process.env.QUICKSTARK_APP_DOMAIN = "quickstark.tech";
+
+  has(appDomainFor("acme-store") === "acme-store.quickstark.tech", "a project's domain is its slug under the base");
+  has(
+    appDomainFor("Acme Store!") === "acme-store.quickstark.tech",
+    "and a name with spaces and punctuation still makes a legal host",
+    appDomainFor("Acme Store!"),
+  );
+
+  delete process.env.QUICKSTARK_APP_DOMAIN;
+  has(
+    appDomainFor("acme-store") === null,
+    "with no base domain configured there is no address to claim",
+    "inventing one would point a customer at a host that does not resolve",
+  );
+  process.env.QUICKSTARK_APP_DOMAIN = "quickstark.tech";
+}
+
+{
+  stubFetch(() => ({ status: 200, body: { name: "acme.quickstark.tech" } }));
+  const bound = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+
+  has(bound.ok === true, "a domain binds");
+  has(bound.already === false, "and says it is new");
+
+  const post = calls.find((c) => c.method === "POST");
+  has(
+    post && /\/v10\/projects\/acme\/domains/.test(post.url),
+    "at POST /v10/projects/{idOrName}/domains — the PROJECT, not a deployment",
+    post?.url,
+  );
+  has(post && post.body.name === "acme.quickstark.tech", "carrying the domain as `name`", JSON.stringify(post?.body));
+  has(post && post.url.includes("teamId=team_abc"), "and the team, or it acts on the wrong account");
+}
+
+/* ── The second publish, which is every publish after the first ──────────
+ *
+ * This runs each time a deployment goes live, so it finds the domain already
+ * attached and Vercel answers 409. That is not a failure and must never be
+ * reported as one — the project's own list is what tells "already ours" apart
+ * from "somebody else holds it". */
+{
+  stubFetch((url, init) =>
+    (init.method ?? "GET") === "POST"
+      ? { status: 409, body: { error: { code: "domain_already_in_use", message: "in use" } } }
+      : { status: 200, body: { domains: [{ name: "acme.quickstark.tech" }] } },
+  );
+
+  const again = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(again.ok === true, "A DOMAIN WE ALREADY HOLD IS SUCCESS, NOT A CONFLICT");
+  has(again.already === true, "and says so, rather than claiming it just bound it");
+  has(
+    calls.some((c) => (c.method ?? "GET") === "GET" && /\/domains/.test(c.url)),
+    "which it establishes by reading the project's own list",
+    "a 409 alone cannot tell our domain from somebody else's",
+  );
+}
+
+{
+  stubFetch((url, init) =>
+    (init.method ?? "GET") === "POST"
+      ? { status: 409, body: { error: { code: "domain_already_in_use", message: "held elsewhere" } } }
+      : { status: 200, body: { domains: [{ name: "something-else.quickstark.tech" }] } },
+  );
+
+  const taken = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(taken.ok === false, "but a domain held by somebody ELSE is a real refusal");
+  has(
+    typeof taken.reason === "string" && taken.reason.length > 0,
+    "with a reason, so an operator can act on it",
+    JSON.stringify(taken),
+  );
+}
+
+{
+  stubFetch(() => ({ status: 403, body: { error: { message: "not authorised" } } }));
+  const refused = await attachProjectDomain("acme", "acme.quickstark.tech", creds);
+  has(refused.ok === false, "a token without the scope is a refusal rather than a throw");
+
+  stubFetch(() => ({ status: 500, body: {} }));
+  has(
+    (await projectDomains("acme", creds)).length === 0,
+    "and a list that cannot be read is empty rather than an exception",
+    "nothing here may take down a publish that already succeeded",
+  );
+}
+
+/* ── READY IS NOT THE SAME AS REACHABLE ───────────────────────────────────
+ *
+ * A deployment behind Deployment Protection is READY, correct, and answers
+ * every stranger with a sign-in wall. It used to come back from deploymentState
+ * as `error`, which sent it through repairAndRedeploy — a model call asked to
+ * fix CODE for a problem that is a project setting — and then through canRetry,
+ * which redeployed it. The next deployment was protected in exactly the same
+ * way. Each round spent a model call and a Vercel build to reach the same
+ * answer.
+ *
+ * Asserted on the source, because the behaviour needs a live Vercel to
+ * exercise and the wiring is what regresses. */
+{
+  const { readFileSync } = await import("node:fs");
+  const deploy = readFileSync(join(root, "src/lib/publish/vercel-deploy.ts"), "utf8");
+  const settle = readFileSync(join(root, "src/lib/publish/settle.ts"), "utf8");
+
+  has(
+    /state: "protected"/.test(deploy),
+    "a protected deployment has a state of its own",
+    "as `error` it was repaired and redeployed, and the next one was protected too",
+  );
+  has(
+    /blocked: true/.test(deploy),
+    "and reachable says WHY it could not be opened",
+    "a sign-in wall and a 500 need opposite responses",
+  );
+
+  /* The automation this exists for: clear it and ask again, rather than
+     telling somebody to go and click it themselves. */
+  has(
+    deploy.indexOf("reached.blocked") < deploy.indexOf("await clearProtection(projectName"),
+    "detecting protection leads to clearing it, not to reporting it",
+  );
+  has(
+    /retry\.cleared \? await reachable\(address\)/.test(deploy),
+    "and the address is asked a second time before anything is claimed",
+    "a PATCH that returned 200 is not evidence the page opens",
+  );
+
+  /* §3: scoped. Guessing a project name from a hostname would change the
+     access settings of a project nobody asked about. */
+  has(
+    /projectName\s*\?\s*await clearProtection\(projectName, creds\)/.test(deploy),
+    "and only ever on a project it can name",
+    "deriving one from the deployment host is guessing which project to change",
+  );
+
+  has(
+    settle.indexOf('state.state === "protected"') < settle.indexOf('state.state === "error"'),
+    "settle handles protected before failure, so it is never repaired",
+  );
+  has(
+    /noteDeploymentState\(service, record\.projectId, "protected"/.test(settle),
+    "and records READY BUT PROTECTED rather than failed",
+    "one is rebuilt and the other is a setting",
+  );
+
+  /* ── A 200 IS NOT PROOF THE APP IS THERE ───────────────────────────────
+   *
+   * The status check catches what a plain request gets: 401, or 403. A BROWSER
+   * does not always get that — Deployment Protection can answer a navigation
+   * with a redirect to Vercel's sign-in, which is a 200 carrying an
+   * interstitial, and with redirect: "follow" that arrived as success. So the
+   * check passed, "your app is live" was said, and the person opening the link
+   * in a private window got a login page. */
+  has(
+    /landedOn !== startedOn/.test(deploy),
+    "a response that ends on a Vercel hostname is protection, whatever its status",
+    "where the request ENDED matters more than what the body claims",
+  );
+  has(
+    /_vercel\\\/sso/.test(deploy) || /_vercel\/sso/.test(deploy),
+    "and an interstitial served in place is recognised too",
+  );
+  has(
+    /Mozilla\/5\.0/.test(deploy),
+    "the check asks as a browser, because that is what the preview is",
+    "asking as a script tests a path no visitor takes",
+  );
+  has(
+    /response\.status >= 400 && VERCEL_ERROR\.test\(body\)/.test(deploy),
+    "Vercel's error page is only read out of a response that already failed",
+    "a 200 containing NOT_FOUND is likelier to be the app's own code",
+  );
+
+  /* §8: not silently. */
+  has(
+    /deployment protection was not cleared/.test(deploy),
+    "a protection setting that would not change is written down with its details",
+  );
+}
+
+/* ── And the publish path actually calls it ──────────────────────────────── */
+{
+  const { readFileSync } = await import("node:fs");
+  const settle = readFileSync(join(root, "src/lib/publish/settle.ts"), "utf8");
+
+  has(/attachProjectDomain\(/.test(settle), "the settle path binds the domain when a deployment goes live");
+  has(
+    /await reachable\(`https:\/\/\$\{domain\}`\)/.test(settle),
+    "and CONFIRMS IT ANSWERS before storing it as the address",
+    "a bind that has not propagated would put a dead URL in front of somebody who just published",
+  );
+  has(
+    /const settled = own \? \{ \.\.\.state, url: own \} : state/.test(settle),
+    "storing the vercel.app address when it does not, which works",
+  );
+
+  const preview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+  /* Built from the project's SLUG, not from the Vercel project name. The two
+     differ — `luxury-bakery` against `luxury-bakery-038f1129` — so deriving it
+     from the Vercel name had the preview looking up a hostname the publish
+     path never binds: the check always failed and the pane fell through to the
+     vercel.app address every time. */
+  has(
+    /appDomainFor\(slug\)/.test(preview),
+    "and a server-mode preview points its frame at the published domain first",
+  );
+  has(
+    /canBeFramed\(address, SITE_URL\)/.test(preview),
+    "after asking whether it can be framed, never on the assumption that it can",
   );
 }
 

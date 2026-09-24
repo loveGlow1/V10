@@ -161,69 +161,107 @@ export default function PreviewPanel({
     setDiagnosis(null);
     setShowLog(false);
 
-    fetch(`/api/projects/${id}/deploy`)
-      .then((response) => (response.ok ? response.json() : { available: false }))
-      .then((body: {
-        available?: boolean;
-        ready?: boolean;
-        url?: string | null;
-        /* Whether that address is serving the newest build. */
-        current?: boolean;
-        /* True while the newest deployment is still compiling. The address is
-           real; the site behind it is not up yet. */
-        building?: boolean;
-        /* Whether it can be shown in this pane, and why not when it cannot. */
-        viewable?: boolean;
-        viewableReason?: string | null;
-        /* Why the last attempt produced no address. Distinct from `reason`,
-           which is about this DEPLOYMENT's configuration rather than about
-           this project's last build. */
-        failure?: string | null;
-        /* The readable form of `failure`, built on the server so the workspace
-           and the chat say the same thing about the same failure. */
-        diagnosis?: Diagnosis | null;
-        /* A failure that did NOT take the site down: the newest build would
-           not deploy and an older one is still serving. Separate from
-           `failure` on purpose — see the deploy route. The pane keeps framing
-           the site that works and says this beside it. */
-        behind?: Diagnosis | null;
-        reason?: string | null;
-      }) => {
-        if (!current) return;
-        /* Straight into the pane. This runs when the workspace opens, so a
-           project that was deployed an hour ago is showing its app before
-           anybody presses anything. */
-        if (body.url) setDeployed(body.url);
-        setLiveIsCurrent(body.current !== false);
-        setBuilding(body.building === true);
-        setLiveViewable(body.viewable !== false);
-        setLiveBlockedReason(body.viewableReason ?? null);
-        /* Carried before anything is pressed. If hosting is not configured, the
-           account that can configure it should be able to read that from the
-           button rather than from a failed attempt. */
-        if (body.available === true && body.ready === false && body.reason) {
-          setDeployError(body.reason);
-          setDiagnosis(body.diagnosis ?? null);
-        } else if (body.failure) {
-          /* The last attempt's own diagnosis, from the build row. Read on load
-             so somebody returning to a project that did not host still finds
-             out why — it used to exist only in the tab where it happened and
-             then be gone. */
-          setDeployError(body.failure);
-          setDiagnosis(body.diagnosis ?? null);
-        }
-        /* Set whatever the two above decided. It is not an error state: the
-           address stays, the frame stays, and nothing about the pane changes
-           except that one line appears over it. */
-        setBehind(body.behind ?? null);
-      })
-      .catch(() => {
-        /* The workspace works without this answer: it only decides what is
-           said about a live address, and there is not one. */
-      });
+    /* Asked again while it is still compiling.
+     *
+     * This used to be one fetch. `building` was set from it and never looked at
+     * again, so the banner it drives — "Building your app … in a minute or two"
+     * — outlived the build that justified it: the deployment finished, the site
+     * came up, and the pane kept spinning until somebody switched project or
+     * reloaded the page. A progress indicator that cannot notice it is done is
+     * worse than none, because it teaches people to ignore it.
+     *
+     * So it re-asks while, and only while, the answer says a build is in
+     * flight. A project that is not deploying asks once and stops — this is not
+     * a poll the pane runs in the background; it is the tail of an answer that
+     * was incomplete when it arrived.
+     *
+     * And it gives up. Ten minutes is well past any deployment this builds, so
+     * past that the honest thing is to stop claiming a build is running: the
+     * banner goes rather than spinning forever on a deployment that died
+     * somewhere we cannot see. The address stays either way. */
+    const POLL_MS = 8_000;
+    const MAX_POLLS = 75;
+    let polls = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const check = () => {
+      fetch(`/api/projects/${id}/deploy`)
+        .then((response) => (response.ok ? response.json() : { available: false }))
+        .then((body: {
+          available?: boolean;
+          ready?: boolean;
+          url?: string | null;
+          /* Whether that address is serving the newest build. */
+          current?: boolean;
+          /* True while the newest deployment is still compiling. The address is
+             real; the site behind it is not up yet. */
+          building?: boolean;
+          /* Whether it can be shown in this pane, and why not when it cannot. */
+          viewable?: boolean;
+          viewableReason?: string | null;
+          /* Why the last attempt produced no address. Distinct from `reason`,
+             which is about this DEPLOYMENT's configuration rather than about
+             this project's last build. */
+          failure?: string | null;
+          /* The readable form of `failure`, built on the server so the workspace
+             and the chat say the same thing about the same failure. */
+          diagnosis?: Diagnosis | null;
+          /* A failure that did NOT take the site down: the newest build would
+             not deploy and an older one is still serving. Separate from
+             `failure` on purpose — see the deploy route. The pane keeps framing
+             the site that works and says this beside it. */
+          behind?: Diagnosis | null;
+          reason?: string | null;
+        }) => {
+          if (!current) return;
+          /* Straight into the pane. This runs when the workspace opens, so a
+             project that was deployed an hour ago is showing its app before
+             anybody presses anything. */
+          if (body.url) setDeployed(body.url);
+          setLiveIsCurrent(body.current !== false);
+          setBuilding(body.building === true);
+          setLiveViewable(body.viewable !== false);
+          setLiveBlockedReason(body.viewableReason ?? null);
+          /* Carried before anything is pressed. If hosting is not configured, the
+             account that can configure it should be able to read that from the
+             button rather than from a failed attempt. */
+          if (body.available === true && body.ready === false && body.reason) {
+            setDeployError(body.reason);
+            setDiagnosis(body.diagnosis ?? null);
+          } else if (body.failure) {
+            /* The last attempt's own diagnosis, from the build row. Read on load
+               so somebody returning to a project that did not host still finds
+               out why — it used to exist only in the tab where it happened and
+               then be gone. */
+            setDeployError(body.failure);
+            setDiagnosis(body.diagnosis ?? null);
+          }
+          /* Set whatever the two above decided. It is not an error state: the
+             address stays, the frame stays, and nothing about the pane changes
+             except that one line appears over it. */
+          setBehind(body.behind ?? null);
+
+          /* Done, failed, or never started: nothing more to ask. */
+          if (body.building !== true) return;
+
+          polls += 1;
+          if (polls >= MAX_POLLS) {
+            setBuilding(false);
+            return;
+          }
+          timer = setTimeout(check, POLL_MS);
+        })
+        .catch(() => {
+          /* The workspace works without this answer: it only decides what is
+             said about a live address, and there is not one. */
+        });
+    };
+
+    check();
 
     return () => {
       current = false;
+      if (timer) clearTimeout(timer);
     };
   }, [project?.id]);
 
@@ -233,6 +271,53 @@ export default function PreviewPanel({
      remounts it. Reaching into the frame to call location.reload() is not
      available here: it is another origin, and deliberately sandboxed. */
   const [reloads, setReloads] = useState(0);
+
+  /* ── Reaching the screens a visitor cannot click to ────────────────────
+   *
+   * An admin area, an account page, a dynamic route: built, and unreachable
+   * from the home page. That used to be a bar of chips drawn ON the project,
+   * which is our furniture over somebody's own design, and it is gone.
+   *
+   * So the routes come out of the document instead — the runtime sends them
+   * with its boot report — and the control lives here, in the pane's own
+   * strip. Ours in our furniture; the page itself left alone.
+   *
+   * Cleared whenever the document changes, because a route list belongs to the
+   * build that reported it. */
+  const [routes, setRoutes] = useState<{ pattern: string; href: string }[]>([]);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [route, setRoute] = useState("/");
+
+  /* What the preview says about itself.
+   *
+   * report() in the runtime has been posting 'ready', 'error' and 'navigate'
+   * since it was written and NOTHING was listening — the messages went into
+   * the void. This reads the one that matters: the routes, on boot.
+   *
+   * Filtered on the shape rather than the origin, because a sandboxed frame
+   * has an opaque origin and there is no origin to compare against. It carries
+   * no authority either way: the worst a forged message can do is offer a
+   * route that does not exist, and clicking it renders the project's own
+   * not-found. */
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data as
+        | { source?: string; state?: string; detail?: { routes?: { pattern: string; href: string }[] } }
+        | null;
+      if (!data || data.source !== "quickstark-preview") return;
+      if (data.state !== "ready") return;
+      const offered = Array.isArray(data.detail?.routes) ? data.detail.routes : [];
+      setRoutes(
+        offered.filter(
+          (entry) =>
+            entry && typeof entry.pattern === "string" && typeof entry.href === "string",
+        ),
+      );
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
 
@@ -293,6 +378,13 @@ export default function PreviewPanel({
      itself, which is the same string for every build this project ever has. */
   const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
+
+  /* A route list belongs to the document that reported it. */
+  useEffect(() => {
+    setRoutes([]);
+    setRoute("/");
+  }, [pageHtml]);
+
   const [pageFailed, setPageFailed] = useState(false);
   /* Whether what came back is a receipt rather than a page.
    *
@@ -769,26 +861,44 @@ export default function PreviewPanel({
            * the per-build one carrying a hash, which its team settings put
            * behind a login, and the project's own alias, which is public. The
            * second is what arrives here — see stableHost — and it is the one
-           * worth putting in front of somebody. */}
-          {deployed && building ? (
+           * worth putting in front of somebody.
+           *
+           * AND ONLY ONCE IT IS PUBLISHED. This read `deployed`, which is the
+           * raw deployment and exists long before anybody agrees to be public:
+           * the workspace's own run control makes one, and a build used to make
+           * one by itself. So a customer who had published nothing was handed
+           * quickstark-app-2.quickstark.tech — a live address on the wildcard
+           * domain, for a project they had not decided to show anyone — and
+           * pressing Publish then appeared to do nothing, because the address
+           * was already sitting there.
+           *
+           * The rule is written out at `publishedLive` above and this was the
+           * one place that went around it. Published: the public domain, which
+           * is what Publish is for and what a custom domain is bought on top
+           * of. Not published: the QuickStark preview, private to its owner,
+           * which is the only address they have actually asked for. */}
+          {building ? (
             <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
               <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                 Building your app
               </p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
-                It will answer at the address below in a minute or two. Until then this pane keeps
-                showing what you already had.
+                {publishedLive
+                  ? "It will answer at the address below in a minute or two. Until then this pane keeps showing what you already had."
+                  : "Until it finishes, this pane keeps showing what you already had. Publish it when you want an address anyone can open."}
               </p>
-              <a
-                href={deployed}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1.5 inline-flex items-center gap-1 break-all text-[12px] font-medium text-emerald-300 underline underline-offset-2"
-              >
-                {deployed.replace(/^https?:\/\//, "")}
-                <ExternalLink className="h-3 w-3 shrink-0" />
-              </a>
+              {(publishedLive ?? previewUrl) ? (
+                <a
+                  href={(publishedLive ?? previewUrl) as string}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-flex items-center gap-1 break-all text-[12px] font-medium text-emerald-300 underline underline-offset-2"
+                >
+                  {((publishedLive ?? previewUrl) as string).replace(/^https?:\/\//, "")}
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                </a>
+              ) : null}
             </div>
           ) : null}
 

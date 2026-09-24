@@ -10,8 +10,11 @@ import {
   pickFileLocally,
   pickPrompt,
   readPick,
+  namedIn,
 } from "./pick-file";
 import { type FileTree, describeTree } from "./tree";
+import { isPlatformOwned } from "./scaffold";
+import { sitesNamedIn, webReferenceBrief, webReferenceTools } from "./web-reference";
 import {
   applyLineEdits,
   applyPatches,
@@ -32,6 +35,8 @@ import {
   questionPrompt,
   retryPrompt,
   sourcePrompt,
+  SOURCE_LINES_SYSTEM,
+  sourceLinesPrompt,
 } from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
@@ -447,6 +452,11 @@ async function ask(
      what the earlier ones left. Absent, it runs to completion, which is right
      for the short calls. */
   deadlineAt?: number,
+  /* Server tools, when this call is allowed any. Anthropic runs these on its
+     own infrastructure inside the same request, so there is no loop to drive
+     here and nothing downstream changes shape — the final message still
+     carries the text the caller parses. Empty for every ordinary edit. */
+  tools: Record<string, unknown>[] = [],
 ): Promise<Anthropic.Message> {
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
@@ -476,6 +486,7 @@ async function ask(
             thinking: { type: "adaptive" as const, display: "summarized" as const },
             output_config: { effort: "low" as const },
           }),
+      ...(tools.length > 0 ? { tools: tools as unknown as Anthropic.ToolUnion[] } : {}),
       system,
       messages: [
         ...prior,
@@ -688,8 +699,54 @@ export async function pickFile(
   userMessage: string,
   tree: FileTree,
   onProgress?: OnProgress,
+  /* What the project index says is relevant to this request, already ranked —
+     see indexHint in the edit path. Empty or absent leaves this function
+     behaving exactly as it did before the index was wired to it, which is the
+     fallback that must survive a stale index. */
+  hint?: string,
 ): Promise<FilePick | null> {
-  const local = pickFileLocally(userMessage, tree);
+  /* ── The files this platform writes are not edit targets ──────────────
+   *
+   * lib/supabase.ts, next.config.mjs, tailwind.config.ts, app/tokens.css and
+   * the rest are OURS: completeTree discards the model's version of an owned
+   * path and writes ours over it on the very next build. So an edit aimed at
+   * one cannot land — not because the model failed, but because there is
+   * nothing there that a patch would survive.
+   *
+   * And they are magnets. "The auth on my store isn't wired up" reads, to a
+   * picker choosing from filenames, exactly like lib/supabase.ts; the model
+   * then finds a file of platform boilerplate with nothing in it resembling
+   * the request, correctly emits no blocks, and the customer is told "I
+   * couldn't place that change in lib/supabase.ts, so nothing was altered.
+   * Naming the component or quoting a line from it usually gets a clean
+   * result" — advice that cannot work, about a file they were right to think
+   * was involved.
+   *
+   * Taken out of the candidates rather than refused later, so the picker's
+   * second choice is the one it always should have made: the provider, the
+   * layout or the login page, which is where wiring auth into a project
+   * actually happens. */
+  const editable = tree.filter((file) => !isPlatformOwned(file.path));
+  const candidates = editable.length > 0 ? editable : tree;
+
+  /* Said out loud when somebody names one of ours.
+   *
+   * They are not wrong to: "the auth in lib/supabase.ts is not wired up" is a
+   * reasonable sentence about a real file. Quietly editing somewhere else
+   * would answer it and look like we ignored them, so the note says which file
+   * is managed and that the search continues — and the edit then lands where
+   * wiring auth actually happens. */
+  const namedOurs = namedIn(userMessage, tree.filter((file) => isPlatformOwned(file.path)));
+  if (namedOurs) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `${namedOurs} is written by QuickStark and rewritten on every build, so a change there would not survive. Finding where this belongs instead…`,
+    });
+  }
+
+  /* The local rules first, unchanged. They settle most edits from the words
+     alone and an index cannot improve on a message that names its own file. */
+  const local = pickFileLocally(userMessage, candidates);
   if (local) return local;
 
   onProgress?.({ kind: "reasoning", text: "Working out which file that belongs in…" });
@@ -697,7 +754,7 @@ export async function pickFile(
   try {
     const answer = await ask(
       PICK_SYSTEM,
-      pickPrompt(userMessage, describeTree(tree)),
+      pickPrompt(userMessage, describeTree(candidates), hint),
       /* One path. Anything past this is the model explaining itself, which it
          was told not to do and which readPick discards anyway. */
       100,
@@ -708,13 +765,13 @@ export async function pickFile(
       EDIT_MODEL,
     );
 
-    const path = readPick(textOf(answer), tree);
+    const path = readPick(textOf(answer), candidates);
     if (path) return { path, why: "model" };
   } catch {
     /* A picker that cannot run must not take the edit down with it. */
   }
 
-  const home = homePageOf(tree);
+  const home = homePageOf(candidates);
   return home ? { path: home, why: "convention" } : null;
 }
 
@@ -810,7 +867,7 @@ export async function editPage(
   if (ranOutOfTime(first)) {
     if (result.applied === 0) {
       throw new EditError(
-        "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+        "This change needs more time than one go allows, so I've left the page exactly as it was and nothing has been charged. Send the same message again — it picks the saved change back up rather than starting a second one — or switch to the Prototype agent, which is the quickest of the three. You don't need to change what you asked for.",
         422,
       );
     }
@@ -874,7 +931,7 @@ export async function editPage(
     if (ranOutOfTime(second)) {
       if (result.applied === 0) {
         throw new EditError(
-          "That change is bigger than I can make in one go, so I've left the page exactly as it was. Ask for it a section at a time — the hero first, then the rest — and each one will land.",
+          "This change needs more time than one go allows, so I've left the page exactly as it was and nothing has been charged. Send the same message again — it picks the saved change back up rather than starting a second one — or switch to the Prototype agent, which is the quickest of the three. You don't need to change what you asked for.",
           422,
         );
       }
@@ -957,7 +1014,7 @@ export async function editPage(
          own markup so they can name one. */
       if (ranOutOfRoom(third)) {
         throw new EditError(
-          "That change came back longer than one edit can carry, so I've left the page exactly as it was. Asking for one section at a time will go through.",
+          "That change came back longer than one edit can carry, so I've left the page exactly as it was. That's a limit at my end rather than anything wrong with what you asked for: naming the one part you most want changed will get through it.",
           422,
           byLine.failures,
         );
@@ -1122,16 +1179,52 @@ export async function editSource(
   architecture?: string,
   /* As editPage — see editDeadline. */
   deadline?: number,
+  /* How many times this may hand itself to a file the model named instead.
+     One: the first answer is worth following and a second is a model
+     wandering through the tree on somebody's build. */
+  hops = 1,
 ): Promise<SourceEdit> {
   /* Sized on the file rather than on the project: what goes into the window is
      this one file, and a forty-file project whose every file is small is not a
      large edit. */
-  const model = editModelFor(userMessage, file.content);
+  /* ── A site somebody named, opened before anything is written ──────────
+   *
+   * "like nike.com" was a domain in a sentence and nothing on the other end:
+   * the model was asked to make something resemble a page it could not open,
+   * and answered with whatever it remembered of the brand. Naming a reference
+   * is the clearest instruction anybody gives about a design, and it was the
+   * one that arrived as a string.
+   *
+   * Only when a site is actually named — see sitesNamedIn, which is narrow on
+   * purpose, because a web call on the path of an ordinary edit is latency and
+   * credits spent on a domain that happened to be in the sentence.
+   *
+   * The STRONGER MODEL when it is, and not for quality: the dynamic-filtering
+   * server tools need Sonnet 4.6 or newer, and Haiku 4.5 — which is what most
+   * edits run on — answers their tool type with a 400. */
+  const sites = sitesNamedIn(userMessage);
+  const webTools = webReferenceTools(sites);
+
+  const model = webTools.length > 0 ? EDIT_MODEL_STRONG : editModelFor(userMessage, file.content);
   const deadlineAt = deadline ?? Date.now() + EDIT_DEADLINE_MS;
+
+  if (sites.length > 0) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `Looking at ${sites.join(" and ")} before making the change…`,
+    });
+  }
 
   const first = await ask(
     SOURCE_SYSTEM,
-    sourcePrompt(userMessage, file.path, file.content, architecture, neighbourBrief(tree, file.path)),
+    sourcePrompt(
+      userMessage,
+      file.path,
+      file.content,
+      architecture,
+      neighbourBrief(tree, file.path),
+      webReferenceBrief(sites),
+    ),
     PATCH_TOKENS,
     [],
     prior,
@@ -1139,6 +1232,7 @@ export async function editSource(
     false,
     model,
     deadlineAt,
+    webTools,
   );
 
   if (first.stop_reason === "refusal") {
@@ -1152,6 +1246,57 @@ export async function editSource(
   let result = applyPatches(file.content, output);
   let outputTokens = first.usage?.output_tokens ?? 0;
   let retried = false;
+
+  /* ── It told us the right file. Go there. ──────────────────────────────
+   *
+   * SOURCE_SYSTEM ends with "If the change genuinely belongs in a different
+   * file, emit no blocks and say so in one sentence, naming the file you would
+   * change." The model does that, correctly and often — a change to a header
+   * that lives in components/Header.tsx, asked for while looking at a page
+   * that merely renders it — and NOTHING READ THE ANSWER. The prose was
+   * discarded, two more attempts were spent on the wrong file, and the person
+   * was told "I couldn't place that change in lib/products-data.ts … or tell
+   * me which file you meant."
+   *
+   * They had told us. We had told ourselves. This is the blackout: the one
+   * question being asked was the one already answered in the reply we threw
+   * away.
+   *
+   * Only when nothing applied, so a real patch is never abandoned for a
+   * sentence beside it. Only to a DIFFERENT file that is actually in the tree,
+   * which namedIn guarantees. And only once — a second hop is a model
+   * wandering, and the deadline is carried through so it cannot outlive the
+   * request. */
+  if (result.applied === 0 && hops > 0) {
+    /* The file we were reading is taken out of the text first, and that is not
+       a detail. The sentence a model actually writes names BOTH files — "the
+       change is not in lib/products-data.ts; it belongs in
+       components/Nav.tsx" — and namedIn answers with the longest path it can
+       see, which is as likely to be the one we are already in. The guard below
+       would then read that as "no other file named" and give up, on exactly
+       the reply that was most useful. */
+    const elsewhere = namedIn(output.split(file.path).join("[this file]"), tree);
+    if (elsewhere && elsewhere !== file.path) {
+      const target = tree.find((entry) => entry.path === elsewhere);
+      if (target) {
+        onProgress?.({
+          kind: "reasoning",
+          text: `That change belongs in ${elsewhere}. Reading that instead…`,
+        });
+        return editSource(
+          userMessage,
+          target,
+          "named",
+          tree,
+          prior,
+          onProgress,
+          architecture,
+          deadlineAt,
+          hops - 1,
+        );
+      }
+    }
+  }
 
   /* Out of time is its own answer and not a reason to start again — there is by
      definition no budget left. What landed is kept; if nothing landed, the
@@ -1198,12 +1343,77 @@ export async function editSource(
   }
 
   if (result.applied === 0) {
-    /* Named, and the file is named with it. "I couldn't place that change" over
-       a project is a sentence about the person's words; naming the file we were
-       looking in is at least a fact they can correct. */
+    /* ── Stop asking it to quote the file ──────────────────────────────────
+     *
+     * The page path has had this third attempt since it was written; a project
+     * file never got one, and the asymmetry is the bug. Two rounds of
+     * search/replace had failed and the customer was told "I couldn't place
+     * that change in lib/products-data.ts, so nothing was altered. Naming the
+     * component or quoting a line from it usually gets a clean result" — which
+     * puts the failure on their wording, when two failures in a row are much
+     * better read as the model getting the TRANSCRIPTION wrong. Asking a third
+     * time for text copied character-for-character is the same question that
+     * has already come back wrong twice.
+     *
+     * So the job changes rather than the model: line numbers down the margin,
+     * a range named instead of quoted, nothing to copy. The failure that got
+     * here cannot happen to it. See SOURCE_LINES_SYSTEM for what it gives up —
+     * a range rewrites everything between its ends — and why that trade is
+     * right at this point and not before it. */
+    const whyPatchesFailed =
+      result.failures.length > 0
+        ? describeFailures(result.failures)
+        : "Both attempts returned no usable search/replace blocks.";
+
+    onProgress?.({
+      kind: "reasoning",
+      text: `Quoting ${file.path} isn't landing. Reading it by line number instead…`,
+    });
+
+    const third = await ask(
+      SOURCE_LINES_SYSTEM,
+      sourceLinesPrompt(
+        userMessage,
+        file.path,
+        numberLines(file.content),
+        whyPatchesFailed,
+        architecture,
+        neighbourBrief(tree, file.path),
+      ),
+      PATCH_TOKENS,
+      [],
+      prior,
+      onProgress,
+      false,
+      EDIT_MODEL_STRONG,
+      deadlineAt,
+    );
+
+    outputTokens += third.usage?.output_tokens ?? 0;
+    const byLine = applyLineEdits(file.content, textOf(third));
+
+    if (byLine.applied > 0) {
+      return {
+        path: file.path,
+        why,
+        contents: byLine.html,
+        applied: byLine.applied,
+        failures: byLine.failures,
+        note: noteAfterPatches(textOf(third)),
+        outputTokens,
+        retried: true,
+        model: EDIT_MODEL_STRONG,
+      };
+    }
+
+    /* Three attempts, two ways of describing a change, and nothing landed. Now
+       it is worth saying so — and saying which file was being read, because
+       that is a fact the person can correct rather than a guess about their
+       wording. */
     throw new EditError(
       `I couldn't place that change in ${file.path}, so nothing was altered. Naming the component or quoting a line from it usually gets a clean result — or tell me which file you meant.`,
       422,
+      [...result.failures, ...byLine.failures],
     );
   }
 

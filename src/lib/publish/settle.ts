@@ -38,10 +38,13 @@ import {
 } from "@/lib/publish/deployment-store";
 import {
   aliasDeployment,
+  appDomainFor,
+  attachProjectDomain,
   deploymentName,
   deploymentState,
   deploymentsConfigured,
   previewAliasFor,
+  reachable,
   startDeployment,
   vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
@@ -104,6 +107,146 @@ async function attachPreviewAlias(record: {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("deployments: aliasing failed:", error);
+  }
+}
+
+/* The address label this project was issued, or null.
+ *
+ * Read with the service key because settling runs on a cron as well as on the
+ * workspace's poll, and neither has a session to read RLS with. It reads one
+ * public column of a project this deployment already belongs to, so nothing is
+ * widened by it.
+ *
+ * Best effort throughout: a slug that cannot be read costs the nicer half of
+ * the address, never the deployment. */
+async function slugOf(service: SupabaseClient, projectId: string): Promise<string | null> {
+  try {
+    const { data } = await service
+      .from("projects")
+      .select("slug")
+      .eq("id", projectId)
+      .maybeSingle<{ slug: string | null }>();
+    return data?.slug ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/* Where this project's deployment got to, on the project row.
+ *
+ * `deployment_status` is the DEPLOYMENT's own lifecycle — building, deployed,
+ * failed — and it is deliberately a separate column from `status`, which is the
+ * build's, and from `published_at`, which is the publication's. Three different
+ * facts that were being read off one another before, which is how a project
+ * could read Published while its deployment was still compiling.
+ *
+ * `published_url` is written ONLY on success, and `preview_url` is never
+ * touched from here. Those are two addresses for two different things — one
+ * private and one public — and overwriting the first with the second is what
+ * took people's editing preview away the moment they published.
+ *
+ * Best effort. A column that cannot be written is a label out of date, not a
+ * deployment that did not happen. */
+async function noteDeploymentState(
+  service: SupabaseClient,
+  projectId: string,
+  /* `protected` is READY BUT PROTECTED — the build succeeded and the address
+     refuses the public. Distinct from `failed`, which is a build that did not
+     finish, because the two need opposite responses: one is rebuilt, and the
+     other is a setting. */
+  status: "building" | "deployed" | "failed" | "protected",
+  publishedUrl: string | null,
+): Promise<void> {
+  try {
+    await service
+      .from("projects")
+      .update({
+        deployment_status: status,
+        ...(publishedUrl ? { published_url: publishedUrl } : {}),
+      })
+      .eq("id", projectId);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("deployments: the project's deployment state could not be written:", error);
+  }
+}
+
+/* ── The address on our own domain, bound to the project ──────────────────
+ *
+ * `<slug>.quickstark.tech`, which is what the customer shows a client — the
+ * vercel.app address tells every visitor whose hosting this is.
+ *
+ * Bound to the PROJECT rather than aliased to this deployment, which is the
+ * difference between an address that keeps up and one that quietly does not.
+ * An alias points at one build; a project domain follows the newest production
+ * deployment on its own, so this never has to run again — and running it again
+ * anyway is free, because attachProjectDomain treats a domain it already holds
+ * as success rather than as a conflict.
+ *
+ * Best effort, like the preview alias above it and for the same reason: its
+ * failure mode is a plainer address, and the alternative to a plainer address
+ * is not a nicer one, it is a customer whose publish failed. */
+async function attachAppDomain(
+  record: {
+    vercelProject: string | null;
+  },
+  /* The project's own address label, which is what the customer was promised.
+   *
+   * The Vercel project name carries a disambiguating hash — `luxury-bakery-
+   * 038f1129` — because two customers may both call a project the same thing
+   * and Vercel's namespace is one account wide. Our namespace is not: a slug
+   * is unique across the platform by the index that issues it, so the address
+   * can be the clean one. Deriving the domain from the Vercel name instead put
+   * the hash in front of the customer, which is the address nobody would put
+   * on a business card.
+   *
+   * Falls back to the Vercel name, so a deployment whose project row cannot be
+   * read still gets an address rather than none. */
+  slug: string | null,
+): Promise<string | null> {
+  const creds = vercelCredentials();
+  if (!creds || !record.vercelProject) return null;
+
+  const domain = appDomainFor(slug ?? record.vercelProject);
+  if (!domain) return null;
+
+  try {
+    const bound = await attachProjectDomain(record.vercelProject, domain, creds);
+    if (!bound.ok) {
+      /* Logged rather than surfaced. Almost always the operator's half of
+         this: `*.quickstark.tech` is not a verified domain on the Vercel
+         account, or its DNS does not point at Vercel. Nothing the customer
+         can act on, and their site is live either way. */
+      // eslint-disable-next-line no-console
+      console.warn(`deployments: ${domain} could not be bound: ${bound.reason}`);
+      return null;
+    }
+
+    /* ── Bound is not the same as answering ────────────────────────────
+     *
+     * Vercel issues the certificate for a newly attached domain itself, and
+     * on a verified wildcard it is usually a matter of seconds — but "usually"
+     * is not what an address handed to a customer may rest on. A bind that has
+     * not finished propagating would put a URL that fails to resolve in front
+     * of somebody who just pressed Publish, which is worse than the plainer
+     * address in every way.
+     *
+     * So it is ASKED. When it does not answer yet the vercel.app address is
+     * stored, which is correct and works; the next publish binds nothing (the
+     * domain is already there), finds it answering, and the address upgrades
+     * on its own with nothing to re-run. */
+    const answers = await reachable(`https://${domain}`);
+    if (!answers.ok) {
+      // eslint-disable-next-line no-console
+      console.warn(`deployments: ${domain} is bound but does not answer yet: ${answers.reason}`);
+      return null;
+    }
+
+    return `https://${domain}`;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("deployments: binding the domain failed:", error);
+    return null;
   }
 }
 
@@ -282,8 +425,25 @@ export async function settleOne(
      * failure — READY is the first moment it means anything. */
     await attachPreviewAlias(record);
 
-    await settleDeployment(service, record, state);
-    await settleJob(service, record, state);
+    /* And the published address, on our own domain rather than our host's.
+       Beside the alias because both need the same thing to be true — that
+       there is a build behind the address — and neither may fail a publish
+       that has already succeeded. */
+    const own = await attachAppDomain(record, await slugOf(service, record.projectId));
+
+    /* What gets WRITTEN DOWN, which is what every other part of the product
+       then shows: the workspace's live frame, the Open link, the row. A
+       domain that bound and answers is the address this project has; without
+       one, nothing about the stored address changes.
+
+       publicAddress needs no teaching for this. Its existing rule is that a
+       stored address which is not a vercel.app is somebody's own domain and
+       is left exactly as it is — which is precisely true of this one. */
+    const settled = own ? { ...state, url: own } : state;
+
+    await settleDeployment(service, record, settled);
+    await settleJob(service, record, settled);
+    await noteDeploymentState(service, record.projectId, "deployed", settled.url);
 
     /* Said where the question was asked. Keyed on the deployment, so two
        callers arriving at once — the cron and the workspace's own poll —
@@ -294,11 +454,46 @@ export async function settleOne(
       role: "system",
       body: "Your app is live.",
       links: [
-        { label: "Open it", href: state.url },
+        { label: "Open it", href: settled.url },
         { label: "Preview", href: `${SITE_URL}/preview/${record.projectId}` },
       ],
       kind: "build_ready",
       dedupeKey: `deployed:${record.deploymentId}`,
+    });
+    return "settled";
+  }
+
+  /* ── READY, AND NOT LETTING ANYBODY IN ──────────────────────────────────
+   *
+   * Handled before the failure branch, and that ordering is the fix. A
+   * protected deployment used to arrive here as `error`, which sent it through
+   * repairAndRedeploy — a model call asked to fix CODE for a problem that is a
+   * project setting — and then, since the reason matches none of the compiler
+   * patterns, through canRetry, which redeployed it. The next deployment was
+   * protected in exactly the same way. That is the loop the comment below
+   * warns about, reached by the one route it did not anticipate.
+   *
+   * Nothing is repaired and nothing is re-run. deploymentState has already
+   * tried to turn the setting off and asked the address a second time, so
+   * arriving here means that did not take — which is a thing to say, not a
+   * thing to spend another build on. */
+  if (state.state === "protected") {
+    await settleDeployment(service, record, { state: "error", reason: state.reason });
+    await settleJob(service, record, { state: "error", reason: state.reason });
+    /* §8: the state says READY BUT PROTECTED rather than "failed", because the
+       build did not fail — the diagnostic is the reason, kept on the row. */
+    await noteDeploymentState(service, record.projectId, "protected", null);
+
+    await recordMessage(service, {
+      projectId: record.projectId,
+      userId: record.userId,
+      role: "system",
+      body:
+        `Your app built and deployed, and Vercel is not letting the public see it yet — ${state.reason}\n\n` +
+        "Nothing is wrong with the build, and there is nothing to rebuild: the moment that setting is off, this same deployment is public.",
+      tone: "error",
+      kind: "build_failed",
+      dedupeKey: `protected:${record.deploymentId}`,
     });
     return "settled";
   }
@@ -362,6 +557,7 @@ export async function settleOne(
 
     await settleDeployment(service, record, state);
     await settleJob(service, record, state);
+    await noteDeploymentState(service, record.projectId, "failed", null);
 
     await recordMessage(service, {
       projectId: record.projectId,

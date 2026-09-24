@@ -48,6 +48,34 @@ export const PREVIEW_RUNTIME = `
   var ROUTES = window.__QS_ROUTES || [];
   var ENTRY = window.__QS_ENTRY || '/';
 
+  /* 'process', because generated code reads it.
+   *
+   * lib/supabase.ts in every backend project reads
+   * process.env.NEXT_PUBLIC_SUPABASE_URL and its two siblings - see
+   * builder/scaffold.ts, which writes that file. Under next build those reads
+   * are inlined at build time and 'process' never survives into the browser.
+   * Nothing inlines anything here, so the identifier was still there at
+   * evaluation, and a browser has no 'process'.
+   *
+   * So every screen that imported the Supabase client threw
+   * 'ReferenceError: process is not defined' the moment the module was
+   * required, and the pane reported a screen that could not be rendered -
+   * true, and silent about why. Pages that did not touch the client rendered
+   * normally, which made it look like one bad page rather than one missing
+   * global.
+   *
+   * Passed as a module parameter rather than set on window: the project's
+   * modules get it, nothing else on this document does, and it cannot be
+   * reassigned from inside a generated file.
+   *
+   * env carries only the NEXT_PUBLIC_ values, which any real build compiles
+   * into the bundle and serves to every visitor - so there is nothing here a
+   * deployed copy of this project would not already hand out. When the host
+   * sends none, env is empty and the generated client reports itself
+   * unconfigured on first use, which is exactly what scaffold.ts wrote it to
+   * do. Either way the screen renders. */
+  var PROCESS = { env: window.__QS_ENV || {} };
+
   var React = window.React;
   var ReactDOM = window.ReactDOM;
   var h = React.createElement;
@@ -105,6 +133,41 @@ export const PREVIEW_RUNTIME = `
   }
 
   window.__qsNavigate = navigate;
+
+  /* What the pane is offered. A dynamic segment is given something concrete to
+     stand in for it, because /products/[slug] is not an address a browser can
+     open and the point is to SEE the screen. */
+  function routePatterns() {
+    var out = [];
+    for (var i = 0; i < ROUTES.length; i += 1) {
+      var route = ROUTES[i];
+      var segments = route.segments || [];
+      var path = '';
+      for (var j = 0; j < segments.length; j += 1) {
+        var segment = segments[j];
+        var value = segment.kind === 'static'
+          ? segment.value
+          : String(segment.param || 'item').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'item';
+        path += '/' + value;
+      }
+      out.push({ pattern: route.pattern, href: path || '/' });
+    }
+    return out;
+  }
+
+  /* And a way in, so the pane's control can move this document.
+   *
+   * Accepted only from the parent frame and only in our own shape. This
+   * document is sandboxed into an opaque origin precisely because it runs code
+   * a prompt produced, and a listener that took navigation from anywhere would
+   * be a way for that code to drive the pane around it. */
+  window.addEventListener('message', function (event) {
+    if (event.source !== parent) return;
+    var data = event.data;
+    if (!data || data.source !== 'quickstark-workspace') return;
+    if (typeof data.navigate !== 'string') return;
+    navigate(data.navigate);
+  });
 
   /* ── Module resolution ─────────────────────────────────────────────────
    *
@@ -184,8 +247,8 @@ export const PREVIEW_RUNTIME = `
     loading[path] = module;
     try {
       var code = compile(path);
-      var fn = new Function('require', 'module', 'exports', '__qsPath', code);
-      fn(function (specifier) { return requireFrom(specifier, path); }, module, module.exports, path);
+      var fn = new Function('require', 'module', 'exports', '__qsPath', 'process', code);
+      fn(function (specifier) { return requireFrom(specifier, path); }, module, module.exports, path, PROCESS);
     } finally {
       delete loading[path];
     }
@@ -421,8 +484,22 @@ export const PREVIEW_RUNTIME = `
         getUser: function () { return Promise.resolve({ data: { user: null }, error: null }); },
         getSession: function () { return Promise.resolve({ data: { session: null }, error: null }); },
         onAuthStateChange: function () { return { data: { subscription: { unsubscribe: function () {} } } }; },
-        signInWithPassword: function () { return Promise.resolve({ data: { user: null }, error: { message: 'Sign-in is not available in preview.' } }); },
-        signUp: function () { return Promise.resolve({ data: { user: null }, error: { message: 'Sign-up is not available in preview.' } }); },
+        /* These say where sign-in DOES work, not only that it does not work
+           here.
+         *
+           The preview has to stub auth: it compiles a project in an
+           opaque-origin sandbox with no cookies and no session, so there is
+           nothing for a real one to attach to. That part is right and stays.
+         *
+           What was wrong is that the sentence arrives in the form's error slot,
+           in red, indistinguishable from a real failure — and the author of the
+           app is the person reading it. "Sign-in is not available in preview"
+           reads as "your sign-in is broken", and it was read that way, by
+           somebody who had just been debugging a genuine auth failure on their
+           deployed site. A limitation that looks like a defect costs more than
+           the limitation does. */
+        signInWithPassword: function () { return Promise.resolve({ data: { user: null }, error: { message: 'This is a preview, so there is no session to sign into. Sign-in works on the deployed site.' } }); },
+        signUp: function () { return Promise.resolve({ data: { user: null }, error: { message: 'This is a preview, so no account is created. Sign-up works on the deployed site.' } }); },
         signOut: function () { return Promise.resolve({ error: null }); }
       }
     };
@@ -728,7 +805,17 @@ export const PREVIEW_RUNTIME = `
     var root = document.getElementById('qs-root');
     try {
       ReactDOM.createRoot(root).render(h(App, null));
-      report('ready', null);
+      /* The routes travel out with the boot report.
+       *
+       * A project has screens a visitor cannot reach by clicking — an admin
+       * area, an account page, a dynamic route — and the customer has to be
+       * able to look at what was built for them. That used to be a bar of
+       * chips ON the page, which is chrome over their own design and is gone.
+       *
+       * So the list goes to the pane instead, and the pane puts the control
+       * in its own toolbar where it belongs: ours in our furniture, theirs
+       * left alone. Patterns only — nothing about the files. */
+      report('ready', { routes: routePatterns() });
     } catch (error) {
       report('error', String((error && error.message) || error));
       root.innerHTML = '';

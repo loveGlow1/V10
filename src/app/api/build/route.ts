@@ -78,7 +78,7 @@ import {
 import { intakeAttachments } from "@/lib/builder/assets/asset-intake";
 import { planAssets } from "@/lib/builder/assets/asset-planner";
 import { describeRegistry, duplicatesIn } from "@/lib/builder/assets/asset-registry";
-import { resolveAssets } from "@/lib/builder/assets/asset-resolver";
+import { resolveAssets, resolvedPhotographs } from "@/lib/builder/assets/asset-resolver";
 import { loadAssets, recordAsset } from "@/lib/builder/assets/asset-storage";
 import { usableProviders } from "@/lib/builder/assets/providers/registry";
 import { composeBuildPrompt } from "@/lib/builder/blueprints";
@@ -91,24 +91,34 @@ import {
   describeArchitecture,
   isArchitectureChoice,
   UNKNOWN_ARCHITECTURE,
+  databaseChoice,
 } from "@/lib/builder/architecture";
 import { decideDesign, systemByName } from "@/lib/builder/design";
+import { allIssues, runQaLoop } from "@/lib/builder/qa";
 import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
-import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
+import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { MODE_BLURB, MODE_LABEL } from "@/lib/builder/backend/modes";
+import { commerceBrief } from "@/lib/builder/commerce";
+import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { describeProvision, provision } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
-import { currentTree, storeTree } from "@/lib/builder/store-tree";
+import { ensureImageSources } from "@/lib/builder/tree-images";
+import { projectPhotoUrls } from "@/lib/builder/photo-memory";
+import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { isSinglePage } from "@/lib/builder/tree";
-import { indexTree } from "@/lib/context/project-index";
+import { indexTree, retrieve } from "@/lib/context/project-index";
 import {
   deploymentName,
   deploymentsConfigured,
+  projectSecretNames,
   startDeployment,
+  vercelCredentials,
 } from "@/lib/publish/vercel-deploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { diagnoseFindings } from "@/lib/publish/diagnosis";
@@ -117,7 +127,10 @@ import type { PublishState } from "@/lib/project-status";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
-import { classifyIntent, type Intent,
+import {
+  asksToConnectBackend,
+  classifyIntent,
+  type Intent,
   remainderAfterRevert,
 } from "@/lib/builder/intent";
 import {
@@ -140,6 +153,14 @@ import {
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import {
+  checkpointBeforeEdit,
+  editTaskId,
+  noteEditStep,
+  openEditTask,
+  settleEditTask,
+  type EditTaskHandle,
+} from "@/lib/builder/edit-task";
+import {
   advance as advanceJob,
   failJob,
   recordStep,
@@ -148,6 +169,7 @@ import {
 import { BuilderError, startBuild, type BuildResult } from "@/lib/n8n";
 import { restoreImages, stashImages } from "@/lib/page-html";
 import { autofix } from "@/lib/builder/qa/autofix";
+import { responsiveBrief } from "@/lib/builder/qa/responsive";
 import { validatePage } from "@/lib/builder/validate";
 import { describeVerification, repairBrief, verifyEdit } from "@/lib/builder/verify-edit";
 import { SITE_URL } from "@/lib/site";
@@ -389,12 +411,28 @@ export async function POST(request: Request) {
         }
       };
 
+      /* ── The durable task for an edit ─────────────────────────────────
+       *
+       * Filled in by `handle` if this request turns out to be an edit, and
+       * settled here once the answer is known. It is threaded rather than
+       * closed over because the two ends are in different functions and the
+       * edit path has around twenty places it can return from — see the note
+       * on EditTaskHandle in lib/builder/edit-task.ts.
+       *
+       * The case it is FOR is the one that never gets here at all. A function
+       * killed at the sixty-second ceiling runs none of this, so the task row
+       * is left live with everything it had recorded, and the next request on
+       * this project rejoins it instead of starting over. That is the whole
+       * point: an edit outliving the connection that asked for it. */
+      const task: EditTaskHandle = {};
+
       let response: NextResponse;
       try {
         response = await handle(
           request,
           (step) => write({ type: "step", step }),
           (delta) => write({ type: "text", delta }),
+          task,
         );
       } catch (error) {
         // eslint-disable-next-line no-console
@@ -409,6 +447,15 @@ export async function POST(request: Request) {
          separately, so the branches below stay the plain `return
          NextResponse.json(...)` they have always been. */
       const body = await response.json().catch(() => null);
+
+      /* Settled before the last line goes out, so a browser that reads "done"
+         and immediately asks what is running on this project is not told about
+         a task that has in fact finished. */
+      await settleEditTask(task, {
+        status: response.status,
+        error: (body as { error?: string } | null)?.error ?? null,
+      });
+
       write({ type: "result", status: response.status, body });
 
       if (open) controller.close();
@@ -435,6 +482,7 @@ async function handle(
   request: Request,
   emit: StepSink,
   emitText: TextSink,
+  task: EditTaskHandle,
 ): Promise<NextResponse> {
   /* ── When this request arrived ──────────────────────────────────────────
    *
@@ -477,7 +525,27 @@ async function handle(
      Opened here rather than beside the classifier, where it used to be: the
      reads before that point are quick but they are not free, and a panel that
      begins at the classifier is silent for whatever they cost. */
-  const steps = stepRecorder(emit);
+  const steps = stepRecorder((step) => {
+    emit(step);
+
+    /* ── Streamed AND stored ──────────────────────────────────────────────
+     *
+     * Streaming alone is what made a closed tab lose the whole timeline: the
+     * steps existed only in the socket. Once an edit has a task, each one is
+     * also written to build_steps — upserted on (job_id, step), so a step that
+     * begins and then finishes is one row ticking over rather than two.
+     *
+     * Deliberately not awaited. A progress note is bookkeeping, and an edit
+     * somebody paid for must not be slowed by it, let alone fail on it. */
+    if (task.job) {
+      void noteEditStep(task.service ?? null, task.job, {
+        id: step.id,
+        label: step.label,
+        detail: step.detail,
+        state: step.state,
+      });
+    }
+  });
 
   /* Turns what the model reports about itself into the line under a step.
    *
@@ -1086,17 +1154,98 @@ async function handle(
       });
     }
 
-    /* Restored by putting the old page back on top as a new version, never by
-       deleting the newer one. Undo should be undoable. */
+    /* ── UNDO HAS TO UNDO THE SOURCE ────────────────────────────────────
+     *
+     * This inserted a build row carrying the previous `html` and stopped, and
+     * for a single-page project that IS the whole of it: the page is the html
+     * column. For a file-tree project it is not. That column holds the SUMMARY
+     * this platform writes for such a build, so the insert rewound a receipt
+     * and left every source file exactly as the edit had left it — and then
+     * currentTree, finding no files on the new row, recovered them from the
+     * build before it, which is the version being undone. "Undo last change"
+     * reported success and changed nothing anybody could see.
+     *
+     * So the files are restored too, through the same storeTree every other
+     * write uses. Which project this is gets read rather than assumed: a tree
+     * of one reconstituted page is a single-page build, not a project, and
+     * treating it as one would put this path on the stack it does not belong
+     * to. See currentTree and isSinglePage. */
     steps.mark("history", "Read the last two versions");
-    await service.from("project_builds").insert({
-      project_id: project.id,
-      user_id: user.id,
-      prompt: `Reverted: ${prompt}`.slice(0, 500),
-      html: previous.html,
-      model: null,
-      files_touched: 0,
-    });
+
+    const live = await currentTree(service, project.id);
+    const isTreeProject = live.tree.length > 0 && !isSinglePage(live.tree);
+
+    /* Looked for PAST the build the live source actually came from, which is
+       not always the newest row — a build can exist without files, and
+       currentTree says which one it really read. Excluding the newest row
+       instead would "restore" the version that is already running. */
+    const restored = isTreeProject
+      ? await newestStoredTree(service, project.id, {
+          excluding: live.buildId ? [live.buildId] : [],
+        })
+      : null;
+
+    if (isTreeProject && !restored) {
+      /* Explicit rather than silent. Reaching here means this project's source
+         exists in exactly one version, so there is nothing behind it to go
+         back to — and saying "done" would be the same lie in a quieter voice. */
+      const message =
+        "I can't undo this one — there's only one version of this project's source saved, so there's nothing behind it to go back to.";
+      const stored = await deliver(message, { tone: "error", key: "revert-no-source" });
+      return NextResponse.json(
+        { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+        { status: 409 },
+      );
+    }
+
+    /* Restored by putting the old version back on top as a new one, never by
+       deleting the newer one. Undo should be undoable. */
+    const { data: restoredBuild, error: revertError } = await service
+      .from("project_builds")
+      .insert({
+        project_id: project.id,
+        user_id: user.id,
+        prompt: `Reverted: ${prompt}`.slice(0, 500),
+        html: previous.html,
+        model: null,
+        files_touched: restored ? restored.tree.length : 0,
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (revertError || !restoredBuild) {
+      const message = "That couldn't be undone just now. Nothing has changed — try again.";
+      const stored = await deliver(message, { tone: "error", key: "revert-failed" });
+      return NextResponse.json(
+        { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+        { status: 502 },
+      );
+    }
+
+    if (restored) {
+      try {
+        await storeTree(
+          service,
+          { buildId: restoredBuild.id, projectId: project.id, userId: user.id },
+          restored.tree,
+        );
+      } catch (error) {
+        /* A build row claiming files it does not have is worse than no row —
+           the save route withdraws one for the same reason. Withdrawn here so
+           currentTree keeps resolving to the version that is really running
+           rather than to an empty row on top of it. */
+        await service.from("project_builds").delete().eq("id", restoredBuild.id);
+        // eslint-disable-next-line no-console
+        console.error("revert: the restored files could not be stored:", error);
+
+        const message = "That couldn't be undone just now — the previous files wouldn't save. Nothing has changed.";
+        const stored = await deliver(message, { tone: "error", key: "revert-failed" });
+        return NextResponse.json(
+          { error: message, stored, steps: steps.list(), intent: "revert", project: null },
+          { status: 502 },
+        );
+      }
+    }
 
     await service
       .from("projects")
@@ -1415,7 +1564,112 @@ async function handle(
    * different artefacts with different rules: a component has no <html> to
    * balance, no stashed images, and neighbours that import it. See editSource.
    */
+  /* ── "connect database", "connect auth" ────────────────────────────────
+   *
+   * Answered, rather than sent to the file picker. Where a project's data
+   * lives is a setting on the project, not a line in its source, so there is
+   * no file for this to be an edit to — and the edit path, asked for one,
+   * landed on lib/supabase.ts or the layout, found nothing resembling the
+   * request, and said "I couldn't place that change". For a request that was
+   * never a change.
+   *
+   * Before the edit branch and before anything is charged: this costs nothing
+   * because nothing is generated.
+   *
+   * It names the two real options rather than only pointing at a panel. The
+   * question a person is actually asking is "what are my choices and what do
+   * they cost", and the panel is where the choice is made, not what the choice
+   * IS. */
+  if (asksToConnectBackend(prompt)) {
+    const current = service ? await resolveBackend(service, project.id) : null;
+    const connected =
+      current && current.mode !== "shared" && current.url
+        ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
+        : "";
+
+    const said =
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace and pick one:\n\n` +
+      `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n` +
+      `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Paste your project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n` +
+      `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
+
+    const stored = await deliver(said, { key: "connect-backend" });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "question",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: said,
+      },
+      project: null,
+    });
+  }
+
   if (intent === "edit" && service) {
+    /* ── An edit becomes a task before it becomes a change ────────────────
+     *
+     * Everything below this line used to live and die inside the connection
+     * that asked for it. The platform kills that connection at sixty seconds
+     * whatever the route declares, so an edit that needed sixty-one left a
+     * dead socket, an untouched page, a credit spent, and a message telling
+     * the customer to ask for less — for a request that was never too large,
+     * only longer than a ceiling nobody chose.
+     *
+     * Opening the task here gives the edit four things the connection could
+     * not: it is IDEMPOTENT (the same words twice rejoin one task rather than
+     * running two edits into the same file), it LOCKS the project (the unique
+     * index on build_jobs allows one live job), it is RESUMABLE (the row and
+     * its steps outlive the request), and it has somewhere to go back to (the
+     * checkpoint, written below, before anything is touched).
+     *
+     * See lib/builder/edit-task.ts — including what it does NOT claim, which
+     * is that anything continues running once the function is gone. */
+    const opened = await openEditTask(service, {
+      projectId: project.id,
+      userId: user.id,
+      requestId: editTaskId(project.id, prompt),
+      request: prompt,
+    });
+
+    if (opened.ok) {
+      task.service = service;
+      task.job = opened.job;
+
+      /* The state to return to, taken before the first change and not after
+         it. A checkpoint written afterwards records the thing that went
+         wrong. */
+      if (!opened.resumed) {
+        await checkpointBeforeEdit(service, {
+          projectId: project.id,
+          userId: user.id,
+          request: prompt,
+        });
+      }
+    } else if (opened.why === "busy") {
+      /* ── Two edits into one project ───────────────────────────────────
+       *
+       * Refused rather than raced, and refused with the truth: there is
+       * another change in flight on these files. Letting both run is how two
+       * edits read the same page, each apply to their own copy, and the second
+       * one to save silently erases the first. */
+      const said =
+        "There's already a change running on this project. I'm not going to start a second one into the same files — the two would overwrite each other. Give the first one a moment; when it lands, send this again.";
+      const stored = await deliver(said, { tone: "error", key: "edit-busy" });
+      return NextResponse.json(
+        { error: said, intent: "edit", code: "edit_busy", stored },
+        { status: 409 },
+      );
+    }
+
     const project_ = await currentTree(service, project.id);
 
     /* ── Built as a project, and its source is not here ──────────────────
@@ -1473,7 +1727,55 @@ async function handle(
     if (project_.tree.length > 0 && project_.buildId && !isSinglePage(project_.tree)) {
       steps.begin("file", "Finding the file", "reading the project's own listing…");
 
-      const picked = await pickFile(stageRequest ?? prompt, project_.tree);
+      /* ── THE MAP THIS PLATFORM ALREADY KEEPS ───────────────────────────
+       *
+       * writeProjectIndex runs at the end of this very branch, recording every
+       * component, route, section and symbol in the tree — and readProjectIndex
+       * had exactly one caller, on the single-page path, where a tree index is
+       * least useful. So the project's own map was written after every edit
+       * and read before none of them, and targeting fell back to filenames:
+       * "update the hero" reached app/page.tsx on a project whose hero lives in
+       * components/Hero.tsx, the search blocks matched nothing, and the
+       * customer was told we could not place their change.
+       *
+       * `retrieve` ranks the index against the request in the person's own
+       * words — it has scored entries this way since it was written, for the
+       * context path. Here it feeds the pick.
+       *
+       * EVIDENCE, NOT AN ANSWER. The ranking is a score over names and
+       * symbols: usually right, never authoritative. It is handed to pickFile
+       * as a hint that the model weighs against the listing, and pickFile's own
+       * order is untouched — the local rules still settle most edits before any
+       * of this is read. An index that is stale, empty, or matches nothing
+       * yields an empty hint and the pick behaves exactly as it did before,
+       * which is what stops a missing entry becoming "I can't find the file".
+       *
+       * Best effort: a map that cannot be read costs a better pick, never the
+       * edit. */
+      const indexHint = await (async () => {
+        try {
+          const entries = await readProjectIndex(service, project.id);
+          if (entries.length === 0) return undefined;
+
+          const ranked = retrieve(entries, stageRequest ?? prompt, 8).filter(
+            (hit) => hit.entry.path,
+          );
+          if (ranked.length === 0) return undefined;
+
+          return ranked
+            .map((hit) => {
+              const what = hit.entry.summary ?? hit.entry.symbols.slice(0, 6).join(", ");
+              return `- ${hit.entry.path} — ${hit.entry.kind} ${hit.entry.name}${what ? `: ${what}` : ""}`;
+            })
+            .join("\n");
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.warn(`edit: ${project.id} — the project index could not be read:`, error);
+          return undefined;
+        }
+      })();
+
+      const picked = await pickFile(stageRequest ?? prompt, project_.tree, undefined, indexHint);
       const target = picked
         ? project_.tree.find((file) => file.path === picked.path)
         : undefined;
@@ -1619,6 +1921,37 @@ async function handle(
        * still the customer's own source with one change in it. */
       const { tree: repaired, repairs } = repairStructure(changed);
 
+      /* ── And the same photographs a fresh build gets ────────────────────
+       *
+       * The image passes ran in the SAVE route and nowhere else, which is to
+       * say they ran on generation and never on an edit. So "the image at the
+       * top is broken, fix it" could not be answered: the model is told never
+       * to invent an image URL — rightly, every invented one is a broken
+       * picture — so the best it can do is declare a slot, and nothing on the
+       * edit path had ever filled a slot. The customer asked for a broken
+       * image to be fixed and got the same broken image with different markup
+       * behind it.
+       *
+       * Same argument as repairStructure above, which was added here for
+       * exactly this reason: a pass a fresh build gets, that an edit went
+       * nowhere near.
+       *
+       * ensureImageSources rather than the provider search: it needs no
+       * network and no budget, which matters on a path that already has a
+       * deadline, and it draws on the photographs this project has already
+       * resolved — the ones chosen for its own brief and visual direction. A
+       * tag that ends the edit with no source gets one; a tag that has one is
+       * not touched. */
+      const editedPhotos = service ? await projectPhotoUrls(service, project.id) : [];
+      const imageSweep = ensureImageSources(repaired, editedPhotos);
+
+      if (imageSweep.repaired > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `edit: ${project.id} — gave ${imageSweep.repaired} image tag(s) a source they did not have`,
+        );
+      }
+
       /* ── And the config, if this edit changed what the project IS ───────
        *
        * A landing page acquires a contact form; the form acquires a route
@@ -1639,7 +1972,7 @@ async function handle(
       const manifestNow =
         upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture ?? UNKNOWN_ARCHITECTURE;
       const retuned = retuneBuild(
-        repaired,
+        imageSweep.tree,
         (project.name as string | null) ?? "app",
         manifestNow,
         dataModelFor(manifestNow, schemaNameFor(project.id)),
@@ -1663,6 +1996,49 @@ async function handle(
         );
       }
 
+      /* ── THE GATES A TREE EDIT NEVER PASSED THROUGH ────────────────────
+       *
+       * runQaLoop has taken a `tree` since it was written, and two of its
+       * gates read one properly: staticResponsiveGate walks every .tsx in the
+       * project and reads its class lists, and functionalGate checks the
+       * routes against the manifest. Neither had ever run on an edit. The only
+       * production caller was the save route, so a project was inspected when
+       * it was BUILT and never again — and every edit after that went to
+       * Vercel with its layout unexamined, which is what "the page on a mobile
+       * screen isn't well aligned" sounds like from the other side.
+       *
+       * No repair function, deliberately. The document repair the save route
+       * passes is autofix, which rewrites HTML and has no meaning for a
+       * directory of .tsx; the tree's repair is repairStructure, and it has
+       * already run above. So this is one pass: measure, record, report.
+       *
+       * The summary is passed as the document because that is what the save
+       * route passes for a tree build, and one convention wrongly shared beats
+       * two conventions that disagree. The document gates find little in it;
+       * the tree gates are the ones doing the work here.
+       *
+       * Never fails the edit. The change is the customer's, the files are
+       * sound (repairStructure said so) and throwing away paid work over a
+       * layout warning would be the worse mistake. What it does is stop the
+       * result being called validated when it is not — the verdict is written
+       * to the build row, and the deploy below is gated on it. */
+      const inspection = await runQaLoop({
+        html: currentHtml ?? "",
+        tree: edited,
+        manifest: manifestNow,
+        design: knownDesign,
+      });
+
+      const qa = inspection.result;
+      const qaErrors = allIssues(qa).filter((issue) => issue.severity === "error");
+
+      if (qaErrors.length > 0) {
+        // eslint-disable-next-line no-console
+        console.info(
+          `edit: ${project.id} QA ${qa.status} — ${qaErrors.map((issue) => issue.rule).join(", ")}`,
+        );
+      }
+
       steps.begin("version", "Saving the new version", "storing the project so you can undo back to this…");
       const { data: newBuild, error: buildError } = await service
         .from("project_builds")
@@ -1678,6 +2054,16 @@ async function handle(
           html: currentHtml ?? "",
           model: `${source.model} (${source.path})`,
           files_touched: 1,
+          /* The verdict, kept with the build it is about — the same three
+             columns the save route writes, because "was this version ever
+             actually checked" is asked much later and by somebody looking at a
+             site that is already live. Errors only, and at most twenty: this
+             is a record, not a log. */
+          qa_status: qa.status,
+          qa_issues: qaErrors
+            .slice(0, 20)
+            .map((issue) => ({ rule: issue.rule, message: issue.message, viewport: issue.viewport ?? null })),
+          qa_fixes: repairs.map((repair) => repair.what),
         })
         .select("id")
         .single();
@@ -1778,6 +2164,27 @@ async function handle(
         await deliver(
           `${diagnosis?.summary ?? "This change leaves something the build will refuse."}\n\nYour change is saved and the preview shows it. The live site is still serving the version before it, so nothing your visitors see is broken. Tell me what you want done about this and I'll fix it.`,
           { tone: "error", key: "edit-not-deployable" },
+        );
+      } else if (deploymentsConfigured() && redeploy.deploy && qaErrors.length > 0) {
+        /* ── Stored, and not put in front of anybody ──────────────────────
+         *
+         * The change is saved and the preview shows it, because it is theirs
+         * and the files compile — inspectStructure said so on the line above.
+         * What does not happen is it going live: QA found something that is
+         * wrong for a visitor rather than for a compiler, and the live site is
+         * still serving the version before it.
+         *
+         * This is the difference between failing an edit and declining to
+         * publish one. Failing it would throw away work somebody paid for over
+         * a layout warning; publishing it silently is how a project reaches
+         * customers with its layout unexamined, which is exactly what the
+         * whole of this pass is for. */
+        await deliver(
+          `I've made the change and saved it — the preview shows it. I haven't put it live, because checking it turned up ${qaErrors.length === 1 ? "something" : `${qaErrors.length} things`} a visitor would see:\n\n${qaErrors
+            .slice(0, 4)
+            .map((issue) => `- ${issue.message}`)
+            .join("\n")}\n\nThe live site is still serving the version before this, so nothing your visitors see is broken. Tell me to fix these, or to put it live anyway.`,
+          { tone: "error", key: "edit-qa-failed" },
         );
       } else if (deploymentsConfigured() && redeploy.deploy) {
         const backendForDeploy = knownArchitecture?.database
@@ -2188,6 +2595,25 @@ async function handle(
            above. */
         [
           editPlanBrief(plan, knownArchitecture, architectureRow?.design_system as string | null),
+          /* ── What is actually wrong, when the ask is about a phone ───────
+           *
+           * "Make it fit on mobile" is a perfectly clear request, and it was
+           * being handed over as the whole of what the model knew. The page is
+           * forty kilobytes, the defect is four characters somewhere inside it,
+           * and the edit has under a minute — so the minute went on reading,
+           * looking for something this codebase had already found and could
+           * simply have said.
+           *
+           * qa/responsive.ts measures the page at 390px and names the file, the
+           * class list and the rule. Measured against the page AFTER the
+           * mechanical fixes, so the model is never asked to do work autofix is
+           * about to do anyway — see the autofix call below, which runs on the
+           * result either way.
+           *
+           * Only for a request that is about this. A brief about phone layout
+           * on a message about the pricing copy is several hundred tokens of
+           * distraction. */
+          plan.kind === "responsive" ? responsiveBrief(autofix(currentHtml).html) : "",
           /* ── Somewhere to look, when the message carries a picture ───────
            *
            * The hardest request this builder gets is "use this screenshot and
@@ -3078,9 +3504,101 @@ async function handle(
     } else if (architecture.needsProject) {
       needs.stack = "nextjs";
     }
+
+    /* ── "My own backend", written down where it binds ──────────────────
+     *
+     * Recorded on the project rather than held for the length of this
+     * request, because it is a standing decision and not an answer to one
+     * build: the next message must not re-ask it, and ensureBackendFor below
+     * must not provision a Supabase project for somebody who has just
+     * declined one. A row saying `own` is what both of those read.
+     *
+     * No url and no anon key, deliberately — those are theirs to paste under
+     * Backend, and this is the intent rather than the connection.
+     * resolveBackend answers null for exactly this row, so the build carries
+     * on and the migration is reported pending instead of being applied to an
+     * instance they did not choose.
+     *
+     * Best effort. A row that cannot be written costs the next build a
+     * repeated question, which is a great deal better than failing a build
+     * somebody has paid for. */
+    if (chosenArchitecture === "own" && service) {
+      const { error: backendError } = await service.from("project_backends").upsert(
+        {
+          project_id: project.id,
+          user_id: user.id,
+          kind: "own",
+          mode: "own",
+          verification_error: null,
+        },
+        { onConflict: "project_id" },
+      );
+
+      if (backendError) {
+        // eslint-disable-next-line no-console
+        console.error(`build: ${project.id} chose its own backend and it could not be recorded:`, backendError.message);
+      }
+    }
+
+    /* ── "Yours, please", written down where it authorises ───────────────
+     *
+     * The other half of the same decision, and it has to be recorded for the
+     * same reason: ensureBackendFor no longer provisions from the `shared`
+     * fallback, because that fallback is what a project has when NOBODY was
+     * asked. A managed database now happens only where somebody asked for
+     * one, and this row is the asking.
+     *
+     * No url, no ref, no anon key: this is the consent, and the provisioning
+     * that follows fills them in. A row with mode quickstark_managed and no
+     * managed_ref is precisely "wanted, not yet created", which is what
+     * ensureBackendFor reads.
+     *
+     * Best effort, as above. A row that cannot be written costs the next
+     * build a repeated question, which beats failing a build somebody paid
+     * for — and beats spending their credit on a guess. */
+    if (databaseChoice(chosenArchitecture) === "managed" && service) {
+      const { error: managedError } = await service.from("project_backends").upsert(
+        {
+          project_id: project.id,
+          user_id: user.id,
+          kind: "shared",
+          mode: "quickstark_managed",
+          verification_error: null,
+        },
+        { onConflict: "project_id" },
+      );
+
+      if (managedError) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `build: ${project.id} asked for a managed database and it could not be recorded:`,
+          managedError.message,
+        );
+      }
+    }
   }
 
-  if (!architecture.certain && ASK_WHEN_UNSURE) {
+  /* ── Whose database, asked before one is created ───────────────────────
+   *
+   * The gate used to be uncertainty alone: ask when the reading of the brief
+   * was a guess, and otherwise get on with it. Which meant the clearer it was
+   * that a project needed data, the less likely anybody was asked about it —
+   * and ensureBackendFor then provisioned a Supabase project and spent a
+   * credit on the strength of the manifest.
+   *
+   * So a project that would touch a database is asked as well, once, whatever
+   * the confidence. `shared` is the fallback nobody chose, so a row carrying
+   * it — or no row at all — means the question has not been answered yet. Any
+   * other mode is an answer and is not asked again: `own` and
+   * quickstark_managed are standing decisions, and `none` is a no.
+   *
+   * A frontend-only project is never asked, because no database is in
+   * question and a choice with one real option is not a choice. */
+  const wouldUseData = architecture.manifest.backend || architecture.manifest.database;
+  const decidedBackend = wouldUseData && service ? await resolveBackend(service, project.id) : null;
+  const backendUndecided = wouldUseData && (!decidedBackend || decidedBackend.mode === "shared");
+
+  if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE) {
     const asked = architectureQuestion(kind.kind, architecture.manifest);
     const stored = await deliver(asked, { key: "which-architecture" });
 
@@ -3243,12 +3761,70 @@ async function handle(
   /* `service` is null when the deployment has no service-role key, which is
      already a build that cannot write its own rows — so this asks for nothing
      rather than adding a second way to fail on it. */
+  /* ── How much backend, before where it lives ────────────────────────────
+   *
+   * The layers already decided whether this project has a database. This asks
+   * the second question — how much of one — and the two answers are genuinely
+   * different infrastructure:
+   *
+   *   simple   a contact form's table, on the shared schema it already has.
+   *   heavy    accounts, an admin, uploads or money, which means a Supabase
+   *            project of its own: identities are per project, so accounts on
+   *            the shared instance share one pool with every other app on it.
+   *
+   * ensureBackendFor is the only thing in the read path that may write, and it
+   * only ever fills in a project that has said nothing — an owner who chose in
+   * the panel is returned untouched. Every failure degrades to exactly what
+   * resolveBackend would have answered, so this cannot cost a build. */
   const backend =
-    service && architecture.manifest.database ? await resolveBackend(service, project.id) : null;
-  const dataModel = dataModelFor(
+    service && architecture.manifest.database
+      ? await ensureBackendFor(service, {
+          projectId: project.id,
+          userId: user.id,
+          projectName: project.name as string,
+        })
+      : null;
+  const deterministic = dataModelFor(
     architecture.manifest,
     backend?.schema ?? schemaNameFor(project.id),
   );
+
+  /* ── The tables an application needs, which no kind can supply ──────────
+   *
+   * dataModelFor models a store, a blog and a publication because those kinds
+   * ARE their tables — every store has a basket. `webapp` has no such shape: a
+   * CRM's tables are leads, a tracker's are tasks, a portal's are documents.
+   * So it answered with `profiles` and nothing else, and an application with a
+   * database got an EMPTY schema — schemaBrief then returns the empty string,
+   * and the model is told to write an app and given nowhere to put anything.
+   * A working interface over hardcoded arrays is what comes back, which is the
+   * demo this platform exists not to ship.
+   *
+   * Asked for only where it is genuinely needed and cannot be derived:
+   *
+   *   the manifest already says database, so a bakery with a contact form
+   *   never reaches this line — a database is not automatic and this does not
+   *   make it so;
+   *   the kind has no deterministic model of its own, so a store keeps the
+   *   tables that were written for it rather than having them re-guessed.
+   *
+   * Every failure degrades to `deterministic`, which is exactly what this
+   * build would have had before. See app-schema.ts: the proposal is refused
+   * whole rather than repaired, because a table that is nearly right is worse
+   * than no table — the app gets written against it and a customer finds the
+   * defect. */
+  let dataModel = deterministic;
+
+  if (architecture.manifest.database && architecture.manifest.type === "webapp") {
+    const authored = await authorSchema({ brief: brief.text, manifest: architecture.manifest });
+
+    if (authored.ok) {
+      dataModel = withAuthored(deterministic, authored.tables);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn(`schema: ${project.id} kept the default tables — ${authored.reason}`);
+    }
+  }
 
   if (service && backend && dataModel.tables.length > 0) {
     /* The stage is entered only when there is something to provision. A
@@ -3489,6 +4065,32 @@ async function handle(
     /* The whole system prompt, held rather than inlined: it is both what the
        orchestrator is sent and what the request body is built around, and
        composing it twice would be two chances to compose it differently. */
+    /* ── What this project is already wired to ──────────────────────────
+     *
+     * Read from Vercel, because that is where the truth is: the secrets route
+     * deliberately stores nothing here, so the only way to know a project has
+     * a Stripe key is to ask the place it was sent. Names only — a value is
+     * never returned by Vercel and would never be asked for.
+     *
+     * Best effort throughout. A project that has never deployed has no Vercel
+     * project to ask about, a token without scope answers nothing, and both of
+     * those are a build that carries on with no services declared — exactly
+     * what every build did before this existed. */
+    const connected = await (async () => {
+      const creds = vercelCredentials();
+      if (!creds || !service) return [];
+
+      try {
+        const vercelProject = await existingVercelProject(service, project.id);
+        if (!vercelProject) return [];
+        return connectedServices(await projectSecretNames(vercelProject, creds));
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(`build: ${project.id} — the connected services could not be read:`, error);
+        return [];
+      }
+    })();
+
     /* Held as a value rather than inlined, because the brief may have to be
        restructured below and the prompt recomposed around it — and two
        literals are two chances for the second one to differ from the first. */
@@ -3522,13 +4124,43 @@ async function handle(
                  there and tells the model to declare fillable slots instead,
                  which tree-images.ts then fills after generation. Passing this
                  is what stops a project shipping grey panels where photographs
-                 belong. */
-              imageUrls.length,
+                 belong.
+
+                 It was `imageUrls.length`, and that is a count of the REFERENCE
+                 IMAGES THE CUSTOMER ATTACHED — a screenshot, a mockup, a
+                 moodboard (see asset-intake.ts). It has nothing to do with how
+                 many photographs the asset pipeline found, and almost nobody
+                 attaches one, so this was 0 on essentially every build.
+
+                 Which put two contradictory instructions in one prompt.
+                 manifestForPrompt, a few lines above, listed real resolved URLs
+                 under "use these exact URLs and no others"; this then said "No
+                 pictures were resolved ahead of this build, write each one as a
+                 slot". The model believed the second, declared slots, and — on
+                 a project, where the same picture is wanted in a dozen cards —
+                 factored them into a component taking its art direction as a
+                 prop. `data-shot={shot}` matches nothing in images.ts, so every
+                 slot stayed empty and the catalogue shipped as grey rounded
+                 rectangles with alt text in them.
+
+                 So: the resolved count, which is what the parameter has always
+                 said it wanted. A slot with no picture is an empty string in
+                 the manifest, so the falsy ones are not counted. */
+              resolvedPhotographs(pictures.manifest),
             )
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
       stagePlan: plannedStages ? stagePlanBrief(plannedStages) : undefined,
+      /* And which outside services are really wired to this project. See
+         integrations.ts: the keys have been reaching Vercel correctly all
+         along and nothing ever told the generator, so a customer who had
+         connected Stripe was shown an app saying payments were not connected
+         yet. Empty for a project with no keys, which is almost all of them. */
+      integrations: integrationBrief(connected),
+      /* What this project does with products, and what it deliberately does
+         not. PRODUCTS ARE NOT COMMERCE — see commerce.ts. */
+      commerce: commerceBrief(architecture.manifest.commerce),
     };
 
     const systemPrompt = composeBuildPrompt(kind.kind, brief.text, promptContext);

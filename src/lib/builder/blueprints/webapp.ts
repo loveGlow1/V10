@@ -68,8 +68,28 @@ export const webapp: Blueprint = {
   conditionalRequirements: [
     {
       when: "the product has user accounts, personal workspaces, saved data, private content, or more than one user",
+      /* ── THE APP OPENS INTO THE APP ────────────────────────────────────
+       *
+       * This asked for the opposite, in capitals: a protected area that does
+       * not render until somebody signs in, plus one seeded demo account with
+       * its email and password PRINTED ON THE SIGN-IN SCREEN. The reasoning
+       * was right — "a preview nobody can get into is a locked door" — and the
+       * answer was a locked door with the key taped to it.
+       *
+       * What it produced: an invoicing app whose preview was one card reading
+       * "LOCKED — Sign in to open the ledger", the credentials underneath it
+       * in monospace, and the entire product invisible behind it. Nobody
+       * previewing their own app should have to sign in to it, and nobody
+       * should be shown a password as part of a design.
+       *
+       * So the door goes and the capability stays. Sign-in, sign-up and
+       * sign-out are built and work, because the brief asked for accounts and
+       * they are what accounts are; the app simply OPENS with somebody already
+       * signed in, the way it looks to the person it was built for. Signing
+       * out is what reveals the sign-in screen — a route you can reach, not a
+       * gate you must pass. */
       require:
-        "sign-in, sign-up and sign-out that work, validating properly with inline errors; a protected area that does not render until someone is signed in; and ONE SEEDED DEMO ACCOUNT WHOSE EMAIL AND PASSWORD ARE PRINTED ON THE SIGN-IN SCREEN — a preview nobody can get into is a locked door",
+        "sign-in, sign-up and sign-out that work, with inline errors, and a protected area that enforces access. THE APP OPENS ALREADY SIGNED IN AS A SEEDED PERSON, on the product — never on a sign-in screen and never with credentials printed on one. Signing out is how the sign-in is reached",
     },
     {
       when: "the product has admins, team members, different access levels, or actions only some people may take",
@@ -135,7 +155,7 @@ export const webapp: Blueprint = {
 
   exclusions: [
     "No fake success. A control that cannot really do its job says so; it never shows a confirmation for work that did not happen. A payment that 'succeeded' without a server is the one failure a person only finds out about after trusting it.",
-    "No marketing hero, no feature grid, no testimonials, no pricing section inside the application. The first screen is the product (or its sign-in, when it has one).",
+    "No marketing hero, feature grid, testimonials or pricing inside the application. The first screen is the product — never a sign-in, a locked card, or demo credentials printed on one.",
     "No storefront mechanics — cart, checkout, product grid — unless the brief explicitly asked for them.",
     "No fake dashboard widgets. A tile, chart or counter that does not read from something real in the page is worse than no tile.",
     "No navigation item, tab or view that is not built.",

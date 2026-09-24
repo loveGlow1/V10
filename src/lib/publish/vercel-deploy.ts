@@ -481,10 +481,25 @@ export type ProtectionResult = {
   note: string | null;
 };
 
-/* The two fields that gate a deployment. Null is Vercel's "off" — an absent key
-   means "leave as it is", which is not the same thing and is what makes this an
-   explicit null rather than a missing property. */
-const UNPROTECTED = { ssoProtection: null, passwords: null } as const;
+/* The fields that gate a deployment, under the names Vercel's project API
+ * actually reads. Null is Vercel's "off" — an absent key means "leave as it
+ * is", which is not the same thing and is what makes each of these an explicit
+ * null rather than a missing property.
+ *
+ * `passwords` was not one of them. The v9 project endpoint has no such field,
+ * so the key was accepted, ignored, and password protection stayed exactly on
+ * — which is the half of Deployment Protection that puts a login box in front
+ * of a customer's site. `passwordProtection` is the documented name and is what
+ * turns it off.
+ *
+ * `trustedIps` joins them for completeness: an allow-list is the third way a
+ * deployment answers 403 to everybody who is not the team, and a generated
+ * project must be open to the public by construction. */
+const UNPROTECTED = {
+  ssoProtection: null,
+  passwordProtection: null,
+  trustedIps: null,
+} as const;
 
 /* The prefix Next.js inlines into the bundle. The single fact everything about
    secrets on this platform turns on. */
@@ -819,6 +834,101 @@ export async function aliasDeployment(
   return { ok: true, alias };
 }
 
+/* ── The address the customer actually wants ──────────────────────────────
+ *
+ * `<slug>.quickstark.tech` rather than `<slug>.vercel.app`. Not decoration:
+ * the vercel.app address tells every visitor whose hosting this is, on a site
+ * somebody is about to show a client.
+ *
+ * A PROJECT DOMAIN, NOT A DEPLOYMENT ALIAS, and the difference is the whole
+ * reason this exists beside aliasDeployment. An alias points at ONE build, so
+ * every publish afterwards has to re-point it or the clean address quietly
+ * goes stale — it keeps serving a version from three edits ago while the
+ * vercel.app address moves on, which is the worst possible failure because
+ * both addresses work and only one is right. A domain attached to the PROJECT
+ * follows its newest production deployment on its own, for the life of the
+ * project, with nothing to re-run.
+ *
+ * `idOrName` is genuinely either, so the project NAME we already record is
+ * enough and there is no id to look up first.
+ *
+ * REQUIRES THE WILDCARD TO EXIST. `*.quickstark.tech` has to be a verified
+ * domain on the Vercel account with its DNS pointed at Vercel; without that
+ * the call is refused and there is nothing this code can do about it. So it is
+ * best effort throughout and nothing downstream depends on it: the vercel.app
+ * address goes on working, which is the difference between a site with a
+ * plainer address and no site at all. */
+export function appDomainBase(): string | null {
+  const configured = process.env.QUICKSTARK_APP_DOMAIN?.trim();
+  return configured && configured.length > 0 ? configured.replace(/^\.+|\.+$/g, "") : null;
+}
+
+/** `<slug>.quickstark.tech`, or null when no base domain is configured. */
+export function appDomainFor(projectName: string): string | null {
+  const base = appDomainBase();
+  if (!base) return null;
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `${slug}.${base}` : null;
+}
+
+export type DomainResult =
+  | { ok: true; domain: string; already: boolean }
+  | { ok: false; reason: string };
+
+/**
+ * Binds a domain to a Vercel project, so every production deployment answers
+ * on it.
+ *
+ * Idempotent, and it has to be: this runs on every publish, and the second one
+ * finds the domain already there. Vercel answers that with 409, which is not a
+ * failure — so a conflict is checked against the project's own list rather
+ * than reported. A 409 because somebody ELSE holds the domain is a real
+ * refusal and is returned as one.
+ */
+export async function attachProjectDomain(
+  projectIdOrName: string,
+  domain: string,
+  creds: { token: string; teamQuery: string },
+): Promise<DomainResult> {
+  const added = await call(
+    `/v10/projects/${encodeURIComponent(projectIdOrName)}/domains${creds.teamQuery}`,
+    { method: "POST", body: JSON.stringify({ name: domain }) },
+    creds.token,
+  );
+
+  if (!added.ok) return { ok: false, reason: added.reason };
+  if (added.status < 400) return { ok: true, domain, already: false };
+
+  if (added.status === 409) {
+    /* Already in use — by us on the second publish, or by somebody else. The
+       project's own list is what tells the two apart, and only the second is
+       something to report. */
+    const held = await projectDomains(projectIdOrName, creds);
+    if (held.includes(domain.toLowerCase())) return { ok: true, domain, already: true };
+  }
+
+  return { ok: false, reason: refusal(added.body, added.status) };
+}
+
+/** The domains currently bound to a Vercel project, lower-cased. */
+export async function projectDomains(
+  projectIdOrName: string,
+  creds: { token: string; teamQuery: string },
+): Promise<string[]> {
+  const listed = await call(
+    `/v9/projects/${encodeURIComponent(projectIdOrName)}/domains${creds.teamQuery}`,
+    { method: "GET" },
+    creds.token,
+  );
+
+  if (!listed.ok || listed.status >= 400) return [];
+
+  const body = listed.body as { domains?: { name?: unknown }[] } | null;
+  return (body?.domains ?? [])
+    .map((entry) => (typeof entry.name === "string" ? entry.name.toLowerCase() : ""))
+    .filter((name) => name.length > 0);
+}
+
 export type Started =
   | {
       ok: true;
@@ -920,6 +1030,35 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
    * .vercel.app name, which is the alias by construction. Falling back to the
    * deployment host when Vercel sends no aliases keeps this no worse than it
    * was. */
+  /* ── §8: not silently ────────────────────────────────────────────────
+   *
+   * `protectionNote` has been returned since this function was written and
+   * read by none of its five callers, so a project whose access settings could
+   * not be changed went out with nobody told. It is still returned — a caller
+   * that wants to surface it can — and it is now recorded here, where the
+   * details actually are.
+   *
+   * An operator diagnostic rather than a message to the customer, deliberately.
+   * This is the moment the upload is accepted, which is BEFORE anything has
+   * been verified: deploymentState tries the setting again once the deployment
+   * is finished and asks the address itself, and that answer is the one worth
+   * putting in front of somebody. Saying "your app may be protected" here and
+   * "your app is live" ninety seconds later would be two answers to one
+   * question, in that order. */
+  if (!protection.cleared) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "deploy: deployment protection was not cleared",
+      JSON.stringify({
+        vercelProject: target.name,
+        deploymentId: deployment.id,
+        address: `https://${stableHost(deployment.aliases, deployment.url, target.name)}`,
+        attempted: "POST /v10/projects + PATCH /v9/projects/{name} with ssoProtection, passwordProtection, trustedIps all null",
+        vercelSaid: protection.note,
+      }),
+    );
+  }
+
   return {
     ok: true,
     deploymentId: deployment.id,
@@ -933,6 +1072,15 @@ export type DeploymentState =
   | { state: "queued" }
   | { state: "ready"; url: string }
   | { state: "error" | "cancelled"; reason: string }
+  /* READY, and answering strangers with a sign-in wall.
+   *
+   * Its own state because every response to it differs from a failure's. The
+   * build is perfect and must not be repaired; the deployment is correct and
+   * must not be re-run, because the next one is protected in exactly the same
+   * way and only spends Vercel quota to prove it. What it needs is the
+   * project's access configuration changed — which is attempted before this is
+   * ever returned, so reaching here means the attempt did not take. */
+  | { state: "protected"; reason: string; url: string }
   /* Vercel could not be reached. Distinct from "error" on purpose: a
      deployment whose STATUS could not be read has not failed, and marking it
      failed would take down a site that is very likely live. The caller leaves
@@ -985,6 +1133,52 @@ export async function deploymentState(
        is the path that usually gets there: the function that started the
        deployment is long gone and the cron is what finds it finished. */
     const reached = await reachable(address);
+
+    if (!reached.ok && reached.blocked) {
+      /* ── Cleared here, not left for somebody to do by hand ──────────────
+       *
+       * clearProtection already runs before every upload, and the project is
+       * created carrying the settings — so reaching this line means one of
+       * three things: the project existed and was made before that ran, a team
+       * policy re-applied the default over what we asked for, or the token
+       * lacked the scope to change it.
+       *
+       * The first two are fixable from here and this is the only moment we
+       * know they happened: the deployment is finished and a real request has
+       * just been refused. So the settings are written again and the SAME
+       * deployment is asked a second time — Deployment Protection is a project
+       * setting, so turning it off applies to the build that already exists
+       * and there is nothing to rebuild.
+       *
+       * Scoped to this project. Nothing here touches team settings, the
+       * firewall, or any other project — see clearProtection, which PATCHes
+       * one project by name. */
+      /* Only when the project is KNOWN. Deriving a name from the deployment
+         host would be guessing which project to change, and the one thing this
+         must never do is alter the access settings of a project nobody asked
+         about. Without a name, the state is reported and nothing is touched. */
+      const retry = projectName
+        ? await clearProtection(projectName, creds)
+        : {
+            cleared: false,
+            note: "this deployment's Vercel project is not recorded here, so its protection setting was left alone.",
+          };
+      /* Only asked again when something actually changed. Re-fetching after a
+         PATCH that was refused would spend a request to be told the same
+         thing. */
+      const second = retry.cleared ? await reachable(address) : reached;
+
+      if (second.ok) return { state: "ready", url: address };
+
+      return {
+        state: "protected",
+        url: address,
+        reason: retry.cleared
+          ? `${reached.reason} The setting was turned off for this project automatically, and the address is still refusing — which usually means a team-wide policy is re-applying it.`
+          : `${reached.reason} ${retry.note ?? "It could not be turned off automatically."}`,
+      };
+    }
+
     if (!reached.ok) {
       return { state: "error", reason: `${reached.reason}\n\nThe build itself succeeded: ${address}` };
     }
@@ -1194,7 +1388,16 @@ async function settledLog(
  * answers that mean nobody can see the app at all. */
 const HEALTH_TIMEOUT_MS = 15_000;
 
-async function reachable(address: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+/* Why an address could not be opened, when the difference matters.
+ *
+ * `blocked` is Deployment Protection specifically: the build is perfect, the
+ * URL is right, and Vercel is answering strangers with a sign-in wall. It is
+ * separated from every other failure because the RESPONSE to it is different —
+ * a protected deployment is not a broken build, must not be repaired by a
+ * model, and must not be redeployed, because the next one is protected too. */
+export type Unreachable = { ok: false; reason: string; blocked: boolean };
+
+export async function reachable(address: string): Promise<{ ok: true } | Unreachable> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
@@ -1202,7 +1405,17 @@ async function reachable(address: string): Promise<{ ok: true } | { ok: false; r
     const response = await fetch(address, {
       redirect: "follow",
       signal: controller.signal,
-      headers: { "User-Agent": "QuickStark-deploy-check" },
+      /* A browser's user agent, because §5 asks this to be checked under the
+         conditions the preview actually uses and the preview is an iframe in
+         somebody's browser. It matters: Deployment Protection answers a plain
+         client with 401 and a navigation with a redirect to its sign-in page,
+         and only the second is what the customer will meet. Asking as a script
+         would test a path no visitor takes. */
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36 QuickStark-deploy-check",
+        Accept: "text/html,application/xhtml+xml",
+      },
     });
 
     /* The one that matters, and the one that was being reported as success.
@@ -1211,18 +1424,97 @@ async function reachable(address: string): Promise<{ ok: true } | { ok: false; r
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,
+        blocked: true,
         reason:
           "The app built and deployed, but Vercel is not letting the public see it — " +
           "the address answers with a sign-in wall rather than the site. This is " +
-          "Deployment Protection, which is on by default on some Vercel accounts. " +
-          "Turn it off for this project (Vercel → the project → Settings → Deployment " +
-          "Protection) and the same deployment becomes public with nothing to rebuild.",
+          "Deployment Protection, which is on by default on some Vercel accounts.",
+      };
+    }
+
+    /* ── A 200 IS NOT PROOF THE APP IS THERE ───────────────────────────
+     *
+     * The status check above catches the shape of protection a plain request
+     * gets: 401, or 403 once Vercel has decided who you are not. A BROWSER
+     * does not always get that. Deployment Protection can answer a navigation
+     * with a redirect to Vercel's sign-in, which is a 200 carrying an
+     * interstitial — and with redirect: "follow" that arrived here as success.
+     * So the check passed, "your app is live" was said, and the person opening
+     * the link in a private window got a login page: the exact failure this
+     * function exists to prevent, one layer further in.
+     *
+     * Two signals, strongest first. Where the response ENDED matters more than
+     * what it says: a request for the customer's app that finishes on a Vercel
+     * hostname it did not start on has been intercepted, whatever the body
+     * claims. The markers are the fallback for an interstitial served in place
+     * rather than redirected to, and they are deliberately specific — a
+     * generated app may perfectly well contain the word "vercel", so nothing
+     * here matches on that alone. */
+    const landedOn = (() => {
+      try {
+        return new URL(response.url || address).hostname;
+      } catch {
+        return "";
+      }
+    })();
+
+    const startedOn = (() => {
+      try {
+        return new URL(address).hostname;
+      } catch {
+        return "";
+      }
+    })();
+
+    if (landedOn !== startedOn && /(^|\.)vercel\.com$/i.test(landedOn)) {
+      return {
+        ok: false,
+        blocked: true,
+        reason:
+          "The app built and deployed, but opening its address lands on a Vercel " +
+          "sign-in page instead of the site. This is Deployment Protection.",
+      };
+    }
+
+    /* Read once, capped. The body is wanted for two questions and neither
+       needs more than the head of the document. */
+    const body = (await response.text().catch(() => "")).slice(0, 4000);
+
+    const INTERSTITIAL =
+      /_vercel\/sso|vercel\.com\/sso|sso-api\?|Authentication Required|You need to be signed in to (?:view|access) this deployment/i;
+
+    if (INTERSTITIAL.test(body)) {
+      return {
+        ok: false,
+        blocked: true,
+        reason:
+          "The app built and deployed, and its address is serving Vercel's " +
+          "sign-in page rather than the site. This is Deployment Protection.",
+      };
+    }
+
+    /* Vercel's own error pages come back as HTML with a code in them. A
+       deployment that is gone, or was never there, is not a site — and it is
+       not protection either, so it is reported as what it is. */
+    /* Only consulted on a response that is already a failure. A 200 carrying
+       the string NOT_FOUND is far likelier to be the app's own code — a route
+       constant, an error branch, a bundled message — than Vercel's error page,
+       and reading it as the second would condemn a working site. */
+    const VERCEL_ERROR = /DEPLOYMENT_NOT_FOUND|DEPLOYMENT_DELETED|DEPLOYMENT_DISABLED/i;
+    if (response.status === 404 || (response.status >= 400 && VERCEL_ERROR.test(body))) {
+      return {
+        ok: false,
+        blocked: false,
+        reason:
+          "The address answers, but with Vercel's own 'not found' page rather than " +
+          "the app — the deployment it points at is missing or has been removed.",
       };
     }
 
     if (response.status >= 500) {
       return {
         ok: false,
+        blocked: false,
         reason:
           `The app deployed but answers ${response.status} when it is opened, so the ` +
           "build succeeded and the running site is failing. The deployment's own logs " +
@@ -1237,6 +1529,7 @@ async function reachable(address: string): Promise<{ ok: true } | { ok: false; r
        than as the app being broken. */
     return {
       ok: false,
+      blocked: false,
       reason:
         "The app deployed, but this server could not open it to check that it " +
         `works (${error instanceof Error ? error.message : "the request failed"}). ` +
