@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  CreditCard,
   Loader2,
   Mail,
   ShieldCheck,
@@ -61,6 +62,12 @@ import QrCode from "./QrCode";
  *   that the payer says they have sent it; the credits land when the settlement
  *   webhook says the network confirmed it. The screen is honest about that gap
  *   rather than showing a success it cannot vouch for.
+ *
+ * A top-up can also be paid by card. That leaves this sheet entirely: the card
+ * button asks /api/payments/stripe/checkout for a Stripe Checkout page and the
+ * browser goes there; the credits land when Stripe's webhook says it was paid.
+ * Plans are crypto-only for now — the card path grants a top-up pack and
+ * nothing else.
  *
  * It must be rendered inside the dashboard's CreditsProvider: a settled payment
  * refreshes the balance in the header, and a paid plan that leaves a stale
@@ -252,6 +259,30 @@ export default function CryptoPaymentModal({
   }, [payment, refresh]);
 
   /* ── Actions ──────────────────────────────────────────────────────────── */
+  /* One pack only: the card checkout sells exactly TOP_UP_PACK. */
+  const cardAvailable = purchase?.kind === "topup" && purchase.packs === 1;
+  const [cardBusy, setCardBusy] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  const payByCard = useCallback(async () => {
+    setCardBusy(true);
+    setCardError(null);
+    try {
+      const response = await fetch("/api/payments/stripe/checkout", { method: "POST" });
+      const body = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!response.ok || !body.url) {
+        setCardError(body.error ?? "Card payments are unavailable right now.");
+        setCardBusy(false);
+        return;
+      }
+      /* Left busy on purpose: the page is on its way to Stripe. */
+      window.location.assign(body.url);
+    } catch {
+      setCardError("Could not reach the server. Check your connection and try again.");
+      setCardBusy(false);
+    }
+  }, []);
+
   const startPayment = useCallback(async () => {
     if (!purchaseKey) return;
 
@@ -426,6 +457,10 @@ export default function CryptoPaymentModal({
                 busy={busy}
                 error={error}
                 onPay={startPayment}
+                cardAvailable={cardAvailable}
+                cardBusy={cardBusy}
+                cardError={cardError}
+                onPayByCard={payByCard}
               />
             )}
           </motion.div>
@@ -456,6 +491,10 @@ function CurrencyStep({
   busy,
   error,
   onPay,
+  cardAvailable,
+  cardBusy,
+  cardError,
+  onPayByCard,
 }: {
   quote: CryptoQuote | null;
   quoteError: string | null;
@@ -475,19 +514,62 @@ function CurrencyStep({
   busy: boolean;
   error: string | null;
   onPay: () => void;
+  cardAvailable: boolean;
+  cardBusy: boolean;
+  cardError: string | null;
+  onPayByCard: () => void;
 }) {
   return (
     <div className="px-5 pt-6">
       <div className="flex items-baseline justify-between gap-3 border-b border-line/10 pb-4 pr-12">
-        <p className="truncate text-sm font-bold text-ink">{quote?.label ?? "Crypto payment"}</p>
+        <p className="truncate text-sm font-bold text-ink">
+          {quote?.label ?? (cardAvailable ? "Top-up" : "Crypto payment")}
+        </p>
         <p className="shrink-0 text-sm font-bold text-muted">
           {quote ? `${formatUsd(quote.amountUsd)} USD` : "—"}
         </p>
       </div>
 
       <h2 className="mt-6 text-center text-[22px] font-bold leading-tight text-ink">
-        Select payment currency
+        {cardAvailable ? "Choose how to pay" : "Select payment currency"}
       </h2>
+
+      {/* Above the coins, and outside the quote: a card payment does not need
+          live crypto prices, so it stays usable when they fail to load. */}
+      {cardAvailable && (
+        <>
+          <button
+            onClick={onPayByCard}
+            disabled={cardBusy}
+            className="mt-5 flex w-full items-center gap-3 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3 text-left active:scale-[0.995] disabled:opacity-60"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-layer/10">
+              {cardBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin text-ink" />
+              ) : (
+                <CreditCard className="h-4 w-4 text-ink" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-bold text-ink">Pay with card</span>
+              <span className="block text-xs font-medium text-muted">
+                Visa, Mastercard, Amex and more · via Stripe
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+          </button>
+
+          {cardError && (
+            <p className="mt-2 rounded-2xl border border-danger/30 bg-danger/[0.08] px-4 py-3 text-sm font-medium text-danger">
+              {cardError}
+            </p>
+          )}
+
+          <p className="mt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted">
+            Or pay with crypto
+          </p>
+        </>
+      )}
 
       {quoteError && (
         <div className="mt-5 rounded-2xl border border-danger/30 bg-danger/[0.08] px-4 py-3">

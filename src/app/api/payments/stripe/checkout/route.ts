@@ -7,8 +7,10 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Hosted Stripe Checkout.
  *
- * Creates a Checkout Session and sends the customer to the Stripe-hosted page
- * with a 303. The parameters marked "Checkout Studio" were configured there and
+ * Creates a Checkout Session and answers { url }: the Stripe-hosted page the
+ * payment sheet sends the browser to. JSON rather than a redirect so that a
+ * refusal (not signed in, not configured) can be shown in the sheet instead of
+ * replacing the page. The parameters marked "Checkout Studio" were configured there and
  * should be left as they are; mode, success_url, cancel_url and line_items are
  * placeholders — see STRIPE_INTEGRATION_TODO.md.
  *
@@ -63,8 +65,8 @@ export async function POST() {
     origin_context: "web",
     // Placeholders
     mode,
-    success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${SITE_URL}/cancel`,
+    success_url: `${SITE_URL}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${SITE_URL}/dashboard?checkout=cancelled`,
     line_items: [{ price: "price_...", quantity: 1 }],
     // Who gets the credits, and how many. The price above must charge what
     // TOP_UP_PACK in src/app/dashboard/credits.ts says the pack costs.
@@ -80,7 +82,7 @@ export async function POST() {
     if (!session.url) {
       return NextResponse.json({ error: "Stripe returned no checkout URL." }, { status: 502 });
     }
-    return NextResponse.redirect(session.url, 303);
+    return NextResponse.json({ url: session.url });
   } catch (error) {
     console.error("Stripe checkout session failed:", error);
     return NextResponse.json({ error: "Could not start checkout." }, { status: 502 });

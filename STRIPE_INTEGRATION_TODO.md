@@ -12,11 +12,9 @@ The following values are placeholders and must be updated before going live.
 | Field | Current Value | What to Set |
 |-------|--------------|-------------|
 | mode | `payment` | Set to `"payment"` for one-time charges or `"subscription"` for recurring billing. `payment_method_collection` is added automatically only when mode is `"subscription"`. |
-| success_url | `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}` | Your actual post-payment success page URL. Keep the `{CHECKOUT_SESSION_ID}` template. No `/success` page exists yet. |
-| cancel_url | `${SITE_URL}/cancel` | Your actual cancel/return page URL. No `/cancel` page exists yet. |
 | line_items[].price | `price_...` | The Stripe Price ID for the credit top-up pack (https://dashboard.stripe.com/prices). It **must** charge what `TOP_UP_PACK` in [src/app/dashboard/credits.ts](src/app/dashboard/credits.ts) says (currently $15 for 50 credits): the webhook grants `TOP_UP_PACK.credits` whatever the price charged. |
 
-`SITE_URL` comes from [src/lib/site.ts](src/lib/site.ts) (`NEXT_PUBLIC_SITE_URL`, defaulting to `https://www.quickstark.tech`).
+`success_url` and `cancel_url` are set to real values: both return to `${SITE_URL}/dashboard` (`?checkout=success&session_id=…` / `?checkout=cancelled`). `SITE_URL` comes from [src/lib/site.ts](src/lib/site.ts) (`NEXT_PUBLIC_SITE_URL`, defaulting to `https://www.quickstark.tech`).
 
 ## Configured Parameters
 
@@ -60,16 +58,12 @@ STRIPE_INTEGRATION_TODO.md                      this file
 
 ## How It Works
 
-1. A **signed-in** user's browser submits a form (or `fetch`) with `POST /api/payments/stripe/checkout`, e.g. (signed-out requests get 401)
-   ```html
-   <form action="/api/payments/stripe/checkout" method="POST"><button>Checkout</button></form>
-   ```
-2. The route calls `stripe.checkout.sessions.create(...)` and responds with a `303` to `session.url`.
+1. In the dashboard, **Billing → "Or top up 50 credits for $15"** opens the payment sheet, which now offers **Pay with card** above the crypto currencies (top-ups only; plans stay crypto-only). It `POST`s to `/api/payments/stripe/checkout`, which requires a signed-in user and answers `{ url }`; the browser then goes to that Stripe page. Refusals (401 / 503) are shown in the sheet.
+2. The route calls `stripe.checkout.sessions.create(...)` with the user's id and the pack's credits on the session.
 3. The customer pays on the Stripe-hosted page.
-4. Stripe redirects to `success_url` (with the session ID) or `cancel_url`.
+4. Stripe sends the customer back to the dashboard (`success_url` or `cancel_url`).
 5. Separately, Stripe POSTs `checkout.session.completed` to `/api/payments/stripe/webhook`. The route verifies the `Stripe-Signature` header and, when the session is paid, calls `settle_stripe_checkout`: it adds `metadata.credits` to the top-up bucket of the user in `client_reference_id` and writes a `topup` row to `credit_ledger`. Delayed payment methods (bank debits) arrive as `payment_status: "unpaid"` and are credited on `checkout.session.async_payment_succeeded` instead. Crediting is idempotent on the session id (the ledger row's `dedupe_key` is `stripe:<session id>`), so re-delivered events never grant twice.
 
-No button in the UI calls this endpoint yet — wire one into the pricing/checkout UI.
 
 ## Testing
 
