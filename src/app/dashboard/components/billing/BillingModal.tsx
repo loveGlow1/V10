@@ -156,7 +156,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                 <p className="text-muted text-xs font-medium text-center mt-3">
                   {PLANS[selectedPlan].monthlyPriceUsd === 0
                     ? "No card required. Upgrade whenever you need more."
-                    : `$${PLANS[selectedPlan].monthlyPriceUsd} per month, paid by card or crypto. Cancel anytime.`}
+                    : `$${PLANS[selectedPlan].monthlyPriceUsd} per month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly $${PLANS[selectedPlan].monthlyPriceUsd}. Cancel anytime.`}
                 </p>
 
                 {/* The other thing a person opens this sheet to do. Somebody who
@@ -168,7 +168,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     Or top up {TOP_UP_PACK.credits} credits for ${TOP_UP_PACK.priceUsd}
                   </p>
                   <p className="mt-0.5 text-xs font-medium text-muted text-center">
-                    One-off. Top-up credits never expire.
+                    One-off. Top-up credits never expire. Plus applicable tax by card.
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <GatewayButton

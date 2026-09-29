@@ -1132,13 +1132,14 @@ export default function LandingPage() {
                           ) : null}
                         </div>
                         {/* Reserved on every card so the feature lists below stay on a shared
-                            baseline whichever billing period each card is showing. */}
-                        <p className="mt-2 min-h-[1.25rem] text-xs font-medium text-brandTextSec">
+                            baseline whichever billing period each card is showing. Two lines,
+                            because the annual note with its tax line wraps on narrower cards. */}
+                        <p className="mt-2 min-h-[2.5rem] text-xs font-medium text-brandTextSec">
                           {!canBillAnnually
                             ? "Free forever — no card required"
                             : isAnnual
-                              ? `Billed annually at ${formatPrice(yearlyTotal)} — save ${ANNUAL_DISCOUNT_PCT}%`
-                              : "Billed monthly"}
+                              ? `Billed annually at ${formatPrice(yearlyTotal)} — save ${ANNUAL_DISCOUNT_PCT}%, plus applicable tax`
+                              : "Billed monthly, plus applicable tax"}
                         </p>
                       </div>
 

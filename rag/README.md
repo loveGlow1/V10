@@ -82,6 +82,6 @@ browser can read or write it — see the comment on the table.
 
 ## Keeping it current
 
-`last_verified` is `2026-08-30`. Re-check after any change to
+`last_verified` is `2026-09-29` for the pricing and credit chunks (prices, the 5-credit signup grant, no daily allowance, 410 Pro credits, $15 top-ups, one-month plans, tax on card payments). Re-check after any change to
 `src/app/page.tsx` or `src/app/dashboard/credits.ts` — a stale price in a
 support answer is worse than no answer.

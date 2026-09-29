@@ -34,7 +34,7 @@ export default function PricingCard({ plan }: PricingCardProps) {
           ${monthlyPriceUsd}
         </span>
         <span className="mb-1.5 text-xs font-medium text-onSolid">
-          {monthlyPriceUsd === 0 ? "/ free forever" : "/ month"}
+          {monthlyPriceUsd === 0 ? "/ free forever" : "/ month + applicable tax"}
         </span>
       </div>
     </div>
