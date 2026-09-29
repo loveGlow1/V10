@@ -2822,3 +2822,72 @@ begin
   return v_request_id;
 end;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- settle_stripe_checkout — a paid Stripe Checkout Session becomes credits.
+--
+-- Called by /api/payments/stripe/webhook with the service role, never from a
+-- browser. Idempotent on the Checkout Session id, which is what matters: Stripe
+-- retries, and may deliver checkout.session.completed more than once. The
+-- ledger row carries 'stripe:<session id>' as its dedupe_key, and the unique
+-- credit_ledger_dedupe_idx lets that name be used once per account — so the
+-- second delivery inserts nothing, and nothing is added to the balance.
+--
+-- The ledger insert and the balance update happen in one transaction, so a
+-- session pays out exactly once or not at all, never twice and never half.
+--
+-- The credits are decided by the server that created the session (they travel
+-- in its metadata, which only a holder of the secret key can write), and they
+-- land in the top-up bucket, which never expires.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.settle_stripe_checkout(
+  p_session_id text,
+  p_user_id    uuid,
+  p_credits    numeric
+)
+returns public.credit_balances
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_balance public.credit_balances;
+  v_ledger  uuid;
+begin
+  if p_session_id is null or length(p_session_id) = 0 then
+    raise exception 'a checkout session id is required' using errcode = '22023';
+  end if;
+
+  if p_credits is null or p_credits <= 0 then
+    raise exception 'a grant must be positive' using errcode = '22023';
+  end if;
+
+  perform public.ensure_credit_balance(p_user_id);
+
+  -- Lock the balance first so two deliveries of one session queue up here, and
+  -- the second sees the first one's ledger row.
+  perform 1 from public.credit_balances where user_id = p_user_id for update;
+
+  insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
+    values (p_user_id, 'topup', p_credits, 'Top-up paid by card', 'stripe:' || p_session_id)
+    on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing
+    returning id into v_ledger;
+
+  -- Delivered twice. The first delivery paid out; this one changes nothing.
+  if v_ledger is null then
+    return public.ensure_credit_balance(p_user_id);
+  end if;
+
+  update public.credit_balances
+    set top_up = top_up + p_credits
+    where user_id = p_user_id
+    returning * into v_balance;
+
+  return v_balance;
+end;
+$$;
+
+-- The webhook's privilege and nobody else's. PUBLIC is revoked first because
+-- Postgres grants EXECUTE on a new function to it by default.
+revoke all on function public.settle_stripe_checkout(text, uuid, numeric) from public, anon, authenticated;
+grant execute on function public.settle_stripe_checkout(text, uuid, numeric) to service_role;
