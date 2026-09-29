@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { TOP_UP_PACK } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 /* Hosted Stripe Checkout.
  *
@@ -12,6 +14,10 @@ import { SITE_URL } from "@/lib/site";
  *
  * STRIPE_SECRET_KEY is a secret: set it in Vercel → Environment Variables,
  * never in .env (that file is committed). No key means every call is refused.
+ *
+ * The buyer must be signed in. Their user id and the credits being bought are
+ * written onto the session here, on the server, and read back by
+ * /api/payments/stripe/webhook to grant them — a browser cannot set either.
  */
 
 export const runtime = "nodejs";
@@ -25,6 +31,21 @@ export async function POST() {
       { status: 503 },
     );
   }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Payments are unavailable because Supabase is not configured." },
+      { status: 503 },
+    );
+  }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Sign in to pay." }, { status: 401 });
+  }
+
   const stripe = new Stripe(secretKey);
 
   // TODO: Set mode to "subscription" if selling recurring products.
@@ -45,6 +66,10 @@ export async function POST() {
     success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${SITE_URL}/cancel`,
     line_items: [{ price: "price_...", quantity: 1 }],
+    // Who gets the credits, and how many. The price above must charge what
+    // TOP_UP_PACK in src/app/dashboard/credits.ts says the pack costs.
+    client_reference_id: user.id,
+    metadata: { user_id: user.id, credits: String(TOP_UP_PACK.credits) },
   };
   if (params.mode === "subscription") {
     params.payment_method_collection = "always";

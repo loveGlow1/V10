@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
+
 /* Where Stripe tells this app a Checkout Session finished.
  *
  * Called by Stripe, not by a person, so it takes no session: who may call it is
@@ -12,7 +14,8 @@ import Stripe from "stripe";
  *   - No secret configured means every call is refused. A webhook that waves
  *     callers through when it is misconfigured is a free fulfillment dispenser.
  *   - Stripe retries, and may deliver the same event more than once, so
- *     whatever fulfill() grows into must be idempotent on the session id.
+ *     fulfill() pays out through settle_stripe_checkout, which is idempotent
+ *     on the session id.
  *
  * Events handled:
  *   checkout.session.completed              — paid now (cards), or pending
@@ -86,16 +89,41 @@ export async function POST(request: Request) {
   return NextResponse.json({ received: true });
 }
 
-/* TODO: grant what was bought. Must be idempotent on session.id — Stripe can
-   deliver the same event twice, and completed + async_payment_succeeded never
-   both fulfill one session only because of the payment_status check above.
-   See STRIPE_INTEGRATION_TODO.md → Fulfillment. */
+/* Grants the credits the session was created for.
+ *
+ * Who and how much come from the session itself — client_reference_id and
+ * metadata.credits — which /api/payments/stripe/checkout wrote on the server,
+ * so a customer cannot change either. settle_stripe_checkout is idempotent on
+ * the session id: a re-delivered event, or completed followed by
+ * async_payment_succeeded, pays out once.
+ *
+ * A session this app did not create (a Payment Link, a Dashboard test) has no
+ * user or credits on it. That is logged and acknowledged rather than thrown,
+ * because retrying it would never succeed. Anything that might succeed on a
+ * retry — no service key, a database error — throws, so Stripe re-delivers. */
 async function fulfill(session: Stripe.Checkout.Session) {
-  // eslint-disable-next-line no-console
-  console.log("stripe webhook: checkout session paid:", session.id, {
-    customer: session.customer,
-    client_reference_id: session.client_reference_id,
-    amount_total: session.amount_total,
-    currency: session.currency,
+  const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
+  const credits = Number(session.metadata?.credits);
+
+  if (!UUID.test(userId) || !Number.isFinite(credits) || credits <= 0) {
+    // eslint-disable-next-line no-console
+    console.warn("stripe webhook: session has no user or credits to grant:", session.id);
+    return;
+  }
+
+  const service = createSupabaseServiceClient();
+  if (!service) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+  }
+
+  const { error } = await service.rpc("settle_stripe_checkout", {
+    p_session_id: session.id,
+    p_user_id: userId,
+    p_credits: credits,
   });
+  if (error) {
+    throw error;
+  }
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
