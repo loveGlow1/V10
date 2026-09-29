@@ -4,15 +4,15 @@ This file is the single source of truth for what is left to do before Stripe Che
 
 ## Values to Replace
 
-The following values are placeholders and must be updated before going live.
+**No placeholders remain.** All four sample values are now real; this table records what they are set to.
 
-**Files containing placeholders:**
+**Files:**
 - [src/app/api/payments/stripe/checkout/route.ts](src/app/api/payments/stripe/checkout/route.ts)
 
 | Field | Current Value | What to Set |
 |-------|--------------|-------------|
-| mode | `payment` | Set to `"payment"` for one-time charges or `"subscription"` for recurring billing. `payment_method_collection` is added automatically only when mode is `"subscription"`. |
-| line_items[].price | `price_...` | The Stripe Price ID for the credit top-up pack (https://dashboard.stripe.com/prices). It **must** charge what `TOP_UP_PACK` in [src/app/dashboard/credits.ts](src/app/dashboard/credits.ts) says (currently $15 for 50 credits): the webhook grants `TOP_UP_PACK.credits` whatever the price charged. |
+| mode | `payment` | Nothing to do: plans are one month paid once, matching crypto. Switch to `"subscription"` only if you build auto-renewal (then `payment_method_collection: "always"` is added automatically). |
+| line_items | inline `price_data`, priced on the server from `PLANS` / `TOP_UP_PACK` in [src/app/dashboard/credits.ts](src/app/dashboard/credits.ts) (Standard $25, Pro $150, top-up $15 / 50 credits) | Nothing to do: no Stripe Products or Price IDs are needed. Change a price in `credits.ts` (and `credit_plans` in `supabase/schema.sql`) and card and crypto both follow. |
 
 `success_url` and `cancel_url` are set to real values: both return to `${SITE_URL}/dashboard` (`?checkout=success&session_id=…` / `?checkout=cancelled`). `SITE_URL` comes from [src/lib/site.ts](src/lib/site.ts) (`NEXT_PUBLIC_SITE_URL`, defaulting to `https://www.quickstark.tech`).
 
@@ -43,7 +43,7 @@ These parameters were configured in Checkout Studio and are already set correctl
    - `STRIPE_WEBHOOK_SECRET` (server-only, `whsec_...`). Create a webhook endpoint at https://dashboard.stripe.com/workbench/webhooks pointing to `https://<your-domain>/api/payments/stripe/webhook`, subscribed to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed` and `checkout.session.expired`, then copy its signing secret into Vercel. Without it (or without `STRIPE_SECRET_KEY`) the webhook returns 503 and Stripe retries.
    - No publishable key is needed: hosted Checkout is a server-side redirect.
 3. **API version** — the Stripe client is initialised without an explicit API version, so it uses the SDK's pinned default.
-4. **Database** — ✅ done on 2026-09-29: `settle_stripe_checkout` is applied to the production Supabase project (`esuatccbicekcohzgcvd`), executable by `service_role` only. (It is also in [supabase/schema.sql](supabase/schema.sql) for fresh setups.) The webhook also needs `SUPABASE_SERVICE_ROLE_KEY` in Vercel, which the crypto checkout already uses.
+4. **Database** — ✅ done on 2026-09-29: `settle_stripe_checkout(session_id, user_id, credits, plan_id)` (top-ups and plans) is applied to the production Supabase project (`esuatccbicekcohzgcvd`), executable by `service_role` only. (It is also in [supabase/schema.sql](supabase/schema.sql) for fresh setups.) The webhook also needs `SUPABASE_SERVICE_ROLE_KEY` in Vercel, which the crypto checkout already uses.
 
 ## New Files
 
@@ -58,11 +58,11 @@ STRIPE_INTEGRATION_TODO.md                      this file
 
 ## How It Works
 
-1. In the dashboard, **Billing → "Or top up 50 credits for $15"** opens the payment sheet, which now offers **Pay with card** above the crypto currencies (top-ups only; plans stay crypto-only). It `POST`s to `/api/payments/stripe/checkout`, which requires a signed-in user and answers `{ url }`; the browser then goes to that Stripe page. Refusals (401 / 503) are shown in the sheet.
-2. The route calls `stripe.checkout.sessions.create(...)` with the user's id and the pack's credits on the session.
+1. The dashboard's billing sheet has **two separate gateways**: **Pay $X with card** / **Card** (Stripe) and **Pay with crypto** / **Crypto** (the existing crypto sheet, unchanged), for both plans and the $15 top-up. The card button `POST`s `{ purchase }` to `/api/payments/stripe/checkout`, which requires a signed-in user, prices it on the server and answers `{ url }`; the browser then goes to that Stripe page. Refusals (400 / 401 / 503) are shown in the sheet. Neither gateway depends on the other.
+2. The route calls `stripe.checkout.sessions.create(...)` with the user's id and what they bought (`kind` = `plan` + `plan_id`, or `topup` + `credits`) in the session metadata. Plans are sold the way the crypto checkout sells them: **one month, paid once** (`mode: payment`), not an auto-renewing subscription.
 3. The customer pays on the Stripe-hosted page.
 4. Stripe sends the customer back to the dashboard (`success_url` or `cancel_url`).
-5. Separately, Stripe POSTs `checkout.session.completed` to `/api/payments/stripe/webhook`. The route verifies the `Stripe-Signature` header and, when the session is paid, calls `settle_stripe_checkout`: it adds `metadata.credits` to the top-up bucket of the user in `client_reference_id` and writes a `topup` row to `credit_ledger`. Delayed payment methods (bank debits) arrive as `payment_status: "unpaid"` and are credited on `checkout.session.async_payment_succeeded` instead. Crediting is idempotent on the session id (the ledger row's `dedupe_key` is `stripe:<session id>`), so re-delivered events never grant twice.
+5. Separately, Stripe POSTs `checkout.session.completed` to `/api/payments/stripe/webhook`. The route verifies the `Stripe-Signature` header and, when the session is paid, calls `settle_stripe_checkout`: for a top-up it adds the credits to the top-up bucket; for a plan it moves the account to that plan and opens a new cycle with the plan's monthly credits (same rules as `settle_crypto_payment`). Either way it writes a `credit_ledger` row. Delayed payment methods (bank debits) arrive as `payment_status: "unpaid"` and are credited on `checkout.session.async_payment_succeeded` instead. Crediting is idempotent on the session id (the ledger row's `dedupe_key` is `stripe:<session id>`), so re-delivered events never grant twice.
 
 
 ## Testing
@@ -86,9 +86,8 @@ stripe trigger checkout.session.completed
 
 ## Next Steps
 
-- **Products & prices** — create them in the Dashboard and replace `price_...`; decide `payment` vs `subscription`.
 - **Success / cancel pages** — build them and point the URLs at them.
-- **Fulfillment** — done for credit top-ups. Plans/subscriptions are not handled: if you switch `mode` to `subscription`, the webhook still only grants top-up credits, and plan changes and renewals (`invoice.paid`) need their own handling. Never grant anything from the success page.
+- **Fulfillment**: done for plans (one month) and top-ups. If you later want plans to auto-renew by card, that needs Stripe subscriptions (`mode: subscription`, `invoice.paid` renewals, cancellation). Never grant anything from the success page.
 - **Order tracking** — each paid session is in `credit_ledger` (`dedupe_key = 'stripe:<session id>'`). Persist the Stripe `customer` ID if you want to reuse saved cards or add subscriptions.
 - **Refunds** — refunding in Stripe does not remove credits. Handle `charge.refunded` if that matters.
 - **Go live** — swap to live keys and re-create prices in live mode.

@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
+import { Bitcoin, CreditCard, Loader2, X } from "lucide-react";
 import CryptoPaymentModal from "./CryptoPaymentModal";
 import PlanSelector from "./PlanSelector";
 import PricingCard from "./PricingCard";
@@ -26,6 +26,42 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
      it: an order in flight is an address somebody may be mid-way through
      sending to. */
   const [checkout, setCheckout] = useState<Purchase | null>(null);
+
+  /* The card gateway. Separate from crypto end to end: it never opens the
+     crypto sheet or waits on coin prices — it asks the Stripe route for a
+     hosted checkout page and the browser goes there. The route prices the
+     purchase from the same tables, and the webhook grants it. */
+  const [cardBusy, setCardBusy] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  async function payByCard(purchase: Purchase) {
+    const key = JSON.stringify(purchase);
+    setCardBusy(key);
+    setCardError(null);
+    try {
+      const response = await fetch("/api/payments/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purchase }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!response.ok || !body.url) {
+        setCardError(body.error ?? "Card payments are unavailable right now.");
+        setCardBusy(null);
+        return;
+      }
+      /* Left busy on purpose: the page is on its way to Stripe. */
+      window.location.assign(body.url);
+    } catch {
+      setCardError("Could not reach the server. Check your connection and try again.");
+      setCardBusy(null);
+    }
+  }
+
+  const planPurchase: Purchase | null = isPaidPlanId(selectedPlan)
+    ? { kind: "plan", planId: selectedPlan }
+    : null;
+  const topUpPurchase: Purchase = { kind: "topup", packs: 1 };
 
   return (
     <>
@@ -85,35 +121,75 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                 </div>
 
                 <div className="mt-5">
-                  <UpgradeButton
-                    plan={selectedPlan}
-                    onUpgrade={(plan) =>
-                      isPaidPlanId(plan) && setCheckout({ kind: "plan", planId: plan })
-                    }
-                  />
+                  {planPurchase ? (
+                    <div className="space-y-2">
+                      <GatewayButton
+                        primary
+                        icon={<CreditCard className="h-4 w-4" />}
+                        busy={cardBusy === JSON.stringify(planPurchase)}
+                        disabled={cardBusy !== null}
+                        onClick={() => payByCard(planPurchase)}
+                      >
+                        Pay ${PLANS[selectedPlan].monthlyPriceUsd} with card
+                      </GatewayButton>
+                      <GatewayButton
+                        icon={<Bitcoin className="h-4 w-4" />}
+                        disabled={cardBusy !== null}
+                        onClick={() => setCheckout(planPurchase)}
+                      >
+                        Pay with crypto
+                      </GatewayButton>
+                    </div>
+                  ) : (
+                    <UpgradeButton plan={selectedPlan} />
+                  )}
                 </div>
+
+                {cardError && (
+                  <p className="mt-3 rounded-2xl border border-danger/30 bg-danger/[0.08] px-4 py-3 text-sm font-medium text-danger">
+                    {cardError}
+                  </p>
+                )}
 
                 {/* The footnote states the same figure as the card, rather than a
                     promotional one that disagreed with it. */}
                 <p className="text-muted text-xs font-medium text-center mt-3">
                   {PLANS[selectedPlan].monthlyPriceUsd === 0
                     ? "No card required. Upgrade whenever you need more."
-                    : `$${PLANS[selectedPlan].monthlyPriceUsd} per month, paid in crypto. Cancel anytime.`}
+                    : `$${PLANS[selectedPlan].monthlyPriceUsd} per month, paid by card or crypto. Cancel anytime.`}
                 </p>
 
                 {/* The other thing a person opens this sheet to do. Somebody who
                     needs one more publish today is not looking for a plan, and
                     making them take a monthly subscription to get one pack's
                     worth of credits is how a top-up becomes a cancellation. */}
-                <button
-                  onClick={() => setCheckout({ kind: "topup", packs: 1 })}
-                  className="mt-4 w-full rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3 text-sm font-semibold text-ink active:scale-[0.99]"
-                >
-                  Or top up {TOP_UP_PACK.credits} credits for ${TOP_UP_PACK.priceUsd}
-                  <span className="mt-0.5 block text-xs font-medium text-muted">
+                <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
+                  <p className="text-sm font-semibold text-ink text-center">
+                    Or top up {TOP_UP_PACK.credits} credits for ${TOP_UP_PACK.priceUsd}
+                  </p>
+                  <p className="mt-0.5 text-xs font-medium text-muted text-center">
                     One-off. Top-up credits never expire.
-                  </span>
-                </button>
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <GatewayButton
+                      small
+                      icon={<CreditCard className="h-3.5 w-3.5" />}
+                      busy={cardBusy === JSON.stringify(topUpPurchase)}
+                      disabled={cardBusy !== null}
+                      onClick={() => payByCard(topUpPurchase)}
+                    >
+                      Card
+                    </GatewayButton>
+                    <GatewayButton
+                      small
+                      icon={<Bitcoin className="h-3.5 w-3.5" />}
+                      disabled={cardBusy !== null}
+                      onClick={() => setCheckout(topUpPurchase)}
+                    >
+                      Crypto
+                    </GatewayButton>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </>
@@ -126,5 +202,40 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
         onClose={() => setCheckout(null)}
       />
     </>
+  );
+}
+
+function GatewayButton({
+  children,
+  icon,
+  onClick,
+  primary = false,
+  small = false,
+  busy = false,
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  onClick: () => void;
+  primary?: boolean;
+  small?: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex w-full items-center justify-center gap-2 rounded-2xl font-bold active:scale-[0.99] disabled:opacity-60 ${
+        small ? "h-10 text-sm" : "h-12 text-base"
+      } ${
+        primary
+          ? "bg-solid text-[#0A0A0A]"
+          : "border border-line/15 bg-layer/[0.04] text-ink"
+      }`}
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      {children}
+    </button>
   );
 }
