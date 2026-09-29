@@ -380,6 +380,13 @@ export function paymentUri({
    platform is not holding a stale rate through a market move. */
 export const RATE_LOCK_MINUTES = 30;
 
+/** How long an expired on-chain BTC order is still watched for a payment.
+ *  A payment sent late, or sent on time that took long to confirm, is credited
+ *  automatically when it clears within this window — nobody has to settle it
+ *  by hand. Amounts stay reserved for the same window (see the create route),
+ *  so a late payment can never be mistaken for a newer order's. */
+export const LATE_PAYMENT_DAYS = 7;
+
 export type CryptoPaymentStatus =
   /** Created, nothing received. */
   | "awaiting_payment"

@@ -42,6 +42,8 @@ export type AddressPayment = {
   txid: string;
   sats: number;
   confirmed: boolean;
+  /** When the block containing it was mined, in ms. Null while unconfirmed. */
+  blockTime: number | null;
 };
 
 export type AddressFunding = {
@@ -87,7 +89,7 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown | null
 
 type EsploraTx = {
   txid?: unknown;
-  status?: { confirmed?: unknown };
+  status?: { confirmed?: unknown; block_time?: unknown };
   vout?: unknown;
 };
 
@@ -97,12 +99,14 @@ function paymentsIn(tx: EsploraTx, address: string): AddressPayment[] {
   if (!txid || !Array.isArray(tx.vout)) return [];
 
   const confirmed = tx.status?.confirmed === true;
+  const seconds = Number(tx.status?.block_time);
+  const blockTime = confirmed && Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : null;
 
   return (tx.vout as { scriptpubkey_address?: unknown; value?: unknown }[])
     .filter((out) => out.scriptpubkey_address === address)
     .map((out) => Number(out.value))
     .filter((sats) => Number.isFinite(sats) && sats > 0)
-    .map((sats) => ({ txid, sats, confirmed }));
+    .map((sats) => ({ txid, sats, confirmed, blockTime }));
 }
 
 /**
