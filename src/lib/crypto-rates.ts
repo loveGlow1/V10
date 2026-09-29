@@ -18,6 +18,15 @@ import { CRYPTO_CURRENCIES, type CryptoCurrencyId } from "@/lib/crypto-payments"
  * make prices stale. A serverless deployment gets one cache per warm instance,
  * which is the correct amount of caching for something this cheap to re-fetch.
  *
+ * ── The fallback source ───────────────────────────────────────────────────
+ * CoinGecko's keyless tier rate-limits by IP, and a serverless platform's
+ * outbound IPs are shared with everybody else's functions — so from Vercel it
+ * refuses often enough to take the whole crypto checkout down. Any coin the
+ * primary source did not price is asked of Coinbase's public spot-price API
+ * instead. Still a live, checked market rate — not a remembered or invented
+ * one — so the rule above holds. A deployment that sets CRYPTO_RATES_URL has
+ * chosen its source, and gets no fallback.
+ *
  * ── The override ──────────────────────────────────────────────────────────
  * CRYPTO_RATE_BTC=95000 and friends pin a coin's rate. That is for a test
  * deployment, a staging environment with no outbound network, or a business
@@ -33,6 +42,7 @@ const CACHE_TTL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 6_000;
 
 const DEFAULT_RATES_ENDPOINT = "https://api.coingecko.com/api/v3/simple/price";
+const FALLBACK_SPOT_ENDPOINT = "https://api.coinbase.com/v2/prices";
 
 type CacheEntry = { rate: number; readAt: number };
 
@@ -82,7 +92,8 @@ export async function ratesFor(currencies: CryptoCurrencyId[]): Promise<RateTabl
 
   if (wanted.length === 0) return table;
 
-  const endpoint = process.env.CRYPTO_RATES_URL?.trim() || DEFAULT_RATES_ENDPOINT;
+  const customEndpoint = process.env.CRYPTO_RATES_URL?.trim();
+  const endpoint = customEndpoint || DEFAULT_RATES_ENDPOINT;
   const url = new URL(endpoint);
   url.searchParams.set("ids", wanted.map((id) => CRYPTO_CURRENCIES[id].rateId).join(","));
   url.searchParams.set("vs_currencies", "usd");
@@ -106,17 +117,16 @@ export async function ratesFor(currencies: CryptoCurrencyId[]): Promise<RateTabl
     if (!response.ok) {
       // eslint-disable-next-line no-console
       console.error("crypto rates: the rate source answered", response.status);
-      return table;
-    }
+    } else {
+      const body = (await response.json()) as Record<string, { usd?: unknown }>;
 
-    const body = (await response.json()) as Record<string, { usd?: unknown }>;
+      for (const currency of wanted) {
+        const rate = Number(body?.[CRYPTO_CURRENCIES[currency].rateId]?.usd);
+        if (!Number.isFinite(rate) || rate <= 0) continue;
 
-    for (const currency of wanted) {
-      const rate = Number(body?.[CRYPTO_CURRENCIES[currency].rateId]?.usd);
-      if (!Number.isFinite(rate) || rate <= 0) continue;
-
-      table[currency] = rate;
-      cache.set(currency, { rate, readAt: Date.now() });
+        table[currency] = rate;
+        cache.set(currency, { rate, readAt: Date.now() });
+      }
     }
   } catch (error) {
     /* A timeout, a DNS failure, a deployment with no outbound network. Logged
@@ -126,7 +136,46 @@ export async function ratesFor(currencies: CryptoCurrencyId[]): Promise<RateTabl
     console.error("crypto rates: could not read the rate source:", error);
   }
 
+  if (!customEndpoint) {
+    const missing = wanted.filter((currency) => table[currency] === undefined);
+    if (missing.length > 0) {
+      await Promise.all(
+        missing.map(async (currency) => {
+          const rate = await fallbackRate(currency);
+          if (rate === null) return;
+          table[currency] = rate;
+          cache.set(currency, { rate, readAt: Date.now() });
+        }),
+      );
+    }
+  }
+
   return table;
+}
+
+/** Coinbase's spot price for one coin, or null. */
+async function fallbackRate(currency: CryptoCurrencyId): Promise<number | null> {
+  const pair = `${CRYPTO_CURRENCIES[currency].symbol}-USD`;
+  try {
+    const response = await fetch(`${FALLBACK_SPOT_ENDPOINT}/${pair}/spot`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      // eslint-disable-next-line no-console
+      console.error(`crypto rates: the fallback source answered ${response.status} for ${pair}`);
+      return null;
+    }
+    const body = (await response.json()) as { data?: { amount?: unknown; currency?: unknown } };
+    if (body?.data?.currency !== "USD") return null;
+    const rate = Number(body.data.amount);
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`crypto rates: could not read the fallback source for ${pair}:`, error);
+    return null;
+  }
 }
 
 /** One coin's rate, or null. */
