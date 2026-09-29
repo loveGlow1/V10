@@ -85,13 +85,28 @@ stripe listen --forward-to localhost:3000/api/payments/stripe/webhook   # prints
 stripe trigger checkout.session.completed
 ```
 
+## Status after the billing audit (2026-09-29)
+
+**Done in code / database**
+- **Plans expire.** `credit_balances.paid_through` is set a month out by every plan settlement (card and crypto); at the first renewal on or after it, `ensure_credit_balance` moves the account to Free. Unused paid credits roll over once; top-ups are never touched. Applied to production; the existing Pro account is paid through 2026-10-12.
+- **Invoices and email.** Checkout pre-fills the signed-in email, creates a Customer, and issues an itemised invoice (PDF) for every purchase. Validated against the live account.
+- **Webhook failure alerts.** A failed fulfillment returns 500 (Stripe retries for 3 days) and emails the operator once a day per event type.
+- **Safety net.** The 15-minute reconciliation sweep lists paid Checkout Sessions from the last 3 days and settles any without a ledger entry (`recoverMissedCheckouts` in [src/lib/stripe-fulfillment.ts](src/lib/stripe-fulfillment.ts)), and emails the operator when it had to.
+
+**To do in the Stripe Dashboard (not code)**
+- **Webhook endpoint — none exists yet.** Until it does, card payments are credited only by the safety net (within 15 minutes) instead of instantly. Create it at https://dashboard.stripe.com/webhooks → `https://www.quickstark.tech/api/payments/stripe/webhook`, the four `checkout.session.*` events; put the `whsec_…` in Vercel as `STRIPE_WEBHOOK_SECRET` and redeploy.
+- **Branding:** upload a logo (https://dashboard.stripe.com/settings/branding); set support email, public business name and statement descriptor (https://dashboard.stripe.com/settings/public).
+- **Receipts:** turn on "Successful payments" emails (https://dashboard.stripe.com/settings/emails).
+- **Tax:** Stripe Tax is incomplete (head office missing) and automatic tax is off, so you are liable for VAT/GST on consumer digital sales abroad. Either finish Stripe Tax and register where required, or use Managed Payments (Stripe as merchant of record). Business decision.
+- **Operator alerts** need `ALERT_EMAIL`, `ALERT_FROM` and a Resend API key in Vercel (see `.env.local.example`), or they are logged only.
+
+**Not applicable until subscriptions exist**
+Smart Retries, dunning, grace periods, card-expiry reminders and the Customer Portal all act on recurring charges; plans are currently bought a month at a time. Moving card plans to Stripe subscriptions (`mode: subscription`, `invoice.paid` / `invoice.payment_failed` / `customer.subscription.*` handling, stored customer and subscription ids, a grace period) is the next step if you want auto-renewal.
+
 ## Next Steps
 
-- **Success / cancel pages** — build them and point the URLs at them.
-- **Fulfillment**: done for plans (one month) and top-ups. If you later want plans to auto-renew by card, that needs Stripe subscriptions (`mode: subscription`, `invoice.paid` renewals, cancellation). Never grant anything from the success page.
-- **Order tracking** — each paid session is in `credit_ledger` (`dedupe_key = 'stripe:<session id>'`). Persist the Stripe `customer` ID if you want to reuse saved cards or add subscriptions.
 - **Refunds** — refunding in Stripe does not remove credits. Handle `charge.refunded` if that matters.
-- **Go live** — swap to live keys and re-create prices in live mode.
+- **Success page** — the dashboard shows nothing special on `?checkout=success`; a short "payment received" note would help.
 
 ## Resources
 

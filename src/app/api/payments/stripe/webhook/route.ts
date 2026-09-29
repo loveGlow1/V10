@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import { isPaidPlanId } from "@/lib/crypto-payments";
+import { alertOncePerDay, sendOperatorAlert } from "@/lib/operator-alert";
+import { isSessionPaid, settleCheckoutSession } from "@/lib/stripe-fulfillment";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Where Stripe tells this app a Checkout Session finished.
@@ -15,8 +16,12 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  *   - No secret configured means every call is refused. A webhook that waves
  *     callers through when it is misconfigured is a free fulfillment dispenser.
  *   - Stripe retries, and may deliver the same event more than once, so
- *     fulfill() pays out through settle_stripe_checkout, which is idempotent
+ *     fulfillment pays out through settle_stripe_checkout, which is idempotent
  *     on the session id.
+ *   - A failure is answered with a 500, so Stripe retries for up to three days,
+ *     AND reported to the operator, so nobody finds out from a customer. If
+ *     every retry fails, the reconciliation sweep (recoverMissedCheckouts)
+ *     settles the session anyway.
  *
  * Events handled:
  *   checkout.session.completed              — paid now (cards), or pending
@@ -62,7 +67,7 @@ export async function POST(request: Request) {
         const session = event.data.object;
         /* "unpaid" here means a delayed payment method; wait for
            async_payment_succeeded. "no_payment_required" is a free checkout. */
-        if (session.payment_status !== "unpaid") {
+        if (isSessionPaid(session)) {
           await fulfill(session);
         }
         break;
@@ -84,56 +89,37 @@ export async function POST(request: Request) {
     /* A 500 makes Stripe re-deliver, which is what a failed fulfillment wants. */
     // eslint-disable-next-line no-console
     console.error(`stripe webhook: handling ${event.type} failed:`, error);
+
+    const subject = `Stripe webhook failed: ${event.type}`;
+    const body =
+      `A paid checkout could not be credited yet.\n\n`
+      + `Event: ${event.id} (${event.type})\n`
+      + `Session: ${(event.data.object as { id?: string }).id ?? "?"}\n`
+      + `Error: ${error instanceof Error ? error.message : String(error)}\n\n`
+      + `Stripe retries for up to three days, and the reconciliation sweep settles any `
+      + `paid session it missed, so this usually resolves itself. If it keeps recurring, `
+      + `check SUPABASE_SERVICE_ROLE_KEY and the app logs.\n`;
+    const service = createSupabaseServiceClient();
+    /* Once a day per event type: Stripe retries, and each retry failing the same
+       way is one problem, not one email each. */
+    await (service
+      ? alertOncePerDay(service, `stripe-webhook:${event.type}`, subject, body)
+      : sendOperatorAlert(subject, body)
+    ).catch(() => false);
+
     return NextResponse.json({ error: "Could not process that event." }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });
 }
 
-/* Grants what the session was created for: a month of a plan, or top-up
- * credits.
- *
- * Who and what come from the session itself — client_reference_id and
- * metadata — which /api/payments/stripe/checkout wrote on the server, so a
- * customer cannot change either. settle_stripe_checkout is idempotent on the
- * session id: a re-delivered event, or completed followed by
- * async_payment_succeeded, pays out once.
- *
- * A session this app did not create (a Payment Link, a Dashboard test) has no
- * user or purchase on it. That is logged and acknowledged rather than thrown,
- * because retrying it would never succeed. Anything that might succeed on a
- * retry — no service key, a database error — throws, so Stripe re-delivers. */
+/* Grants what the session was bought for. See stripe-fulfillment.ts. A session
+   with nothing to grant is acknowledged; anything that might succeed on a
+   retry throws, so Stripe re-delivers. */
 async function fulfill(session: Stripe.Checkout.Session) {
-  const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
-  const kind = session.metadata?.kind ?? "topup";
-  const planId = kind === "plan" ? session.metadata?.plan_id : undefined;
-  const credits = kind === "plan" ? null : Number(session.metadata?.credits);
-
-  const valid =
-    UUID.test(userId) &&
-    (kind === "plan"
-      ? isPaidPlanId(planId)
-      : credits !== null && Number.isFinite(credits) && credits > 0);
-  if (!valid) {
-    // eslint-disable-next-line no-console
-    console.warn("stripe webhook: session has no user or purchase to grant:", session.id);
-    return;
-  }
-
   const service = createSupabaseServiceClient();
   if (!service) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
   }
-
-  const { error } = await service.rpc("settle_stripe_checkout", {
-    p_session_id: session.id,
-    p_user_id: userId,
-    p_credits: credits,
-    p_plan_id: planId ?? null,
-  });
-  if (error) {
-    throw error;
-  }
+  await settleCheckoutSession(service, session);
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
