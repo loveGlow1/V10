@@ -34,6 +34,11 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * never in .env (that file is committed). No key means every call is refused.
  */
 
+/* The Stripe tax category every QuickStark product is sold under: Software as
+   a Service, business use. Chosen by the owner; required by Managed Payments,
+   which rejects a line item without an eligible code. */
+const PRODUCT_TAX_CODE = "txcd_10103001";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -82,16 +87,19 @@ export async function POST(request: Request) {
     ui_mode: "hosted_page",
     billing_address_collection: "auto",
     phone_number_collection: { enabled: false },
-    automatic_tax: { enabled: false },
     allow_promotion_codes: false,
     submit_type: "auto",
     integration_identifier: "hosted_web_0001",
     origin_context: "web",
-    /* This account has Managed Payments (Stripe as merchant of record) on by
-       default, and Managed Payments refuses a session with automatic tax
-       off. Checkout Studio set automatic_tax off, so Managed Payments is
-       turned off for these sessions rather than overriding that setting. */
-    managed_payments: { enabled: false },
+    /* Managed Payments: Stripe is the merchant of record, so it calculates,
+       collects and remits sales tax, VAT and GST worldwide, issues the invoice
+       and receipt, and handles disputes. In exchange Stripe controls some of
+       the session, and these must NOT be sent with it: automatic_tax (Stripe
+       handles tax), invoice_creation (Stripe issues the invoice),
+       payment_method_types / payment_method_configuration, tax_id_collection,
+       custom_text and shipping. Every product needs an eligible tax code
+       (PRODUCT_TAX_CODE below). */
+    managed_payments: { enabled: true },
     mode,
     success_url: `${SITE_URL}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${SITE_URL}/dashboard?checkout=cancelled`,
@@ -110,6 +118,7 @@ export async function POST(request: Request) {
               purchase.kind === "plan"
                 ? `${credits} credits for the month.`
                 : `${credits} credits. Top-up credits never expire.`,
+            tax_code: PRODUCT_TAX_CODE,
           },
         },
       },
@@ -117,21 +126,9 @@ export async function POST(request: Request) {
     /* The signed-in account's email, so the buyer does not type it, and so the
        receipt and invoice go where the account's mail goes. */
     ...(user.email ? { customer_email: user.email } : {}),
-    /* A Customer and an itemised invoice for every purchase: a PDF the buyer
-       can download from their receipt email, and a record for refunds and
-       disputes. Stripe bills invoice creation on one-off payments separately. */
+    /* A Customer for every purchase. The invoice and receipt are issued by
+       Stripe under Managed Payments, so invoice_creation is not sent. */
     customer_creation: "always",
-    invoice_creation: {
-      enabled: true,
-      invoice_data: {
-        description:
-          purchase.kind === "plan"
-            ? `QuickStark ${purchaseLabel(purchase)} plan — one month (${credits} credits)`
-            : `QuickStark ${purchaseLabel(purchase)} (${credits} credits)`,
-        footer: "Neuralis Systems Intelligence · QuickStark.Ai",
-        metadata: { user_id: user.id },
-      },
-    },
     // Who gets what. Read back by the webhook; only this server can write it.
     client_reference_id: user.id,
     metadata:
