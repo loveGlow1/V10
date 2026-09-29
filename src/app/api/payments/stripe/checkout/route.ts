@@ -87,6 +87,11 @@ export async function POST(request: Request) {
     submit_type: "auto",
     integration_identifier: "hosted_web_0001",
     origin_context: "web",
+    /* This account has Managed Payments (Stripe as merchant of record) on by
+       default, and Managed Payments refuses a session with automatic tax
+       off. Checkout Studio set automatic_tax off, so Managed Payments is
+       turned off for these sessions rather than overriding that setting. */
+    managed_payments: { enabled: false },
     mode,
     success_url: `${SITE_URL}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${SITE_URL}/dashboard?checkout=cancelled`,
