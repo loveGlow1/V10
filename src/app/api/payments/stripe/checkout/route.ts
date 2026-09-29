@@ -7,6 +7,7 @@ import {
   purchasePriceUsd,
   readPurchase,
 } from "@/lib/crypto-payments";
+import { ANNUAL_DISCOUNT, PLANS } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 
@@ -23,8 +24,8 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * no Products or Prices to keep in step in the Stripe Dashboard, and a card
  * payment and a crypto payment for the same thing always cost the same.
  *
- * A plan is sold the way the crypto checkout sells it: one month, paid once
- * (mode "payment"), not an auto-renewing Stripe subscription.
+ * A plan is sold the way the crypto checkout sells it: one month or twelve,
+ * paid once (mode "payment"), not an auto-renewing Stripe subscription.
  *
  * The buyer must be signed in. Their user id and what they bought are written
  * onto the session here, on the server, and read back by
@@ -111,13 +112,17 @@ export async function POST(request: Request) {
           unit_amount: Math.round(purchasePriceUsd(purchase) * 100),
           product_data: {
             name:
-              purchase.kind === "plan"
-                ? `QuickStark ${purchaseLabel(purchase)} plan — one month`
-                : `QuickStark ${purchaseLabel(purchase)}`,
+              purchase.kind !== "plan"
+                ? `QuickStark ${purchaseLabel(purchase)}`
+                : purchase.months === 12
+                  ? `QuickStark ${PLANS[purchase.planId].name} plan — 12 months`
+                  : `QuickStark ${PLANS[purchase.planId].name} plan — one month`,
             description:
-              purchase.kind === "plan"
-                ? `${credits} credits for the month.`
-                : `${credits} credits. Top-up credits never expire.`,
+              purchase.kind !== "plan"
+                ? `${credits} credits. Top-up credits never expire.`
+                : purchase.months === 12
+                  ? `${credits} credits every month for 12 months. ${Math.round(ANNUAL_DISCOUNT * 100)}% less than monthly.`
+                  : `${credits} credits for the month.`,
             tax_code: PRODUCT_TAX_CODE,
           },
         },
@@ -133,7 +138,12 @@ export async function POST(request: Request) {
     client_reference_id: user.id,
     metadata:
       purchase.kind === "plan"
-        ? { user_id: user.id, kind: "plan", plan_id: purchase.planId }
+        ? {
+            user_id: user.id,
+            kind: "plan",
+            plan_id: purchase.planId,
+            months: String(purchase.months === 12 ? 12 : 1),
+          }
         : { user_id: user.id, kind: "topup", credits: String(credits) },
   };
   if (params.mode === "subscription") {

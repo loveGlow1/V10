@@ -8,7 +8,7 @@ import PlanSelector from "./PlanSelector";
 import PricingCard from "./PricingCard";
 import FeatureList from "./FeatureList";
 import UpgradeButton from "./UpgradeButton";
-import { PLANS, TOP_UP_PACK, type PlanId } from "../../credits";
+import { ANNUAL_DISCOUNT, PLANS, TOP_UP_PACK, planPriceUsd, type PlanId } from "../../credits";
 import { isPaidPlanId, type Purchase } from "@/lib/crypto-payments";
 
 interface BillingModalProps {
@@ -20,6 +20,9 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
   /* Standard is preselected: it is the plan most people are choosing between the
      other two, not the one they are already on. */
   const [selectedPlan, setSelectedPlan] = useState<PlanId>("standard");
+  /* A month or a year of the selected plan. Monthly by default: it is the
+     smaller commitment, and the saving is one tap away. */
+  const [annual, setAnnual] = useState(false);
 
   /* What checkout is open for, or null. Held here rather than inside the
      checkout so that closing this sheet cannot take a payment screen down with
@@ -59,8 +62,12 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
   }
 
   const planPurchase: Purchase | null = isPaidPlanId(selectedPlan)
-    ? { kind: "plan", planId: selectedPlan }
+    ? annual
+      ? { kind: "plan", planId: selectedPlan, months: 12 }
+      : { kind: "plan", planId: selectedPlan }
     : null;
+  const planPrice = planPriceUsd(selectedPlan, annual ? 12 : 1);
+  const priceText = `$${Number.isInteger(planPrice) ? planPrice : planPrice.toFixed(2)}`;
   const topUpPurchase: Purchase = { kind: "topup", packs: 1 };
 
   return (
@@ -112,8 +119,33 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                   <PlanSelector selected={selectedPlan} onSelect={setSelectedPlan} />
                 </div>
 
+                {PLANS[selectedPlan].monthlyPriceUsd > 0 && (
+                  <div
+                    role="radiogroup"
+                    aria-label="Billing period"
+                    className="mt-4 grid grid-cols-2 gap-1 rounded-2xl border border-line/15 bg-layer/[0.04] p-1"
+                  >
+                    {[
+                      { value: false, label: "Monthly" },
+                      { value: true, label: `Annual · save ${Math.round(ANNUAL_DISCOUNT * 100)}%` },
+                    ].map((option) => (
+                      <button
+                        key={option.label}
+                        role="radio"
+                        aria-checked={annual === option.value}
+                        onClick={() => setAnnual(option.value)}
+                        className={`h-9 rounded-xl text-sm font-semibold transition-colors ${
+                          annual === option.value ? "bg-solid text-onSolid" : "text-muted"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div className="mt-4">
-                  <PricingCard plan={selectedPlan} />
+                  <PricingCard plan={selectedPlan} months={annual ? 12 : 1} />
                 </div>
 
                 <div className="mt-5">
@@ -130,7 +162,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                         disabled={cardBusy !== null}
                         onClick={() => payByCard(planPurchase)}
                       >
-                        Pay ${PLANS[selectedPlan].monthlyPriceUsd} with card
+                        Pay {priceText} with card
                       </GatewayButton>
                       <GatewayButton
                         icon={<Bitcoin className="h-4 w-4" />}
@@ -156,7 +188,9 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                 <p className="text-muted text-xs font-medium text-center mt-3">
                   {PLANS[selectedPlan].monthlyPriceUsd === 0
                     ? "No card required. Upgrade whenever you need more."
-                    : `$${PLANS[selectedPlan].monthlyPriceUsd} per month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly $${PLANS[selectedPlan].monthlyPriceUsd}. Cancel anytime.`}
+                    : annual
+                      ? `${priceText} for 12 months, paid once — ${PLANS[selectedPlan].monthlyCredits} credits every month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly ${priceText}. No auto-renewal.`
+                      : `${priceText} per month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly ${priceText}. Cancel anytime.`}
                 </p>
 
                 {/* The other thing a person opens this sheet to do. Somebody who

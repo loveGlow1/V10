@@ -1,4 +1,4 @@
-import { PLANS, TOP_UP_PACK, type PlanId } from "@/app/dashboard/credits";
+import { PLANS, TOP_UP_PACK, planPriceUsd, type PlanId, type PlanMonths } from "@/app/dashboard/credits";
 
 /* Taking payment in cryptocurrency.
  *
@@ -221,8 +221,8 @@ export function isCryptoCurrencyId(value: unknown): value is CryptoCurrencyId {
 export type PaidPlanId = Exclude<PlanId, "free">;
 
 export type Purchase =
-  /** A month of a paid plan. */
-  | { kind: "plan"; planId: PaidPlanId }
+  /** A month, or a year, of a paid plan. `months` absent means one. */
+  | { kind: "plan"; planId: PaidPlanId; months?: PlanMonths }
   /** One or more top-up packs. */
   | { kind: "topup"; packs: number };
 
@@ -237,10 +237,18 @@ export function isPaidPlanId(value: unknown): value is PaidPlanId {
 /** Reads a purchase out of whatever a caller sent, or returns null. */
 export function readPurchase(value: unknown): Purchase | null {
   if (!value || typeof value !== "object") return null;
-  const input = value as { kind?: unknown; planId?: unknown; packs?: unknown };
+  const input = value as { kind?: unknown; planId?: unknown; packs?: unknown; months?: unknown };
 
   if (input.kind === "plan") {
-    return isPaidPlanId(input.planId) ? { kind: "plan", planId: input.planId } : null;
+    if (!isPaidPlanId(input.planId)) return null;
+    /* One or twelve, nothing else: an unknown period is refused rather than
+       guessed, because it decides both the price and the months granted. */
+    const raw = input.months;
+    const months = raw === undefined || raw === null || raw === "" ? 1 : Number(raw);
+    if (months !== 1 && months !== 12) return null;
+    return months === 12
+      ? { kind: "plan", planId: input.planId, months: 12 }
+      : { kind: "plan", planId: input.planId };
   }
 
   if (input.kind === "topup") {
@@ -255,11 +263,19 @@ export function readPurchase(value: unknown): Purchase | null {
 /** What the order comes to, in whole US dollars and cents. */
 export function purchasePriceUsd(purchase: Purchase): number {
   return purchase.kind === "plan"
-    ? PLANS[purchase.planId].monthlyPriceUsd
+    ? planPriceUsd(purchase.planId, purchase.months === 12 ? 12 : 1)
     : purchase.packs * TOP_UP_PACK.priceUsd;
 }
 
-/** The credits the account receives once the payment settles. */
+/** Months of plan a purchase covers: 1 for a monthly plan, 12 for annual, 0 for
+ *  a top-up (which buys credits, not time). */
+export function planMonths(purchase: Purchase): PlanMonths | 0 {
+  if (purchase.kind !== "plan") return 0;
+  return purchase.months === 12 ? 12 : 1;
+}
+
+/** The credits the account receives once the payment settles — for a plan,
+ *  each month's grant (an annual plan grants it every month for twelve). */
 export function purchaseCredits(purchase: Purchase): number {
   return purchase.kind === "plan"
     ? PLANS[purchase.planId].monthlyCredits
@@ -268,7 +284,11 @@ export function purchaseCredits(purchase: Purchase): number {
 
 /** The line item, as it reads on the order summary and in the ledger. */
 export function purchaseLabel(purchase: Purchase): string {
-  if (purchase.kind === "plan") return PLANS[purchase.planId].name;
+  if (purchase.kind === "plan") {
+    return planMonths(purchase) === 12
+      ? `${PLANS[purchase.planId].name} (annual)`
+      : PLANS[purchase.planId].name;
+  }
   return purchase.packs === 1
     ? `${TOP_UP_PACK.credits} credit top-up`
     : `${purchase.packs} × ${TOP_UP_PACK.credits} credit top-up`;
@@ -276,7 +296,8 @@ export function purchaseLabel(purchase: Purchase): string {
 
 /** How the charge recurs, in the two words a summary line has room for. */
 export function purchaseCadence(purchase: Purchase): string {
-  return purchase.kind === "plan" ? "monthly" : "one-off";
+  if (purchase.kind !== "plan") return "one-off";
+  return planMonths(purchase) === 12 ? "12 months" : "monthly";
 }
 
 /* ── Converting a price into a coin ────────────────────────────────────────

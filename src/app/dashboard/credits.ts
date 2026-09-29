@@ -307,6 +307,23 @@ function addedModelNames(planId: PlanId): string {
    check:credits enforces the ordering, so this cannot quietly invert again. */
 export const TOP_UP_PACK = { credits: 50, priceUsd: 15 } as const;
 
+/* A paid plan can be bought a year at a time: twelve months for the monthly
+   price less this share. The credits still arrive monthly, as they do on a
+   monthly purchase — a year buys twelve months of the plan, not twelve
+   grants at once. One constant for the pricing cards, the billing sheet and
+   both checkouts, so no surface can advertise a saving the others do not
+   charge. */
+export const ANNUAL_DISCOUNT = 0.2;
+
+/** Months a plan purchase covers. */
+export type PlanMonths = 1 | 12;
+
+/** What a plan costs for the given number of months, in dollars and cents. */
+export function planPriceUsd(planId: PlanId, months: PlanMonths): number {
+  const monthly = PLANS[planId].monthlyPriceUsd;
+  return months === 12 ? Math.round(monthly * 12 * (1 - ANNUAL_DISCOUNT) * 100) / 100 : monthly;
+}
+
 /** What a credit costs on a plan, in dollars. Free has no rate — dividing by
  *  its zero price says "infinitely cheap", which is true and useless — so it
  *  answers null and callers skip it. */

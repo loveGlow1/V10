@@ -88,7 +88,7 @@ function mmss(ms: number): string {
 
 function purchaseQuery(purchase: Purchase): string {
   return purchase.kind === "plan"
-    ? `kind=plan&planId=${purchase.planId}`
+    ? `kind=plan&planId=${purchase.planId}${purchase.months === 12 ? "&months=12" : ""}`
     : `kind=topup&packs=${purchase.packs}`;
 }
 
