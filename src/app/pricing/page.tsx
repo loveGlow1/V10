@@ -37,6 +37,9 @@ export default function PricingPage() {
                   <span className="text-4xl font-extrabold text-ink">{t.price}</span>
                   <span className="text-brandTextSec text-sm">/ month</span>
                 </div>
+                {t.price !== "$0" && (
+                  <p className="mt-1 text-xs text-brandTextSec">Plus applicable tax</p>
+                )}
               </div>
               <button className={`mt-8 w-full py-3 px-4 rounded-pill font-bold text-sm transition-all duration-300 ${t.highlight ? 'bg-brandGreen text-onSolid hover:bg-solid' : 'bg-brandSurface border border-brandBorder text-ink hover:border-brandGreen'}`}>
                 Select Matrix Allocation
