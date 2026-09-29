@@ -490,6 +490,23 @@ create trigger credit_balances_set_updated_at
   before update on public.credit_balances
   for each row execute function public.set_updated_at();
 
+-- The last day a paid plan is paid for. A plan is bought a month at a time —
+-- by card or crypto, never auto-renewing — so the settlement that grants it
+-- sets this to a month out, and ensure_credit_balance moves an account back to
+-- Free at the first renewal on or after it. Null on Free.
+--
+-- Without it a single payment kept a paid plan, and its monthly grant, for
+-- ever: the renewal below refilled the grant every month and never asked
+-- whether the month had been paid for.
+alter table public.credit_balances add column if not exists paid_through date;
+
+-- Accounts already on a paid plan when this column arrived keep the month they
+-- paid for, and no more. Only fills rows that have no date yet, so re-running
+-- this file changes nothing.
+update public.credit_balances
+  set paid_through = (cycle_started_on + interval '1 month')::date
+  where plan_id <> 'free' and paid_through is null;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- credit_ledger — append-only, one row per credit movement.
 --
@@ -593,11 +610,24 @@ begin
   -- allows one, the previous rollover expires, and top-ups survive untouched.
   if v_balance.cycle_started_on + interval '1 month' <= v_today then
     v_balance.rollover := case when v_plan.rollover_cycles > 0 then v_balance.monthly else 0 end;
+
+    -- The month that was paid for is over and no new one was bought: back to
+    -- Free. What was left of the paid grant still rolls over where the plan
+    -- allowed it (above) — it was paid for — and top-ups are never touched.
+    if v_balance.plan_id <> 'free'
+       and (v_balance.paid_through is null or v_balance.paid_through <= v_today) then
+      select * into v_plan from public.credit_plans where id = 'free';
+      v_balance.plan_id := 'free';
+      v_balance.paid_through := null;
+    end if;
+
     v_balance.monthly := v_plan.monthly_credits;
     v_balance.cycle_started_on := v_today;
   end if;
 
   update public.credit_balances set
+    plan_id = v_balance.plan_id,
+    paid_through = v_balance.paid_through,
     daily = v_balance.daily,
     monthly = v_balance.monthly,
     rollover = v_balance.rollover,
@@ -1736,7 +1766,8 @@ begin
       set plan_id          = v_plan.id,
           rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
           monthly          = v_plan.monthly_credits,
-          cycle_started_on = v_today
+          cycle_started_on = v_today,
+          paid_through     = (v_today + interval '1 month')::date
       where user_id = v_payment.user_id
       returning * into v_balance;
 
@@ -2910,7 +2941,8 @@ begin
       set plan_id          = v_plan.id,
           rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
           monthly          = v_plan.monthly_credits,
-          cycle_started_on = v_today
+          cycle_started_on = v_today,
+          paid_through     = (v_today + interval '1 month')::date
       where user_id = p_user_id
       returning * into v_balance;
   else

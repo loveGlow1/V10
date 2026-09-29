@@ -15,7 +15,10 @@ import {
   sendOperatorAlert,
 } from "@/lib/operator-alert";
 import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
+import Stripe from "stripe";
+
 import { addressFunding } from "@/lib/chain-watch";
+import { recoverMissedCheckouts } from "@/lib/stripe-fulfillment";
 import { LATE_PAYMENT_DAYS } from "@/lib/crypto-payments";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -211,6 +214,43 @@ export async function GET(request: Request) {
     }
   }
 
+  /* ── Card payments the webhook missed ────────────────────────────────
+     A paid Stripe Checkout Session with no ledger entry means the webhook
+     failed, was misconfigured, or never arrived. Settled here with the same
+     idempotent function the webhook uses, so a session both paths see still
+     pays out once. Skipped on a deployment without Stripe. */
+  let stripeRecovered: string[] = [];
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (stripeKey) {
+    try {
+      const result = await recoverMissedCheckouts(service, new Stripe(stripeKey), now);
+      stripeRecovered = result.recovered;
+      for (const failure of result.failures) {
+        failures.push({ id: failure.id, action: "stripe-recover", why: failure.why });
+      }
+    } catch (error) {
+      failures.push({
+        id: "(stripe)",
+        action: "stripe-list",
+        why: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (stripeRecovered.length > 0) {
+      /* Recovered is good news for the customer and a warning for the operator:
+         the webhook is not doing its job. */
+      await alertOncePerDay(
+        service,
+        "stripe-recovered",
+        `Recovered ${stripeRecovered.length} card payment${stripeRecovered.length === 1 ? "" : "s"} the Stripe webhook missed`,
+        `These paid Checkout Sessions had not been credited and were settled by the sweep:\n\n`
+          + stripeRecovered.map((id) => `• ${id}`).join("\n")
+          + `\n\nThe customers have their credits. Check the webhook endpoint in the Stripe `
+          + `Dashboard (Workbench → Webhooks) and STRIPE_WEBHOOK_SECRET in Vercel.\n`,
+      );
+    }
+  }
+
   /* Tell a person, at most once a day per order. */
   const toAlert = stranded.filter((item) => {
     const order = orders.find((candidate) => candidate.id === item.id);
@@ -255,6 +295,8 @@ export async function GET(request: Request) {
     settled,
     /* Expired orders whose payment cleared late, credited automatically. */
     lateSettled,
+    /* Paid card checkouts the webhook had not credited, credited here. */
+    stripeRecovered: stripeRecovered.length,
     seen,
     expired,
     /* Chain hosts that did not answer this run. Persistently non-zero means

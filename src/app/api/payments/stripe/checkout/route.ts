@@ -114,6 +114,24 @@ export async function POST(request: Request) {
         },
       },
     ],
+    /* The signed-in account's email, so the buyer does not type it, and so the
+       receipt and invoice go where the account's mail goes. */
+    ...(user.email ? { customer_email: user.email } : {}),
+    /* A Customer and an itemised invoice for every purchase: a PDF the buyer
+       can download from their receipt email, and a record for refunds and
+       disputes. Stripe bills invoice creation on one-off payments separately. */
+    customer_creation: "always",
+    invoice_creation: {
+      enabled: true,
+      invoice_data: {
+        description:
+          purchase.kind === "plan"
+            ? `QuickStark ${purchaseLabel(purchase)} plan — one month (${credits} credits)`
+            : `QuickStark ${purchaseLabel(purchase)} (${credits} credits)`,
+        footer: "Neuralis Systems Intelligence · QuickStark.Ai",
+        metadata: { user_id: user.id },
+      },
+    },
     // Who gets what. Read back by the webhook; only this server can write it.
     client_reference_id: user.id,
     metadata:
