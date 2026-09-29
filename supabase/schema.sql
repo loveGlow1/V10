@@ -2836,14 +2836,26 @@ $$;
 -- The ledger insert and the balance update happen in one transaction, so a
 -- session pays out exactly once or not at all, never twice and never half.
 --
--- The credits are decided by the server that created the session (they travel
--- in its metadata, which only a holder of the secret key can write), and they
--- land in the top-up bucket, which never expires.
+-- What settles mirrors settle_crypto_payment:
+--   top-up (p_plan_id null) — p_credits land in the top-up bucket, which never
+--           expires. The figure is decided by the server that created the
+--           session and travels in its metadata, which only a holder of the
+--           secret key can write.
+--   plan   — the account moves to that plan and a fresh cycle opens on it:
+--           this cycle's unused grant rolls over where the plan allows one, and
+--           the plan's grant lands. The grant is read from credit_plans, not
+--           taken from the caller, so p_credits is ignored.
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- Replaced by the four-argument version below. Dropped rather than left as an
+-- overload so there is one settlement path, not two that can drift.
+drop function if exists public.settle_stripe_checkout(text, uuid, numeric);
+
 create or replace function public.settle_stripe_checkout(
   p_session_id text,
   p_user_id    uuid,
-  p_credits    numeric
+  p_credits    numeric default null,
+  p_plan_id    text default null
 )
 returns public.credit_balances
 language plpgsql
@@ -2851,14 +2863,21 @@ security definer
 set search_path = public
 as $$
 declare
+  v_plan    public.credit_plans;
   v_balance public.credit_balances;
   v_ledger  uuid;
+  v_today   date := (now() at time zone 'utc')::date;
 begin
   if p_session_id is null or length(p_session_id) = 0 then
     raise exception 'a checkout session id is required' using errcode = '22023';
   end if;
 
-  if p_credits is null or p_credits <= 0 then
+  if p_plan_id is not null then
+    select * into v_plan from public.credit_plans where id = p_plan_id;
+    if not found or v_plan.monthly_price_usd <= 0 then
+      raise exception 'no such paid plan: %', p_plan_id using errcode = '22023';
+    end if;
+  elsif p_credits is null or p_credits <= 0 then
     raise exception 'a grant must be positive' using errcode = '22023';
   end if;
 
@@ -2868,20 +2887,38 @@ begin
   -- the second sees the first one's ledger row.
   perform 1 from public.credit_balances where user_id = p_user_id for update;
 
-  insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
-    values (p_user_id, 'topup', p_credits, 'Top-up paid by card', 'stripe:' || p_session_id)
-    on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing
-    returning id into v_ledger;
+  if p_plan_id is not null then
+    insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
+      values (p_user_id, 'grant', v_plan.monthly_credits,
+              v_plan.name || ' plan paid by card', 'stripe:' || p_session_id)
+      on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing
+      returning id into v_ledger;
+  else
+    insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
+      values (p_user_id, 'topup', p_credits, 'Top-up paid by card', 'stripe:' || p_session_id)
+      on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing
+      returning id into v_ledger;
+  end if;
 
   -- Delivered twice. The first delivery paid out; this one changes nothing.
   if v_ledger is null then
     return public.ensure_credit_balance(p_user_id);
   end if;
 
-  update public.credit_balances
-    set top_up = top_up + p_credits
-    where user_id = p_user_id
-    returning * into v_balance;
+  if p_plan_id is not null then
+    update public.credit_balances
+      set plan_id          = v_plan.id,
+          rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
+          monthly          = v_plan.monthly_credits,
+          cycle_started_on = v_today
+      where user_id = p_user_id
+      returning * into v_balance;
+  else
+    update public.credit_balances
+      set top_up = top_up + p_credits
+      where user_id = p_user_id
+      returning * into v_balance;
+  end if;
 
   return v_balance;
 end;
@@ -2889,5 +2926,5 @@ $$;
 
 -- The webhook's privilege and nobody else's. PUBLIC is revoked first because
 -- Postgres grants EXECUTE on a new function to it by default.
-revoke all on function public.settle_stripe_checkout(text, uuid, numeric) from public, anon, authenticated;
-grant execute on function public.settle_stripe_checkout(text, uuid, numeric) to service_role;
+revoke all on function public.settle_stripe_checkout(text, uuid, numeric, text) from public, anon, authenticated;
+grant execute on function public.settle_stripe_checkout(text, uuid, numeric, text) to service_role;

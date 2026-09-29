@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
+import { isPaidPlanId } from "@/lib/crypto-payments";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Where Stripe tells this app a Checkout Session finished.
@@ -89,25 +90,33 @@ export async function POST(request: Request) {
   return NextResponse.json({ received: true });
 }
 
-/* Grants the credits the session was created for.
+/* Grants what the session was created for: a month of a plan, or top-up
+ * credits.
  *
- * Who and how much come from the session itself — client_reference_id and
- * metadata.credits — which /api/payments/stripe/checkout wrote on the server,
- * so a customer cannot change either. settle_stripe_checkout is idempotent on
- * the session id: a re-delivered event, or completed followed by
+ * Who and what come from the session itself — client_reference_id and
+ * metadata — which /api/payments/stripe/checkout wrote on the server, so a
+ * customer cannot change either. settle_stripe_checkout is idempotent on the
+ * session id: a re-delivered event, or completed followed by
  * async_payment_succeeded, pays out once.
  *
  * A session this app did not create (a Payment Link, a Dashboard test) has no
- * user or credits on it. That is logged and acknowledged rather than thrown,
+ * user or purchase on it. That is logged and acknowledged rather than thrown,
  * because retrying it would never succeed. Anything that might succeed on a
  * retry — no service key, a database error — throws, so Stripe re-delivers. */
 async function fulfill(session: Stripe.Checkout.Session) {
   const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
-  const credits = Number(session.metadata?.credits);
+  const kind = session.metadata?.kind ?? "topup";
+  const planId = kind === "plan" ? session.metadata?.plan_id : undefined;
+  const credits = kind === "plan" ? null : Number(session.metadata?.credits);
 
-  if (!UUID.test(userId) || !Number.isFinite(credits) || credits <= 0) {
+  const valid =
+    UUID.test(userId) &&
+    (kind === "plan"
+      ? isPaidPlanId(planId)
+      : credits !== null && Number.isFinite(credits) && credits > 0);
+  if (!valid) {
     // eslint-disable-next-line no-console
-    console.warn("stripe webhook: session has no user or credits to grant:", session.id);
+    console.warn("stripe webhook: session has no user or purchase to grant:", session.id);
     return;
   }
 
@@ -120,6 +129,7 @@ async function fulfill(session: Stripe.Checkout.Session) {
     p_session_id: session.id,
     p_user_id: userId,
     p_credits: credits,
+    p_plan_id: planId ?? null,
   });
   if (error) {
     throw error;
