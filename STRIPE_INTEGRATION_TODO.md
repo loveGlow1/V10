@@ -29,6 +29,7 @@ These parameters were configured in Checkout Studio and are already set correctl
 | billing_address_collection | `auto` |
 | phone_number_collection | `{ enabled: false }` |
 | automatic_tax | `{ enabled: false }` |
+| managed_payments | `{ enabled: false }`: not a Checkout Studio value. This account has Managed Payments on by default, and it refuses sessions with automatic tax off, so it is disabled per session. To use Managed Payments (Stripe as merchant of record, handles tax) instead, remove this and `automatic_tax` from the route. |
 | allow_promotion_codes | `false` |
 | payment_method_collection | `always` (only sent when mode is `subscription`) |
 | submit_type | `auto` |
