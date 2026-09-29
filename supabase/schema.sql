@@ -1649,6 +1649,14 @@ alter table public.crypto_payments
 -- cannot change faster than a block. This is the throttle.
 alter table public.crypto_payments add column if not exists chain_checked_at timestamptz;
 
+-- Months of plan the order buys: 1, or 12 for an annual plan. A top-up
+-- ignores it. Defaults to 1, which is what every order before annual plans was.
+alter table public.crypto_payments
+  add column if not exists plan_months integer not null default 1;
+alter table public.crypto_payments drop constraint if exists crypto_payments_plan_months_check;
+alter table public.crypto_payments
+  add constraint crypto_payments_plan_months_check check (plan_months in (1, 12));
+
 create index if not exists crypto_payments_user_created_idx
   on public.crypto_payments (user_id, created_at desc);
 
@@ -1767,7 +1775,11 @@ begin
           rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
           monthly          = v_plan.monthly_credits,
           cycle_started_on = v_today,
-          paid_through     = (v_today + interval '1 month')::date
+          -- A month or a year from today; bought again while the same plan is
+          -- still paid for, it extends the paid period rather than resetting it.
+          paid_through     = ((case when plan_id = v_plan.id and paid_through > v_today
+                                    then paid_through else v_today end)
+                              + make_interval(months => v_payment.plan_months))::date
       where user_id = v_payment.user_id
       returning * into v_balance;
 
@@ -1776,7 +1788,8 @@ begin
         v_payment.user_id,
         'grant',
         v_plan.monthly_credits,
-        v_plan.name || ' plan paid in ' || upper(v_payment.currency)
+        v_plan.name || ' plan' || case when v_payment.plan_months = 12 then ' (12 months)' else '' end
+          || ' paid in ' || upper(v_payment.currency)
       );
   end if;
 
@@ -2878,15 +2891,18 @@ $$;
 --           taken from the caller, so p_credits is ignored.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Replaced by the four-argument version below. Dropped rather than left as an
--- overload so there is one settlement path, not two that can drift.
+-- Replaced by the five-argument version below (p_months arrived with annual
+-- plans). Older signatures are dropped rather than left as overloads, so there
+-- is one settlement path, not several that can drift.
 drop function if exists public.settle_stripe_checkout(text, uuid, numeric);
+drop function if exists public.settle_stripe_checkout(text, uuid, numeric, text);
 
 create or replace function public.settle_stripe_checkout(
   p_session_id text,
   p_user_id    uuid,
   p_credits    numeric default null,
-  p_plan_id    text default null
+  p_plan_id    text default null,
+  p_months     integer default 1
 )
 returns public.credit_balances
 language plpgsql
@@ -2908,6 +2924,9 @@ begin
     if not found or v_plan.monthly_price_usd <= 0 then
       raise exception 'no such paid plan: %', p_plan_id using errcode = '22023';
     end if;
+    if p_months is null or p_months not in (1, 12) then
+      raise exception 'a plan is bought for 1 or 12 months, not %', p_months using errcode = '22023';
+    end if;
   elsif p_credits is null or p_credits <= 0 then
     raise exception 'a grant must be positive' using errcode = '22023';
   end if;
@@ -2921,7 +2940,8 @@ begin
   if p_plan_id is not null then
     insert into public.credit_ledger (user_id, action, credits, description, dedupe_key)
       values (p_user_id, 'grant', v_plan.monthly_credits,
-              v_plan.name || ' plan paid by card', 'stripe:' || p_session_id)
+              v_plan.name || ' plan' || case when p_months = 12 then ' (12 months)' else '' end
+                || ' paid by card', 'stripe:' || p_session_id)
       on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing
       returning id into v_ledger;
   else
@@ -2942,7 +2962,11 @@ begin
           rollover         = case when v_plan.rollover_cycles > 0 then monthly else 0 end,
           monthly          = v_plan.monthly_credits,
           cycle_started_on = v_today,
-          paid_through     = (v_today + interval '1 month')::date
+          -- As in settle_crypto_payment: the same plan still paid for is
+          -- extended, anything else starts from today.
+          paid_through     = ((case when plan_id = v_plan.id and paid_through > v_today
+                                    then paid_through else v_today end)
+                              + make_interval(months => p_months))::date
       where user_id = p_user_id
       returning * into v_balance;
   else
@@ -2958,5 +2982,5 @@ $$;
 
 -- The webhook's privilege and nobody else's. PUBLIC is revoked first because
 -- Postgres grants EXECUTE on a new function to it by default.
-revoke all on function public.settle_stripe_checkout(text, uuid, numeric, text) from public, anon, authenticated;
-grant execute on function public.settle_stripe_checkout(text, uuid, numeric, text) to service_role;
+revoke all on function public.settle_stripe_checkout(text, uuid, numeric, text, integer) from public, anon, authenticated;
+grant execute on function public.settle_stripe_checkout(text, uuid, numeric, text, integer) to service_role;

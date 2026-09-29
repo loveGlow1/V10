@@ -57,6 +57,7 @@ export async function GET(request: Request) {
     kind: params.get("kind"),
     planId: params.get("planId"),
     packs: params.get("packs"),
+    months: params.get("months"),
   });
 
   if (!purchase) {

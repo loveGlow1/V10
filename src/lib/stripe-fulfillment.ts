@@ -18,6 +18,8 @@ export type SessionGrant = {
   userId: string;
   planId: string | null;
   credits: number | null;
+  /** Months of plan bought: 1 or 12. 0 for a top-up. */
+  months: 0 | 1 | 12;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,9 +35,17 @@ export function readSessionGrant(session: Stripe.Checkout.Session): SessionGrant
   const credits = kind === "plan" ? null : Number(session.metadata?.credits);
 
   if (!UUID.test(userId)) return null;
-  if (kind === "plan") return isPaidPlanId(planId) ? { userId, planId, credits: null } : null;
+  if (kind === "plan") {
+    if (!isPaidPlanId(planId)) return null;
+    /* Absent on sessions created before annual plans existed: those were all
+       one month. Anything other than 1 or 12 is refused, not guessed. */
+    const rawMonths = session.metadata?.months;
+    const months = rawMonths === undefined || rawMonths === "" ? 1 : Number(rawMonths);
+    if (months !== 1 && months !== 12) return null;
+    return { userId, planId, credits: null, months };
+  }
   return credits !== null && Number.isFinite(credits) && credits > 0
-    ? { userId, planId: null, credits }
+    ? { userId, planId: null, credits, months: 0 }
     : null;
 }
 
@@ -67,6 +77,7 @@ export async function settleCheckoutSession(
     p_user_id: grant.userId,
     p_credits: grant.credits,
     p_plan_id: grant.planId,
+    p_months: grant.months === 12 ? 12 : 1,
   });
   if (error) throw error;
   return "settled";

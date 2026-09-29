@@ -15,7 +15,7 @@ import {
 } from "@/lib/supabase";
 /* Prices come from the credit economy, so the page and the billing modal cannot
    quote different figures for the same plan. */
-import { PLANS } from "./dashboard/credits";
+import { ANNUAL_DISCOUNT, PLANS } from "./dashboard/credits";
 import {
   Gift,
   Layout,
@@ -197,10 +197,9 @@ function getSupabaseClientCreationFailureMessage(error: unknown) {
   return `${message} Technical details: ${error.message}`;
 }
 
-/* Annual billing is priced as the monthly rate less this share, charged twelve months at a
-   time, so the card can show both the discounted per-month figure and the yearly total from
-   one number per tier. */
-const ANNUAL_DISCOUNT = 0.2;
+/* Annual billing is priced as the monthly rate less ANNUAL_DISCOUNT, charged twelve months
+   at a time. Imported from credits.ts, which both checkouts charge from, so the card cannot
+   advertise a figure the checkout does not take. */
 
 function formatPrice(value: number) {
   return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;

@@ -265,6 +265,8 @@ export async function POST(request: Request) {
     status: "awaiting_payment",
     purchase_kind: purchase.kind,
     plan_id: purchase.kind === "plan" ? purchase.planId : null,
+    /* How many months settling this grants: 12 on an annual plan. */
+    plan_months: purchase.kind === "plan" && purchase.months === 12 ? 12 : 1,
     packs: purchase.kind === "topup" ? purchase.packs : null,
     credits: purchaseCredits(purchase),
     amount_usd: amountUsd,

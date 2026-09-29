@@ -103,6 +103,8 @@ stripe trigger checkout.session.completed
 **Not applicable until subscriptions exist**
 Smart Retries, dunning, grace periods, card-expiry reminders and the Customer Portal all act on recurring charges; plans are currently bought a month at a time. Moving card plans to Stripe subscriptions (`mode: subscription`, `invoice.paid` / `invoice.payment_failed` / `customer.subscription.*` handling, stored customer and subscription ids, a grace period) is the next step if you want auto-renewal.
 
+**Annual plans (2026-09-29).** A plan can be bought for 12 months at 20% off (`ANNUAL_DISCOUNT` in `credits.ts`: Standard $240, Pro $1,440), by card and crypto, from the billing sheet's Monthly/Annual switch. Credits still arrive monthly. Card sessions carry `metadata.months = "12"`; crypto orders carry `crypto_payments.plan_months = 12`; both settlement functions set `paid_through` 12 months out, extending it when the same plan is still paid for. Applied to production.
+
 ## Next Steps
 
 - **Refunds** — refunding in Stripe does not remove credits. Handle `charge.refunded` if that matters.

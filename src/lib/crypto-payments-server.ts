@@ -152,7 +152,7 @@ export function verifySettlement(rawBody: string, signature: unknown): boolean {
    select list at the type level, and a concatenation widens to `string`, which
    it cannot parse and answers with GenericStringError. */
 // prettier-ignore
-export const PAYMENT_COLUMNS = "id, user_id, status, purchase_kind, plan_id, packs, credits, amount_usd, currency, lightning, address, destination_tag, crypto_amount, rate_usd, receipt_email, tx_reference, failure_reason, created_at, expires_at, submitted_at, confirmed_at" as const;
+export const PAYMENT_COLUMNS = "id, user_id, status, purchase_kind, plan_id, plan_months, packs, credits, amount_usd, currency, lightning, address, destination_tag, crypto_amount, rate_usd, receipt_email, tx_reference, failure_reason, created_at, expires_at, submitted_at, confirmed_at" as const;
 
 export type CryptoPaymentRow = {
   id: string;
@@ -160,6 +160,7 @@ export type CryptoPaymentRow = {
   status: string;
   purchase_kind: string;
   plan_id: string | null;
+  plan_months?: number | null;
   packs: number | null;
   credits: number | string;
   amount_usd: number | string;
@@ -198,7 +199,11 @@ function readStatus(value: string): CryptoPaymentStatus {
 export function paymentFromRow(row: CryptoPaymentRow): CryptoPayment {
   const purchase: Purchase =
     row.purchase_kind === "plan"
-      ? { kind: "plan", planId: (row.plan_id ?? "standard") as "standard" | "pro" }
+      ? {
+          kind: "plan",
+          planId: (row.plan_id ?? "standard") as "standard" | "pro",
+          ...(Number(row.plan_months) === 12 ? { months: 12 as const } : {}),
+        }
       : { kind: "topup", packs: Number(row.packs ?? 1) };
 
   return {
