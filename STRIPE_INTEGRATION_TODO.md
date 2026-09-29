@@ -28,8 +28,8 @@ These parameters were configured in Checkout Studio and are already set correctl
 | ui_mode | `hosted_page` (installed `stripe` SDK is 22.x; SDKs below 21.0.0 would need `hosted`) |
 | billing_address_collection | `auto` |
 | phone_number_collection | `{ enabled: false }` |
-| automatic_tax | `{ enabled: false }` |
-| managed_payments | `{ enabled: false }`: not a Checkout Studio value. This account has Managed Payments on by default, and it refuses sessions with automatic tax off, so it is disabled per session. To use Managed Payments (Stripe as merchant of record, handles tax) instead, remove this and `automatic_tax` from the route. |
+| automatic_tax | not sent: Managed Payments (Stripe as merchant of record) calculates, collects and remits tax itself |
+| managed_payments | `{ enabled: true }`, chosen by the owner 2026-09-29. Stripe is merchant of record: tax/VAT/GST in 80+ countries, invoices and receipts, disputes. Every line item carries tax code `txcd_10103001` (SaaS, business use). Do not send `automatic_tax`, `invoice_creation`, `payment_method_types`, `tax_id_collection` or `custom_text` with it. |
 | allow_promotion_codes | `false` |
 | payment_method_collection | `always` (only sent when mode is `subscription`) |
 | submit_type | `auto` |
@@ -89,7 +89,7 @@ stripe trigger checkout.session.completed
 
 **Done in code / database**
 - **Plans expire.** `credit_balances.paid_through` is set a month out by every plan settlement (card and crypto); at the first renewal on or after it, `ensure_credit_balance` moves the account to Free. Unused paid credits roll over once; top-ups are never touched. Applied to production; the existing Pro account is paid through 2026-10-12.
-- **Invoices and email.** Checkout pre-fills the signed-in email, creates a Customer, and issues an itemised invoice (PDF) for every purchase. Validated against the live account.
+- **Invoices and email.** Checkout pre-fills the signed-in email and creates a Customer. Under Managed Payments, Stripe issues the invoice and receipt itself.
 - **Webhook failure alerts.** A failed fulfillment returns 500 (Stripe retries for 3 days) and emails the operator once a day per event type.
 - **Safety net.** The 15-minute reconciliation sweep lists paid Checkout Sessions from the last 3 days and settles any without a ledger entry (`recoverMissedCheckouts` in [src/lib/stripe-fulfillment.ts](src/lib/stripe-fulfillment.ts)), and emails the operator when it had to.
 
@@ -97,7 +97,7 @@ stripe trigger checkout.session.completed
 - **Webhook endpoint — none exists yet.** Until it does, card payments are credited only by the safety net (within 15 minutes) instead of instantly. Create it at https://dashboard.stripe.com/webhooks → `https://www.quickstark.tech/api/payments/stripe/webhook`, the four `checkout.session.*` events; put the `whsec_…` in Vercel as `STRIPE_WEBHOOK_SECRET` and redeploy.
 - **Branding:** upload a logo (https://dashboard.stripe.com/settings/branding); set support email, public business name and statement descriptor (https://dashboard.stripe.com/settings/public).
 - **Receipts:** turn on "Successful payments" emails (https://dashboard.stripe.com/settings/emails).
-- **Tax:** Stripe Tax is incomplete (head office missing) and automatic tax is off, so you are liable for VAT/GST on consumer digital sales abroad. Either finish Stripe Tax and register where required, or use Managed Payments (Stripe as merchant of record). Business decision.
+- **Tax:** handled. Managed Payments makes Stripe the merchant of record, so Stripe calculates, collects and remits sales tax/VAT/GST. Stripe may also refund a purchase within 60 days to prevent a chargeback; refunds do not remove credits.
 - **Operator alerts** need `ALERT_EMAIL`, `ALERT_FROM` and a Resend API key in Vercel (see `.env.local.example`), or they are logged only.
 
 **Not applicable until subscriptions exist**
