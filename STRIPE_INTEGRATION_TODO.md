@@ -42,6 +42,7 @@ These parameters were configured in Checkout Studio and are already set correctl
 1. **Dependency** — `stripe` has been added to `package.json`. Run `npm install`.
 2. **Environment variables**
    - `STRIPE_SECRET_KEY` (server-only, no `NEXT_PUBLIC_` prefix). Get it from https://dashboard.stripe.com/test/apikeys and set it in **Vercel → Project Settings → Environment Variables** (and `.env.local` for local dev). Do **not** put it in `.env` — that file is committed. Without it the endpoint returns 503.
+   - `STRIPE_WEBHOOK_SECRET` (server-only, `whsec_...`). Create a webhook endpoint at https://dashboard.stripe.com/workbench/webhooks pointing to `https://<your-domain>/api/payments/stripe/webhook`, subscribed to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed` and `checkout.session.expired`, then copy its signing secret into Vercel. Without it (or without `STRIPE_SECRET_KEY`) the webhook returns 503 and Stripe retries.
    - No publishable key is needed: hosted Checkout is a server-side redirect.
 3. **API version** — the Stripe client is initialised without an explicit API version, so it uses the SDK's pinned default.
 
@@ -49,10 +50,11 @@ These parameters were configured in Checkout Studio and are already set correctl
 
 ```
 src/app/api/payments/stripe/checkout/route.ts   POST → creates a Checkout Session, 303-redirects to Stripe
+src/app/api/payments/stripe/webhook/route.ts    POST ← Stripe events; verifies the signature, handles checkout.session.*
 STRIPE_INTEGRATION_TODO.md                      this file
 ```
 
-`.env.local.example` also gained a commented `STRIPE_SECRET_KEY` entry.
+`.env.local.example` also gained commented `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` entries.
 
 ## How It Works
 
@@ -63,6 +65,7 @@ STRIPE_INTEGRATION_TODO.md                      this file
 2. The route calls `stripe.checkout.sessions.create(...)` and responds with a `303` to `session.url`.
 3. The customer pays on the Stripe-hosted page.
 4. Stripe redirects to `success_url` (with the session ID) or `cancel_url`.
+5. Separately, Stripe POSTs `checkout.session.completed` to `/api/payments/stripe/webhook`. The route verifies the `Stripe-Signature` header and calls `fulfill()` when the session is paid. Delayed payment methods (bank debits) arrive as `payment_status: "unpaid"` and are fulfilled on `checkout.session.async_payment_succeeded` instead.
 
 No button in the UI calls this endpoint yet — wire one into the pricing/checkout UI.
 
@@ -78,11 +81,18 @@ Use test-mode keys (`sk_test_...`) and these cards with any future expiry, any C
 
 More: https://docs.stripe.com/testing
 
+**Testing the webhook locally** with the Stripe CLI:
+
+```bash
+stripe listen --forward-to localhost:3000/api/payments/stripe/webhook   # prints a whsec_… — use it as STRIPE_WEBHOOK_SECRET in .env.local
+stripe trigger checkout.session.completed
+```
+
 ## Next Steps
 
 - **Products & prices** — create them in the Dashboard and replace `price_...`; decide `payment` vs `subscription`.
 - **Success / cancel pages** — build them and point the URLs at them.
-- **Fulfillment** — do not grant anything on the success page. Add a webhook endpoint (e.g. `/api/payments/stripe/webhook`) that verifies the `Stripe-Signature` header with a `STRIPE_WEBHOOK_SECRET` and handles `checkout.session.completed`. For credits, follow the idempotent-settlement pattern already used by `/api/payments/crypto/webhook` (see `docs/PAYMENTS.md`).
+- **Fulfillment** — the webhook is in place, but `fulfill()` in [src/app/api/payments/stripe/webhook/route.ts](src/app/api/payments/stripe/webhook/route.ts) only logs the session. Replace it with the real grant (credits, plan, access). It must be idempotent on `session.id`, because Stripe can deliver an event more than once. For credits, follow the idempotent-settlement pattern already used by `/api/payments/crypto/webhook` (see `docs/PAYMENTS.md`). Never grant anything from the success page.
 - **Order tracking** — associate the session with the signed-in user (e.g. `client_reference_id` or `metadata`) and persist `customer` / `subscription` IDs in Supabase once fulfillment exists.
 - **Auth** — the endpoint currently takes no session; decide whether checkout requires a signed-in user.
 - **Go live** — swap to live keys and re-create prices in live mode.
