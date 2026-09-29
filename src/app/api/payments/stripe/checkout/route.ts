@@ -129,6 +129,14 @@ export async function POST(request: Request) {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("Stripe checkout session failed:", error);
-    return NextResponse.json({ error: "Could not start checkout." }, { status: 502 });
+    /* Stripe's own message says which of a handful of setup problems this is —
+       a key without permission, an invalid key, a live key on a test account —
+       and is written to be shown: it never contains a full key. Only a
+       signed-in account gets this far. */
+    const reason = error instanceof Stripe.errors.StripeError ? error.message : null;
+    return NextResponse.json(
+      { error: reason ? `Could not start checkout: ${reason}` : "Could not start checkout." },
+      { status: 502 },
+    );
   }
 }
