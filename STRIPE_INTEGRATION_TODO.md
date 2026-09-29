@@ -45,7 +45,7 @@ These parameters were configured in Checkout Studio and are already set correctl
    - `STRIPE_WEBHOOK_SECRET` (server-only, `whsec_...`). Create a webhook endpoint at https://dashboard.stripe.com/workbench/webhooks pointing to `https://<your-domain>/api/payments/stripe/webhook`, subscribed to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed` and `checkout.session.expired`, then copy its signing secret into Vercel. Without it (or without `STRIPE_SECRET_KEY`) the webhook returns 503 and Stripe retries.
    - No publishable key is needed: hosted Checkout is a server-side redirect.
 3. **API version** — the Stripe client is initialised without an explicit API version, so it uses the SDK's pinned default.
-4. **Database** — run the new `settle_stripe_checkout` section at the end of [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL editor (or re-run the whole file; it is idempotent). The webhook also needs `SUPABASE_SERVICE_ROLE_KEY`, which the crypto checkout already uses. Until both exist, fulfillment fails with a 500 and Stripe retries.
+4. **Database** — ✅ done on 2026-09-29: `settle_stripe_checkout` is applied to the production Supabase project (`esuatccbicekcohzgcvd`), executable by `service_role` only. (It is also in [supabase/schema.sql](supabase/schema.sql) for fresh setups.) The webhook also needs `SUPABASE_SERVICE_ROLE_KEY` in Vercel, which the crypto checkout already uses.
 
 ## New Files
 
