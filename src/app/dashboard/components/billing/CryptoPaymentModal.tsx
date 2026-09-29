@@ -18,6 +18,7 @@ import {
 import {
   CRYPTO_CURRENCIES,
   FEATURED_CURRENCIES,
+  LATE_PAYMENT_DAYS,
   formatCryptoAmount,
   formatUsd,
   isOpenStatus,
@@ -679,7 +680,7 @@ function PayStep({
   const dead = payment.status === "expired" || payment.status === "failed";
 
   return (
-    <div className="grid gap-0 sm:grid-cols-[1.35fr_1fr]">
+    <div className="grid grid-cols-1 gap-0 sm:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
       {/* The payment itself */}
       <div className="px-5 pb-2 pt-6 sm:pb-6">
         <div className="flex items-center gap-3 pr-12">
@@ -723,7 +724,9 @@ function PayStep({
               {payment.status === "expired" ? "This quote expired" : "This payment did not go through"}
             </p>
             <p className="mt-1 text-sm font-medium text-muted">
-              Nothing was charged. Start again to get a fresh rate.
+              {payment.status === "expired" && payment.currency === "btc" && !payment.lightning
+                ? `If you already sent it, you do not need to do anything: it is still credited automatically once it confirms on the network, for up to ${LATE_PAYMENT_DAYS} days. Otherwise, start again to get a fresh rate.`
+                : "Nothing was charged. Start again to get a fresh rate."}
             </p>
             <button
               onClick={onBack}
@@ -752,6 +755,27 @@ function PayStep({
               copied={copied === "amount"}
               onCopy={() => onCopy("amount", amount)}
             />
+
+            {/* Matching is by exact amount. The commonest way a real payment
+                goes unmatched is an exchange taking its withdrawal fee out of
+                the amount sent, so it arrives a few satoshis short. */}
+            {!payment.lightning && (
+              <div
+                role="alert"
+                className="mt-2 flex items-start gap-2 rounded-2xl border border-warn/40 bg-warn/[0.08] px-3.5 py-3"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+                <p className="text-[12px] font-medium leading-relaxed text-soft">
+                  <span className="font-bold text-ink">
+                    Send exactly {amount} {spec.symbol}. It must arrive in full.
+                  </span>{" "}
+                  Many exchanges subtract their network or withdrawal fee from the amount you
+                  enter, so less arrives and the payment cannot be matched to this order. Pay the
+                  fee on top (&ldquo;recipient receives&rdquo; this amount), or send from your own
+                  wallet.
+                </p>
+              </div>
+            )}
 
             <CopyField
               label={

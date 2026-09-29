@@ -7,6 +7,7 @@ import { RECONCILE_SERVICE, readHeartbeat } from "@/lib/heartbeat";
 
 import {
   CRYPTO_CURRENCIES,
+  LATE_PAYMENT_DAYS,
   RATE_LOCK_MINUTES,
   convertUsdToCrypto,
   isCryptoCurrencyId,
@@ -295,12 +296,39 @@ export async function POST(request: Request) {
   /* An invoice has its own address, so its amount is already unique — and must
      not be touched, because BTCPay is watching for the exact figure it quoted.
      Nudging is only for the shared-address case it replaces. */
-  const attempts = invoice ? 1 : UNIQUE_AMOUNT_ATTEMPTS;
+  /* Amounts still reserved by orders that expired recently. The sweep keeps
+     watching those for a late payment (LATE_PAYMENT_DAYS), and on a shared
+     address the amount is the only thing naming the order — so a new order
+     asking the same figure would make a late payment ambiguous. Skipped here;
+     the unique index still arbitrates between open orders. */
+  const reserved = new Set<number>();
+  if (!invoice) {
+    const scale = 10 ** CRYPTO_CURRENCIES[currency].decimals;
+    const { data: recent } = await service
+      .from("crypto_payments")
+      .select("crypto_amount")
+      .eq("currency", currency)
+      .eq("address", address)
+      .eq("status", "expired")
+      .gte("expires_at", new Date(Date.now() - LATE_PAYMENT_DAYS * 24 * 60 * 60 * 1000).toISOString());
+    for (const row of recent ?? []) {
+      reserved.add(Math.round(Number((row as { crypto_amount: unknown }).crypto_amount) * scale));
+    }
+  }
+
+  const attempts = invoice ? 1 : UNIQUE_AMOUNT_ATTEMPTS + reserved.size;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const attemptAmount = invoice
       ? invoice.cryptoAmount
       : nudgeAmount(cryptoAmount, currency, attempt);
+
+    if (
+      !invoice &&
+      reserved.has(Math.round(attemptAmount * 10 ** CRYPTO_CURRENCIES[currency].decimals))
+    ) {
+      continue;
+    }
 
     const { data, error } = await service
       .from("crypto_payments")

@@ -119,3 +119,58 @@ export function decideOrder(
         : "expired with an unconfirmed payment on the address",
   };
 }
+
+/* ── After the quote ran out ──────────────────────────────────────────────
+
+   An expired order is still watched for LATE_PAYMENT_DAYS, because "expired"
+   only means the quote's timer ran out — not that nobody paid. A payment sent
+   in the last minute can take an hour to confirm; a payer can send after the
+   timer. Either way the coin is on the chain, and it should become what they
+   paid for without a person in the loop.
+
+   Settle only, never anything else: an expired order that is still unpaid is
+   already in its final state, and there is nothing to strand or alert about.
+
+   What keeps this from crediting the wrong payment:
+     - Confirmed only, as everywhere else.
+     - On a shared address, the exact amount — and that amount is reserved
+       against new orders for the whole window, so no other order can be
+       asking for it.
+     - Mined no earlier than the order was created (less BLOCK_TIME_SLACK_MS,
+       because a block's timestamp may legitimately run up to two hours behind
+       the wall clock). An old payment that happens to carry the same figure
+       predates the order and cannot be its payment.
+     - Not already credited to another order (usedTxids). */
+const BLOCK_TIME_SLACK_MS = 2 * 60 * 60 * 1000;
+
+export type LateOrder = {
+  expectedSats: number;
+  sharedAddress: boolean;
+  /** When the order was created, in ms. */
+  createdAt: number;
+};
+
+export function decideLateOrder(
+  order: LateOrder,
+  funding: AddressFunding | null,
+  usedTxids: ReadonlySet<string> = new Set(),
+): { kind: "settle"; txid: string | null } | { kind: "leave" } {
+  if (!funding || order.expectedSats <= 0) return { kind: "leave" };
+
+  const earliest = order.createdAt - BLOCK_TIME_SLACK_MS;
+  const fresh = funding.payments.filter(
+    (p) => p.confirmed && p.blockTime !== null && p.blockTime >= earliest && !usedTxids.has(p.txid),
+  );
+
+  if (order.sharedAddress) {
+    const match = fresh.find((p) => p.sats === order.expectedSats);
+    return match ? { kind: "settle", txid: match.txid } : { kind: "leave" };
+  }
+
+  /* A dedicated address is this order's alone, so what arrived after it was
+     created is what was paid towards it. */
+  const received = fresh.reduce((total, p) => total + p.sats, 0);
+  return received >= order.expectedSats
+    ? { kind: "settle", txid: fresh[0]?.txid ?? null }
+    : { kind: "leave" };
+}

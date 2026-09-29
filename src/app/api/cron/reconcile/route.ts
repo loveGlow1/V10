@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   RECONCILABLE_COLUMNS,
+  reconcileLateOrder,
   loadUsedTxids,
   reconcileOrder,
   type ReconcilableOrder,
@@ -14,6 +15,8 @@ import {
   sendOperatorAlert,
 } from "@/lib/operator-alert";
 import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
+import { addressFunding } from "@/lib/chain-watch";
+import { LATE_PAYMENT_DAYS } from "@/lib/crypto-payments";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* The sweep that means nobody has to watch.
@@ -160,6 +163,54 @@ export async function GET(request: Request) {
     }
   }
 
+  /* ── Late payments ─────────────────────────────────────────────────────
+     Orders whose quote ran out in the last LATE_PAYMENT_DAYS, checked for a
+     payment that confirmed afterwards. Settled with no person involved; left
+     alone otherwise. See decideLateOrder for what keeps this safe. */
+  let lateSettled = 0;
+  const lateSince = new Date(now - LATE_PAYMENT_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data: lateData, error: lateError } = await service
+    .from("crypto_payments")
+    .select(RECONCILABLE_COLUMNS)
+    .eq("currency", "btc")
+    .eq("lightning", false)
+    .eq("status", "expired")
+    .gte("expires_at", lateSince)
+    .order("created_at", { ascending: true })
+    .limit(MAX_ORDERS_PER_SWEEP);
+
+  if (lateError) {
+    // eslint-disable-next-line no-console
+    console.error("reconcile: could not read the recently expired orders:", lateError);
+    failures.push({ id: "(late orders)", action: "read", why: lateError.message });
+  } else {
+    /* An amount still asked for by an open order is that order's. Only orders
+       created before amounts were reserved across the late window can collide
+       like this; they are skipped rather than guessed between. */
+    const openAmounts = new Set(orders.map((o) => `${o.address}|${o.crypto_amount}`));
+    /* One read per address: a shared address serves every order on it. */
+    const fundingByAddress = new Map<string, Awaited<ReturnType<typeof addressFunding>>>();
+
+    for (const order of (lateData ?? []) as ReconcilableOrder[]) {
+      if (openAmounts.has(`${order.address}|${order.crypto_amount}`)) continue;
+
+      if (!fundingByAddress.has(order.address)) {
+        fundingByAddress.set(order.address, await addressFunding(order.address));
+      }
+      const funding = fundingByAddress.get(order.address);
+      if (!funding) {
+        unreadable += 1;
+        continue;
+      }
+
+      const outcome = await reconcileLateOrder(service, order, funding, usedTxids);
+      if (outcome.kind === "settled") lateSettled += 1;
+      else if (outcome.kind === "failed") {
+        failures.push({ id: order.id, action: "late-settle", why: outcome.why });
+      }
+    }
+  }
+
   /* Tell a person, at most once a day per order. */
   const toAlert = stranded.filter((item) => {
     const order = orders.find((candidate) => candidate.id === item.id);
@@ -202,6 +253,8 @@ export async function GET(request: Request) {
   const summary = {
     checked: orders.length,
     settled,
+    /* Expired orders whose payment cleared late, credited automatically. */
+    lateSettled,
     seen,
     expired,
     /* Chain hosts that did not answer this run. Persistently non-zero means

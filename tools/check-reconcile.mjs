@@ -65,7 +65,7 @@ try {
   };
   rewrite(out);
 
-  const { decideOrder } = await import(join(out, "lib/reconcile-decision.js"));
+  const { decideOrder, decideLateOrder } = await import(join(out, "lib/reconcile-decision.js"));
   const { btcToSats } = await import(join(out, "lib/chain-watch.js"));
 
   const NOW = 1_800_000_000_000;
@@ -217,6 +217,36 @@ try {
 
   /* Both readings still agree that an unreadable chain settles nothing. */
   is(act(shared, null), "leave", "an unreadable chain leaves a shared order alone too");
+
+  // ── Paid after the quote ran out ────────────────────────────────────────
+  /* An expired order stays watched, and a payment that clears late settles it
+     with nobody involved — but only a payment that could be this order's. */
+  const HOUR = 60 * 60 * 1000;
+  const created = NOW - 3 * HOUR;
+  const lateShared = { expectedSats: 50_000, sharedAddress: true, createdAt: created };
+  const lateOwn = { ...lateShared, sharedAddress: false };
+  const minedAt = (sats, blockTime, confirmed = true) =>
+    ({ txid: `tx${++txSeq}`, sats, confirmed, blockTime: confirmed ? blockTime : null });
+  const late = (order, funding, used) => decideLateOrder(order, funding, used).kind;
+
+  is(late(lateShared, null), "leave", "late: an unreadable chain settles nothing");
+  is(late(lateShared, chainOf(minedAt(50_000, NOW))), "settle",
+    "late: the exact amount confirmed after expiry settles, with no person involved");
+  is(late(lateShared, chainOf(minedAt(50_000, NOW, false))), "leave",
+    "late: still unconfirmed waits for the next sweep");
+  is(late(lateShared, chainOf(minedAt(49_990, NOW))), "leave",
+    "late: a short payment on a shared address does not settle");
+  is(late(lateShared, chainOf(minedAt(50_000, created - 3 * HOUR))), "leave",
+    "late: a same-amount payment mined before the order existed is not its payment");
+  is(late(lateShared, chainOf(minedAt(50_000, created - HOUR))), "settle",
+    "late: a block timestamp up to two hours behind the clock still counts");
+  const spent = minedAt(50_000, NOW);
+  is(late(lateShared, chainOf(spent), new Set([spent.txid])), "leave",
+    "late: a payment already credited to another order cannot settle this one");
+  is(late(lateOwn, chainOf(minedAt(30_000, NOW), minedAt(20_000, NOW))), "settle",
+    "late: a dedicated address paid in full across two payments settles");
+  is(late(lateOwn, chainOf(minedAt(50_000, created - 5 * HOUR), minedAt(10_000, NOW))), "leave",
+    "late: on a dedicated address, only coin that arrived after the order counts");
 
   console.log(failed === 0 ? "\nreconciliation decides correctly." : `\n${failed} failed.`);
   process.exit(failed === 0 ? 0 : 1);

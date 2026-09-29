@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { addressFunding, btcToSats, fundingTxid } from "./chain-watch";
-import { decideOrder } from "./reconcile-decision";
+import { decideLateOrder, decideOrder } from "./reconcile-decision";
+import type { AddressFunding } from "./chain-watch";
 
 /* Reconciling ONE order against the chain.
  *
@@ -17,7 +18,7 @@ import { decideOrder } from "./reconcile-decision";
  */
 
 export const RECONCILABLE_COLUMNS =
-  "id, status, address, crypto_amount, expires_at, alerted_at, shared_address, chain_checked_at" as const;
+  "id, status, address, crypto_amount, expires_at, alerted_at, shared_address, chain_checked_at, created_at" as const;
 
 export type ReconcilableOrder = {
   id: string;
@@ -28,6 +29,7 @@ export type ReconcilableOrder = {
   alerted_at: string | null;
   shared_address: boolean;
   chain_checked_at: string | null;
+  created_at: string;
 };
 
 export type ReconcileOutcome =
@@ -192,4 +194,47 @@ export async function reconcileOrder(
     expectedSats,
     receivedSats: funding.confirmedSats,
   };
+}
+
+/**
+ * An EXPIRED order, checked for a payment that cleared after its quote ran out
+ * (see decideLateOrder). Settles or does nothing — an unpaid expired order is
+ * already where it belongs.
+ *
+ * The funding is passed in rather than read here, because on a shared address
+ * every late order reads the same address, and one read serves them all.
+ */
+export async function reconcileLateOrder(
+  service: SupabaseClient,
+  order: ReconcilableOrder,
+  funding: AddressFunding,
+  usedTxids: Set<string>,
+): Promise<{ kind: "settled"; txid: string | null } | { kind: "unchanged" } | { kind: "failed"; why: string }> {
+  const action = decideLateOrder(
+    {
+      expectedSats: btcToSats(Number(order.crypto_amount)),
+      sharedAddress: order.shared_address,
+      createdAt: new Date(order.created_at).getTime(),
+    },
+    funding,
+    usedTxids,
+  );
+
+  if (action.kind === "leave") return { kind: "unchanged" };
+
+  /* settle_crypto_payment locks the row and pays out once, whatever status it
+     was in; an order already confirmed returns untouched. */
+  const { error } = await service.rpc("settle_crypto_payment", {
+    p_payment_id: order.id,
+    p_tx_reference: action.txid,
+  });
+
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("reconcile: late settlement failed for", order.id, error);
+    return { kind: "failed", why: error.message };
+  }
+
+  if (action.txid) usedTxids.add(action.txid);
+  return { kind: "settled", txid: action.txid };
 }
