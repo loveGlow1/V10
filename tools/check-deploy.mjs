@@ -584,8 +584,14 @@ has(
   "the browser cannot read a cross-origin frame to find out that it failed",
 );
 
+/* The banner now shows for any build, published or not, and carries the
+   address it will answer at — the public one once published, the private
+   preview before. The property is that the address stays in view while it
+   builds, not which flag gates the banner. */
 has(
-  /deployed && building \?/.test(panel) && /Building your app/.test(panel),
+  /\{building \? \(/.test(panel) &&
+    /Building your app/.test(panel) &&
+    /href=\{\(publishedLive \?\? previewUrl\)/.test(panel),
   "while showing the address, which is the thing somebody wants to copy",
 );
 
