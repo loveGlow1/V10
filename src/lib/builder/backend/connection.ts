@@ -53,7 +53,7 @@ import { schemaNameFor } from "@/lib/builder/schema";
 import { type BackendMode, type BackendWeight, isBackendMode } from "@/lib/builder/backend/modes";
 import {
   configureAuth,
-  configured as managedConfigured,
+  offered as managedOffered,
   provisionProject,
 } from "@/lib/builder/backend/managed";
 import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
@@ -333,11 +333,11 @@ export async function ensureBackendFor(
    * weight is still what decides whether to OFFER one; it no longer overrides
    * somebody who took the offer. */
 
-  if (!managedConfigured()) {
+  if (!managedOffered()) {
     /* The operator's half. Logged once rather than surfaced: the build is
        about to carry on against a working schema, and "your app is on a shared
-       database because this deployment has no SUPABASE_MANAGEMENT_TOKEN" is a
-       sentence for whoever runs the platform, not for the customer. */
+       database because managed databases are switched off here" is a sentence
+       for whoever runs the platform, not for the customer. */
     // eslint-disable-next-line no-console
     console.warn(
       `backend: ${input.projectId} needs a database of its own and this deployment cannot provision one`,

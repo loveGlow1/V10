@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "lucide-react";
 
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
+
+import ConnectSupabase from "./ConnectSupabase";
 
 /* Where this app's data lives, and how to move it.
  *
@@ -82,6 +85,16 @@ type Backend = {
   /** Whether a connection string is stored — never the string itself. */
   hasDbUrl: boolean;
   problem?: string | null;
+  /** What the owner has chosen, even before it is connected. */
+  chosen?: Mode | null;
+  /** Whether this deployment offers Connect Supabase (sign in instead of pasting keys). */
+  oauthConfigured?: boolean;
+  /** The Supabase project a sign-in linked. Null for a pasted link. */
+  supabaseRef?: string | null;
+  /** What the last build's scan-and-check found. */
+  schemaReport?: { ok: boolean; checked: number; problems: string[]; summary: string; at: string } | null;
+  /** Why the tables are not there, if the last attempt failed. */
+  lastError?: string | null;
 };
 
 type Checked =
@@ -174,6 +187,13 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
   const [sqlNote, setSqlNote] = useState<string | null>(null);
   const [sqlLoading, setSqlLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  /* Connect Supabase. Open when somebody asks to use their own database, and
+     on arrival back from supabase.com — ?supabase= says how the sign-in went. */
+  const search = useSearchParams();
+  const returned = search.get("supabase");
+  const [connecting, setConnecting] = useState(Boolean(returned));
+  const [connected, setConnected] = useState<{ preview: string | null; authNote: string | null; name: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) {
@@ -406,7 +426,7 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 <Row label="Tables">
                   {backend.ready ? (
                     <span className="text-emerald-400">Created</span>
-                  ) : backend.mode === "own" && !backend.hasDbUrl ? (
+                  ) : backend.mode === "own" && !backend.hasDbUrl && !backend.supabaseRef ? (
                     <span className="text-amber-400">Yours to create — no connection string stored</span>
                   ) : (
                     <span className="text-amber-400">Not created yet — the next build makes them</span>
@@ -426,11 +446,35 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                     <span className="text-muted">Not checked from our servers yet</span>
                   )}
                 </Row>
+                {backend.mode === "own" && backend.supabaseRef && (
+                  <Row label="Connected">
+                    <span className="text-emerald-400">By signing in to Supabase — tables are created and checked for you</span>
+                  </Row>
+                )}
+                {/* The scan-and-check the last build ran: every table, column,
+                    policy and grant the app relies on, read back from the
+                    database after the migration. */}
+                {backend.schemaReport && (
+                  <Row label="Checked">
+                    <span className={backend.schemaReport.ok ? "text-emerald-400" : "text-amber-400"}>
+                      {backend.schemaReport.summary}
+                    </span>
+                    {!backend.schemaReport.ok && backend.schemaReport.problems.length > 3 && (
+                      <span className="mt-1 block text-muted">{backend.schemaReport.problems.slice(3).join("; ")}</span>
+                    )}
+                  </Row>
+                )}
+                {!backend.ready && backend.lastError && (
+                  <Row label="Last attempt">
+                    <span className="text-amber-400">{backend.lastError}</span>
+                  </Row>
+                )}
               </div>
             )}
 
-            {backend.mode === "own" && (
-              /* The two settings we cannot make for them.
+            {backend.mode === "own" && !backend.supabaseRef && (
+              /* The two settings we cannot make for them — on a PASTED link. A
+               * Supabase connected by signing in has them set for it.
                *
                * On a managed project the platform sets the redirect allow-list
                * itself, through the Management API. On somebody's own Supabase
@@ -504,9 +548,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                     onClick={() => {
                       if (current || !option.available) return;
                       if (option.mode === "own") {
-                        setOpen(true);
                         setProblem(null);
                         setOverridable(false);
+                        if (backend.oauthConfigured) setConnecting(true);
+                        else setOpen(true);
                         return;
                       }
                       void choose(option.mode);
@@ -560,8 +605,8 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                     is fetched when a migration needs to run and dropped
                     afterwards — so hasDbUrl is false for it and would read as
                     "yours to create", which is the opposite of true. */}
-                {backend.mode === "quickstark_managed" || backend.hasDbUrl
-                  ? "The next build runs this for you. Here it is if you would rather read it first, or run it now."
+                {backend.mode === "quickstark_managed" || backend.hasDbUrl || backend.supabaseRef
+                  ? "The next build runs this for you, then checks every table, column and access rule is there. Here it is if you would rather read it first, or run it now."
                   : "No connection string is stored, so these are yours to create — paste this into your Supabase SQL editor."}
               </p>
 
@@ -623,10 +668,15 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
           {backend.mode === "own" && !confirming && (
             <div className="mt-3 flex gap-2">
               <button
-                onClick={() => { setOpen(true); setProblem(null); setOverridable(false); }}
+                onClick={() => {
+                  setProblem(null);
+                  setOverridable(false);
+                  if (backend.oauthConfigured) setConnecting(true);
+                  else setOpen(true);
+                }}
                 className="h-10 rounded-xl border border-line/[0.09] px-3.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink md:h-8 md:rounded-lg"
               >
-                Replace
+                {backend.oauthConfigured ? "Change project" : "Replace"}
               </button>
               <button
                 onClick={() => setConfirming(true)}
@@ -660,6 +710,41 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                   Cancel
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Connect Supabase: shown when asked for, on return from the
+              sign-in, and — without being asked — for a project whose owner
+              chose their own database and has not connected one yet. */}
+          {projectId &&
+            backend.oauthConfigured &&
+            (connecting || (backend.chosen === "own" && !backend.url)) &&
+            !connected && (
+              <ConnectSupabase
+                projectId={projectId}
+                currentRef={backend.supabaseRef ?? null}
+                returned={returned}
+                onCancel={backend.chosen === "own" && !backend.url ? undefined : () => setConnecting(false)}
+                onConnected={(result) => {
+                  setConnected(result);
+                  setConnecting(false);
+                  void load();
+                }}
+              />
+            )}
+
+          {connected && (
+            <div className="mt-3 rounded-[18px] border border-emerald-500/20 bg-emerald-500/[0.05] p-3.5 md:rounded-xl">
+              <p className="flex items-center gap-2 text-[13px] font-medium text-emerald-300">
+                <Check className="h-4 w-4" />
+                Connected to {connected.name}
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                {connected.preview ?? "The next build creates this app's tables there and checks them."}
+                {connected.authNote
+                  ? ` Sign-in settings could not be set automatically (${connected.authNote}) — add ${AUTH_REDIRECT_GLOB} under Authentication → URL Configuration.`
+                  : " Sign-in is set up for your app's addresses."}
+              </p>
             </div>
           )}
 

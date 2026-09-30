@@ -35,7 +35,7 @@ import {
   raiseArchitecture,
 } from "@/lib/builder/architecture";
 import { resolveBackend } from "@/lib/builder/backend/connection";
-import { describeProvision, provision } from "@/lib/builder/backend/provision";
+import { describeProvision, provisionChecked } from "@/lib/builder/backend/provision";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 
 export type Upgrade =
@@ -82,6 +82,8 @@ export async function upgradeCapabilities(
     touches: readonly Layer[];
     /** "standalone-html" or "nextjs", as project_architecture recorded it. */
     stack: string | null;
+    /** Only used to name a schema of its own readably, if one is needed. */
+    projectName?: string;
   },
 ): Promise<Upgrade> {
   if (!input.current) return { kind: "none" };
@@ -135,9 +137,18 @@ export async function upgradeCapabilities(
     if (backend) {
       const model = dataModelFor(manifest, backend.schema ?? schemaNameFor(input.projectId));
       if (model.tables.length > 0) {
-        const outcome = await provision(service, backend, model, input.projectId, input.userId);
-        provisioned = outcome.applied === true;
-        provisionNote = describeProvision(outcome);
+        /* Scan, create, check — the same as a build, so an upgrade on somebody's
+           own Supabase never lands on a table of theirs either. */
+        const synced = await provisionChecked({
+          service,
+          connection: backend,
+          model,
+          projectId: input.projectId,
+          userId: input.userId,
+          projectName: input.projectName ?? "",
+        });
+        provisioned = synced.outcome.applied === true;
+        provisionNote = [describeProvision(synced.outcome), synced.check?.summary].filter(Boolean).join(" · ");
       }
     } else {
       provisionNote = "no database is configured for this project yet, so its tables are pending";

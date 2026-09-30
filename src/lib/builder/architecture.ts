@@ -551,20 +551,30 @@ export function describeArchitecture(manifest: ArchitectureManifest): string {
  * need a back office" is a question a person who sells things can answer, and
  * "do you want the database and authentication layers" is not.
  */
-export function architectureQuestion(kind: BuildKind, manifest: ArchitectureManifest): string {
+export function architectureQuestion(
+  kind: BuildKind,
+  manifest: ArchitectureManifest,
+  /** Whether a QuickStark managed database is on offer. See managed.ts `offered`. */
+  managedOffered = false,
+): string {
   const thing = kind === "ecommerce" ? "store" : kind === "news" ? "publication" : "site";
   const managed =
     kind === "ecommerce" ? "products, stock and orders" : "posts, categories and media";
+  const options = architectureOptions(kind, managedOffered);
 
-  return `Three ways to build this ${thing}.
+  const ours = managedOffered
+    ? `**${options[0].label}** — a ${thing} with a database behind it and an admin area where you manage ${managed}. What you change in the admin changes on the site. People can sign in. We set the database up for you, and it costs one credit.
 
-**The real thing** — a ${thing} with a database behind it and an admin area where you manage ${managed}. What you change in the admin changes on the site. People can sign in. This takes longer to build and gives you something you can actually run.
+`
+    : "";
 
-**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
+  return `${managedOffered ? "Three" : "Two"} ways to build this ${thing}.
+
+${ours}**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
     kind === "ecommerce" ? "catalogue" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
-**Your own backend** — the same ${thing}, built against a database you already have. Nothing is created on our side and nothing is migrated into anybody's account but yours. You connect your Supabase under Backend, and the build waits for it rather than putting your data somewhere you did not choose.
+**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free, and the data stays in your account. Connect it from the Database panel — sign in to Supabase and pick a project, or have one created — and the build sets up the tables and sign-in for you, checking your existing tables first so nothing of yours is touched.
 
 Which one?`;
 }
@@ -602,10 +612,13 @@ export function databaseChoice(choice: ArchitectureChoice): DatabaseChoice {
 
 export function architectureOptions(
   kind: BuildKind,
+  /* Off unless the platform has switched managed databases on — each one is a
+     Supabase project billed to us monthly. See managed.ts `offered`. */
+  managedOffered = false,
 ): { value: ArchitectureChoice; label: string; blurb: string }[] {
   const thing = kind === "ecommerce" ? "store" : kind === "news" ? "publication" : "site";
 
-  return [
+  const options: { value: ArchitectureChoice; label: string; blurb: string }[] = [
     {
       /* Ours, said as ours. This was "The real thing", which is a true
          description of the app and says nothing about WHOSE database it runs
@@ -626,14 +639,16 @@ export function architectureOptions(
       value: "own",
       label: "Connect my own database",
       blurb:
-        "The same app, against a database you already have — Supabase or anything that speaks Postgres. Nothing is created on our side, and no credit is spent.",
+        "The full app, with sign-in and an admin, on your own Supabase — free to set up, and the data stays yours. Nothing is created on our side, and no credit is spent.",
     },
   ];
+
+  return managedOffered ? options : options.filter((option) => option.value !== "managed");
 }
 
 /** Whether a value came back from the browser as one of the three answers. */
 export function isArchitectureChoice(value: unknown): value is ArchitectureChoice {
-  return value === "full" || value === "frontend" || value === "own";
+  return value === "managed" || value === "full" || value === "frontend" || value === "own";
 }
 
 /**

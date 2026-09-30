@@ -41,11 +41,8 @@ import {
   modeFor,
 } from "@/lib/builder/backend/modes";
 import { schemaIsServable, schemaProblem, verifyBackend } from "@/lib/builder/backend/verify";
-import {
-  configured as managedConfigured,
-  provisionProject,
-  unconfiguredReason,
-} from "@/lib/builder/backend/managed";
+import { offered as managedOffered, provisionProject } from "@/lib/builder/backend/managed";
+import { oauthConfigured } from "@/lib/builder/backend/supabase-oauth";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { ownedProject } from "./owned";
@@ -80,12 +77,18 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
      this did, turns a settled decision into an error message. */
   const { data: row } = await service
     .from("project_backends")
-    .select("mode, db_url")
+    .select("mode, db_url, supabase_ref, schema_report, last_error")
     .eq("project_id", owned.projectId)
-    .maybeSingle<{ mode: string | null; db_url: string | null }>();
+    .maybeSingle<{
+      mode: string | null;
+      db_url: string | null;
+      supabase_ref: string | null;
+      schema_report: unknown;
+      last_error: string | null;
+    }>();
 
   const chosen = isBackendMode(row?.mode) ? row.mode : null;
-  const canProvision = managedConfigured();
+  const canProvision = managedOffered();
 
   /* What the last build decided this product actually needs, which is the only
      thing that may decide IF there is a database. The mode decides only whose
@@ -100,24 +103,41 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const needsDatabase = Boolean(architecture?.manifest?.database);
 
-  /* The three options, with the one that costs money marked unavailable where
-     this deployment cannot honour it. Offering a button that always fails is
-     worse than not offering it: the person tries, waits, and is told about an
-     environment variable. */
-  const options = BACKEND_MODES.filter((mode) => mode !== "shared").map((mode) => ({
+  /* The options. Managed is left out entirely while it is not offered, rather
+     than drawn as unavailable: a greyed-out button naming an environment
+     variable is a sentence for the operator, and what the customer is being
+     offered is their own Supabase. */
+  const options = BACKEND_MODES.filter(
+    (mode) => mode !== "shared" && (mode !== "quickstark_managed" || canProvision),
+  ).map((mode) => ({
     mode,
     label: MODE_LABEL[mode],
     blurb: MODE_BLURB[mode],
-    available: mode === "quickstark_managed" ? canProvision : true,
-    unavailableBecause: mode === "quickstark_managed" && !canProvision ? unconfiguredReason() : null,
+    available: true,
+    unavailableBecause: null,
   }));
 
   /* Proposed, not applied. The build works out what the product needs and this
      says where it should live; choosing is somebody else's to do, on this
-     panel, which is why nothing here writes. */
-  const recommended = modeFor({ needsDatabase, chosen, canProvision });
+     panel, which is why nothing here writes. Without managed, the shared
+     preview is what modeFor falls back to, and that is not something to
+     recommend — their own Supabase is. */
+  const proposed = modeFor({ needsDatabase, chosen, canProvision });
+  const recommended = proposed === "shared" ? "own" : proposed;
 
-  const common = { needsDatabase, recommended, options, chosen };
+  const common = {
+    needsDatabase,
+    recommended,
+    options,
+    chosen,
+    /* Connect Supabase: whether this deployment offers it, which Supabase
+       project a sign-in linked (null for a pasted one), what the last build's
+       scan-and-check found, and why the tables are not there if they are not. */
+    oauthConfigured: oauthConfigured(),
+    supabaseRef: row?.supabase_ref ?? null,
+    schemaReport: row?.schema_report ?? null,
+    lastError: row?.last_error ?? null,
+  };
 
   /* No database, decided and written down — not an absent row, and not a
      failure to read one. */
@@ -277,6 +297,11 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       kind: "own",
       mode: "own",
       managed_ref: null,
+      /* A pasted link is not a signed-in one. Left set, the build would reach
+         the database through the API for the OLD project while the app was
+         built against the new URL. */
+      supabase_ref: null,
+      schema_report: null,
       /* Set here and nowhere else. It means THIS SERVER reached that Supabase
          and was answered — not that the values looked right. */
       verified_at: new Date().toISOString(),
@@ -397,12 +422,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
    * the project where it was, instead of silently writing a mode it cannot
    * honour — a row claiming a managed backend with no project behind it is
    * worse than an honest refusal. */
-  if (!managedConfigured()) {
+  if (!managedOffered()) {
     return NextResponse.json(
       {
         error:
-          "A managed database is not available on this deployment — " +
-          `${unconfiguredReason()}. You can connect your own Supabase instead.`,
+          "QuickStark managed databases are not available right now. " +
+          "Connect your own Supabase instead — it is free to set up, and the data stays in your account.",
         canConnectOwn: true,
       },
       { status: 503 },

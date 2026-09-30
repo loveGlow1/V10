@@ -2984,3 +2984,48 @@ $$;
 -- Postgres grants EXECUTE on a new function to it by default.
 revoke all on function public.settle_stripe_checkout(text, uuid, numeric, text, integer) from public, anon, authenticated;
 grant execute on function public.settle_stripe_checkout(text, uuid, numeric, text, integer) to service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Connect Supabase — linking a customer's own Supabase by signing in.
+--
+-- supabase_connections holds the OAuth tokens a person grants when they press
+-- Connect Supabase (src/lib/builder/backend/supabase-oauth.ts). The refresh
+-- token is long-lived access to their Supabase account, so the values are
+-- sealed with AES-256-GCM before they arrive here, and NO browser role can
+-- read, write or even see this table: every privilege is revoked from anon and
+-- authenticated, and there are deliberately no policies. Only the service role
+-- touches it, on the server.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.supabase_connections (
+  user_id       uuid primary key references auth.users (id) on delete cascade,
+  access_token  text not null,
+  refresh_token text not null,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+alter table public.supabase_connections enable row level security;
+revoke all on public.supabase_connections from anon, authenticated;
+
+drop trigger if exists supabase_connections_set_updated_at on public.supabase_connections;
+create trigger supabase_connections_set_updated_at
+  before update on public.supabase_connections
+  for each row execute function public.set_updated_at();
+
+-- Which Supabase project a sign-in-connected backend is, and what the last
+-- scan-and-check found.
+--
+--   supabase_ref   the project's ref, set only when it was linked by signing
+--                  in. It is what tells the build to reach the database
+--                  through the Management API — no connection string, no
+--                  database password — and what allows an app to be given a
+--                  schema of its own when `public` already has their tables.
+--   schema_report  what the post-migration check found: every table, column,
+--                  policy and grant the app relies on. Shown in the Database
+--                  panel as "Database ready — N checks passed" or the problems.
+alter table public.project_backends
+  add column if not exists supabase_ref text,
+  add column if not exists schema_report jsonb;
+
+grant select (supabase_ref, schema_report) on public.project_backends to authenticated;

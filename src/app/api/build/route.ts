@@ -101,10 +101,12 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { offered as managedOffered } from "@/lib/builder/backend/managed";
+import { oauthConfigured } from "@/lib/builder/backend/supabase-oauth";
 import { MODE_BLURB, MODE_LABEL } from "@/lib/builder/backend/modes";
 import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
-import { describeProvision, provision } from "@/lib/builder/backend/provision";
+import { describeProvision, provisionChecked } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
@@ -1587,10 +1589,18 @@ async function handle(
         ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
         : "";
 
+    /* Managed only where it is switched on — see managed.ts `offered`. */
+    const managedLine = managedOffered()
+      ? `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n`
+      : "";
     const said =
-      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace and pick one:\n\n` +
-      `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n` +
-      `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Paste your project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n` +
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace${
+        managedLine ? " and pick one" : ""
+      }:\n\n` +
+      managedLine +
+      (oauthConfigured()
+        ? `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Press **Connect Supabase**, sign in, and pick a project — or have a free one created. There is nothing to copy or paste: the keys, the sign-in settings and this app's tables are all set up for you, and checked.\n\n`
+        : `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Create a free project at supabase.com, then paste its project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n`) +
       `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
 
     const stored = await deliver(said, { key: "connect-backend" });
@@ -1826,6 +1836,7 @@ async function handle(
         current: knownArchitecture,
         touches: plan.touches,
         stack: "nextjs",
+        projectName: project.name as string,
       });
 
       if (upgrade.kind === "raised") {
@@ -3484,7 +3495,13 @@ async function handle(
    * Same guard, same shape and same UX as the two questions above it. The only
    * difference is what it decides, and it decides the most expensive thing
    * here: whether this project has a back half at all. */
-  const chosenArchitecture = isArchitectureChoice(body.architecture) ? body.architecture : null;
+  /* Managed is only an answer while it is offered. A chip from before it was
+     switched off — or "full", its old name — is the same app on the customer's
+     own database, which is the database that is being offered instead. */
+  const canOfferManaged = managedOffered();
+  const answered = isArchitectureChoice(body.architecture) ? body.architecture : null;
+  const chosenArchitecture =
+    answered && !canOfferManaged && databaseChoice(answered) === "managed" ? "own" : answered;
   const decided = decideArchitecture(brief.text, kind.kind, needs);
   const architecture = chosenArchitecture
     ? architectureFromChoice(chosenArchitecture, kind.kind, decided)
@@ -3599,7 +3616,7 @@ async function handle(
   const backendUndecided = wouldUseData && (!decidedBackend || decidedBackend.mode === "shared");
 
   if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE) {
-    const asked = architectureQuestion(kind.kind, architecture.manifest);
+    const asked = architectureQuestion(kind.kind, architecture.manifest, canOfferManaged);
     const stored = await deliver(asked, { key: "which-architecture" });
 
     await parkForAnswer("whether it has a back half");
@@ -3609,7 +3626,7 @@ async function handle(
       steps: steps.list(),
       intent: "new_project",
       needsArchitecture: true,
-      architectureOptions: architectureOptions(kind.kind),
+      architectureOptions: architectureOptions(kind.kind, canOfferManaged),
       /* Both sent back, so the answer lands on the same reading of the brief
          that produced the question rather than on a fresh classification. */
       buildKind: kind.kind,
@@ -3833,13 +3850,36 @@ async function handle(
        prompt — no connection opened, no schema named, no migration written. */
     if (job) await advanceJob(service, job.id, { to: "provisioning" });
 
-    steps.begin("database", "Creating the database", `${dataModel.tables.length} tables…`);
-    const provisioned = await provision(service, backend, dataModel, project.id, user.id);
-    steps.mark(
-      "database",
-      provisioned.applied ? "Database created" : "Database not created",
+    /* Scan, create, check — see provisionChecked. On somebody's own Supabase
+       the scan comes first and may move this app into a schema of its own,
+       because `public` already has their tables; the model that comes back is
+       the one the app is then written against, so the two agree. */
+    steps.begin("database", "Checking your database", `${dataModel.tables.length} tables…`);
+    const synced = await provisionChecked({
+      service,
+      connection: backend,
+      model: dataModel,
+      projectId: project.id,
+      userId: user.id,
+      projectName: project.name as string,
+    });
+    dataModel = synced.model;
+
+    const provisioned = synced.outcome;
+    const detail = [
+      synced.prepared.plan ? synced.prepared.summary : null,
       describeProvision(provisioned),
-    );
+      synced.check ? synced.check.summary : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const label = !provisioned.applied
+      ? "Database not created"
+      : synced.check && !synced.check.ok
+        ? "Database created — check found problems"
+        : "Database ready";
+
+    steps.mark("database", label, detail);
 
     if (job) {
       await recordStep(service, {
@@ -3847,13 +3887,13 @@ async function handle(
         projectId: project.id,
         userId: user.id,
         step: "database",
-        label: provisioned.applied ? "Database created" : "Database not created",
-        detail: describeProvision(provisioned),
+        label,
+        detail,
         /* A migration that did not apply does not fail the build — a project
            whose schema is pending is still worth previewing — so the STEP is
            failed and the job carries on. The reason lives in
            project_backends.last_error either way. */
-        state: provisioned.applied ? "done" : "failed",
+        state: provisioned.applied && (!synced.check || synced.check.ok) ? "done" : "failed",
       });
     }
   }
