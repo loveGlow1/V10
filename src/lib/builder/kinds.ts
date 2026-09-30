@@ -98,7 +98,7 @@ const LANDING_SHAPE =
 /* Vocabulary that only means selling online. Nobody writes "e-commerce" or
    "storefront" about a room with a door. */
 const COMMERCE_NOUN =
-  /\b(e[- ]?commerce|online (?:store|shop)|storefront|web ?shop|marketplace|dropship(ping)?|merch|catalog(ue)?|product (page|line|range)|inventory)\b/i;
+  /\b(e[- ]?comm?erce|online (?:store|shop)|storefront|web ?shop|marketplace|dropship(ping)?|merch|catalog(ue)?|product (page|line|range)|inventory)\b/i;
 
 /* ── "shop" and "store" on their own ──────────────────────────────────────
  *
@@ -194,7 +194,7 @@ const FULL_STACK = /\b(full[- ]?stack|front[- ]?end and back[- ]?end|back[- ]?en
  * sentence is the subject rather than the answer. These are the labels, one
  * per kind, and they are read before anything is weighed. */
 const ECOMMERCE_LABEL =
-  /\b(e[- ]?commerce|online (store|shop)|storefront|web ?shop|shop(ping)? site|store site|marketplace)\b/i;
+  /\b(e[- ]?comm?erce|online (store|shop)|storefront|web ?shop|shop(ping)? site|store site|marketplace)\b/i;
 
 const BLOG_LABEL =
   /\b(blog|wordpress|word ?press|magazine|content site|editorial site|zine)\b/i;
@@ -391,7 +391,14 @@ export function heuristicKind(brief: string): KindResult | null {
   const demanded = demandedKind(m);
 
   if (labelled) {
-    if (demanded && demanded !== labelled) {
+    /* Accounts are not a different product for a store, a blog or a
+       newsroom: all three are built with sign-in by default (see DEFAULTS in
+       architecture.ts). So "an e-commerce store with login and sign up" is a
+       store with customer accounts, and reading "login" as a demand for a web
+       app threw the catalogue, the basket and the checkout away. Only a
+       landing page, which has no accounts of its own, is overruled by them. */
+    const accountsFit = demanded === "webapp" && labelled !== "landing";
+    if (demanded && demanded !== labelled && !accountsFit) {
       return {
         kind: demanded,
         confidence: 0.9,

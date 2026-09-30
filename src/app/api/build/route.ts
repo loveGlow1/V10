@@ -114,6 +114,7 @@ import {
   isPageDataAsk,
   preparePageData,
 } from "@/lib/builder/backend/page-data";
+import { memberAreaFor } from "@/lib/builder/member-area";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { ensureImageSources } from "@/lib/builder/tree-images";
@@ -4290,6 +4291,13 @@ async function handle(
                  said it wanted. A slot with no picture is an empty string in
                  the manifest, so the falsy ones are not counted. */
               resolvedPhotographs(pictures.manifest),
+              /* Left at its default here: the mode argument is optional and
+                 this call has always relied on that. */
+              undefined,
+              /* The signed-in area, file by file, when the brief asked for
+                 one. Without it a "dashboard" brief was answered with a login
+                 page and nothing behind it. See member-area.ts. */
+              memberAreaFor(brief.text, architecture.manifest, kind.kind),
             )
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty

@@ -84,6 +84,12 @@ export const CORPUS = [
 
 /** Briefs that carry two kinds at once. This is the set the split exists for. */
 export const MIXED = [
+  /* Two real briefs that were built as the wrong thing. The first is spelled
+     the way it was sent — "ecomerce" — and was read as a landing page; with
+     accounts, "login" then read it as a generic web app, which threw the store
+     away. A store with customer accounts is still a store. */
+  ["build an ecomerce store with dashboard, dark cinematic with login and sign up. name velocity store", "ecommerce"],
+  ["an online store with customer accounts, login and order history", "ecommerce"],
   /* Explicitly a landing page, mentioning a shop. The page is ABOUT the shop.
      This is the exact complaint that started the split. */
   ["a landing page for my shopify store", "landing"],

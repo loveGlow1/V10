@@ -35,7 +35,7 @@ writeFileSync(
       typeRoots: [join(process.cwd(), "node_modules", "@types")],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/scaffold.ts")],
+    files: [join(process.cwd(), "src/lib/builder/scaffold.ts"), join(process.cwd(), "src/lib/builder/member-area.ts")],
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
@@ -68,6 +68,7 @@ const rewrite = (dir) => {
 rewrite(join(out, "lib"));
 
 const { treeBrief } = await import(join(out, "lib/builder/scaffold.js"));
+const { memberAreaFor } = await import(join(out, "lib/builder/member-area.js"));
 
 let failed = 0;
 let passed = 0;
@@ -275,6 +276,82 @@ has(
   /literal/i.test(noPhotos) && /component/i.test(noPhotos),
   "and says the slot must be a literal tag rather than a component",
   "Without this the model factors the slot into <ProductPhoto shot={p.shot} />.",
+);
+
+/* ── A dashboard that was asked for is a dashboard that is built ──────────
+ *
+ * The complaint: "when a user asks for a dashboard it should build a complete
+ * dashboard to their specs and attach it to the front end — not just an empty
+ * sign in and sign up". A real-estate brief listing Overview, Saved Properties,
+ * Scheduled Viewings, Profile and Settings came back with a login page and an
+ * /admin page reading "will be built out in a later stage", because nothing in
+ * the file list named a single dashboard file. */
+console.log("\nA dashboard that was asked for is built, file by file:");
+
+const REAL_ESTATE = [
+  "A luxury real estate platform with login and sign up, forgot password and reset password.",
+  "PROTECTED PAGES: User Dashboard, Saved Properties, Scheduled Viewings, Profile, Account Settings.",
+  "Dashboard sections: Overview, Saved Properties, Scheduled Viewings, Recently Viewed, Profile, Account Settings.",
+  "Unauthenticated: /dashboard /dashboard/favorites /dashboard/viewings /dashboard/profile /dashboard/settings -> Redirect to Login.",
+].join("\n");
+
+const area = memberAreaFor(REAL_ESTATE, { authentication: true }, "webapp");
+has(area !== null, "a brief asking for a user dashboard gets a member area");
+const slugs = (area?.sections ?? []).map((section) => section.slug);
+has(
+  ["favorites", "viewings", "profile", "settings"].every((slug) => slugs.includes(slug)),
+  "with the sections the brief spelled out as routes",
+  `got ${slugs.join(", ")}`,
+);
+has(slugs.includes("recently-viewed"), "and the ones it named in words");
+has(
+  !slugs.includes("saved") && !slugs.includes("bookings"),
+  "without doubling a named route under a second name",
+  "/dashboard/favorites already is 'Saved Properties'",
+);
+has(area?.passwordReset === true, "and the password reset flow it asked for");
+
+const member = treeBrief("webapp", manifest({ authentication: true }), model, undefined, 0, "static", area);
+has(/^- app\/dashboard\/layout\.tsx/m.test(member), "the signed-in shell is a file to write");
+has(/^- app\/dashboard\/page\.tsx/m.test(member), "and so is the overview");
+has(
+  slugs.every((slug) => new RegExp(`^- app/dashboard/${slug}/page\\.tsx`, "m").test(member)),
+  "and one page per section",
+);
+has(
+  /^- app\/forgot-password\/page\.tsx/m.test(member) && /^- app\/reset-password\/page\.tsx/m.test(member),
+  "and the reset pages",
+);
+has(
+  !/do NOT write `app\/dashboard\/page\.tsx`/i.test(member),
+  "and the brief no longer forbids the very file it lists",
+  "the old prohibition and the new file list in one prompt is the contradiction that makes stubs",
+);
+has(/BUILT IN FULL IN THIS BUILD/.test(member) && /will be built in a later stage/.test(member), "a stub is named as the defect it is");
+has(/\/login\?next=/.test(member), "a signed-out visitor is sent to sign in and brought back");
+has(/Welcome back/.test(member), "the overview greets the person by name");
+has(/empty state/i.test(member), "and is designed for a brand-new account");
+has(/signOut\(\)/.test(member), "and signing out really ends the session");
+has(/not with useSearchParams/.test(member), "and reading ?next= cannot break a static export");
+
+console.log("\nAnd one that was not asked for is not invented:");
+
+has(memberAreaFor(REAL_ESTATE, { authentication: false }, "webapp") === null, "no accounts, no member area");
+has(
+  memberAreaFor("an invoicing tool with accounts; invoices are saved to the database", { authentication: true }, "webapp") === null,
+  "accounts alone do not make a dashboard",
+);
+has(
+  memberAreaFor("a store where I can manage products from an admin dashboard", { authentication: true }, "ecommerce") === null,
+  "an admin dashboard is the owner's, and /admin already builds it",
+);
+has(
+  memberAreaFor("an ecommerce store with dashboard and login", { authentication: true }, "ecommerce") === null,
+  "a store's bare 'dashboard' is the merchant's",
+);
+has(
+  !/^- app\/dashboard\//m.test(treeBrief("webapp", manifest({ authentication: true }), model)),
+  "and without one, no dashboard files are listed",
 );
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

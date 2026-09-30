@@ -314,6 +314,33 @@ console.log("\nWhat gets tested follows what was built");
   else pass("no manifest → functional not run");
 }
 
+/* ── A page that says it is not built ──────────────────────────────────────
+ *
+ * A customer's /admin read "Listing management … will be built out in a later
+ * stage of this project" and passed every gate: the route existed, so every
+ * path-based expectation was met, and nothing looked inside it. */
+console.log("\nA page that says it is not built is caught");
+{
+  const stub = {
+    path: "app/admin/page.tsx",
+    content: 'export default function A() { return <p>Listing management will be built out in a later stage of this project.</p>; }',
+  };
+  const real = { path: "app/dashboard/page.tsx", content: 'export default function D() { return <h1>Welcome back</h1>; }' };
+  const waitlist = { path: "app/page.tsx", content: 'export default function H() { return <h1>Coming soon — join the waitlist</h1>; }' };
+
+  const caught = await qa.runQa({ html: CLEAN, tree: [stub, real], manifest: manifest(), design: CRAFT });
+  const rule = qa.allIssues(caught).find((issue) => issue.rule === "functional/unfinished-page");
+  if (!rule) fail("functional/unfinished-page", "a stub page passed QA");
+  else if (rule.severity !== "error") fail("functional/unfinished-page", "found, but not counted as an error");
+  else if (!rule.message.includes("app/admin/page.tsx")) fail("functional/unfinished-page", "does not name the page");
+  else pass("a 'later stage' page is an error, and named");
+
+  const honest = await qa.runQa({ html: CLEAN, tree: [real, waitlist], manifest: manifest(), design: CRAFT });
+  if (qa.allIssues(honest).some((issue) => issue.rule === "functional/unfinished-page")) {
+    fail("functional/unfinished-page", "a finished page, or a waitlist saying 'coming soon', was flagged");
+  } else pass("a finished page and an honest 'coming soon' are left alone");
+}
+
 /* ── Repairs (§9) ─────────────────────────────────────────────────────────*/
 
 console.log("\nRepairs");

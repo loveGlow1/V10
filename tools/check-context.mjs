@@ -615,6 +615,15 @@ export async function pay() { await supabase.from("orders").insert({}); }`,
   );
   has(promptBlock.includes("ALREADY BUILT"), "the finished stages are marked as finished");
   has(promptBlock.includes("a later stage"), "and the later ones as later");
+  /* "a later stage — leave room for it, do not build it", beside a file list
+     naming app/admin/page.tsx, produced an admin page apologising that it
+     would be built later. A stage limits what is ADDED, never what is left
+     half-made. */
+  has(!/do not build it/i.test(promptBlock), "a later stage is never an instruction to leave a listed file unbuilt");
+  has(
+    /every file you ARE told to write is written completely/.test(promptBlock) && /placeholder/.test(promptBlock),
+    "and a placeholder page is named as a defect",
+  );
 
   let finished = staged;
   for (const step of big.steps) finished = stages.advance(finished, step.order);

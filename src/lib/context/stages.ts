@@ -133,16 +133,28 @@ export function stagePlanBrief(plan: StagePlan): string {
         ? "ALREADY BUILT — do not rebuild it, do not change it"
         : entry.order === step.order
           ? "THIS STAGE — build this now"
-          : "a later stage — leave room for it, do not build it";
+          : "a later stage — it gets its depth then; add nothing for it beyond the files you are told to write";
     return `${entry.order}. ${entry.title} — ${state}`;
   });
 
+  /* ── A STAGE DECIDES WHERE THE DEPTH GOES, NEVER WHAT IS LEFT HALF-MADE ──
+   *
+   * This said "a later stage — leave room for it, do not build it" and "building
+   * a later stage early is a defect". Beside a file list that names
+   * app/admin/page.tsx, those two instructions can only be obeyed together one
+   * way, and the model found it: an admin page reading "listing management will
+   * be built out in a later stage of this project". The customer opened their
+   * dashboard to a paragraph apologising for it.
+   *
+   * So the rule is about scope, not about files. Nothing is invented for a later
+   * stage, and nothing that IS written is left as a promise. */
   return [
     `THIS BUILD IS STAGE ${step.order} OF ${plan.steps.length}.`,
     "",
     ...lines,
     "",
-    "Building a later stage early is a defect: it costs the person a stage they have not asked for yet and it will be rebuilt when they do.",
+    "The stages decide where this build puts its depth, never what it leaves unfinished. Do not add features for a later stage beyond the files you are told to write — but every file you ARE told to write is written completely: working, reading its real data, styled as the finished product.",
+    "Never write a page, section or component that says it will be built later, is coming soon, or is a placeholder. A person opening it sees an unfinished product, and that is a defect.",
   ].join("\n");
 }
 
