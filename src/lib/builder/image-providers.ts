@@ -142,9 +142,8 @@ function orientation(ratio: string): "landscape" | "portrait" | "squarish" {
   return "squarish";
 }
 
-const unsplash = (key: string): ImageProvider => ({
-  name: "unsplash",
-  async shotFor(slot, width, context, choice) {
+const unsplash = (key: string): ImageProvider => {
+  async function find(slot: ImageSlot, context?: string, choice?: ChoiceOptions) {
     const search = await get(
       `https://api.unsplash.com/search/photos?per_page=${CANDIDATES}&content_filter=high&orientation=${orientation(
         slot.ratio,
@@ -173,25 +172,41 @@ const unsplash = (key: string): ImageProvider => ({
       void get(photo.links.download_location, { Authorization: `Client-ID ${key}` });
     }
 
-    const file = await get(`${raw}&w=${width}&q=75&fm=jpg&fit=crop`);
-    if (!file) return null;
-
     return {
       id: `unsplash:${photo.id}`,
-      bytes: Buffer.from(await file.arrayBuffer()),
-      contentType: "image/jpeg",
+      raw,
       credit: {
         author: photo.user?.name ?? "Unsplash contributor",
         source: "Unsplash",
         url: photo.user?.links?.html ?? "https://unsplash.com",
       },
-    } satisfies Shot;
-  },
-});
+    };
+  }
 
-const pexels = (key: string): ImageProvider => ({
-  name: "pexels",
-  async shotFor(slot, width, context, choice) {
+  return {
+    name: "unsplash",
+    async locate(slot, width, context, choice) {
+      const found = await find(slot, context, choice);
+      return found ? { id: found.id, url: `${found.raw}&w=${width}&q=75&fm=jpg&fit=crop`, credit: found.credit } : null;
+    },
+    async shotFor(slot, width, context, choice) {
+      const found = await find(slot, context, choice);
+      if (!found) return null;
+      const file = await get(`${found.raw}&w=${width}&q=75&fm=jpg&fit=crop`);
+      if (!file) return null;
+
+      return {
+        id: found.id,
+        bytes: Buffer.from(await file.arrayBuffer()),
+        contentType: "image/jpeg",
+        credit: found.credit,
+      } satisfies Shot;
+    },
+  };
+};
+
+const pexels = (key: string): ImageProvider => {
+  async function find(slot: ImageSlot, context?: string, choice?: ChoiceOptions) {
     const search = await get(
       `https://api.pexels.com/v1/search?per_page=${CANDIDATES}&orientation=${orientation(
         slot.ratio,
@@ -208,21 +223,40 @@ const pexels = (key: string): ImageProvider => ({
     const original = photo?.src?.original;
     if (!photo || !original) return null;
 
-    const file = await get(`${original}?auto=compress&cs=tinysrgb&w=${width}`);
-    if (!file) return null;
-
     return {
       id: `pexels:${photo.id}`,
-      bytes: Buffer.from(await file.arrayBuffer()),
-      contentType: "image/jpeg",
+      original,
       credit: {
         author: photo.photographer ?? "Pexels contributor",
         source: "Pexels",
         url: photo.url ?? "https://pexels.com",
       },
-    } satisfies Shot;
-  },
-});
+    };
+  }
+
+  return {
+    name: "pexels",
+    async locate(slot, width, context, choice) {
+      const found = await find(slot, context, choice);
+      return found
+        ? { id: found.id, url: `${found.original}?auto=compress&cs=tinysrgb&w=${width}`, credit: found.credit }
+        : null;
+    },
+    async shotFor(slot, width, context, choice) {
+      const found = await find(slot, context, choice);
+      if (!found) return null;
+      const file = await get(`${found.original}?auto=compress&cs=tinysrgb&w=${width}`);
+      if (!file) return null;
+
+      return {
+        id: found.id,
+        bytes: Buffer.from(await file.arrayBuffer()),
+        contentType: "image/jpeg",
+        credit: found.credit,
+      } satisfies Shot;
+    },
+  };
+};
 
 /**
  * The provider this deployment is configured for, or null.

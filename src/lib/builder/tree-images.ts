@@ -222,6 +222,7 @@ const ALT_LITERAL = /\balt\s*=\s*"([^"]*)"/;
 /* Where a project keeps the art direction it feeds a component: `shot: "…"` in
    a data array, or `shot="…"` passed at a call site. */
 const SHOT_VALUES = /\bshot\s*[:=]\s*"([^"]{2,240})"/g;
+const ALT_VALUES = /\balt\s*:\s*"([^"]{2,240})"/g;
 const MAP_CONST = "__qsShots";
 const MAX_MAPPED_SHOTS = 48;
 
@@ -338,4 +339,211 @@ function withShotMap(source: string, sources: Map<string, string>): string {
 
   lines.splice(insertAt, 0, declaration);
   return lines.join("\n");
+}
+
+/* ── Placeholders are not final ───────────────────────────────────────────
+ *
+ * ensureImageSources gives a tag with no source the toned panel when it has no
+ * photograph to hand — and from then on the tag HAS a source, so nothing ever
+ * looked at it again. A project whose first build found no photographs kept
+ * its grey panels forever, and "add images to the featured properties" edited
+ * the markup and came back with the same panels: the edit reused this
+ * project's photographs, and it had none.
+ *
+ * This finds every placeholder a project carries — in a component's lookup
+ * map, in a literal src, in a lookup's fallback — and asks the provider for a
+ * photograph matching the art direction that placeholder stands in for. Remote
+ * addresses rather than inlined bytes, as the sweep above explains: they cost
+ * the tree nothing, and generated projects render plain <img>.
+ *
+ * Never throws, never makes a file worse: a shot with no photograph keeps its
+ * panel, and the tree is returned as it was for anything it cannot edit.
+ */
+
+/* A toned panel, by what tonedPanel writes: a base64 SVG of one gradient rect. */
+export function isPlaceholder(src: string): boolean {
+  if (!src.startsWith("data:image/svg+xml;base64,")) return false;
+  try {
+    const svg = Buffer.from(src.slice("data:image/svg+xml;base64,".length), "base64").toString("utf8");
+    return svg.includes('<linearGradient id="g"') && svg.includes("<rect");
+  } catch {
+    return false;
+  }
+}
+
+const PLACEHOLDER_LITERAL = /"(data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+)"/g;
+const MAP_BLOCK = new RegExp(`const ${MAP_CONST}(?::[^=]+)?=\\s*\\{([\\s\\S]*?)\\n\\};`);
+const MAP_ENTRY = /^\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*")\s*,?\s*$/;
+
+/** Whether any file in the tree still shows a placeholder where a photograph belongs. */
+export function hasPlaceholders(tree: FileTree): boolean {
+  return tree.some(
+    (file) =>
+      RENDERS.test(file.path) &&
+      [...file.content.matchAll(PLACEHOLDER_LITERAL)].some((match) => isPlaceholder(match[1])),
+  );
+}
+
+export type Upgrade = {
+  tree: FileTree;
+  /** Placeholders replaced by a photograph. */
+  upgraded: number;
+  /** Placeholders left, because no photograph was found in time. */
+  left: number;
+  used: PhotoId[];
+};
+
+export async function upgradePlaceholders(
+  tree: FileTree,
+  provider: ImageProvider | null,
+  options: { context?: string; seed?: string; exclude?: Iterable<PhotoId>; timeoutMs?: number; maxShots?: number } = {},
+): Promise<Upgrade> {
+  const empty = { tree, upgraded: 0, left: 0, used: [] as PhotoId[] };
+  if (!provider?.locate || !hasPlaceholders(tree)) return empty;
+
+  /* What each placeholder stands for. Three places a placeholder can be, and
+     each names its art direction differently. */
+  const wanted = new Map<string, string>(); // shot → ratio
+  const want = (shot: string, ratio = "4/3") => {
+    const key = shot.trim();
+    if (key && !wanted.has(key) && wanted.size < (options.maxShots ?? MAX_MAPPED_SHOTS)) wanted.set(key, ratio);
+  };
+
+  for (const file of tree) {
+    if (!RENDERS.test(file.path)) continue;
+
+    /* The component lookup: entries still pointing at a panel. */
+    const block = MAP_BLOCK.exec(file.content)?.[1];
+    if (block) {
+      for (const line of block.split("\n")) {
+        const entry = MAP_ENTRY.exec(line);
+        if (entry && isPlaceholder(JSON.parse(entry[2]))) want(JSON.parse(entry[1]));
+      }
+    }
+
+    /* A literal slot whose src is a panel. */
+    for (const tag of file.content.match(IMG_TAG) ?? []) {
+      const src = /\bsrc\s*=\s*"([^"]*)"/.exec(tag)?.[1];
+      const shot = SHOT_LITERAL.exec(tag)?.[1] ?? ALT_LITERAL.exec(tag)?.[1];
+      if (src && isPlaceholder(src) && shot) want(shot, RATIO_LITERAL.exec(tag)?.[1] ?? "4/3");
+    }
+  }
+
+  /* A lookup keyed on `.alt` rather than `.shot` — a hero that looks itself up
+     by its description — needs the alt texts in the map too. */
+  const byAlt = tree.some((file) => new RegExp(`${MAP_CONST}\\[[^\\]]*\\.alt\\]`).test(file.content));
+  const keys = byAlt ? [SHOT_VALUES, ALT_VALUES] : [SHOT_VALUES];
+
+  /* And every shot the project names but its lookup is missing — a card added
+     by an edit after the map was written. */
+  for (const file of tree) {
+    for (const match of keys.flatMap((pattern) => [...file.content.matchAll(pattern)])) {
+      const shot = match[1].trim();
+      const mapped = tree.some((f) => f.content.includes(`${JSON.stringify(shot)}: "http`));
+      if (!mapped) want(shot);
+    }
+  }
+
+  const deadline = Date.now() + (options.timeoutMs ?? 12_000);
+  const exclude = new Set<PhotoId>(options.exclude ?? []);
+  const used: PhotoId[] = [];
+  const found = new Map<string, string>();
+
+  /* A few at a time: fast enough to finish inside an edit, gentle enough on a
+     rate-limited search API. */
+  const queue = [...wanted.entries()];
+  while (queue.length > 0 && Date.now() < deadline) {
+    const batch = queue.splice(0, 4);
+    const results = await Promise.all(
+      batch.map(async ([shot, ratio]) => {
+        try {
+          const located = await provider.locate!(
+            { tag: "", shot, alt: shot, ratio, weight: "feature", focal: "", fit: "cover" },
+            WIDTH_FOR_PROJECT,
+            options.context,
+            { exclude, seed: options.seed },
+          );
+          return located ? ([shot, located] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const result of results) {
+      if (!result) continue;
+      const [shot, located] = result;
+      if (exclude.has(located.id)) continue;
+      exclude.add(located.id);
+      used.push(located.id);
+      found.set(shot, located.url);
+    }
+  }
+
+  if (found.size === 0) return { ...empty, left: wanted.size };
+
+  let upgraded = 0;
+  const firstPhoto = [...found.values()][0];
+  const out: FileTree = tree.map((file) => {
+    if (!RENDERS.test(file.path)) return file;
+    let content = file.content;
+
+    /* The lookup map, rewritten whole: panels replaced, missing shots added,
+       real photographs already in it kept exactly as they were. */
+    const match = MAP_BLOCK.exec(content);
+    if (match) {
+      const entries = new Map<string, string>();
+      for (const line of match[1].split("\n")) {
+        const entry = MAP_ENTRY.exec(line);
+        if (entry) entries.set(JSON.parse(entry[1]), JSON.parse(entry[2]));
+      }
+      for (const [shot, url] of found) {
+        const current = entries.get(shot);
+        if (current === undefined || isPlaceholder(current)) {
+          entries.set(shot, url);
+          upgraded += 1;
+        }
+      }
+      const body = [...entries.entries()]
+        .map(([shot, url]) => `  ${JSON.stringify(shot)}: ${JSON.stringify(url)},`)
+        .join("\n");
+      content = content.replace(match[0], `const ${MAP_CONST}: Record<string, string> = {\n${body}\n};`);
+
+      /* The lookup's fallback: a card whose shot is not in the map gets a real
+         photograph rather than a panel. */
+      content = content.replace(
+        new RegExp(`(${MAP_CONST}\\[[^\\]]+\\]\\s*\\?\\?\\s*)"(data:image\\/svg\\+xml;base64,[A-Za-z0-9+/=]+)"`, "g"),
+        (whole, head: string, src: string) => (isPlaceholder(src) ? `${head}${JSON.stringify(firstPhoto)}` : whole),
+      );
+    }
+
+    /* Literal slots. */
+    content = content.replace(IMG_TAG, (tag) => {
+      const src = /\bsrc\s*=\s*"([^"]*)"/.exec(tag)?.[1];
+      if (!src || !isPlaceholder(src)) return tag;
+      const shot = (SHOT_LITERAL.exec(tag)?.[1] ?? ALT_LITERAL.exec(tag)?.[1] ?? "").trim();
+      const url = found.get(shot);
+      if (!url) return tag;
+      upgraded += 1;
+      return tag.replace(/\bsrc\s*=\s*"[^"]*"/, `src=${JSON.stringify(url)}`);
+    });
+
+    if (content === file.content || Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES) return file;
+    return { ...file, content };
+  });
+
+  return { tree: out, upgraded, left: Math.max(0, wanted.size - found.size), used };
+}
+
+/* Wide enough for a hero on a laptop, and a remote address costs nothing to
+   store whatever its width. */
+const WIDTH_FOR_PROJECT = 1400;
+
+/* "Add images to the featured properties", "the photos are missing", "fix the
+   grey boxes": a request about pictures, as opposed to one that happens to
+   mention a picture while asking about the copy under it. */
+const PICTURE_WORDS = /\b(images?|photos?|pictures?|photographs?|imagery|thumbnails?|grey boxes|gray boxes|placeholders?)\b/i;
+const PICTURE_ASKS = /\b(add|missing|broken|blank|empty|grey|gray|placeholders?|fix|update|refresh|replace|real|show|load|put|attach|no)\b/i;
+
+export function asksForImages(message: string): boolean {
+  return PICTURE_WORDS.test(message) && PICTURE_ASKS.test(message);
 }

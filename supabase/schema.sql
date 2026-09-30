@@ -3031,3 +3031,45 @@ alter table public.project_backends
   add column if not exists schema_report jsonb;
 
 grant select (supabase_ref, schema_report) on public.project_backends to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Form notifications: an email to the app's owner when somebody sends one of
+-- their page's forms.
+--
+-- The message itself never lives here. It is saved in the owner's own Supabase
+-- (their `submissions` table); a trigger there calls /api/forms/notify with
+-- this project's secret, and QuickStark sends the email from
+-- notifications@quickstark.tech. This table holds only whether to send, where,
+-- and the hash of that secret.
+--
+--   secret_hash    sha256 of the secret the trigger in their database sends.
+--                  The secret itself is never stored here.
+--   email          where to send; null means the owner's account email.
+--   window_*       a rolling hour, so a flood of submissions cannot become a
+--                  flood of email.
+--
+-- Service role only: RLS on with no policy BY DESIGN, all grants revoked.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.form_notifications (
+  project_id    uuid primary key references public.projects (id) on delete cascade,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  enabled       boolean not null default true,
+  email         text check (email is null or char_length(email) <= 320),
+  secret_hash   text,
+  installed_at  timestamptz,
+  window_start  timestamptz,
+  window_count  integer not null default 0,
+  last_sent_at  timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+alter table public.form_notifications enable row level security;
+revoke all on public.form_notifications from anon, authenticated;
+
+comment on table public.form_notifications is 'Whether and where to email an app owner about form submissions saved in their own Supabase. Service role only: RLS on with no policy BY DESIGN.';
+
+drop trigger if exists form_notifications_set_updated_at on public.form_notifications;
+create trigger form_notifications_set_updated_at
+  before update on public.form_notifications
+  for each row execute function public.set_updated_at();

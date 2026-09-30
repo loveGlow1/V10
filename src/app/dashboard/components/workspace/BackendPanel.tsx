@@ -7,6 +7,7 @@ import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "l
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
 
 import ConnectSupabase from "./ConnectSupabase";
+import FormNotifications from "./FormNotifications";
 
 /* Where this app's data lives, and how to move it.
  *
@@ -670,6 +671,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 </>
               )}
             </div>
+          )}
+
+          {projectId && backend.mode === "own" && backend.url && (
+            <FormNotifications projectId={projectId} />
           )}
 
           {backend.mode === "own" && !confirming && (
