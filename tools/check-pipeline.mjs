@@ -152,11 +152,16 @@ has(
   "resolving one would name a schema and open a connection for a project that has neither",
 );
 
-/* And the split that decides how much of one. A heavy backend on the shared
-   instance is accounts in a pool shared with every other app on it. */
+/* And what decides whether it gets a database of its own. This used to be
+   weightOf(architecture.manifest) in the build route — the layers, read once.
+   ensureBackendFor has since moved the decision to the owner's recorded answer
+   (see its comment): a database of its own is created only where somebody chose
+   one, and nothing reads the brief a second time to decide it for them. */
+const connectionSource = readFileSync(join(process.cwd(), "src/lib/builder/backend/connection.ts"), "utf8");
 has(
-  /weightOf\(architecture\.manifest\)/.test(buildRoute),
-  "and how much backend is read from the layers, not from the brief a second time",
+  /if \(existing\.mode !== "quickstark_managed"\) return existing;/.test(connectionSource) &&
+    !/weightOf\(\s*brief/.test(buildRoute),
+  "and a database of its own comes from the owner's recorded choice, not from the brief a second time",
   "a second reading of the same words is a second answer to disagree with the first",
 );
 

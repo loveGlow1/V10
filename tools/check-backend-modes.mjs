@@ -31,8 +31,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 const root = process.cwd();
 const out = join(root, "node_modules", ".cache", "quickstark-backend-modes");
@@ -55,6 +55,37 @@ writeFileSync(
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
+
+/* tsc keeps import specifiers exactly as written, and node's loader resolves
+   neither "@/…" (a tsconfig path, not a package) nor an extensionless relative
+   path. managed.ts imports @/lib/site and @/lib/publish/naming for real, so
+   without this the module never loads and not one assertion below runs. Each
+   specifier is rewritten to the compiled file it names, with its .js. */
+function relink(dir) {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      relink(path);
+      continue;
+    }
+    if (!entry.endsWith(".js")) continue;
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace(
+        /((?:from|import)\s*\(?\s*["'])((?:@\/|\.\.?\/)[^"']+?)(["'])/g,
+        (whole, before, specifier, after) => {
+          let target = specifier;
+          if (target.startsWith("@/")) {
+            target = relative(dirname(path), join(out, target.slice(2))).replace(/\\/g, "/");
+            if (!target.startsWith(".")) target = `./${target}`;
+          }
+          return `${before}${target.endsWith(".js") ? target : `${target}.js`}${after}`;
+        },
+      ),
+    );
+  }
+}
+relink(join(out, "lib"));
 
 const modes = await import(join(out, "lib/builder/backend/modes.js"));
 const verify = await import(join(out, "lib/builder/backend/verify.js"));
