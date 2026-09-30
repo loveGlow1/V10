@@ -32,7 +32,7 @@
  * sends the SQL lives in provision.ts, so all of this can be tested offline.
  */
 
-import type { Column, DataModel } from "../schema";
+import { grantsFor, type Column, type DataModel } from "../schema";
 
 /* The same marker schema.ts writes. Repeated rather than imported so this file
    stays loadable on its own by the offline check; tools/check-schema-scan.mjs
@@ -56,6 +56,8 @@ export type ExistingTable = {
   columns: ExistingColumn[];
   anonSelect: boolean;
   authenticatedSelect: boolean;
+  /** Every table command each role holds. Absent on a snapshot read before it was collected. */
+  privileges?: { anon: string[]; authenticated: string[] };
 };
 
 export type Snapshot = {
@@ -100,7 +102,11 @@ export function snapshotSql(schemas: string[]): string {
         where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
       ),
       'anonSelect', has_table_privilege('anon', c.oid, 'select'),
-      'authenticatedSelect', has_table_privilege('authenticated', c.oid, 'select')
+      'authenticatedSelect', has_table_privilege('authenticated', c.oid, 'select'),
+      'privileges', json_build_object(
+        'anon', (select coalesce(json_agg(cmd), '[]'::json) from unnest(array['select', 'insert', 'update', 'delete']) as cmd where has_table_privilege('anon', c.oid, cmd)),
+        'authenticated', (select coalesce(json_agg(cmd), '[]'::json) from unnest(array['select', 'insert', 'update', 'delete']) as cmd where has_table_privilege('authenticated', c.oid, cmd))
+      )
     ))
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
@@ -169,6 +175,16 @@ export function parseSnapshot(result: unknown): Snapshot | null {
         }),
         anonSelect: table.anonSelect === true,
         authenticatedSelect: table.authenticatedSelect === true,
+        ...(table.privileges && typeof table.privileges === "object"
+          ? {
+              privileges: {
+                anon: asArray(asRecord(table.privileges).anon).map(asString).filter((c): c is string => Boolean(c)),
+                authenticated: asArray(asRecord(table.privileges).authenticated)
+                  .map(asString)
+                  .filter((c): c is string => Boolean(c)),
+              },
+            }
+          : {}),
       };
     }),
     functions: asArray(raw.functions).map((entry) => {
@@ -432,11 +448,28 @@ export function verifySchema(model: DataModel, snapshot: Snapshot): SchemaCheck 
       if (!found.policies.includes(policy.name)) problems.push(`policy ${policy.name} on ${table.name} is missing`);
     }
 
-    checked += 1;
-    if (!found.authenticatedSelect) problems.push(`signed-in users cannot read ${table.name}`);
-    if (table.policies.some((policy) => policy.to.includes("anon"))) {
-      checked += 1;
-      if (!found.anonSelect) problems.push(`visitors cannot read ${table.name}`);
+    /* The grants the policies need, per role — no more is expected, because
+       toSql grants no more. A table visitors may only add to is not a table
+       visitors must be able to read. */
+    for (const role of ["authenticated", "anon"] as const) {
+      const who = role === "anon" ? "visitors" : "signed-in users";
+      for (const command of grantsFor(table, role)) {
+        checked += 1;
+        const held = found.privileges
+          ? found.privileges[role].includes(command)
+          : command === "select"
+            ? role === "anon"
+              ? found.anonSelect
+              : found.authenticatedSelect
+            : true;
+        if (!held) {
+          problems.push(
+            command === "select"
+              ? `${who} cannot read ${table.name}`
+              : `${who} cannot ${command} ${command === "insert" ? "into" : "on"} ${table.name}`,
+          );
+        }
+      }
     }
   }
 

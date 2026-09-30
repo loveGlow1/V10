@@ -525,21 +525,43 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     return NextResponse.json({ error: "This deployment cannot change backends." }, { status: 503 });
   }
 
-  /* The row goes; their data does not. Nothing here touches their Supabase —
-     unlinking stops this project being built against it, and every table and
-     row it created is still theirs, in their account, where it was. */
-  const { error } = await service
-    .from("project_backends")
-    .delete()
-    .eq("project_id", owned.projectId);
+  /* Their data does not go. Nothing here touches their Supabase — every
+   * table, row and signed-up user stays in their account, where it was.
+   *
+   * The row is not deleted either, and that is the other half of the promise.
+   * With no row, resolveBackend used to fall through to QuickStark's own shared
+   * instance, so disconnecting quietly moved the next build's data onto an
+   * account the customer does not own. Kept as "own, not connected" instead:
+   * the next build has no database until they connect one again, and the
+   * Database panel offers exactly that. */
+  const { error } = await service.from("project_backends").upsert(
+    {
+      project_id: owned.projectId,
+      user_id: owned.userId,
+      kind: "own",
+      mode: "own",
+      managed_ref: null,
+      supabase_ref: null,
+      url: null,
+      anon_key: null,
+      db_url: null,
+      applied_at: null,
+      verified_at: null,
+      verification_error: null,
+      last_error: null,
+      schema_report: null,
+    },
+    { onConflict: "project_id" },
+  );
 
   if (error) {
     return NextResponse.json({ error: `That could not be undone: ${error.message}` }, { status: 500 });
   }
 
   return NextResponse.json({
-    kind: "shared",
+    kind: "own",
     message:
-      "Unlinked. The next build goes back to QuickStark's Supabase. Nothing was deleted from yours.",
+      "Disconnected. Nothing was deleted from your Supabase — your tables, data and users are still there. " +
+      "This app won't use a database until you connect one again.",
   });
 }

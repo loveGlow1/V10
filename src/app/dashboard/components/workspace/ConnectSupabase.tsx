@@ -186,7 +186,8 @@ export default function ConnectSupabase({
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           Sign in to Supabase and pick a project — or let us create a free one. We read its keys, set up
           sign-in for your app, and create and check this app&apos;s tables on the next build. Nothing to copy
-          or paste, and your data stays in your account.
+          or paste, and your data stays in your account. Supabase usage, limits and billing are managed
+          through your Supabase account.
         </p>
         {note && <p className="mt-2 text-[12px] leading-relaxed text-amber-400">{note}</p>}
         <div className="mt-3 flex flex-wrap gap-2">
@@ -220,6 +221,10 @@ export default function ConnectSupabase({
       <p className="text-[13px] font-medium text-ink">Choose a Supabase project</p>
       <p className="mt-1 text-[12px] leading-relaxed text-muted">
         This app&apos;s data will live there. You can use one you already have — nothing of yours is changed.
+      </p>
+      <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+        Your application uses your connected Supabase project. Supabase usage, limits and billing are
+        managed through your Supabase account.
       </p>
 
       {projects.length > 0 && (
