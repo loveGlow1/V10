@@ -26,6 +26,7 @@
 import type { ArchitectureManifest } from "./architecture";
 import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
+import type { MemberArea } from "./member-area";
 import { allCommerce } from "./commerce";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
@@ -955,6 +956,10 @@ export function treeBrief(
      as everything else here: a caller that does not know about the two modes
      gets the one that is right 95% of the time. */
   mode: BuildMode = "static",
+  /* The signed-in area the brief asked for, when it asked for one. See
+     member-area.ts: null means no dashboard is written, which is right for
+     every product that never mentioned one. */
+  memberArea: MemberArea | null = null,
 ): string {
   /* ── A STORE'S ROUTES ARE ITS CAPABILITIES' ─────────────────────────────
    *
@@ -1006,17 +1011,47 @@ export function treeBrief(
   /* The product's own areas, named by the product. See ROUTES above: a web app
      has no universal second route, so the shape is asked for rather than
      assumed, and the example is deliberately a domain rather than a layout. */
-  if (kind === "webapp") {
+  if (kind === "webapp" && !memberArea) {
     write.push(
       "- a route per area THIS product actually has, named in its own words — `app/invoices/page.tsx`, `app/clients/page.tsx`, `app/payments/page.tsx` for an invoicing tool. Name them for the objects in the brief. Do NOT write `app/dashboard/page.tsx` unless the product genuinely is a dashboard; an overview screen, when the product wants one, is the home page.",
     );
   }
 
+  if (kind === "webapp" && memberArea) {
+    write.push(
+      "- a route per public area THIS product actually has, named in its own words and for the objects in the brief. The signed-in half is listed below — do not duplicate it.",
+    );
+  }
+
   if (manifest.authentication) {
     write.push(
-      "- app/login/page.tsx — sign in and sign up, in one place, with inline errors",
+      memberArea
+        ? "- app/login/page.tsx — sign in and sign up, in one place, with inline errors. Success goes to /dashboard, or to the `next` query parameter when one was passed — read it from `window.location.search` inside the handler, not with useSearchParams, which fails a static export unless wrapped in <Suspense>. Only follow a `next` that starts with a single `/`."
+        : "- app/login/page.tsx — sign in and sign up, in one place, with inline errors",
       ...account.map((route) => `- ${route}`),
     );
+  }
+
+  /* ── THE SIGNED-IN AREA, AS FILES ───────────────────────────────────────
+   *
+   * Listed file by file because a file list is what gets built. A brief that
+   * asked for a dashboard with five sections, answered by a sign-in page and
+   * nothing behind it, is the complaint this exists for — and the only reason
+   * it happened is that nothing here named the files. */
+  if (memberArea) {
+    write.push(
+      "- app/dashboard/layout.tsx — the signed-in shell, shared by every page below it: a sidebar naming every section (with an icon, and the current one marked), collapsing to a slide-over drawer behind a menu button below `md`; a top bar with the page title and the person's avatar menu (their name, every section, Sign out). It is the guard as well: nothing renders until the session has loaded, and a signed-out visitor is sent to `/login?next=<the path they asked for>`.",
+      "- app/dashboard/page.tsx — the overview: \"Welcome back, <first name>\" from their profile row; the few figures that matter to THIS product, each counted from their own rows; their most recent items from each section as real lists linking through; and quick actions for the things they come here to do.",
+      ...memberArea.sections.map(
+        (section) => `- app/dashboard/${section.slug}/page.tsx — ${section.title}: ${section.purpose}.`,
+      ),
+    );
+    if (memberArea.passwordReset) {
+      write.push(
+        "- app/forgot-password/page.tsx — asks for an email and calls `supabase.auth.resetPasswordForEmail` with `redirectTo` set to this site's /reset-password, then says plainly that a link has been sent.",
+        "- app/reset-password/page.tsx — where that link lands: a new password and its confirmation, saved with `supabase.auth.updateUser`, then on to /dashboard.",
+      );
+    }
   }
 
   if (manifest.admin) {
@@ -1256,6 +1291,25 @@ export function treeBrief(
       "- Sign in, sign up and sign out through `supabase.auth`. Session state comes from `onAuthStateChange` and an initial `getSession`, held in one provider — never read from localStorage by hand.",
       "- Signing up writes the profiles row for the new user. Nothing sets `role`: it defaults, and the database refuses a change to it from anyone but an admin.",
       "- A protected page renders nothing until the session has actually loaded. Rendering the signed-out view first and correcting it is a flash of the wrong page on every load.",
+    );
+  }
+
+  if (memberArea) {
+    rules.push(
+      /* ── WHAT MAKES A SIGNED-IN AREA FEEL FINISHED ─────────────────────
+       *
+       * Each of these is a thing customers have reported missing, not a
+       * preference: a dashboard that was a heading and a paragraph, a sign-up
+       * that left somebody on the login form wondering if it worked, a
+       * section in the sidebar that went nowhere, a sign-out that did not. */
+      "- THE DASHBOARD IS THE PRODUCT, BUILT IN FULL IN THIS BUILD. Every page listed under app/dashboard reads and writes the signed-in person's real rows and does its whole job. Never a heading and a sentence, never \"coming soon\", never \"will be built in a later stage\" — a section that is not built is not listed, and every listed section is built.",
+      "- Every dashboard query is scoped to the signed-in person (`.eq(\"user_id\", session.user.id)` or the table's owner column), and row-level security enforces the same thing on the database side. A person never sees another person's rows.",
+      "- Actions write: removing a saved item, cancelling a booking, saving the profile, changing the password. Each shows a busy state while it runs, updates the list in place when it lands, confirms quietly (an inline message or a toast), and says what went wrong in words when it fails. Destructive ones ask first, by name.",
+      "- Designed for a brand-new account, because that is who sees it first: every list has an empty state that says what goes there and links to where to start (\"No saved properties yet — browse listings\"), never a blank card or a bare zero.",
+      "- Sign-up creates the profile row and, when a session comes back, goes straight to /dashboard. When the project requires email confirmation and no session comes back, it says so with the address the link was sent to — never a silent return to the sign-in form.",
+      "- The header knows who is there: signed out it shows Sign in; signed in it shows the person's avatar (their photo, or their initials on a tinted circle) opening a menu with Dashboard, the sections, and Sign out. Sign out calls `supabase.auth.signOut()`, clears what the page holds, and returns home.",
+      "- One consistent page anatomy across the dashboard: a header row with the title, a one-line description and the page's primary action; content in cards built from the design tokens; skeleton rows while loading. It should look like one product with the public site — same type, colours and radii — not a generic admin template bolted onto it.",
+      "- Mobile is a first-class layout here too: the sidebar becomes a drawer, tables become stacked cards below `md`, and every action stays reachable with a thumb.",
     );
   }
 

@@ -74,7 +74,10 @@ const LAYERS: {
   {
     key: "auth",
     title: "Accounts and sign-in",
-    outcome: "Who may sign in, and what they may reach once they have.",
+    /* The signed-in area is part of this stage, not of "Admin". Somebody's own
+       dashboard is what signing in is FOR; filing it under the owner's back
+       office gave it to the wrong audience and a later stage. */
+    outcome: "Who may sign in, and the signed-in area they land on once they have.",
     needs: (manifest) => manifest.authentication === true,
     words: /\b(sign[- ]?in|log[- ]?in|account|auth|register|password|session)\b/i,
   },
@@ -95,7 +98,10 @@ const LAYERS: {
     title: "Admin",
     outcome: "The screens the owner uses to run it.",
     needs: (manifest) => manifest.admin === true,
-    words: /\b(admin|dashboard|back[- ]?office|manage)\b/i,
+    /* Not "dashboard" on its own: that is as often the customer's own area as
+       the owner's, and architecture.ts decides manifest.admin more carefully
+       than one word can. "admin dashboard" still arrives through "admin". */
+    words: /\b(admin|back[- ]?office|manage)\b/i,
   },
   {
     key: "checkout",

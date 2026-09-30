@@ -290,6 +290,9 @@ export function accessibilityGate(html: string, dna: DesignDNA | null | undefine
  * catching without a browser. Whether pressing it does anything is a rendered
  * question and is reported by render.ts.
  */
+const UNFINISHED =
+  /\b(?:will be (?:built|built out|added|implemented|wired up|available) (?:in|at|during) (?:a|the) (?:later|future|next) (?:stage|step|phase|build|version|release)|(?:in|at) a later stage of this project|to be implemented|not (?:yet )?implemented|placeholder (?:page|screen|content|section)|under construction)\b/i;
+
 export function functionalGate(
   html: string,
   tree: FileTree,
@@ -317,6 +320,28 @@ export function functionalGate(
       severity: expectation.soft ? "warning" : "error",
       rule: expectation.rule,
       message: `Nothing in this project shows that ${expectation.what}.`,
+    });
+  }
+
+  /* ── A page that apologises for itself ───────────────────────────────
+   *
+   * "Listing management, agent assignment and inquiry review will be built out
+   * in a later stage of this project" was the whole of a customer's admin page.
+   * The route exists, so every path-based expectation above is satisfied, and
+   * nothing looked inside it. This does. Only route files, and only phrasing
+   * that can mean nothing but "this is not built" — "coming soon" is left out
+   * because a waitlist page says it truthfully. */
+  const unfinished = tree
+    .filter((file) => /^app\/(?:.+\/)?page\.tsx$/.test(file.path))
+    .filter((file) => UNFINISHED.test(file.content))
+    .map((file) => file.path);
+  if (unfinished.length > 0) {
+    issues.push({
+      gate: "functional",
+      severity: "error",
+      rule: "functional/unfinished-page",
+      message: `${unfinished.length} page${unfinished.length === 1 ? " says" : "s say"} it is not built yet: ${unfinished.slice(0, 5).join(", ")}.`,
+      where: unfinished[0],
     });
   }
 
