@@ -3008,6 +3008,8 @@ create table if not exists public.supabase_connections (
 alter table public.supabase_connections enable row level security;
 revoke all on public.supabase_connections from anon, authenticated;
 
+comment on table public.supabase_connections is 'Sealed Supabase OAuth tokens from Connect Supabase. Service role only: RLS on with no policy BY DESIGN, and all grants revoked from anon and authenticated.';
+
 drop trigger if exists supabase_connections_set_updated_at on public.supabase_connections;
 create trigger supabase_connections_set_updated_at
   before update on public.supabase_connections
