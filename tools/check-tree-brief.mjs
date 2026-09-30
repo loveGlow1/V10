@@ -354,5 +354,9 @@ has(
   "and without one, no dashboard files are listed",
 );
 
+console.log("\nText is never the same darkness as what it sits on:");
+has(/text-\[length:var\(--text-lg\)\]/.test(app), "a font size is written with length:, so Tailwind cannot read it as a colour");
+has(/text-accent-ink/.test(app) && /Never dark text on a dark fill/.test(app), "and text on a fill uses the ink made for it");
+
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

@@ -262,6 +262,12 @@ const IMPORTS_JSX = /import\s+(?:type\s+)?\{[^}]*\bJSX\b[^}]*\}\s*from\s*["']rea
 /** Every source file, not just the routable ones — this is a types problem. */
 const SOURCE_FILE = /\.(?:tsx?|jsx?)$/;
 
+/* A type-scale token inside an arbitrary text- class, which Tailwind compiles
+   as a colour. Preceded by a class boundary, so variants such as `md:` and
+   `hover:` are caught and a longer class that merely ends in "text-" is not. */
+const SIZE_AS_COLOUR = /(?<=^|[\s"'`{:!])text-\[var\(--(text-[a-z0-9-]+)\)\]/;
+const SIZE_AS_COLOUR_ALL = new RegExp(SIZE_AS_COLOUR.source, "g");
+
 /* Hooks and handlers, which only run in a client component. Matched on the
    blanked source so a hook named in a comment or a string is not a finding. */
 const HOOKS = /\b(useState|useEffect|useLayoutEffect|useReducer|useRef|useContext|useCallback|useMemo|useSyncExternalStore|useTransition|useOptimistic|useFormState)\s*\(/;
@@ -714,6 +720,33 @@ export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repa
 
     repairs.push({
       what: `${file.path} imports the JSX namespace, which React 19 no longer provides globally`,
+      file: file.path,
+    });
+  }
+
+  /* ── A font size Tailwind reads as a colour ────────────────────────────
+   *
+   * `text-[var(--text-sm)]` looks like a font size and is not one. Tailwind
+   * cannot see inside a custom property, so an arbitrary `text-[var(...)]` is
+   * always compiled as `color:`, and this one becomes `color: var(--text-sm)`
+   * — `color: 12.75px`, which is invalid, so the text inherits the page's ink.
+   * On a button that also says `text-[var(--accent-ink)]` the size rule comes
+   * later in the stylesheet and wins: dark text on a dark accent, the
+   * "SEARCH PROPERTIES" button a customer could not read. And the size was
+   * never applied either.
+   *
+   * The `length:` hint is Tailwind's own answer and there is exactly one
+   * correct fix, so it is made here rather than asked of a model. Only the
+   * size tokens are touched — `--text-*` is the type scale by construction
+   * (see design.ts), and every colour token has a different name. */
+  for (const file of tree) {
+    if (!SOURCE_FILE.test(file.path)) continue;
+    const held = byPath.get(file.path);
+    if (!held || !SIZE_AS_COLOUR.test(held.content)) continue;
+
+    held.content = held.content.replace(SIZE_AS_COLOUR_ALL, "text-[length:var(--$1)]");
+    repairs.push({
+      what: `${file.path} sets its font sizes with text-[length:…], so Tailwind stops reading them as a text colour`,
       file: file.path,
     });
   }
