@@ -94,7 +94,11 @@ const rewrite = (dir) => {
 
     writeFileSync(
       path,
-      readFileSync(path, "utf8").replace(/(["'])@\/([^"']+)\1/g, (_, quote, rest) => {
+      /* A real specifier only: no spaces, brackets or `${`. next-structure.ts
+         WRITES import lines inside a template string — `from "@/${path…}"` —
+         and matching that as a specifier rewrote the regex beside it into a
+         SyntaxError, so the module never loaded. */
+      readFileSync(path, "utf8").replace(/(["'])@\/([^"'\s$(){}]+)\1/g, (_, quote, rest) => {
         const asFile = join(out, `${rest}.js`);
         const target = existsSync(asFile) ? rest : `${rest}/index`;
         return `${quote}${prefix}${target}${quote}`;
