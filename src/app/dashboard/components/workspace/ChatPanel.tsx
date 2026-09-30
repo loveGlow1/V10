@@ -129,6 +129,7 @@ type ComposerMode = "auto" | "edit" | "new_project";
 export default function ChatPanel({
   project,
   onOpenIntegrations,
+  onConnectDatabase,
   onOpenPreview,
   previewOpen = false,
   initialPrompt,
@@ -139,6 +140,8 @@ export default function ChatPanel({
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
+  /** Opens the Database panel, for a reply that asks to link one. */
+  onConnectDatabase?: () => void;
   /** Raises the preview sheet over the conversation. Phones only — see Workspace. */
   onOpenPreview: () => void;
   /** Whether that sheet is currently up, so the pill can stand down while it is. */
@@ -1073,7 +1076,12 @@ export default function ChatPanel({
           {
             from: "system",
             text: reply.error ?? "I couldn't send that one. Your message is still in the box — try it again.",
-            tone: "error",
+            /* Asking them to link a database is a next step, not a failure. */
+            tone: reply.needsDatabase ? "normal" : "error",
+            links: (reply.messageLinks ?? []).flatMap((link: { label: string; href: string }) => {
+              const href = safeHttpUrl(link.href);
+              return href ? [{ label: link.label, href }] : [];
+            }),
           },
           /* The steps it did get through are worth keeping: they say how far it
              got before it stopped. Read off the run rather than off the reply,
@@ -1532,6 +1540,7 @@ export default function ChatPanel({
             supersededAt={lastRunAt}
             onOpenPreview={onOpenPreview}
             onPublish={onPublish}
+            onConnectDatabase={onConnectDatabase}
           />
         ))}
 

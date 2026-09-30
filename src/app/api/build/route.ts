@@ -108,6 +108,12 @@ import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { describeProvision, provisionChecked } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
+import {
+  CONNECT_DATABASE_LABEL,
+  connectDatabaseHref,
+  isPageDataAsk,
+  preparePageData,
+} from "@/lib/builder/backend/page-data";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
 import { ensureImageSources } from "@/lib/builder/tree-images";
@@ -1845,7 +1851,12 @@ async function handle(
           `Added ${upgrade.added.join(", ")}`,
           upgrade.provisionNote || "recorded against the project",
         );
-        await deliver(upgrade.said, { key: "capability" });
+        await deliver(upgrade.said, {
+          key: "capability",
+          links: upgrade.needsLink
+            ? [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }]
+            : undefined,
+        });
       }
 
       /* ── The same guard the page path has, on this path too ─────────────
@@ -2559,13 +2570,59 @@ async function handle(
        *
        * Said before anything is spent, with the way forward in the same
        * sentence, and the page they have is left exactly as it is. */
-      const pageUpgrade = await upgradeCapabilities(service, {
-        projectId: project.id,
-        userId: user.id,
-        current: knownArchitecture,
-        touches: plan.touches,
-        stack: (architectureRow?.stack as string | null) ?? "standalone-html",
-      });
+      /* ── Except the one thing a page CAN keep ─────────────────────────────
+       *
+       * "Connect a database", "save the waitlist", "store contact form
+       * messages": on a landing page that is a row, not an account, and the
+       * page can write it to the owner's own Supabase from the browser. So it
+       * is done rather than refused — or, with no Supabase linked yet, answered
+       * with one sentence and the button that links it. See page-data.ts. */
+      const pageStack = (architectureRow?.stack as string | null) ?? "standalone-html";
+      const pageData =
+        pageStack === "standalone-html" && isPageDataAsk(editPrompt, plan.touches)
+          ? await preparePageData(service, {
+              projectId: project.id,
+              userId: user.id,
+              current: knownArchitecture,
+              projectName: (project.name as string) ?? "",
+              stack: pageStack,
+            })
+          : null;
+
+      if (pageData && pageData.kind !== "ready") {
+        const links = pageData.kind === "needs-link" ? pageData.links : undefined;
+        const stored = await deliver(pageData.said, {
+          key: pageData.kind === "needs-link" ? "needs-database" : "page-data-failed",
+          tone: pageData.kind === "failed" ? "error" : undefined,
+          links,
+        });
+        return NextResponse.json(
+          {
+            error: pageData.said,
+            intent: "edit",
+            code: pageData.kind === "needs-link" ? "needs_database" : "page_data_failed",
+            needsDatabase: pageData.kind === "needs-link",
+            messageLinks: links,
+            stored,
+          },
+          { status: 409 },
+        );
+      }
+
+      if (pageData?.kind === "ready") {
+        steps.mark("upgrade", "Connected your database", pageData.note || "the submissions table is ready");
+        await deliver(pageData.said, { key: "capability" });
+      }
+
+      const pageUpgrade: Awaited<ReturnType<typeof upgradeCapabilities>> = pageData
+        ? { kind: "none" }
+        : await upgradeCapabilities(service, {
+            projectId: project.id,
+            userId: user.id,
+            current: knownArchitecture,
+            touches: plan.touches,
+            stack: pageStack,
+          });
 
       if (pageUpgrade.kind === "needs-rebuild") {
         const stored = await deliver(pageUpgrade.said, { key: "needs-rebuild" });
@@ -2653,6 +2710,8 @@ async function handle(
              measurements. Empty when nothing was attached, which is most
              messages. See src/lib/builder/reference.ts. */
           referenceEditBrief(files.blocks.filter((block) => block.type === "image").length),
+          /* How to reach the owner's Supabase, when this edit just connected it. */
+          pageData?.kind === "ready" ? pageData.brief : "",
           projectBlock,
           retrievedBlock,
         ]

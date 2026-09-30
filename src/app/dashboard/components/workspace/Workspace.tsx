@@ -278,6 +278,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               alone={!previewPaneOpen}
               project={project}
               onOpenIntegrations={openIntegrations}
+              onConnectDatabase={() => openManage("database")}
               onOpenPreview={() => setPreviewSheetOpen(true)}
               previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}

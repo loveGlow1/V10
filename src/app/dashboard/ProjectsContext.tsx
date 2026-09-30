@@ -77,6 +77,8 @@ export type BuildReply = {
   error?: string;
   /** Chips this reply carries, already labelled. See BuildPayload. */
   messageLinks?: { label: string; href: string }[];
+  /** The page asked to keep data and no Supabase is linked yet — its links carry the button. */
+  needsDatabase?: boolean;
   /* Whether the server has already put this reply in the stored thread. It
      writes what it answers now — see lib/thread-server.ts — so the panel
      renders it but must not write it a second time. */
@@ -115,6 +117,8 @@ type BuildPayload = {
      download request is answered with. Already labelled, because only the route
      knows what they are. */
   messageLinks?: { label: string; href: string }[];
+  /** See BuildResult.needsDatabase. */
+  needsDatabase?: boolean;
 };
 
 export type BuildOptions = {
@@ -517,6 +521,19 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       /* Returned rather than thrown. A refused edit is an ordinary answer —
          the page is untouched and the person needs to read why — and throwing
          made it indistinguishable in the chat from the app falling over. */
+      /* Not a failure: one step before the change can happen, said by the
+         route in its own words with the button that takes it. */
+      if (payload?.needsDatabase) {
+        return {
+          intent: payload.intent,
+          steps: payload.steps,
+          error: payload.error,
+          stored: payload.stored === true,
+          messageLinks: payload.messageLinks,
+          needsDatabase: true,
+        };
+      }
+
       if (status >= 400 || !payload?.build) {
         /* ── Named, rather than apologised for ──────────────────────────
          *
