@@ -82,7 +82,7 @@ export default function PreviewPanel({
   onBackToChat: () => void;
 }) {
   const router = useRouter();
-  const { rename, remove } = useProjects();
+  const { rename, remove, refresh } = useProjects();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [view, setView] = useState<"preview" | "manage">("preview");
   const [section, setSection] = useState<ManageSection>("settings");
@@ -146,12 +146,11 @@ export default function PreviewPanel({
      log that unfurls itself has taken the place of the summary again. */
   const [showLog, setShowLog] = useState(false);
 
+  /* Reset per project: the previous one's answer is not this one's. Kept
+     apart from the check below, which now runs again on every new version of
+     the SAME project — and wiping the address there would blank the pane for
+     the length of a fetch each time somebody made an edit. */
   useEffect(() => {
-    const id = project?.id;
-    if (!id) return;
-
-    let current = true;
-    /* Reset per project: the previous one's answer is not this one's. */
     setDeployed(null);
     setLiveIsCurrent(true);
     setLiveViewable(true);
@@ -160,6 +159,13 @@ export default function PreviewPanel({
     setDeployError(null);
     setDiagnosis(null);
     setShowLog(false);
+  }, [project?.id]);
+
+  useEffect(() => {
+    const id = project?.id;
+    if (!id) return;
+
+    let current = true;
 
     /* Asked again while it is still compiling.
      *
@@ -235,6 +241,12 @@ export default function PreviewPanel({
                then be gone. */
             setDeployError(body.failure);
             setDiagnosis(body.diagnosis ?? null);
+          } else {
+            /* Asked again after a new version, so an answer with no failure in
+               it clears the previous version's, rather than leaving an old
+               error over a build that deployed. */
+            setDeployError(null);
+            setDiagnosis(null);
           }
           /* Set whatever the two above decided. It is not an error state: the
              address stays, the frame stays, and nothing about the pane changes
@@ -263,7 +275,50 @@ export default function PreviewPanel({
       current = false;
       if (timer) clearTimeout(timer);
     };
-  }, [project?.id]);
+    /* ── Asked again whenever the project has a new version ──────────────
+     *
+     * This depended on the id alone, so it was asked once, when the workspace
+     * opened. For a published project that answer decides the whole pane: it
+     * frames the LIVE site while the live site is current. After an edit the
+     * newest build was saved and a redeploy started, and the pane — still
+     * holding "current, not building" from when it opened — went on framing the
+     * old live page and never noticed the redeploy finish. The preview only
+     * appeared to update before a project was published.
+     *
+     * With the build stamp here, a new version re-asks: the answer is "behind,
+     * building", so the pane shows the newest preview straight away, and the
+     * poll above follows the redeploy until the live site catches up. */
+  }, [project?.id, project?.last_build_at, project?.published_at]);
+
+  /* ── Noticing a new version, whoever made it ─────────────────────────────
+   *
+   * Everything above reacts to the project row, and the row only moved when
+   * THIS tab made the change and was still waiting when it landed. A build
+   * that finished after the chat stopped watching, a change from another tab,
+   * a stage the orchestrator completed — each was saved, and the pane kept the
+   * old version until somebody reloaded the browser.
+   *
+   * So the open project's row is re-read while the pane is on screen: every
+   * ten seconds, and at once when the tab comes back into view. One row, a
+   * handful of columns, and refresh() folds it in only when something shown
+   * has moved — so an unchanged project re-renders nothing. */
+  useEffect(() => {
+    const id = project?.id;
+    if (!id) return;
+
+    const look = () => {
+      if (document.visibilityState === "visible") void refresh(id).catch(() => undefined);
+    };
+    const every = setInterval(look, 10_000);
+    document.addEventListener("visibilitychange", look);
+    window.addEventListener("focus", look);
+
+    return () => {
+      clearInterval(every);
+      document.removeEventListener("visibilitychange", look);
+      window.removeEventListener("focus", look);
+    };
+  }, [project?.id, refresh]);
 
   const [draft, setDraft] = useState(project?.name ?? "");
   const [confirming, setConfirming] = useState(false);
@@ -914,7 +969,10 @@ export default function PreviewPanel({
            * the app needs its own origin anyway to hold a Supabase session. */}
           {publishedLive && !building && liveIsCurrent && liveViewable ? (
             <iframe
-              key={`${publishedLive}#${reloads}`}
+              /* The build stamp as well: a live frame that stays mounted
+                 across a redeploy would otherwise keep the page it loaded
+                 before the new version went up. */
+              key={`${publishedLive}#${reloads}#${project?.last_build_at ?? ""}`}
               src={publishedLive}
               title={`${project?.name ?? "App"} — live`}
               sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
