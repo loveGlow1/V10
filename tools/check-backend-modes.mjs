@@ -190,6 +190,19 @@ has(
 );
 has(/SAME project/.test(seen.problem), "and the fix is the one that is actually wrong", seen.problem);
 
+sent = [];
+stubFetch((url) => (url.endsWith("/rest/v1/") ? { status: 401 } : { status: 200, body: {} }));
+seen = await verify.verifyBackend("https://ref.supabase.co", "sb_publishable_stub");
+has(
+  seen.ok === true && seen.authorised === true,
+  "a good key the REST root will not show its OpenAPI to is still verified, by the auth server",
+  JSON.stringify(seen),
+);
+has(
+  sent.every((s) => s.headers.apikey === "sb_publishable_stub" && !("Authorization" in s.headers)),
+  "and a publishable key is sent as apikey only, never as a bearer JWT",
+);
+
 stubFetch({ status: 404 });
 seen = await verify.verifyBackend("https://example.com", KEY);
 has(seen.ok === false && /Project URL/.test(seen.problem), "a server that is not a Supabase says so");

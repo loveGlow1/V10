@@ -169,8 +169,15 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const url = `https://${ref}.supabase.co`;
   const reached = await verifyBackend(url, key.value);
   if (!reached.ok) {
+    /* The key came from Supabase itself for this very project, so the paste
+       form's "the URL and key are from different projects" cannot be the
+       reason here and would send them looking for a mistake they did not make. */
+    const problem =
+      reached.reachable && !reached.authorised && /refused the key/.test(reached.problem)
+        ? `${project.value.name} refused the public key Supabase gave us for it. If you rotated or disabled its API keys recently, re-enable the publishable (or legacy anon) key under Settings → API Keys and connect again.`
+        : reached.problem;
     return reached.reachable
-      ? NextResponse.json({ error: reached.problem }, { status: 422 })
+      ? NextResponse.json({ error: problem }, { status: 422 })
       : NextResponse.json({ pending: true, ref, message: reached.problem }, { status: 202 });
   }
 

@@ -66,6 +66,16 @@ async function ask(url: string, headers: Record<string, string>): Promise<Respon
   }
 }
 
+/* The headers a key goes in. The legacy anon key is a JWT and doubles as the
+   bearer token. A publishable key (sb_publishable_…) is not a JWT, and sending
+   it as a bearer token gets it rejected as a malformed one — it goes in
+   `apikey` only, and the gateway supplies the role itself. */
+function keyHeaders(key: string): Record<string, string> {
+  const headers: Record<string, string> = { apikey: key, Accept: "application/json" };
+  if (key.startsWith("eyJ")) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
+
 /**
  * Reaches a Supabase and reports what it found.
  *
@@ -84,11 +94,8 @@ export async function verifyBackend(
      authorised, which is why this is the endpoint rather than a table read —
      a table read would also need a table to exist and would report a perfectly
      good connection as broken because the schema is empty. */
-  const response = await ask(`${base}/rest/v1/`, {
-    apikey: anonKey,
-    Authorization: `Bearer ${anonKey}`,
-    Accept: "application/json",
-  });
+  const headers = keyHeaders(anonKey);
+  const response = await ask(`${base}/rest/v1/`, headers);
 
   if (!response) {
     return {
@@ -102,6 +109,15 @@ export async function verifyBackend(
   }
 
   if (response.status === 401 || response.status === 403) {
+    /* Not proof the key is wrong. Supabase has stopped serving the OpenAPI
+       description at the root to anon and publishable keys, so a good key
+       from the right project is refused HERE and nowhere else. Ask the auth
+       server, which the gateway guards with the same key and which answers
+       any valid one: if it lets the key in, the key is fine. */
+    const settings = await ask(`${base}/auth/v1/settings`, headers);
+    if (settings?.ok) {
+      return { ok: true, reachable: true, authorised: true, schemas: ["public"] };
+    }
     return {
       ok: false,
       reachable: true,
