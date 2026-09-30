@@ -54,6 +54,8 @@ export type Upgrade =
          first as the second would be stating an intention as a fact. */
       provisioned: boolean;
       provisionNote: string;
+      /** A database is now needed and none is linked — offer the button that links one. */
+      needsLink: boolean;
     }
   /* The upgrade cannot be an edit. See the header — a page has nowhere to put
      a session. */
@@ -131,6 +133,7 @@ export async function upgradeCapabilities(
      about not opening a connection for nothing. */
   let provisioned = false;
   let provisionNote = "";
+  let needsLink = false;
 
   if (manifest.database) {
     const backend = await resolveBackend(service, input.projectId);
@@ -151,7 +154,8 @@ export async function upgradeCapabilities(
         provisionNote = [describeProvision(synced.outcome), synced.check?.summary].filter(Boolean).join(" · ");
       }
     } else {
-      provisionNote = "no database is configured for this project yet, so its tables are pending";
+      provisionNote = "no database is connected to this project yet, so its tables are pending — connect yours and they'll be created on the next change";
+      needsLink = true;
     }
   }
 
@@ -161,6 +165,7 @@ export async function upgradeCapabilities(
     added,
     provisioned,
     provisionNote,
+    needsLink,
     said: provisioned
       ? `That means ${describeUpgrade(added)} — ${provisionNote}.`
       : `That means ${describeUpgrade(added)}${provisionNote ? ` — ${provisionNote}` : ""}.`,

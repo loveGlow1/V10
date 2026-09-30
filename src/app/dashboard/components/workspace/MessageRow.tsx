@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import { Check, Download, ExternalLink, User } from "lucide-react";
+import { Check, Database, Download, ExternalLink, User } from "lucide-react";
+
+import { isConnectDatabaseHref } from "@/lib/builder/backend/connect-link";
 
 import QMark from "../../../QMark";
 
@@ -56,6 +58,7 @@ export default function MessageRow({
   supersededAt,
   onOpenPreview,
   onPublish,
+  onConnectDatabase,
 }: {
   message: Message;
   /** When the most recent run in this visit started, for a result card that the
@@ -63,8 +66,19 @@ export default function MessageRow({
   supersededAt?: number | null;
   onOpenPreview?: () => void;
   onPublish?: () => void;
+  /** Opens the Database panel in place, for a reply that asks to link one. */
+  onConnectDatabase?: () => void;
 }) {
   const you = message.from === "you";
+
+  /* "Connect your database" is an action, not a place. It is stored as the
+     address of the Database panel so it survives a reload, and drawn here as
+     a real button that opens the panel beside the conversation — never
+     buried behind the result card, and never a new tab. */
+  const connectLink = onConnectDatabase
+    ? message.links?.find((link) => isConnectDatabaseHref(link.href))
+    : undefined;
+  const chips = message.links?.filter((link) => link !== connectLink);
 
   /* The card's buttons and these chips are two ways to the same two things, so
      only one of them is ever on offer. While the buttons are up they are the
@@ -156,9 +170,20 @@ export default function MessageRow({
        * Below `md` nothing hides at all: there is no pane on screen — chat and
        * preview are one at a time behind a toggle — so every chip here is the
        * only route from the thread to the page. */}
-      {message.links && !actionsLive && (
+      {connectLink && (
+        <button
+          type="button"
+          onClick={onConnectDatabase}
+          className="mt-2.5 inline-flex h-8 items-center gap-2 rounded-lg bg-accent px-3 text-[13px] font-semibold text-black transition-opacity hover:opacity-90"
+        >
+          <Database className="h-3.5 w-3.5" />
+          {connectLink.label}
+        </button>
+      )}
+
+      {chips && chips.length > 0 && !actionsLive && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {message.links.map((link) => {
+          {chips.map((link) => {
             /* A chip that saves a file rather than opening a place.
                Both the arrow and the new tab would be wrong for it: the route
                answers with a Content-Disposition, so the browser saves it and
