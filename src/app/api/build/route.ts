@@ -101,6 +101,7 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { offered as managedOffered } from "@/lib/builder/backend/managed";
 import { MODE_BLURB, MODE_LABEL } from "@/lib/builder/backend/modes";
 import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
@@ -1587,10 +1588,16 @@ async function handle(
         ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
         : "";
 
+    /* Managed only where it is switched on — see managed.ts `offered`. */
+    const managedLine = managedOffered()
+      ? `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n`
+      : "";
     const said =
-      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace and pick one:\n\n` +
-      `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n` +
-      `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Paste your project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n` +
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace${
+        managedLine ? " and pick one" : ""
+      }:\n\n` +
+      managedLine +
+      `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Create a free project at supabase.com, then paste its project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n` +
       `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
 
     const stored = await deliver(said, { key: "connect-backend" });
@@ -3484,7 +3491,13 @@ async function handle(
    * Same guard, same shape and same UX as the two questions above it. The only
    * difference is what it decides, and it decides the most expensive thing
    * here: whether this project has a back half at all. */
-  const chosenArchitecture = isArchitectureChoice(body.architecture) ? body.architecture : null;
+  /* Managed is only an answer while it is offered. A chip from before it was
+     switched off — or "full", its old name — is the same app on the customer's
+     own database, which is the database that is being offered instead. */
+  const canOfferManaged = managedOffered();
+  const answered = isArchitectureChoice(body.architecture) ? body.architecture : null;
+  const chosenArchitecture =
+    answered && !canOfferManaged && databaseChoice(answered) === "managed" ? "own" : answered;
   const decided = decideArchitecture(brief.text, kind.kind, needs);
   const architecture = chosenArchitecture
     ? architectureFromChoice(chosenArchitecture, kind.kind, decided)
@@ -3599,7 +3612,7 @@ async function handle(
   const backendUndecided = wouldUseData && (!decidedBackend || decidedBackend.mode === "shared");
 
   if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE) {
-    const asked = architectureQuestion(kind.kind, architecture.manifest);
+    const asked = architectureQuestion(kind.kind, architecture.manifest, canOfferManaged);
     const stored = await deliver(asked, { key: "which-architecture" });
 
     await parkForAnswer("whether it has a back half");
@@ -3609,7 +3622,7 @@ async function handle(
       steps: steps.list(),
       intent: "new_project",
       needsArchitecture: true,
-      architectureOptions: architectureOptions(kind.kind),
+      architectureOptions: architectureOptions(kind.kind, canOfferManaged),
       /* Both sent back, so the answer lands on the same reading of the brief
          that produced the question rather than on a fresh classification. */
       buildKind: kind.kind,

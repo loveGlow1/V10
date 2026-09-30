@@ -90,6 +90,20 @@ export function configured(): boolean {
   return credentials() !== null;
 }
 
+/* Whether customers are OFFERED one — a separate question from whether we can.
+ *
+ * Every managed database is a Supabase project in our organisation, billed to
+ * us every month for as long as it exists, and it was sold for one credit
+ * once. Until it is priced as the recurring cost it is, it stays off and
+ * "Connect your own" is the database a customer gets offered. Having the token
+ * set is not consent to that bill; MANAGED_DATABASES_ENABLED=true is.
+ *
+ * A project that already has a managed database keeps it — this only stops
+ * new ones being offered or created. */
+export function offered(): boolean {
+  return process.env.MANAGED_DATABASES_ENABLED === "true" && configured();
+}
+
 /**
  * Why it cannot, for an operator reading /api/health.
  *

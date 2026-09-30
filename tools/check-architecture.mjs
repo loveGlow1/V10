@@ -889,19 +889,29 @@ try {
 console.log("\nThe architecture question:");
 
 const chips = architectureOptions("ecommerce");
+const chipsWithManaged = architectureOptions("ecommerce", true);
 
-if (chips.length === 3) {
-  pass("three answers are offered");
+/* Managed databases are off by default — each one is a Supabase project billed
+   to the platform monthly — so the customer is offered the front of it or
+   their own database, and the managed chip appears only when switched on. */
+if (chips.length === 2 && !chips.some((chip) => chip.value === "managed")) {
+  pass("with managed databases off, two answers are offered and neither is ours");
 } else {
-  fail("three answers are offered", `${chips.length} — never force somebody onto our infrastructure to get an app`);
+  fail("with managed databases off, two answers are offered and neither is ours", chips.map((chip) => chip.value).join(", "));
 }
 
-if (chips.every((chip) => isArchitectureChoice(chip.value))) {
+if (chipsWithManaged.length === 3 && chipsWithManaged.some((chip) => chip.value === "managed")) {
+  pass("switched on, the managed database is offered as a third");
+} else {
+  fail("switched on, the managed database is offered as a third", chipsWithManaged.map((chip) => chip.value).join(", "));
+}
+
+if (chipsWithManaged.every((chip) => isArchitectureChoice(chip.value))) {
   pass("and every chip offered is one the parser accepts");
 } else {
   fail(
     "and every chip offered is one the parser accepts",
-    chips.filter((chip) => !isArchitectureChoice(chip.value)).map((chip) => chip.value).join(", "),
+    chipsWithManaged.filter((chip) => !isArchitectureChoice(chip.value)).map((chip) => chip.value).join(", "),
   );
 }
 
@@ -947,10 +957,20 @@ if (asOwn.certain && asFrontend.certain) {
 }
 
 const asked = architectureQuestion("ecommerce", decidedStore.manifest);
-if (chips.every((chip) => asked.toLowerCase().includes(chip.label.toLowerCase()))) {
+const askedWithManaged = architectureQuestion("ecommerce", decidedStore.manifest, true);
+if (
+  chips.every((chip) => asked.toLowerCase().includes(chip.label.toLowerCase())) &&
+  chipsWithManaged.every((chip) => askedWithManaged.toLowerCase().includes(chip.label.toLowerCase()))
+) {
   pass("the question names every option it offers");
 } else {
-  fail("the question names every option it offers", asked);
+  fail("the question names every option it offers", `${asked}\n---\n${askedWithManaged}`);
+}
+
+if (!/credit|managed/i.test(asked)) {
+  pass("and with managed off, it does not mention a managed database or a credit");
+} else {
+  fail("and with managed off, it does not mention a managed database or a credit", asked);
 }
 
 console.log("All good.\n");
