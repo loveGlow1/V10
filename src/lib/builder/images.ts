@@ -93,6 +93,16 @@ export type ImageProvider = {
     context?: string,
     choice?: ChoiceOptions,
   ): Promise<Shot | null>;
+  /* The same choice as shotFor, as an ADDRESS rather than bytes. For a
+     project's code, which links remote photographs rather than inlining
+     them (see tree-images.ts). Optional: a provider without it simply
+     cannot upgrade a placeholder in a project. */
+  locate?(
+    slot: ImageSlot,
+    width: number,
+    context?: string,
+    choice?: ChoiceOptions,
+  ): Promise<{ id: PhotoId; url: string; credit?: Shot["credit"] } | null>;
 };
 
 /* How wide a picture is asked for, by where it sits.

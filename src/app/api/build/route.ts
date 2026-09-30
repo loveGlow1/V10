@@ -116,7 +116,15 @@ import {
 } from "@/lib/builder/backend/page-data";
 import { retuneBuild, treeBrief } from "@/lib/builder/scaffold";
 import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-structure";
-import { ensureImageSources } from "@/lib/builder/tree-images";
+import {
+  asksForImages,
+  ensureImageSources,
+  hasPlaceholders,
+  upgradePlaceholders,
+} from "@/lib/builder/tree-images";
+import { providerFromEnv } from "@/lib/builder/image-providers";
+import { searchContext } from "@/lib/builder/images";
+import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { isSinglePage } from "@/lib/builder/tree";
@@ -1897,7 +1905,12 @@ async function handle(
           ? { ...target, content: stashedSource.lean }
           : target;
 
-      let source;
+      let source: Awaited<ReturnType<typeof editSource>>;
+      /* A request about the pictures, on a project that still shows
+         placeholders: the photographs are fetched below whatever the model
+         manages, so a model that finds nothing to change in the markup is not
+         a failed request. */
+      const imageAsk = asksForImages(prompt) && hasPlaceholders(project_.tree) && providerFromEnv() !== null;
       try {
         steps.begin("edit", "Making the change", `reading ${picked.path}…`);
         source = await editSource(
@@ -1920,7 +1933,20 @@ async function handle(
           `${source.model}, ${source.outputTokens} output tokens${source.retried ? ", retried once" : ""}`,
         );
       } catch (error) {
-        if (error instanceof EditError) {
+        if (error instanceof EditError && imageAsk) {
+          source = {
+            path: picked.path,
+            why: picked.why,
+            contents: leanTarget.content,
+            applied: 0,
+            failures: [],
+            note: null,
+            outputTokens: 0,
+            model: editModel,
+            retried: false,
+          };
+          steps.mark("edit", "Left the markup as it was", "the pictures are filled in next");
+        } else if (error instanceof EditError) {
           const stored = await deliver(error.message, { tone: "error", key: "edit-failed" });
           return NextResponse.json(
             { error: error.message, intent: "edit", code: "edit_failed", stored },
@@ -1987,6 +2013,36 @@ async function handle(
       const editedPhotos = service ? await projectPhotoUrls(service, project.id) : [];
       const imageSweep = ensureImageSources(repaired, editedPhotos);
 
+      /* ── And placeholders become photographs ──────────────────────────
+       *
+       * ensureImageSources can only reuse photographs this project already
+       * has; a project whose first build found none keeps grey panels through
+       * every edit, which is how "add images under the featured properties"
+       * came back Done with nothing to look at. So the placeholders the tree
+       * still carries — old ones and any this edit just added — are given a
+       * photograph for their own art direction. Bounded, because this path has
+       * a deadline; whatever is not found in time keeps its panel. */
+      const photoUpgrade = await upgradePlaceholders(imageSweep.tree, providerFromEnv(), {
+        context: searchContext(`${project.name ?? ""} ${prompt}`),
+        seed: project.id,
+        exclude: service ? await previouslyUsedPhotos(service, project.id) : [],
+        timeoutMs: 12_000,
+      });
+      if (photoUpgrade.upgraded > 0 || photoUpgrade.left > 0) {
+        steps.mark(
+          "images",
+          photoUpgrade.upgraded > 0 ? `Added ${photoUpgrade.upgraded} photos` : "No photos found in time",
+          photoUpgrade.left > 0 ? `${photoUpgrade.left} still showing a placeholder` : "every placeholder replaced",
+        );
+      }
+
+      if (source.applied === 0 && photoUpgrade.upgraded === 0) {
+        const said =
+          "I couldn't find photos for those spots just now, so nothing was changed. Try again in a minute — the picture search may be busy.";
+        const stored = await deliver(said, { tone: "error", key: "edit-failed" });
+        return NextResponse.json({ error: said, intent: "edit", code: "edit_failed", stored }, { status: 502 });
+      }
+
       if (imageSweep.repaired > 0) {
         // eslint-disable-next-line no-console
         console.error(
@@ -2014,7 +2070,7 @@ async function handle(
       const manifestNow =
         upgrade.kind === "raised" ? upgrade.manifest : knownArchitecture ?? UNKNOWN_ARCHITECTURE;
       const retuned = retuneBuild(
-        imageSweep.tree,
+        photoUpgrade.tree,
         (project.name as string | null) ?? "app",
         manifestNow,
         dataModelFor(manifestNow, schemaNameFor(project.id)),
@@ -2268,7 +2324,12 @@ async function handle(
       }
 
       const said = [
-        `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`,
+        source.applied > 0
+          ? `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`
+          : "Done.",
+        photoUpgrade.upgraded > 0
+          ? `Added ${photoUpgrade.upgraded} ${photoUpgrade.upgraded === 1 ? "photo" : "photos"} where the page was showing placeholders.`
+          : null,
         source.failures.length > 0
           ? `${source.failures.length} part of that could not be matched in the file.`
           : null,

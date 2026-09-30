@@ -7,7 +7,7 @@ import { noCommerce, withDependencies } from "@/lib/builder/commerce";
 import { verifyBuildClaim } from "@/lib/build-signature";
 import { chargeCredits } from "@/lib/credits-server";
 import { fillImages, searchContext } from "@/lib/builder/images";
-import { ensureImageSources, fillTreeImages } from "@/lib/builder/tree-images";
+import { ensureImageSources, fillTreeImages, upgradePlaceholders } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
@@ -501,6 +501,22 @@ export async function POST(request: Request) {
       await projectPhotoUrls(supabase, project.id as string),
     );
     tree = sweep.tree;
+
+    /* And a placeholder is not the end of it. A component's lookup filled with
+       panels because this project had no photographs yet is upgraded here, by
+       asking the provider for each card's own art direction — otherwise a
+       catalogue ships grey, and stays grey. See upgradePlaceholders. */
+    const upgraded = await upgradePlaceholders(tree, providerFromEnv(), {
+      context: searchContext(str(body.prompt)),
+      seed: project.id as string,
+      exclude: await previouslyUsedPhotos(supabase, project.id as string),
+      timeoutMs: 15_000,
+    });
+    tree = upgraded.tree;
+    if (upgraded.upgraded > 0 || upgraded.left > 0) {
+      // eslint-disable-next-line no-console
+      console.info(`save: ${upgraded.upgraded} placeholder(s) given a photograph, ${upgraded.left} left`);
+    }
 
     if (sweep.repaired > 0) {
       /* Loud, because a repair here means the generator was told something it

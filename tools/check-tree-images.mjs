@@ -63,7 +63,15 @@ mkdirSync(shim, { recursive: true });
 try { symlinkSync(out, join(shim, "@"), "dir"); } catch {}
 
 const require = createRequire(import.meta.url);
-const { fillTreeImages, declaresPhotographs, TREE_IMAGE_BUDGET_BYTES } = require(
+const {
+  fillTreeImages,
+  declaresPhotographs,
+  TREE_IMAGE_BUDGET_BYTES,
+  ensureImageSources,
+  upgradePlaceholders,
+  hasPlaceholders,
+  asksForImages,
+} = require(
   join(out, "lib/builder/tree-images.js"),
 );
 
@@ -192,6 +200,79 @@ has(
   !declaresPhotographs([file("lib/x.ts", 'const s = "data-shot";')]),
   "and a non-markup file mentioning the attribute does not count",
 );
+
+/* ── Placeholders are not final (the Aurelia Estates build) ─────────────── */
+
+{
+  /* A provider that can point at photographs, one per query. */
+  const located = [];
+  const locator = {
+    async shotFor() { return null; },
+    async locate(slotArg) {
+      located.push(slotArg.shot);
+      return { id: `loc:${located.length}`, url: `https://images.example.com/${located.length}.jpg` };
+    },
+  };
+
+  /* What the estate project was: a data file of shots, a component and a page
+     that look themselves up — and no photographs at all when it was built. */
+  const estate = [
+    file(
+      "lib/images.ts",
+      `export const HERO = { src: "", alt: "Cliffside villa at dusk", shot: "cliffside villa at dusk" };\n` +
+        `export const PROPERTIES = [\n  { id: "p1", shot: "hillside villa with pool", alt: "Villa" },\n  { id: "p2", shot: "penthouse over the skyline", alt: "Penthouse" },\n];`,
+    ),
+    file(
+      "components/PropertyCard.tsx",
+      `import { PROPERTIES } from "@/lib/images";\nexport default function Card({ property }) { return <img data-shot={property.shot} alt={property.alt} />; }`,
+    ),
+    file(
+      "app/page.tsx",
+      `import { HERO } from "@/lib/images";\nexport default function Home() { return <section><img data-shot={HERO.shot} alt={HERO.alt} /><img data-shot="agent portrait, studio light" alt="Agent" /></section>; }`,
+    ),
+  ];
+
+  const swept = ensureImageSources(estate, []);
+  has(hasPlaceholders(swept.tree), "with no photographs, the sweep leaves placeholders — the reported bug");
+
+  const up = await upgradePlaceholders(swept.tree, locator, { seed: "p" });
+  const card = at(up.tree, "components/PropertyCard.tsx");
+  const page = at(up.tree, "app/page.tsx");
+  has(up.upgraded > 0, "placeholders are upgraded to photographs", `upgraded=${up.upgraded}`);
+  has(!hasPlaceholders(up.tree), "and none are left", [card, page].join("\n---\n").slice(0, 600));
+  has(card.includes('"hillside villa with pool": "https://images.example.com/'), "each card's shot maps to its own photograph");
+  has(page.includes('src="https://images.example.com/'), "a literal slot gets its own photograph too");
+  has(new Set(located).size === located.length, "no art direction is searched for twice");
+
+  const again = await upgradePlaceholders(up.tree, locator, { seed: "p" });
+  has(again.upgraded === 0 && again.tree === up.tree, "a project with photographs is left exactly as it is");
+
+  /* An edit adds a card whose shot is not in the map yet. */
+  const edited = up.tree.map((f) =>
+    f.path === "lib/images.ts"
+      ? { ...f, content: f.content.replace("];", `  { id: "p3", shot: "desert modernist compound", alt: "Desert" },\n];`) }
+      : f,
+  );
+  const withFallback = ensureImageSources(edited, []).tree;
+  const later = await upgradePlaceholders(
+    withFallback.map((f) =>
+      f.path === "components/PropertyCard.tsx" ? { ...f, content: f.content.replace(/\?\? "https[^"]+"/, '?? "' + at(swept.tree, "components/PropertyCard.tsx").match(/\?\? "(data:[^"]+)"/)[1] + '"') } : f,
+    ),
+    locator,
+    { seed: "p" },
+  );
+  has(
+    at(later.tree, "components/PropertyCard.tsx").includes('"desert modernist compound": "https://'),
+    "a card an edit added later gets a photograph of its own",
+  );
+
+  const noProvider = await upgradePlaceholders(swept.tree, null);
+  has(noProvider.tree === swept.tree && noProvider.upgraded === 0, "with no provider, nothing changes and nothing throws");
+}
+
+has(asksForImages("add images under the featured properties section"), "\"add images under…\" is a request about pictures");
+has(asksForImages("the photos are missing on the homepage"), "\"the photos are missing\" is too");
+has(!asksForImages("change the heading above the gallery"), "a request that doesn't mention pictures is not");
 
 console.log(failed === 0 ? "\nAll tree image checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
