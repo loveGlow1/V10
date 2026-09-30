@@ -650,5 +650,31 @@ has(
   has(!/export\s+const\s+Badge/.test(at(after, "app/admin/page.tsx")), "and is gone from the page");
 }
 
+/* ── A font size Tailwind reads as a colour ──────────────────────────────
+ *
+ * The "SEARCH PROPERTIES" button: `bg-[var(--accent)] text-[var(--accent-ink)]
+ * text-[var(--text-sm)]`. Tailwind compiles the last one as `color:
+ * var(--text-sm)`, which is invalid, so the label inherited the page's dark
+ * ink — dark text on a dark button. */
+{
+  const button = file(
+    "app/page.tsx",
+    'export default function Home() {\n  return <a className="bg-[var(--accent)] text-[var(--accent-ink)] text-[var(--text-sm)] md:text-[var(--text-lg)] hover:text-[var(--text-xl)]">Search</a>;\n}\n',
+  );
+  const { tree: fixed, repairs } = repairStructure([SHELL, button]);
+  const out = at(fixed, "app/page.tsx");
+
+  has(!/text-\[var\(--text-/.test(out), "no type-scale token is left where Tailwind reads it as a colour", out);
+  has(
+    out.includes("text-[length:var(--text-sm)]") && out.includes("md:text-[length:var(--text-lg)]") && out.includes("hover:text-[length:var(--text-xl)]"),
+    "every one becomes a font size, variants included",
+  );
+  has(out.includes("text-[var(--accent-ink)]"), "and the real colour is left exactly as it was");
+  has(repairs.some((repair) => repair.file === "app/page.tsx"), "and the repair is reported");
+
+  const clean = repairStructure(sound);
+  has(clean.tree === sound, "a project without the mistake is returned untouched");
+}
+
 console.log(failed === 0 ? "\nAll Next.js structure checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

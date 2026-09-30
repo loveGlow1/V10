@@ -1099,6 +1099,13 @@ export function treeBrief(
       ? '- THIS PROJECT HAS A SERVER, because something in it needs one. Route handlers under `app/api/*/route.ts`, server actions marked "use server", and a root `middleware.ts` all run, and a server component may read a secret. Use the server for what needs it and nothing else: a page that only reads public data still reads it in the browser, because that page is faster and cannot leak anything.'
       : "- STATIC EXPORT. There is no server. No route handlers, no middleware, no server actions, no `fetch` in a server component against your own API. A page that needs data reads it in the browser.",
     "- Import across the project with `@/` — `@/components/Nav`, not a relative climb.",
+    /* Tailwind cannot see inside a custom property, so it guesses from the
+       prefix, and for `text-` it always guesses colour. `text-[var(--text-sm)]`
+       compiled to `color: 12.75px` and turned a button's light label the
+       page's dark ink — dark text on a dark accent. next-structure.ts repairs
+       it either way; this is so it stops being written. */
+    "- FONT SIZES AND COLOURS ARE DIFFERENT CLASSES. A size token is `text-[length:var(--text-lg)]` — the `length:` is required, because Tailwind compiles a bare `text-[var(--text-lg)]` as a COLOUR and it overrides the real one, leaving dark text on a dark button. Colours use the named classes: `text-ink`, `text-muted`, `bg-surface`, `bg-accent text-accent-ink`, `border-line`.",
+    "- Text on a filled button, badge or panel uses the ink made for that fill — `text-accent-ink` on `bg-accent` — and text over a photograph sits on a scrim dark or light enough to read it. Never dark text on a dark fill, or light on light.",
     /* ── Mobile first, and not as a preference ──────────────────────────
      *
      * More than half of what is built here is opened on a phone first, and the
