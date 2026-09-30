@@ -26,6 +26,7 @@ import { raiseArchitecture, type ArchitectureManifest, type Layer } from "@/lib/
 import { resolveBackend } from "@/lib/builder/backend/connection";
 import { describeProvision, provisionChecked } from "@/lib/builder/backend/provision";
 import { spokenFor } from "@/lib/builder/edit-plan";
+import { installFormNotifications, isEmailConfigured } from "@/lib/builder/backend/form-notify";
 import type { DataModel } from "@/lib/builder/schema";
 import { CONNECT_DATABASE_LABEL, connectDatabaseHref, isConnectDatabaseHref } from "./connect-link";
 
@@ -124,6 +125,7 @@ export function pageDataBrief(input: { url: string; anonKey: string; schema: str
     `- On submit: preventDefault, then await db.from(${JSON.stringify(PAGE_TABLE)}).insert({ form, email, name, message, data }).`,
     "  form: a short name for which form this is (\"waitlist\", \"contact\", \"rsvp\"). email, name, message: strings or null.",
     "  data: an object holding every other field the form asks for. Only these five keys exist.",
+    "  A \"what's it about\" / subject choice goes in data.topic — the owner's notification email uses it as the subject.",
     "- Never chain .select() after the insert, and never read the table: visitors may add rows but not read them, so a read fails by design.",
     "- While sending, disable the button and show that it is sending. On success, replace the form with a short thank-you. On error, keep what they typed and show a one-line message to try again.",
     "- Use required and type=\"email\" on inputs so bad input is caught before it is sent.",
@@ -206,10 +208,36 @@ export async function preparePageData(
 
   const schema = synced.connection.schema;
   const where = schema === "public" ? PAGE_TABLE : `${schema}.${PAGE_TABLE}`;
+
+  /* The email to the owner when a message lands. Not fatal: a page whose
+     notifications could not be set up still saves every message. */
+  const notify = await installFormNotifications(service, {
+    projectId: input.projectId,
+    userId: input.userId,
+    connection: synced.connection,
+    schema,
+    table: PAGE_TABLE,
+  });
+  const emailed = notify.ok && isEmailConfigured();
+  if (!notify.ok) {
+    // eslint-disable-next-line no-console
+    console.error(`page-data: notifications for ${input.projectId} were not set up: ${notify.reason}`);
+  }
+
   return {
     kind: "ready",
     brief: pageDataBrief({ url: backend.url, anonKey: backend.anonKey, schema }),
-    said: `Connected to your Supabase — what people send will land in the \`${where}\` table (Table Editor in your Supabase dashboard).`,
-    note: [describeProvision(synced.outcome), synced.check?.summary].filter(Boolean).join(" · "),
+    said:
+      `Connected to your Supabase — what people send will land in the \`${where}\` table (Table Editor in your Supabase dashboard).` +
+      (emailed
+        ? " You'll also get an email for each new message, sent to your account email — change it or turn it off in the Database panel."
+        : ""),
+    note: [
+      describeProvision(synced.outcome),
+      synced.check?.summary,
+      notify.ok ? "email notifications on" : `email notifications not set up (${notify.reason})`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
   };
 }

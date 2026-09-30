@@ -25,6 +25,7 @@ writeFileSync(
       join(root, "src/lib/builder/schema.ts"),
       join(root, "src/lib/builder/edit-plan.ts"),
       join(root, "src/lib/builder/backend/inspect.ts"),
+      join(root, "src/lib/builder/backend/form-notify.ts"),
     ],
   }),
 );
@@ -62,6 +63,7 @@ const page = await import(join(out, "lib/builder/backend/page-data.js"));
 const schema = await import(join(out, "lib/builder/schema.js"));
 const plan = await import(join(out, "lib/builder/edit-plan.js"));
 const inspect = await import(join(out, "lib/builder/backend/inspect.js"));
+const notify = await import(join(out, "lib/builder/backend/form-notify.js"));
 
 let failed = 0;
 let passed = 0;
@@ -192,6 +194,56 @@ has(
   /usage, limits and billing/i.test(read("src/app/dashboard/components/workspace/ConnectSupabase.tsx")),
   "the connect panel says Supabase usage, limits and billing stay with their account",
 );
+
+console.log("\nThe owner's email:");
+const PROJECT = "123e4567-e89b-12d3-a456-426614174000";
+const secret = notify.newSecret();
+const trigger = notify.notifySql({ schema: "public", table: "submissions", projectId: PROJECT, secret });
+has(/security definer/.test(trigger) && /set search_path/.test(trigger), "the trigger function is definer with a pinned search_path");
+has(/exception when others then[\s\S]*return new;/.test(trigger), "and an error in it can never cost the message");
+has(/after insert on public\.submissions/.test(trigger), "it fires only after a row really lands");
+has(/revoke all on function .* from public, anon, authenticated;/.test(trigger), "and nobody can call it directly");
+has(schema.destructiveStatements(trigger).length === 0 && !/\bdrop\b/i.test(trigger), "and installing it drops nothing");
+has(trigger.includes("https://") && trigger.includes("/api/forms/notify"), "it knocks on QuickStark's notify endpoint");
+let refused = false;
+try { notify.notifySql({ schema: "public; drop table x", table: "submissions", projectId: PROJECT, secret }); } catch { refused = true; }
+has(refused, "an unsafe schema name is refused rather than written into SQL");
+
+has(notify.secretMatches(secret, notify.hashSecret(secret)), "the right secret is accepted");
+has(!notify.secretMatches(notify.newSecret(), notify.hashSecret(secret)), "any other is not");
+has(!notify.secretMatches(secret, null), "and nothing matches a project with no secret");
+
+const mail = notify.composeNotification({
+  projectName: "Reyes Tailoring",
+  record: { form: "contact", name: "Marcus Reyes", email: "marcus@example.com", message: "I'm at 80212 — do you run that far west?", data: { topic: "A garment or an existing order" } },
+  dashboardUrl: "https://supabase.com/dashboard/project/abc/editor",
+});
+has(mail.subject.includes("Marcus Reyes") && mail.subject.includes("A garment or an existing order"), "the subject names who and what", mail.subject);
+has(mail.replyTo === "marcus@example.com", "and Reply answers the person who wrote");
+has(mail.text.includes("80212") && mail.text.includes("supabase.com/dashboard"), "the body has the message and where it is saved");
+const anonymous = notify.composeNotification({ projectName: "x", record: { email: "not an email <script>" }, dashboardUrl: null });
+has(anonymous.replyTo === null, "a malformed email is never used as reply-to");
+
+const now = new Date("2026-10-01T12:00:00Z");
+let window = { window_start: null, window_count: 0 };
+let sent = 0;
+let lastFlag = false;
+for (let i = 0; i < notify.HOURLY_LIMIT + 10; i += 1) {
+  const next = notify.nextWindow(window, now);
+  if (next.send) sent += 1;
+  if (next.last) lastFlag = true;
+  window = next;
+}
+has(sent === notify.HOURLY_LIMIT, `at most ${notify.HOURLY_LIMIT} emails an hour, however many messages`, `sent ${sent}`);
+has(lastFlag, "and the one that fills the hour says emails are paused");
+has(notify.nextWindow(window, new Date(now.getTime() + 61 * 60 * 1000)).send, "and they resume when the hour is up");
+
+const notifyRoute = read("src/app/api/forms/notify/route.ts");
+has(
+  notifyRoute.indexOf("secretMatches") > -1 && notifyRoute.indexOf("secretMatches") < notifyRoute.indexOf("sendEmail("),
+  "the endpoint checks the secret before it sends anything",
+);
+has(!/\.insert\(/.test(notifyRoute), "and stores no message — it stays in their Supabase");
 
 console.log(failed ? `\n${failed} failed, ${passed} passed.` : `\nAll ${passed} passed.`);
 process.exit(failed ? 1 : 0);
