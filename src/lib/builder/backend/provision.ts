@@ -35,7 +35,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { BackendConnection } from "@/lib/builder/backend/connection";
-import { type DataModel, destructiveStatements, toSql } from "@/lib/builder/schema";
+import {
+  checkSchema,
+  connectionStringFor,
+  managementRunnerFor,
+  prepareSchema,
+  runnerFor,
+  type CheckReport,
+  type Prepared,
+  type SqlRunner,
+} from "@/lib/builder/backend/schema-sync";
+import { type Column, type DataModel, destructiveStatements, toSql } from "@/lib/builder/schema";
 
 export type ProvisionOutcome =
   /* `recorded` is whether project_backends remembers this run, and it is
@@ -55,36 +65,6 @@ export type ProvisionOutcome =
      what is missing rather than leaving somebody to discover it through a
      runtime error in their own app. */
   | { ok: false; applied: false; reason: string };
-
-/**
- * The connection string for this project's database, or null.
- *
- * Null is an ordinary answer rather than an error. A deployment that has not
- * set SUPABASE_DB_URL cannot create schemas, and the honest response to that is
- * a build that says its tables are pending — not a crash, and certainly not a
- * generated app that pretends the tables are there.
- */
-async function connectionStringFor(
-  service: SupabaseClient,
-  connection: BackendConnection,
-  projectId: string,
-): Promise<string | null> {
-  if (connection.kind === "shared") {
-    return process.env.SUPABASE_DB_URL ?? null;
-  }
-
-  /* Read with the service client, which is the only reader there is: the column
-     is revoked from anon and authenticated, so the owner's own browser cannot
-     read back what it wrote. */
-  const { data } = await service
-    .from("project_backends")
-    .select("db_url")
-    .eq("project_id", projectId)
-    .maybeSingle<{ db_url: string | null }>();
-
-  return data?.db_url ?? null;
-}
-
 
 /* ── Turning the driver's words into something actionable ──────────────────
  *
@@ -210,6 +190,14 @@ export async function provision(
      from the caller's own session, which is also what proved the project was
      theirs to build. */
   userId: string,
+  options: {
+    /* How to reach the database. Where it is omitted, a Management API runner
+       is used if the project has one (a Supabase connected by sign-in, or a
+       managed project), else a Postgres connection. */
+    runner?: SqlRunner | null;
+    /** Columns to add to tables of ours that are missing them — see inspect.ts. */
+    extend?: Record<string, Column[]>;
+  } = {},
 ): Promise<ProvisionOutcome> {
   if (model.tables.length === 0) {
     return { ok: true, applied: false, reason: "no-database" };
@@ -217,7 +205,7 @@ export async function provision(
 
   let sql: string;
   try {
-    sql = toSql(model);
+    sql = toSql(model, { extend: options.extend });
   } catch (error) {
     /* toSql refuses a table with row-level security on and no policy behind it.
        That is a bug in this repository rather than a runtime condition, and it
@@ -250,6 +238,49 @@ export async function provision(
     console.error(`provision: ${projectId} — ${reason}`, destructive);
     await recordFailure(service, projectId, userId, connection, reason);
     return { ok: false, applied: false, reason };
+  }
+
+  /* ── Through Supabase's API, where there is one ─────────────────────────
+   *
+   * A Supabase connected by sign-in, or a managed project: no connection
+   * string, no database password, no IPv6 endpoint to trip over. The SQL is
+   * wrapped in its own transaction, so a statement that fails leaves the
+   * schema as it was — the same guarantee the Postgres path gives below. */
+  const api =
+    options.runner?.via === "management-api"
+      ? options.runner
+      : options.runner === undefined
+        ? await managementRunnerFor(service, connection, projectId)
+        : null;
+
+  if (api) {
+    const started = Date.now();
+    const ran = await api.query(`begin;\n${sql}\ncommit;`);
+    if (!ran.ok) {
+      const reason = `the migration could not be applied: ${ran.reason}`;
+      await recordFailure(service, projectId, userId, connection, reason);
+      return { ok: false, applied: false, reason };
+    }
+
+    const { error: recordError } = await service.from("project_backends").upsert(
+      {
+        project_id: projectId,
+        user_id: userId,
+        kind: connection.kind,
+        url: connection.url,
+        anon_key: connection.anonKey,
+        schema_name: connection.schema,
+        applied_at: new Date().toISOString(),
+        last_error: null,
+      },
+      { onConflict: "project_id" },
+    );
+    if (recordError) {
+      // eslint-disable-next-line no-console
+      console.error("provision: the schema was applied but not recorded:", recordError);
+    }
+
+    return { ok: true, applied: true, recorded: !recordError, tables: model.tables.length, ms: Date.now() - started };
   }
 
   const dsn = await connectionStringFor(service, connection, projectId);
@@ -392,6 +423,75 @@ export async function provision(
     return { ok: false, applied: false, reason };
   } finally {
     await client.end().catch(() => {});
+  }
+}
+
+/**
+ * Scan, create, check: the whole of what a build does to a database.
+ *
+ * Reads the database first and decides where the app's tables can go without
+ * touching anything of the owner's (see inspect.ts) — which may move the app
+ * into a schema of its own, so the model and connection that come back are the
+ * ones to write the app against. Then the migration. Then the database is read
+ * again and every table, column, policy and grant is checked, and the answer is
+ * stored for the Database panel.
+ *
+ * Never throws, like provision().
+ */
+export async function provisionChecked(input: {
+  service: SupabaseClient;
+  connection: BackendConnection;
+  model: DataModel;
+  projectId: string;
+  userId: string;
+  projectName: string;
+}): Promise<{
+  model: DataModel;
+  connection: BackendConnection;
+  prepared: Prepared;
+  outcome: ProvisionOutcome;
+  check: CheckReport | null;
+}> {
+  const { service, connection, projectId, userId } = input;
+  const runner = await runnerFor(service, connection, projectId);
+
+  try {
+    const prepared = await prepareSchema({
+      service,
+      connection,
+      model: input.model,
+      projectId,
+      projectName: input.projectName,
+      runner,
+    });
+    const target: BackendConnection = { ...connection, schema: prepared.model.schema };
+
+    if (prepared.blocked.length > 0) {
+      /* Refused before anything ran. Nothing of theirs was touched, and the
+         reasons say what would have been. */
+      const reason = prepared.blocked.join(" ");
+      await recordFailure(service, projectId, userId, target, reason);
+      return {
+        model: prepared.model,
+        connection: target,
+        prepared,
+        outcome: { ok: false, applied: false, reason },
+        check: null,
+      };
+    }
+
+    const outcome = await provision(service, target, prepared.model, projectId, userId, {
+      runner: runner?.via === "management-api" ? runner : null,
+      extend: prepared.plan?.extend,
+    });
+
+    const check = outcome.applied
+      ? await checkSchema({ service, projectId, model: prepared.model, plan: prepared.plan, runner })
+      : null;
+
+    return { model: prepared.model, connection: target, prepared, outcome, check };
+  } finally {
+    await runner?.close();
   }
 }
 

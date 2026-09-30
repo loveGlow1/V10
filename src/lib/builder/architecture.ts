@@ -574,7 +574,7 @@ ${ours}**The front of it** — the ${thing} exactly as a visitor sees it, with t
     kind === "ecommerce" ? "catalogue" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
-**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free to set up at supabase.com, and the data stays in your account. You connect it under Backend, and the build waits for it rather than putting your data somewhere you did not choose.
+**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free, and the data stays in your account. Connect it from the Database panel — sign in to Supabase and pick a project, or have one created — and the build sets up the tables and sign-in for you, checking your existing tables first so nothing of yours is touched.
 
 Which one?`;
 }

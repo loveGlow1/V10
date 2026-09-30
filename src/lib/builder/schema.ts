@@ -682,6 +682,34 @@ export function bucketName(schema: string, base: string): string {
 }
 
 /**
+ * The same model, living in another schema.
+ *
+ * Everything in a model is schema-agnostic except its own `schema` and the
+ * bucket names derived from it — policies say `is_admin()` and are qualified
+ * when emitted. So moving a project out of `public` (see backend/inspect.ts,
+ * which does it when somebody's own Supabase already has tables of the same
+ * names) is renaming those two things and nothing else.
+ */
+export function withSchema(model: DataModel, schema: string): DataModel {
+  if (model.schema === schema) return model;
+  const base = (name: string) =>
+    model.schema === "public" ? name : name.startsWith(`${model.schema}-`) ? name.slice(model.schema.length + 1) : name;
+  return {
+    ...model,
+    schema,
+    buckets: model.buckets.map((bucket) => ({ ...bucket, name: bucketName(schema, base(bucket.name)) })),
+  };
+}
+
+/* How a table or function this platform made says so.
+ *
+ * Written as the start of its COMMENT, because that is the one place Postgres
+ * keeps a note on an object that survives dumps, restores and dashboards. It is
+ * what lets a scan of somebody's own Supabase tell OUR `products` table from
+ * THEIRS — the difference between "extend it" and "never touch it". */
+export const OWNED_MARK = "QuickStark:";
+
+/**
  * The schema name for a project on the shared instance.
  *
  * Prefixed and hyphen-stripped because a Postgres identifier cannot start with
@@ -914,7 +942,17 @@ export function destructiveStatements(sql: string): string[] {
  * including its owner, and the person debugging that learns to disable RLS.
  * Failing here, loudly, at build time, is the cheap version of that lesson.
  */
-export function toSql(model: DataModel): string {
+export function toSql(
+  model: DataModel,
+  options: {
+    /* Columns to add to tables of ours that already exist without them —
+       decided by backend/inspect.ts from a scan. `create table if not exists`
+       skips a table that is there, so a column a later build added would
+       otherwise never arrive. Added right after the create, before any index
+       or policy that names it. */
+    extend?: Record<string, Column[]>;
+  } = {},
+): string {
   if (model.tables.length === 0) return "";
 
   const naked = model.tables.filter((table) => table.policies.length === 0);
@@ -1000,6 +1038,7 @@ export function toSql(model: DataModel): string {
       "  );",
       "$$;",
       "",
+      `comment on function ${model.schema}.is_admin() is '${OWNED_MARK} whether the caller is an admin of this app.';`,
       `revoke all on function ${model.schema}.is_admin() from public;`,
       `grant execute on function ${model.schema}.is_admin() to anon, authenticated;`,
       "",
@@ -1024,7 +1063,12 @@ export function toSql(model: DataModel): string {
 
     out.push(");");
     out.push("");
-    out.push(`comment on table ${qualified} is '${table.what.replace(/'/g, "''")}';`);
+
+    for (const column of options.extend?.[table.name] ?? []) {
+      out.push(`alter table ${qualified} add column if not exists ${columnSql(column).trim()};`);
+    }
+
+    out.push(`comment on table ${qualified} is '${OWNED_MARK} ${table.what.replace(/'/g, "''")}';`);
 
     for (const index of table.indexes ?? []) {
       const name = `${table.name}_${index.on.join("_")}_idx`;
@@ -1093,6 +1137,12 @@ export function toSql(model: DataModel): string {
       );
     }
   }
+
+  /* PostgREST caches the schema. Supabase reloads it on DDL by itself, and this
+     says so explicitly as well — delivered on commit — so the first request
+     from a freshly built app does not meet "relation does not exist" for a
+     table that does. */
+  out.push("notify pgrst, 'reload schema';");
 
   return out.join("\n");
 }

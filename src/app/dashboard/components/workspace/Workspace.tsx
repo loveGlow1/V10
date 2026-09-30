@@ -52,6 +52,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
      bar. */
   const openedOnPreview = search.get("view") === "preview";
   const openedOnManage = search.get("view") === "manage";
+  /* "?view=database" is where Connect Supabase comes back to: the sign-in
+     happened on supabase.com, and the next step — picking a project — is on
+     the Database panel. */
+  const openedOnDatabase = search.get("view") === "database";
   const { projects, loading, error, select } = useProjects();
 
   /* Opening an app is the signal the dashboard ranks on — see touch_project in
@@ -139,12 +143,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
      component re-rendered with the parameter still in the address bar. */
   const arrivedOnManage = useRef(false);
   useEffect(() => {
-    if (!openedOnManage || arrivedOnManage.current) return;
+    if ((!openedOnManage && !openedOnDatabase) || arrivedOnManage.current) return;
     arrivedOnManage.current = true;
-    openManage("settings");
+    openManage(openedOnDatabase ? "database" : "settings");
     // openManage is stable for this purpose: it only ever sets state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openedOnManage]);
+  }, [openedOnManage, openedOnDatabase]);
 
   /* Opening the route is what selects the app, so a link, a reload and a click
      in the list all leave the account on the same project. */

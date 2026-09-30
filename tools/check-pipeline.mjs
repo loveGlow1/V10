@@ -101,7 +101,10 @@ for (const state of JOB_STATES) {
 console.log("\nThe order, where getting it wrong is the defect:");
 
 has(
-  buildRoute.indexOf("decideArchitecture(") < buildRoute.indexOf("await provision("),
+  /* provisionChecked is provision with the scan before it and the check after
+     it — the same step, and it must still come after the decision. */
+  buildRoute.indexOf("decideArchitecture(") < buildRoute.search(/await provision(?:Checked)?\(/) &&
+    buildRoute.search(/await provision(?:Checked)?\(/) !== -1,
   "capabilities are decided before anything is provisioned",
   "provisioning first would mean creating tables and then deciding whether the project has any",
 );
