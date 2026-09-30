@@ -781,6 +781,18 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
   return { schema, tables, buckets };
 }
 
+/** The table commands a role is granted: exactly those some policy lets it run. */
+export function grantsFor(
+  table: Table,
+  role: "anon" | "authenticated",
+): ("select" | "insert" | "update" | "delete")[] {
+  return (["select", "insert", "update", "delete"] as const).filter((command) =>
+    table.policies.some(
+      (policy) => policy.to.includes(role) && (policy.for === command || policy.for === "all"),
+    ),
+  );
+}
+
 /* ── SQL ───────────────────────────────────────────────────────────────────*/
 
 function columnSql(column: Column): string {
@@ -1091,12 +1103,14 @@ export function toSql(
        RLS never gets a chance to run: Postgres checks the table privilege
        first and refuses with a permission error that looks nothing like a
        policy problem. */
-    const writable = table.policies.some((policy) => policy.for !== "select");
-    out.push(
-      writable
-        ? `grant select, insert, update, delete on ${qualified} to anon, authenticated;`
-        : `grant select on ${qualified} to anon, authenticated;`,
-    );
+    /* Only the commands some policy allows, and only to the roles it names.
+       Granting everything and leaving RLS to refuse it works until a policy is
+       dropped or RLS is switched off in the dashboard, and then it is the whole
+       table; least privilege is that the grant says no first. */
+    for (const role of ["anon", "authenticated"] as const) {
+      const allowed = grantsFor(table, role);
+      if (allowed.length > 0) out.push(`grant ${allowed.join(", ")} on ${qualified} to ${role};`);
+    }
     out.push("");
   }
 

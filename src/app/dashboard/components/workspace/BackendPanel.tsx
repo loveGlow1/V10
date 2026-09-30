@@ -451,6 +451,13 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                     <span className="text-emerald-400">By signing in to Supabase — tables are created and checked for you</span>
                   </Row>
                 )}
+                {backend.mode === "own" && backend.url && (
+                  <Row label="Billing">
+                    <span className="text-muted">
+                      Your Supabase account — usage, limits and billing are managed there
+                    </span>
+                  </Row>
+                )}
                 {/* The scan-and-check the last build ran: every table, column,
                     policy and grant the app relies on, read back from the
                     database after the migration. */}
@@ -691,8 +698,9 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
           {backend.mode === "own" && confirming && (
             <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
               <p className="text-[12px] leading-relaxed text-muted">
-                The next build goes back to QuickStark&apos;s Supabase. Nothing is deleted from
-                yours — every table and row stays in your account.
+                QuickStark stops using your Supabase. Nothing is deleted from it — your
+                project, tables, data and users all stay in your account. This app won&apos;t use a
+                database until you connect one again.
               </p>
               <div className="mt-3 flex gap-2">
                 <button
@@ -744,6 +752,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 {connected.authNote
                   ? ` Sign-in settings could not be set automatically (${connected.authNote}) — add ${AUTH_REDIRECT_GLOB} under Authentication → URL Configuration.`
                   : " Sign-in is set up for your app's addresses."}
+              </p>
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+                Your application uses your connected Supabase project. Supabase usage, limits and billing
+                are managed through your Supabase account — a paused project pauses the app.
               </p>
             </div>
           )}

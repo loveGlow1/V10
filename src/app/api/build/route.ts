@@ -1068,12 +1068,24 @@ async function handle(
      without one it is the first build of the plan. Nothing the classifier
      thinks about the word "continue" can be better informed than a plan that
      says which stage comes next. */
+  /* A single page asked to keep what its form collects — "connect a database",
+     "save the waitlist". That is always a change to this page, whatever the
+     classifier made of the wording, and it has to reach the edit path: that is
+     where the page is wired to the owner's Supabase, or answered with the
+     button that links one. See page-data.ts. */
+  const pageDataAsk =
+    Boolean(currentHtml) &&
+    ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html" &&
+    isPageDataAsk(prompt, planEdit(prompt, knownArchitecture).touches);
+
   const intent: Intent = stageAsk
     ? pathForStage(Boolean(currentHtml)) === "edit"
       ? "edit"
       : "new_project"
     : currentHtml
-      ? decision.intent
+      ? pageDataAsk && (decision.intent === "question" || decision.intent === "clarify")
+        ? "edit"
+        : decision.intent
       : "new_project";
 
   if (stageAsk && activePlan) {
@@ -1588,7 +1600,7 @@ async function handle(
    * question a person is actually asking is "what are my choices and what do
    * they cost", and the panel is where the choice is made, not what the choice
    * IS. */
-  if (asksToConnectBackend(prompt)) {
+  if (asksToConnectBackend(prompt) && !(pageDataAsk && intent === "edit")) {
     const current = service ? await resolveBackend(service, project.id) : null;
     const connected =
       current && current.mode !== "shared" && current.url
@@ -1600,16 +1612,23 @@ async function handle(
       ? `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n`
       : "";
     const said =
-      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Backend** in the workspace${
-        managedLine ? " and pick one" : ""
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Database** in the workspace — the button below takes you there${
+        managedLine ? " — and pick one" : ""
       }:\n\n` +
       managedLine +
       (oauthConfigured()
         ? `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Press **Connect Supabase**, sign in, and pick a project — or have a free one created. There is nothing to copy or paste: the keys, the sign-in settings and this app's tables are all set up for you, and checked.\n\n`
         : `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Create a free project at supabase.com, then paste its project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n`) +
+      `Connecting reads your database and changes nothing; this app's tables are created on the next build, beside anything you already have. ` +
+      `Your data, your sign-ups and your Supabase plan and billing all stay in your Supabase account.\n\n` +
       `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
 
-    const stored = await deliver(said, { key: "connect-backend" });
+    /* The panel named above, one press away rather than described. */
+    const connectLinks =
+      current && current.mode !== "shared" && current.url
+        ? undefined
+        : [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }];
+    const stored = await deliver(said, { key: "connect-backend", links: connectLinks });
 
     return NextResponse.json({
       stored,
@@ -1627,6 +1646,7 @@ async function handle(
         message: said,
       },
       project: null,
+      messageLinks: connectLinks,
     });
   }
 
@@ -3957,6 +3977,30 @@ async function handle(
     }
   }
 
+  /* ── Needs a database, and none is connected ────────────────────────────
+     Nothing is created anywhere — not on the owner's Supabase, which is not
+     linked, and not on ours, which is not where their data belongs. The app is
+     still built and previewed; its tables wait for them to connect their own,
+     and the button that does it is in the thread. */
+  const needsDatabaseLinks =
+    service && !backend && dataModel.tables.length > 0
+      ? [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }]
+      : undefined;
+  if (needsDatabaseLinks) {
+    steps.mark(
+      "database",
+      "No database connected yet",
+      "connect your Supabase and this app's tables are created on the next build",
+    );
+    await deliver(
+      "This app needs a database, and none is connected yet. Connect your own Supabase — its data, sign-ups and billing stay in your account — and the tables are created on the next build.",
+      {
+        key: "needs-database",
+        links: needsDatabaseLinks,
+      },
+    );
+  }
+
   /* ── And where it is set ────────────────────────────────────────────────
      The blueprint decides what is built; this decides the world it is built
      in — the currency on every price, the shape of an address, how people pay,
@@ -4463,5 +4507,8 @@ async function handle(
     market: market.market,
     build: result,
     project: synced ?? null,
+    /* The Connect button, under the live reply, when the app needs a database
+       and none is connected. */
+    messageLinks: needsDatabaseLinks,
   });
 }

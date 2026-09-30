@@ -214,6 +214,20 @@ export async function resolveBackend(
     };
   }
 
+  /* ── NOTHING LINKED IS NOT A DATABASE OF OURS ─────────────────────────────
+   *
+   * No row used to mean the shared instance: say nothing, and this project's
+   * tables — and its customers' rows — were created in QuickStark's own
+   * Supabase. That is the platform quietly becoming the owner of somebody's
+   * application data, which is the one thing connecting your own Supabase
+   * promises will not happen. It was also where a disconnect landed.
+   *
+   * Null instead: no database until the owner connects theirs. The build
+   * carries on, says the tables are pending, and offers the button. The shared
+   * preview is still reachable by choosing it, and rows written before `mode`
+   * existed keep what they have. */
+  if (!data) return null;
+
   const shared = sharedCredentials();
   if (!shared) return null;
 
