@@ -246,6 +246,10 @@ export default function ChatPanel({
      to upgrade it — keep the page, move it into an app, add the feature — and
      this holds the message until the person says yes or not now. */
   const [pendingUpgrade, setPendingUpgrade] = useState<{ text: string } | null>(null);
+  /* SQL that changes or removes data already in the database, shown in the
+     thread and held here until the person presses Run it. Only that exact SQL
+     is sent back. */
+  const [pendingSql, setPendingSql] = useState<{ text: string; sql: string } | null>(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -997,6 +1001,8 @@ export default function ChatPanel({
       architecture?: "managed" | "full" | "frontend" | "own";
       /* The yes to an upgrade offer — see pendingUpgrade. */
       upgrade?: boolean;
+      /* "Run it" on SQL that was shown first — see pendingSql. */
+      confirmSql?: string;
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -1107,6 +1113,7 @@ export default function ChatPanel({
            on every ordinary message, which is nearly all of them. */
         architecture: options.architecture ?? null,
         upgrade: options.upgrade === true,
+        confirmSql: options.confirmSql ?? null,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -1195,6 +1202,12 @@ export default function ChatPanel({
          subsumes it: answering "the front of it" settles the artefact too, and
          asking both would be two questions about one decision. Nothing has run
          and nothing has been charged. */
+      if (reply.needsSqlConfirm && reply.sql) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingSql({ text, sql: reply.sql });
+        return;
+      }
+
       if (reply.needsUpgrade) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingUpgrade({ text });
@@ -2005,6 +2018,32 @@ export default function ChatPanel({
                 clearParkedBuild();
                 setAwaitingDatabase(null);
               }}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Run it, for SQL that changes what is already in the database. */}
+        {pendingSql && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => {
+                const { text, sql } = pendingSql;
+                setPendingSql(null);
+                setMode("auto");
+                void send(text, { confirmSql: sql, silent: true });
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/[0.10] px-2 py-1 font-medium text-amber-200 transition-colors hover:bg-amber-500/[0.18]"
+            >
+              <Database className="h-3.5 w-3.5" />
+              Run it on my database
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingSql(null)}
               className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
             >
               Cancel

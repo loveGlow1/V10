@@ -70,6 +70,9 @@ export type BuildReply = {
   /* A single page was asked for something only an app can hold, and the
      reply is the offer to upgrade it. See upgradeOffer. */
   needsUpgrade?: boolean;
+  /* SQL that changes or removes existing data, shown and held for a yes. */
+  needsSqlConfirm?: boolean;
+  sql?: string;
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -107,6 +110,9 @@ type BuildPayload = {
   /* A single page was asked for something only an app can hold, and the
      reply is the offer to upgrade it. See upgradeOffer. */
   needsUpgrade?: boolean;
+  /* SQL that changes or removes existing data, shown and held for a yes. */
+  needsSqlConfirm?: boolean;
+  sql?: string;
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -166,6 +172,8 @@ export type BuildOptions = {
   architecture?: "managed" | "full" | "frontend" | "own" | null;
   /** The yes to an upgrade offer: move this single page into a full app, kept as it is. */
   upgrade?: boolean;
+  /** "Run it" on SQL that was shown first: the exact SQL to run. */
+  confirmSql?: string | null;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -459,6 +467,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           stack: options.stack ?? null,
           architecture: options.architecture ?? null,
           upgrade: options.upgrade === true,
+          ...(options.confirmSql ? { confirmSql: true, sql: options.confirmSql } : {}),
           model: options.model ?? null,
         }),
       });
@@ -600,6 +609,8 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         stackOptions: payload.stackOptions,
         needsArchitecture: payload.needsArchitecture === true,
         needsUpgrade: payload.needsUpgrade === true,
+        needsSqlConfirm: payload.needsSqlConfirm === true,
+        sql: typeof payload.sql === "string" ? payload.sql : undefined,
         architectureOptions: payload.architectureOptions,
         stack: payload.stack,
         buildKind: payload.buildKind,
