@@ -369,6 +369,18 @@ console.log("\nSign-up that ignores email confirmation");
   else pass("and one that handles confirmation is left alone");
 }
 
+console.log("\nA signed-in state written as a constant");
+{
+  const wm = manifest({ type: "webapp", backend: true, database: true, authentication: true });
+  const bad = { path: "app/properties/[id]/PropertyDetailClient.tsx", content: "export default function P() { const isLoggedIn = false; return null; }" };
+  const good = { path: "app/properties/[id]/PropertyDetailClient.tsx", content: "export default function P() { const [isLoggedIn, setIsLoggedIn] = useState(false); return null; }" };
+  const caught = qa.allIssues(await qa.runQa({ html: CLEAN, tree: [bad], manifest: wm, design: CRAFT })).find((i) => i.rule === "functional/hardcoded-auth");
+  if (!caught || caught.severity !== "error") fail("functional/hardcoded-auth", "const isLoggedIn = false passed");
+  else pass("const isLoggedIn = false is an error");
+  if (qa.allIssues(await qa.runQa({ html: CLEAN, tree: [good], manifest: wm, design: CRAFT })).some((i) => i.rule === "functional/hardcoded-auth")) fail("functional/hardcoded-auth", "state initialised to false was flagged");
+  else pass("state that starts false and is set from the session is left alone");
+}
+
 /* ── Repairs (§9) ─────────────────────────────────────────────────────────*/
 
 console.log("\nRepairs");

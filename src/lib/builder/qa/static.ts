@@ -381,6 +381,24 @@ export function functionalGate(
     });
   }
 
+  /* A signed-in state written as a constant. `const isLoggedIn = false` on a
+     property page put a sign-in prompt in front of every member who pressed
+     Save, and nothing they did could change it. Whether somebody is signed in
+     is asked of the session, never assumed. */
+  const assumed = tree
+    .filter((file) => /\.(?:tsx?|jsx?)$/.test(file.path))
+    .filter((file) => /\b(?:const|let|var)\s+(?:is)?(?:Logged|Signed|Authed|Authenticated)(?:In)?\w*\s*(?::\s*boolean\s*)?=\s*(?:true|false)\s*;/i.test(file.content))
+    .map((file) => file.path);
+  if (assumed.length > 0) {
+    issues.push({
+      gate: "functional",
+      severity: "error",
+      rule: "functional/hardcoded-auth",
+      message: `${assumed.slice(0, 3).join(", ")} decide${assumed.length === 1 ? "s" : ""} whether somebody is signed in with a constant instead of asking supabase.auth.getSession().`,
+      where: assumed[0],
+    });
+  }
+
   /* Links that go nowhere. The oldest tell of a generated page: a navigation
      of six items where every href is "#". */
   const dead = (markup.match(/href\s*=\s*["']#["']/gi) ?? []).length;
