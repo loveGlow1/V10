@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
+import { rememberAuthWrite, withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -439,6 +440,40 @@ export default function PreviewPanel({
     setRoutes([]);
     setRoute("/");
   }, [pageHtml]);
+
+  /* Signed in to the previewed app across reloads of the frame: the session
+     it reported is written back in ahead of its scripts. Read when the page
+     changes, not on every report, so a sign-in does not reload the frame it
+     happened in. See lib/builder/preview/auth-seed.ts. */
+  const framedHtml = useMemo(() => {
+    if (pageHtml === null || !project?.id) return pageHtml;
+    let store: Storage | null = null;
+    try {
+      store = window.sessionStorage;
+    } catch {
+      store = null;
+    }
+    return withAuthSeed(pageHtml, store, project.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageHtml, reloads]);
+
+  useEffect(() => {
+    const projectId = project?.id;
+    if (!projectId) return;
+    function onAuth(event: MessageEvent) {
+      if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
+      const data = event.data as { source?: string; state?: string; detail?: { key?: unknown; value?: unknown } } | null;
+      if (!data || data.source !== "quickstark-preview" || data.state !== "auth-storage") return;
+      try {
+        rememberAuthWrite(window.sessionStorage, projectId as string, data.detail?.key, data.detail?.value);
+      } catch {
+        /* No sessionStorage (a private window that refuses it): the preview
+           keeps the session for as long as the frame, as before. */
+      }
+    }
+    window.addEventListener("message", onAuth);
+    return () => window.removeEventListener("message", onAuth);
+  }, [project?.id]);
 
   const [pageFailed, setPageFailed] = useState(false);
   /* Whether what came back is a receipt rather than a page.
@@ -1026,7 +1061,8 @@ export default function PreviewPanel({
           ) : pageHtml !== null ? (
             <iframe
               key={`${previewUrl}#${reloads}`}
-              srcDoc={pageHtml}
+              ref={frameRef}
+              srcDoc={framedHtml ?? ""}
               title={`${project?.name ?? "App"} preview`}
               /* No allow-same-origin, deliberately: this document was written by
                  a model from someone's prompt, and it runs its own scripts. An

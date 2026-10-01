@@ -1308,8 +1308,18 @@ export function treeBrief(
          depending on that alone. */
       "- Never call Supabase from inside an onAuthStateChange callback. Read the session the callback is handed, or schedule the follow-up read (`setTimeout(load, 0)`). A Supabase call made inside the callback deadlocks the sign-in that fired it, and the button stays on \"Signing in…\" for ever.",
       "- Every sign-in, sign-up and sign-out handler puts its busy state back in a `finally`, and catches what it awaits: a failed request shows the reason in words under the form, never a button stuck on its busy label.",
+      /* "Sign in to save properties" over a signed-in person, with no way out
+         but one small button: the prompt decided from a stale read, and the
+         dialog had no close. */
+      "- A sign-in prompt is shown only after `supabase.auth.getSession()` returns no session at the moment of the click — never from state read earlier or from a guess — and a signed-in click goes straight to the action. Its \"Sign in\" link carries `?next=` the current path, so the person comes back to what they were doing.",
     );
   }
+
+  /* Every dialog, in every project: the one a person cannot leave is the one
+     they remember. */
+  rules.push(
+    "- Every modal or dialog has a visible close button (×, with aria-label=\"Close\") in its top corner, closes on Escape and on a click on the backdrop outside it, moves focus into itself when it opens, and gives it back when it closes. role=\"dialog\" and aria-modal=\"true\" on the panel.",
+  );
 
   if (memberArea) {
     rules.push(

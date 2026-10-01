@@ -500,11 +500,19 @@ export const PREVIEW_RUNTIME = `
     var lib = window.supabase;
     if (!lib || typeof lib.createClient !== 'function') return null;
     if (!PROCESS.env.NEXT_PUBLIC_SUPABASE_URL || !PROCESS.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+    /* Seeded from the workspace tab, which keeps the session across reloads
+       of this frame — see auth-seed.ts — and told of every change to it. */
     var memory = {};
+    var seed = window.__qsAuthSeed;
+    if (seed && typeof seed === 'object') {
+      for (var seeded in seed) {
+        if (Object.prototype.hasOwnProperty.call(seed, seeded) && typeof seed[seeded] === 'string') memory[seeded] = seed[seeded];
+      }
+    }
     var storage = {
       getItem: function (key) { return Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null; },
-      setItem: function (key, value) { memory[key] = String(value); },
-      removeItem: function (key) { delete memory[key]; }
+      setItem: function (key, value) { memory[key] = String(value); report('auth-storage', { key: key, value: String(value) }); },
+      removeItem: function (key) { delete memory[key]; report('auth-storage', { key: key, value: null }); }
     };
     function lock(name, timeout, fn) { return fn(); }
     return function createClient(url, key, options) {

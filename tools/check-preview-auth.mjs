@@ -35,7 +35,7 @@ writeFileSync(
       typeRoots: [join(process.cwd(), "node_modules", "@types")],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/preview/runtime.ts")],
+    files: [join(process.cwd(), "src/lib/builder/preview/runtime.ts"), join(process.cwd(), "src/lib/builder/preview/auth-seed.ts")],
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
@@ -78,6 +78,29 @@ has(/env\?\.NEXT_PUBLIC_SUPABASE_URL && env\?\.NEXT_PUBLIC_SUPABASE_ANON_KEY \?/
 const route = readFileSync(join(process.cwd(), "src/app/preview/[projectId]/route.ts"), "utf8");
 has(/resolveBackend\(previewService, projectId\)/.test(route) && /envFor\(previewBackend\)/.test(route), "the preview gets the PROJECT's database");
 has(!/const value = process\.env\[name\]/.test(route), "and never this platform's own Supabase");
+
+console.log("\nStaying signed in across reloads of the preview:");
+{
+  const { rememberAuthWrite, withAuthSeed } = await import(join(out, "lib/builder/preview/auth-seed.js"));
+  const memory = new Map();
+  const store = { getItem: (k) => (memory.has(k) ? memory.get(k) : null), setItem: (k, v) => memory.set(k, String(v)), removeItem: (k) => memory.delete(k) };
+  const key = "sb-fhpnnfpewegelaumhukl-auth-token";
+  has(rememberAuthWrite(store, "p1", key, '{"access_token":"t"}'), "a sign-in the frame reports is kept");
+  has(!rememberAuthWrite(store, "p1", "anything-else", "x"), "a key that is not supabase auth is refused");
+  has(!rememberAuthWrite(store, "p1", key, 42), "and so is a value that is not text");
+  const page = "<!doctype html><html><head><title>x</title></head><body><script>boot()</script></body></html>";
+  const seeded = withAuthSeed(page, store, "p1");
+  has(seeded.indexOf("__qsAuthSeed") > 0 && seeded.indexOf("__qsAuthSeed") < seeded.indexOf("boot()"), "the next frame gets it before any of its scripts run");
+  has(withAuthSeed(page, store, "p2") === page, "another project gets nothing");
+  rememberAuthWrite(store, "p1", key, "</script><script>alert(1)</script>");
+  has(!/<\/script><script>alert/.test(withAuthSeed(page, store, "p1")), "a value cannot close the script it is written into");
+  rememberAuthWrite(store, "p1", key, null);
+  has(withAuthSeed(page, store, "p1") === page, "signing out forgets it");
+  has(withAuthSeed(page, null, "p1") === page, "no storage, no change");
+  has(/window\.__qsAuthSeed/.test(PREVIEW_RUNTIME) && /report\('auth-storage'/.test(PREVIEW_RUNTIME), "the runtime reads the seed and reports every change");
+  const panel = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+  has(/event\.source !== frameRef\.current\.contentWindow/.test(panel), "the workspace only takes a session from its own frame");
+}
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

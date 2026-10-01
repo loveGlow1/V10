@@ -530,7 +530,7 @@ has(
   "framing it shows somebody an inventory of their application instead of their application",
 );
 has(
-  preview.indexOf(") : isReceipt ? (") < preview.indexOf("srcDoc={pageHtml}"),
+  preview.indexOf(") : isReceipt ? (") < preview.indexOf("srcDoc={framedHtml"),
   "the receipt is caught before the branch that would render it",
 );
 
