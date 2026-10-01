@@ -581,7 +581,9 @@ has(
 );
 
 has(
-  /!liveIsCurrent \? \(/.test(panel) && /live site is behind this preview/i.test(panel),
+  /* A conjunct after it is fine: the note can be dismissed, and goes by
+     itself after a few seconds — it is still said, once per version. */
+  /!liveIsCurrent(?: && \w+)* \? \(/.test(panel) && /live site is behind this preview/i.test(panel),
   "and says so, rather than quietly hiding the site that is up",
 );
 
