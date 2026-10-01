@@ -119,6 +119,23 @@ async function attachPreviewAlias(record: {
  *
  * Best effort throughout: a slug that cannot be read costs the nicer half of
  * the address, never the deployment. */
+/* The address a published project was given, when it is one of ours rather
+   than Vercel's. Null for anything unpublished or still on a vercel.app host. */
+async function ownAddressOf(service: SupabaseClient, projectId: string): Promise<string | null> {
+  try {
+    const { data } = await service
+      .from("projects")
+      .select("published_url, published_at")
+      .eq("id", projectId)
+      .maybeSingle<{ published_url: string | null; published_at: string | null }>();
+    const address = data?.published_at ? data.published_url : null;
+    if (!address) return null;
+    return new URL(address).hostname.endsWith(".vercel.app") ? null : address;
+  } catch {
+    return null;
+  }
+}
+
 async function slugOf(service: SupabaseClient, projectId: string): Promise<string | null> {
   try {
     const { data } = await service
@@ -448,13 +465,21 @@ export async function settleOne(
     /* Said where the question was asked. Keyed on the deployment, so two
        callers arriving at once — the cron and the workspace's own poll —
        cannot say it twice. */
+    /* The link the person clicks. When the domain did not bind this time,
+       `settled.url` is Vercel's host — and on a project already published to
+       its own address, that put something.vercel.app in the chat where
+       <slug>.quickstark.tech belonged. The address the project was published
+       to is still its address, so that is the one handed over; Vercel's is
+       only used when the project has no address of its own at all. */
+    const openAt = own ?? (await ownAddressOf(service, record.projectId)) ?? settled.url;
+
     await recordMessage(service, {
       projectId: record.projectId,
       userId: record.userId,
       role: "system",
       body: "Your app is live.",
       links: [
-        { label: "Open it", href: settled.url },
+        { label: "Open it", href: openAt },
         { label: "Preview", href: `${SITE_URL}/preview/${record.projectId}` },
       ],
       kind: "build_ready",
