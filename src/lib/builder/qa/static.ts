@@ -399,6 +399,59 @@ export function functionalGate(
     });
   }
 
+  /* ── Pretending to the database ───────────────────────────────────────
+   *
+   * Three shapes, each shipped once: a form whose submit only flips a "sent"
+   * flag, a save button that only flips local state, and a page that lists
+   * things from an array while the database has a table for them. Each looks
+   * finished in a preview and does nothing for the business. Checked only
+   * where there IS a database — a site with none keeps its content in code by
+   * design. */
+  if (manifest?.database) {
+    const code = tree.filter((file) => /\.(?:tsx?|jsx?)$/.test(file.path));
+    const talksToDb = (content: string) => /\bsupabase\b|from\s+["']@\/lib\/api["']|\bapi\.\w+\(|\bfetch\(/.test(content);
+
+    const fakeSubmit = code
+      .filter((file) => /preventDefault\(\);?\s*(?:set\w+\([^()]*\);?\s*)+\}/.test(file.content) && !talksToDb(file.content))
+      .map((file) => file.path);
+    if (fakeSubmit.length > 0) {
+      issues.push({
+        gate: "functional",
+        severity: "error",
+        rule: "functional/fake-submit",
+        message: `A form in ${fakeSubmit.slice(0, 3).join(", ")} says it was sent without writing anything to the database.`,
+        where: fakeSubmit[0],
+      });
+    }
+
+    const localSave = code
+      .filter((file) => /\bset(?:Favou?rite|Saved|Liked|Wishlist|Bookmark|Following)\w*\(/.test(file.content) && !talksToDb(file.content))
+      .map((file) => file.path);
+    if (localSave.length > 0) {
+      issues.push({
+        gate: "functional",
+        severity: "error",
+        rule: "functional/local-only-save",
+        message: `Saving in ${localSave.slice(0, 3).join(", ")} only changes the page — nothing is written, so it is gone on reload.`,
+        where: localSave[0],
+      });
+    }
+
+    const staticCatalogue = code
+      .filter((file) => /^app\//.test(file.path))
+      .filter((file) => (file.content.match(/\b(?:price|bedrooms|beds|rating|duration_minutes)\s*:\s*\d/g) ?? []).length >= 3 && !talksToDb(file.content))
+      .map((file) => file.path);
+    if (staticCatalogue.length > 0) {
+      issues.push({
+        gate: "functional",
+        severity: "error",
+        rule: "functional/static-catalogue",
+        message: `${staticCatalogue.slice(0, 3).join(", ")} list${staticCatalogue.length === 1 ? "s" : ""} items typed into the page while this project has a database — they should be rows (lib/seed.sql) read from their table.`,
+        where: staticCatalogue[0],
+      });
+    }
+  }
+
   /* Links that go nowhere. The oldest tell of a generated page: a navigation
      of six items where every href is "#". */
   const dead = (markup.match(/href\s*=\s*["']#["']/gi) ?? []).length;

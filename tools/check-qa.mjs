@@ -381,6 +381,28 @@ console.log("\nA signed-in state written as a constant");
   else pass("state that starts false and is set from the session is left alone");
 }
 
+console.log("\nPretending to the database");
+{
+  const db = manifest({ type: "webapp", backend: true, database: true, authentication: true });
+  const none = manifest({ type: "landing" });
+  const rules = async (tree, m) => qa.allIssues(await qa.runQa({ html: CLEAN, tree, manifest: m, design: CRAFT })).map((i) => i.rule);
+  const fake = { path: "app/contact/page.tsx", content: "export default function C(){ return <form onSubmit={(e) => { e.preventDefault(); setSent(true); }} />; }" };
+  const real = { path: "app/contact/page.tsx", content: 'import { supabase } from "@/lib/supabase"; async function s(e){ e.preventDefault(); const { error } = await supabase.from("contact_inquiries").insert({}); if (!error) setSent(true); }' };
+  const save = { path: "components/Card.tsx", content: "export default function C(){ return <button onClick={() => setFavorited((f) => !f)} />; }" };
+  const listing = { path: "app/properties/page.tsx", content: 'const ALL = [{ id: "p1", price: 1 }, { id: "p2", price: 2 }, { id: "p3", price: 3 }];' };
+  const listingDb = { path: "app/properties/page.tsx", content: 'import { supabase } from "@/lib/supabase"; const DEMO = [{ price: 1 }, { price: 2 }, { price: 3 }];' };
+
+  const check = (ok, what, detail) => (ok ? pass(what) : fail(what, detail));
+  const a = await rules([fake, save, listing], db);
+  check(a.includes("functional/fake-submit"), "a form that only says 'sent' is an error", a.join(", "));
+  check(a.includes("functional/local-only-save"), "a save that only flips local state is an error", a.join(", "));
+  check(a.includes("functional/static-catalogue"), "a page listing typed-in items beside a database is an error", a.join(", "));
+  const b = await rules([real, listingDb], db);
+  check(!b.some((r) => /fake-submit|local-only-save|static-catalogue/.test(r)), "the same things done through supabase are left alone", b.join(", "));
+  const c = await rules([fake, save, listing], none);
+  check(!c.some((r) => /fake-submit|local-only-save|static-catalogue/.test(r)), "and a site with no database keeps its content in code", c.join(", "));
+}
+
 /* ── Repairs (§9) ─────────────────────────────────────────────────────────*/
 
 console.log("\nRepairs");

@@ -35,7 +35,7 @@ writeFileSync(
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { missingTables, authoredSql, prepareAuthoredSql } = await import(
+const { missingTables, authoredSql, prepareAuthoredSql, prepareSeedSql, seedSqlOf } = await import(
   join(out, "lib/builder/backend/authored-sql.js")
 );
 
@@ -90,6 +90,24 @@ for (const bad of [
   "create table a (id int); drop table profiles;",
 ]) {
   has(!prepareAuthoredSql(bad).ok, `refused: ${bad}`);
+}
+
+console.log("\nStarter rows:");
+{
+  const seed = `insert into agents (id, full_name) values ('a1', 'Ann; the broker');
+insert into properties (id, name, agent_id) values ('p1', 'Villa', 'a1'), ('p2', 'Loft', 'a1') on conflict (id) do nothing;
+insert into properties (id, name, agent_id) values ('p3', 'Barn', 'a1');`;
+  const prepared = prepareSeedSql(seed);
+  has(prepared.ok, "inserts are accepted", prepared.reason);
+  has(prepared.ok && prepared.tables.join() === "agents,properties", "tables in the order they first appear", prepared.ok && prepared.tables.join());
+  has(prepared.ok && (prepared.sql.match(/if not exists \(select 1 from properties\)/g) ?? []).length === 1, "a table seeded in two statements is judged empty once");
+  has(prepared.ok && prepared.sql.includes("'Ann; the broker'"), "a semicolon inside a value is not a statement break");
+  has(prepared.ok && (prepared.sql.match(/on conflict do nothing/g) ?? []).length === 3, "every insert is safe to repeat");
+  for (const bad of ["delete from properties", "update properties set price = 1", "drop table properties", "insert into p (a) select a from q", "insert into p (a) values (1) on conflict (a) do update set a = 2"]) {
+    has(!prepareSeedSql(bad).ok, `refused: ${bad}`);
+  }
+  has(prepareSeedSql("insert into t (a) values ('x')", "app_1").ok && prepareSeedSql("insert into t (a) values ('x')", "app_1").sql.startsWith('set search_path to "app_1"'), "lands in the app's schema");
+  has(seedSqlOf([{ path: "lib/seed.sql", content: "x" }]) === "x" && seedSqlOf([]) === null, "read from lib/seed.sql");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

@@ -136,3 +136,79 @@ export function prepareAuthoredSql(sql: string, schema = "public"): Prepared {
   const suffix = ["notify pgrst, 'reload schema'"];
   return { ok: true, sql: `${[...prefix, ...out, ...suffix].join(";\n")};\n`, tables };
 }
+
+/* ── Starter rows ──────────────────────────────────────────────────────────
+ *
+ * The design shows six listings, a menu, three courses; the database the app
+ * reads starts empty. So the app was written against an array in the page
+ * instead — and what people saved pointed at nothing, because those listings
+ * were never rows. Aurelia Estates shipped exactly that.
+ *
+ * So a build writes the items its design needs as rows, in lib/seed.sql, and
+ * the pages read them from their tables. Each table gets them once: only
+ * while it is empty, so a listing the owner deletes does not come back on the
+ * next change. Inserts only — anything else refuses the whole file. */
+
+/* Quote- and dollar-aware, so a description with a semicolon in it is not
+   two statements. */
+function seedStatements(sql: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    if (!quote && sql.startsWith("$$", i)) { quote = "$$"; current += "$$"; i += 1; continue; }
+    if (quote === "$$" && sql.startsWith("$$", i)) { quote = null; current += "$$"; i += 1; continue; }
+    if (!quote && (ch === "'" || ch === '"')) quote = ch;
+    else if (quote === ch && quote !== "$$") quote = null;
+    if (ch === ";" && !quote) {
+      if (current.trim()) out.push(current.trim());
+      current = "";
+    } else current += ch;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
+}
+
+const SEED_INSERT = /^insert\s+into\s+([a-z_][\w]*(?:\.[a-z_][\w]*)?)\s*\(([^)]*)\)\s*values\s+([\s\S]+?)(?:\s+on\s+conflict(?:\s*\([^)]*\))?\s+do\s+nothing)?$/i;
+
+export type PreparedSeed = { ok: true; sql: string; tables: string[] } | { ok: false; reason: string };
+
+/** The build's starter rows, made to land only in tables that are empty, or the reason they will not run. */
+export function prepareSeedSql(sql: string, schema = "public"): PreparedSeed {
+  const parts = seedStatements(bare(sql));
+  if (parts.length === 0) return { ok: false, reason: "the seed file is empty" };
+  /* Grouped by table, in the order each first appears, so a table seeded in
+     two statements is judged empty once — before the first of them — and
+     rows that reference another table's land after that table's. */
+  const byTable = new Map<string, string[]>();
+  for (const statement of parts) {
+    const match = statement.match(SEED_INSERT);
+    if (!match) {
+      return { ok: false, reason: `it contains a statement that is not an insert: "${statement.replace(/\s+/g, " ").slice(0, 80)}"` };
+    }
+    if (statement.includes("$seed$")) return { ok: false, reason: "it contains the text $seed$" };
+    /* Judged with the quoted text blanked, so a description may say anything
+       but the statement itself may not overwrite, return or select. */
+    const shape = statement.replace(/'(?:[^']|'')*'/g, "''").replace(/\s+/g, " ");
+    const conflict = shape.match(/\bon conflict\b[\s\S]*$/i)?.[0];
+    if ((conflict && !/^on conflict(?: ?\([^)]*\))? do nothing$/i.test(conflict.trim())) || /\b(?:returning|select|update|delete)\b/i.test(shape.replace(/^insert into/i, ""))) {
+      return { ok: false, reason: `only plain inserts may seed a table: "${statement.replace(/\s+/g, " ").slice(0, 80)}"` };
+    }
+    const [, table, columns, values] = match;
+    const inserts = byTable.get(table) ?? [];
+    inserts.push(`insert into ${table} (${columns}) values ${values} on conflict do nothing;`);
+    byTable.set(table, inserts);
+  }
+  const tables = [...byTable.keys()].map((table) => table.split(".").pop() as string);
+  const out = [...byTable.entries()].map(
+    ([table, inserts]) => `do $seed$ begin if not exists (select 1 from ${table}) then ${inserts.join(" ")} end if; end $seed$`,
+  );
+  const prefix = schema === "public" ? [] : [`set search_path to "${schema.replace(/"/g, "")}", public`];
+  return { ok: true, sql: `${[...prefix, ...out].join(";\n")};\n`, tables };
+}
+
+/** lib/seed.sql, when the build wrote one. */
+export function seedSqlOf(tree: FileTree): string | null {
+  return tree.find((entry) => entry.path === "lib/seed.sql")?.content ?? null;
+}
