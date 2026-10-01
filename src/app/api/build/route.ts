@@ -173,6 +173,7 @@ import {
   classifyIntent,
   type Intent,
   remainderAfterRevert,
+  VISUAL_PICK,
 } from "@/lib/builder/intent";
 import {
   bestKindGuess,
@@ -1148,7 +1149,10 @@ async function handle(
    * and keep form input in the owner's database (page-data). A new project is
    * still asked for in so many words — see FEATURE_NOUN in intent.ts. */
   let featureBase: { ask: FeatureAsk; tree: FileTree; buildId: string } | null = null;
-  if (routedIntent === "edit" && service && !stageAsk && !pageDataAsk) {
+  /* Not for elements picked in the visual editor: those name the exact place
+     and are edited there, even when the words ("turn this into a carousel")
+     would read as a new area. */
+  if (routedIntent === "edit" && service && !stageAsk && !pageDataAsk && !VISUAL_PICK.test(prompt)) {
     const existing = await currentTree(service, project.id);
     if (existing.buildId && existing.tree.length > 0 && !isSinglePage(existing.tree)) {
       const ask = featureFor(prompt, existing.tree);
@@ -1266,7 +1270,7 @@ async function handle(
   {
     const confirmed = body.confirmSql === true && typeof body.sql === "string" ? body.sql : null;
     const pasted = confirmed ? null : sqlFromMessage(prompt);
-    const asked = !confirmed && !pasted && !pageDataAsk && isDatabaseAsk(prompt);
+    const asked = !confirmed && !pasted && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
 
     if (service && (confirmed || pasted || asked)) {
       const backend = await resolveBackend(service, project.id);
@@ -3009,7 +3013,7 @@ async function handle(
        * outright. The second catches "add a user dashboard", which reaches no
        * layer in the edit planner and would otherwise be drawn as a dashboard
        * that cannot hold anybody's data. */
-      const appAsk = pageData ? null : appFeatureFor(prompt);
+      const appAsk = pageData || VISUAL_PICK.test(prompt) ? null : appFeatureFor(prompt);
       if (pageUpgrade.kind === "needs-rebuild" || appAsk) {
         const what =
           appAsk?.areas.join(" and ") ??

@@ -396,6 +396,9 @@ export function remainderAfterRevert(message: string): string | null {
 }
 
 /** The cheap deterministic pass. Null when genuinely ambiguous. */
+/** A message the visual editor wrote: elements picked in the preview, by file and line. */
+export const VISUAL_PICK = /^Change these exact elements \(picked in the visual editor\):/;
+
 export function heuristicIntent(
   message: string,
   hasPage: boolean,
@@ -423,6 +426,12 @@ export function heuristicIntent(
    * A question keeps its own path — "does this look right?" with a screenshot
    * attached is still a question — and with nothing built yet a file is part of
    * the opening brief, which the rule below already answers. */
+  /* Picked in the visual editor: the person pointed at elements of a page that
+     exists. Whatever the words — "turn this into a carousel" reads like a new
+     feature, "update this" like nothing at all — it is an edit to those
+     elements. See VISUAL_LINES_ADDENDUM in prompts.ts. */
+  if (hasPage && VISUAL_PICK.test(m)) return { intent: "edit", confidence: 1, source: "heuristic" };
+
   if (hasAttachment && hasPage && m.length > 0) {
     const asking = ENDS_QUESTION.test(m) || WH_LEADS.test(m) || ASK_LEADS.test(m);
     if (!asking) return { intent: "edit", confidence: 0.85, source: "heuristic" };

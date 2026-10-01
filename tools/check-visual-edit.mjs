@@ -20,7 +20,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -33,12 +33,28 @@ writeFileSync(
     compilerOptions: {
       outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022",
       moduleResolution: "bundler", skipLibCheck: true, strict: true, types: [],
+      baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/visual-edit.ts")],
+    files: ["visual-edit.ts", "prompts.ts", "intent.ts", "patch.ts"].map((f) => join(process.cwd(), "src/lib/builder", f)),
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
+/* tsc keeps "./brain" as written; node's ESM loader wants the extension. */
+for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/dashboard")]) {
+  let entries = [];
+  try { entries = readdirSync(dir, { recursive: true }); } catch { continue; }
+  for (const entry of entries) {
+    if (!String(entry).endsWith(".js")) continue;
+    const path = join(dir, String(entry));
+    writeFileSync(path, readFileSync(path, "utf8")
+      .replace(/(from\s+["'])@\/([^"']+?)(["'])/g, (_, a, rest, c) => {
+        const depth = path.slice(out.length + 1).split("/").length - 1;
+        return `${a}${"../".repeat(depth)}${rest}.js${c}`;
+      })
+      .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (whole, a, spec, c) => (spec.endsWith(".js") ? whole : `${a}${spec}.js${c}`)));
+  }
+}
 
 const { applyVisualEdit, applyClassChange, locateElement, describeChange } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
@@ -140,6 +156,51 @@ console.log("\nWired in:");
   has(/ownedProject\(id\)/.test(route) && !/from "@\/lib\/(?:credits|billing)|chargeCredits|spendCredits|recordCharge/.test(route), "the route checks ownership and charges nothing");
   const chat = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
   has(/VISUAL_ASK_EVENT/.test(chat), "requests for the AI go through the chat, charged like any edit");
+}
+
+console.log("\nRequests the AI gets from the editor:");
+{
+  const { pointedAt, markLines, visualLinesPrompt } = await import(join(out, "lib/builder/prompts.js"));
+  const { heuristicIntent, VISUAL_PICK } = await import(join(out, "lib/builder/intent.js"));
+  const { applyLineEdits, numberLines } = await import(join(out, "lib/builder/patch.js"));
+  /* The two messages that came back as "I couldn't place that change". */
+  const real = [
+    "Change these exact elements (picked in the visual editor):\n1. <svg> in components/Logo.tsx line 3: update logo. <svg> · components/Logo.tsx line 3",
+    "Change these exact elements (picked in the visual editor):\n1. <svg> in components/Logo.tsx line 3: <svg> · components/Logo.tsx line 3. update this",
+  ];
+  for (const message of real) {
+    const found = pointedAt(message, "components/Logo.tsx");
+    has(found.length === 1 && found[0].tag === "svg" && found[0].line === 3, `the element is read off the message: ${message.split(": ").slice(-1)[0].slice(0, 30)}`, JSON.stringify(found));
+    has(heuristicIntent(message, true)?.intent === "edit" && VISUAL_PICK.test(message), "and it is routed as an edit, whatever the words");
+  }
+  const withLabel = 'Change these exact elements (picked in the visual editor):\n1. <h1> in app/page.tsx line 53 ("Residences considered"): turn this into a carousel\n2. <p> in app/page.tsx line 60: make it shorter';
+  const two = pointedAt(withLabel, "app/page.tsx");
+  has(two.length === 2 && two[0].ask === "turn this into a carousel" && two[1].line === 60, "several elements, with their quoted words, are all read");
+  has(pointedAt("make the logo gold", "components/Logo.tsx").length === 0, "an ordinary message is not mistaken for one");
+
+  const LOGO = `export default function Logo({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} fill="none" aria-hidden="true">
+      <path d="M24 4 L44 40 L24 32 L4 40 Z" stroke="var(--accent)" strokeWidth="1.5" fill="none" />
+      <circle cx="24" cy="20" r="2" fill="var(--accent)" />
+    </svg>
+  );
+}
+`;
+  const marked = markLines(numberLines(LOGO), [3]);
+  has(marked.split("\n")[2].startsWith("▶") && !marked.split("\n")[1].startsWith("▶"), "the picked line is marked for the model");
+  const prompt = visualLinesPrompt(real[0], "components/Logo.tsx", numberLines(LOGO), pointedAt(real[0], "components/Logo.tsx"));
+  has(/<svg> starting at line 3: update logo/.test(prompt) && prompt.includes("▶"), "the model is told exactly what was picked and asked");
+  /* What a reply in that format does to the real file. */
+  const reply = `<<<<<<< LINES 3-6
+    <svg viewBox="0 0 48 48" className={className} fill="none" aria-hidden="true">
+      <path d="M24 3 L45 41 L24 33 L3 41 Z" stroke="var(--accent)" strokeWidth="2" fill="none" />
+      <path d="M24 13 L24 27" stroke="var(--accent)" strokeWidth="2" />
+    </svg>
+>>>>>>> END
+Changed: a bolder mark with a single vertical stroke.`;
+  const landed = applyLineEdits(LOGO, reply);
+  has(landed.applied === 1 && parses(landed.html) && landed.html.includes("M24 13 L24 27"), "a reply naming those lines lands, and the file still parses");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

@@ -250,9 +250,17 @@ export default function VisualEditPanel({
         }
       }
       if (forAi.length > 0) {
+        /* Grouped by file — an edit changes one file — and sent in order. */
+        const byFile = new Map<string, string[]>();
+        for (const line of forAi) {
+          const file = line.match(/^<[^>]+> in (\S+) line/)?.[1] ?? "";
+          byFile.set(file, [...(byFile.get(file) ?? []), line]);
+        }
         askChat({
           projectId,
-          text: `Change these exact elements (picked in the visual editor):\n${forAi.map((line, i) => `${i + 1}. ${line}`).join("\n")}`,
+          texts: [...byFile.values()].map(
+            (lines) => `Change these exact elements (picked in the visual editor):\n${lines.map((line, i) => `${i + 1}. ${line}`).join("\n")}`,
+          ),
         });
       }
       shown.current.clear();
@@ -399,7 +407,7 @@ export default function VisualEditPanel({
                 value={ask}
                 onChange={(event) => setAsk(event.target.value)}
                 rows={2}
-                placeholder="e.g. turn this into a carousel"
+                placeholder="Say what to change — e.g. make the logo gold and add 'Estates' beside it"
                 className="mt-1 w-full resize-y rounded-md border border-line/[0.1] bg-transparent px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
               />
               <button

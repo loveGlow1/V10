@@ -379,6 +379,65 @@ ${failures}
 Do not try to quote the file again. Name the line numbers instead.`;
 }
 
+/* ── Requests from the visual editor ─────────────────────────────────────
+ *
+ * The person pointed at an element in the preview and wrote what they want
+ * — often as little as "update this" or "update logo". They have already
+ * said WHERE; the words only say what. Two things went wrong with that:
+ * the model was asked to quote the file to find a place it had been given,
+ * and a vague request came back as no edit at all, so the person was told
+ * "I couldn't place that change" about the one element they had clicked.
+ *
+ * So these go straight to line numbers with the element marked, and a vague
+ * request is read the way a designer would read it: make one clear,
+ * tasteful improvement to THAT element, in this project's own design, and
+ * say what was done. */
+
+/** The elements a visual-editor message names in `path`: their tag, line, and what was asked. */
+export function pointedAt(message: string, path: string): { tag: string; line: number; ask: string }[] {
+  if (!/picked in the visual editor/i.test(message)) return [];
+  const out: { tag: string; line: number; ask: string }[] = [];
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const item = new RegExp(`<([a-z][\\w-]*)> in ${escaped} line (\\d+)(?: \\([^\\n]*?\\))?: ([^\\n]+)`, "g");
+  for (const match of message.matchAll(item)) out.push({ tag: match[1], line: Number(match[2]), ask: match[3].trim() });
+  return out;
+}
+
+export const VISUAL_LINES_ADDENDUM = `
+THE PERSON POINTED AT THESE ELEMENTS IN THE PREVIEW. Their lines are marked with "▶" in the margin; the element starts there. The change belongs to that element — its tag, its attributes, its children — and nothing else in the file.
+
+If what they wrote is vague — "update this", "update logo", "make it better", "fix it" — do NOT return nothing and do NOT ask a question. Make ONE clear, tasteful improvement to that element in keeping with this project's design (its colours, fonts and spacing tokens): for a logo, a refined mark and lockup; for a heading, stronger wording or hierarchy; for a button, clearer label and emphasis. Then, after the blocks, write one sentence starting "Changed:" saying what you did, so they can ask for something else.`;
+
+/** The numbered file with the pointed-at lines marked. */
+export function markLines(numbered: string, lines: readonly number[]): string {
+  const marked = new Set(lines);
+  return numbered
+    .split("\n")
+    .map((row, index) => (marked.has(index + 1) ? `▶${row}` : ` ${row}`))
+    .join("\n");
+}
+
+export function visualLinesPrompt(
+  userMessage: string,
+  path: string,
+  numbered: string,
+  pointed: { tag: string; line: number; ask: string }[],
+  architecture?: string,
+  neighbours?: string,
+): string {
+  const list = pointed.map((p, i) => `${i + 1}. <${p.tag}> starting at line ${p.line}: ${p.ask}`).join("\n");
+  return `${architecture ? `${architecture}\n\n────────────────────────────────────────\n\n` : ""}${
+    neighbours ? `${neighbours}\n\n` : ""
+  }THE FILE, WITH LINE NUMBERS — ${path}:
+
+${markLines(numbered, pointed.map((p) => p.line))}
+
+WHAT THEY POINTED AT AND ASKED:
+${list}
+
+THE WHOLE MESSAGE, FOR CONTEXT: ${userMessage}`;
+}
+
 /** What the model is shown: the file, its path, and what the project is. */
 export function sourcePrompt(
   userMessage: string,
