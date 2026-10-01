@@ -97,5 +97,22 @@ has(judgeSql("-- drop table a\nselect 1;").risky.length === 0, "a drop inside a 
 has(formatRows([{ id: 1, name: "Villa | Serena" }, { id: 2, name: null }]).includes("| 2 | — |"), "rows come back as a readable table");
 has(formatRows([]) === "No rows.", "and an empty result says so");
 
+console.log("\nSQL whose fence a copy mangled:");
+{
+  const body = "insert into properties (id, name) values\n  ('a', 'b')\non conflict (id) do nothing;";
+  for (const [label, message] of [
+    ["the language left on its own line", `sql\n${body}`],
+    ["two backticks of three", `\`\`sql\n${body}\n\`\``],
+    ["one backtick", `\`sql\n${body}`],
+    ["no fence at all", body],
+    ["a proper fence", `\`\`\`sql\n${body}\n\`\`\``],
+  ]) {
+    const got = sqlFromMessage(message);
+    has(got === body, `${label} → the SQL`, JSON.stringify(got));
+  }
+  has(sqlFromMessage("sql is great, make the dashboard nicer") === null, "a sentence that starts with sql is not SQL");
+  has(sqlFromMessage("``\nmake the hero bigger") === null, "and stray backticks around a request are not SQL");
+}
+
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
