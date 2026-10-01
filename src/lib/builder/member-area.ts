@@ -113,6 +113,27 @@ const SETTINGS: MemberSection = {
   purpose: "account settings — email, password change, notification preferences, and signing out",
 };
 
+/* The section each personal module is seen in. Tables that ARE the app — a
+   CRM's deals, a forum's threads — are not here: they are the product, not a
+   person's corner of it. */
+const section = (slug: string) => VOCABULARY.find((entry) => entry.section.slug === slug)?.section as MemberSection;
+const MODULE_SECTIONS: Record<string, MemberSection> = {
+  favorites: section("saved"),
+  saved_jobs: section("saved"),
+  saved_searches: { slug: "saved-searches", title: "Saved searches", purpose: "the searches they saved, each runnable again in one click, with alerts on or off and a way to delete one" },
+  viewing_requests: { slug: "viewings", title: "Viewings", purpose: "their viewing requests with property, date, time and status, and a way to cancel an upcoming one" },
+  room_bookings: section("bookings"),
+  tour_bookings: section("bookings"),
+  class_bookings: section("bookings"),
+  appointments: section("bookings"),
+  reservations: section("bookings"),
+  registrations: section("bookings"),
+  enrollments: section("courses"),
+  job_applications: { slug: "applications", title: "Applications", purpose: "the jobs they applied to, newest first, each with its status" },
+  memberships: { slug: "membership", title: "Membership", purpose: "their plan, when it renews or ends, and its status" },
+  recently_viewed: section("recently-viewed"),
+};
+
 /* Segments written out as routes — "/dashboard/favorites" — are the most
    exact thing a brief can say, and they win over the vocabulary. */
 const EXPLICIT_ROUTE = /\/dashboard\/([a-z][a-z0-9-]{1,30})\b/gi;
@@ -149,6 +170,8 @@ export function memberAreaFor(
   brief: string,
   manifest: { authentication: boolean },
   kind: BuildKind,
+  /** The signed-in person's own tables the database was given, when known. */
+  personalTables: readonly string[] = [],
 ): MemberArea | null {
   if (!manifest.authentication) return null;
 
@@ -159,7 +182,12 @@ export function memberAreaFor(
   const asked = text.match(MEMBER_AREA);
   const explicit = [...brief.matchAll(EXPLICIT_ROUTE)].map((match) => match[1].toLowerCase());
 
-  if (!asked && explicit.length === 0) return null;
+  /* Modules that belong to one signed-in person — saved homes, viewings,
+     bookings — need a place to be seen, so they make the area even when the
+     brief never said "dashboard". */
+  const fromModules = [...new Set(personalTables.map((table) => MODULE_SECTIONS[table]).filter(Boolean))] as MemberSection[];
+
+  if (!asked && explicit.length === 0 && fromModules.length === 0) return null;
 
   /* A store's shoppers already have /account (scaffold.ts ACCOUNT_ROUTES), and
      "a store with a dashboard" means the merchant's far more often than the
@@ -190,6 +218,12 @@ export function memberAreaFor(
     /* An explicit "/dashboard/favorites" already covers "saved". */
     if (explicit.some((slug) => entry.pattern.test(slug.replace(/-/g, " ")))) continue;
     add(entry.section);
+  }
+
+  for (const section of fromModules) {
+    /* A brief that said "viewings" already has them, as Bookings. */
+    if (seen.has(section.slug) || (section.slug === "viewings" && seen.has("bookings"))) continue;
+    add(section);
   }
 
   if (![...seen].some((slug) => /profile/.test(slug))) add(PROFILE);

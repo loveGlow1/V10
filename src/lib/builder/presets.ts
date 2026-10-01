@@ -232,8 +232,33 @@ export type Preset = {
   label: string;
   /** What in a brief means this kind of site. */
   says: RegExp;
+  /** Every table this kind of site can have. Not all are created: see `optional`. */
   tables: () => Table[];
+  /**
+   * The modules a site of this kind has only when the brief asks for them, by
+   * table name, with the words that ask. Everything else in `tables` is the
+   * core: what this kind of site cannot be without. See modulesFor.
+   */
+  optional?: Record<string, RegExp>;
 };
+
+/* ── The words that switch a module on ────────────────────────────────────── */
+
+/* A place of one's own behind a sign-in. A customer dashboard is made of the
+   personal modules — saved homes, viewings, recently viewed — so asking for
+   one asks for them. */
+const MEMBER = /\b(dashboard|my account|accounts?|portal|members?(?:'s)? area|sign[- ]?(?:in|up)|log[- ]?in|register|profiles?)\b/i;
+/* "Everything a site like this has." */
+const COMPLETE = /\b(full[- ]?(?:featured|stack|web ?app|platform)|production[- ]ready|complete (?:platform|app|site|solution)|all (?:the )?(?:standard |usual )?features|platform)\b/i;
+const either = (...patterns: RegExp[]) => new RegExp(patterns.map((pattern) => pattern.source).join("|"), "i");
+
+const CONTACT = /\b(contact|enquir(?:y|ies|e)|inquir(?:y|ies|e)|get in touch|message (?:us|the|an?)|leads?|lead capture|quote requests?|callback)\b/i;
+const SAVED = /\b(sav(?:e|ed|ing)|favou?rites?|wish ?lists?|shortlists?|bookmarks?|hearts?)\b/i;
+const RECENT = /\b(recently viewed|recent(?:ly)?|viewing history|browsing history)\b/i;
+const REVIEWS = /\b(reviews?|ratings?|rated|stars?)\b/i;
+
+const or = (pattern: RegExp) => either(pattern, COMPLETE);
+const orMember = (pattern: RegExp) => either(pattern, MEMBER, COMPLETE);
 
 /* Ordered most specific first: the first preset whose words match wins, so
    "hotel bookings" is a hotel before it is an appointment business, and an
@@ -247,8 +272,12 @@ export const PRESETS: Preset[] = [
       catalogue("agents", "The people who represent the properties, shown on listings and the team page.", [
         text("full_name"), text("title", true), text("email"), text("phone", true), text("bio", true), text("photo_url", true),
       ], [], false),
+      catalogue("locations", "The cities, neighbourhoods and areas properties are grouped by, each with its own page.", [
+        text("name"), slug(), text("region", true), text("description", true), text("image_url", true), count("position"),
+      ], [], false),
       catalogue("properties", "Every property listed for sale or rent.", [
         text("name"), slug(), text("description"), text("address_line"), text("city"), text("region", true), text("postal_code", true),
+        ref("location_id", "locations", true),
         money("price"), { name: "listing_type", type: "text", default: "'sale'", check: "listing_type in ('sale', 'rent')" },
         text("property_type"), count("bedrooms"), count("bathrooms"), count("square_feet"),
         { name: "amenities", type: "jsonb", default: "'[]'::jsonb" }, ref("agent_id", "agents", true),
@@ -281,8 +310,25 @@ export const PRESETS: Preset[] = [
         indexes: [{ on: ["user_id"] }],
         policies: personal("recently_viewed"),
       },
+      {
+        name: "saved_searches",
+        what: "Searches a signed-in person saved, to run again or be told about new matches.",
+        columns: [
+          ...base(), owner(), text("name"), { name: "filters", type: "jsonb", default: "'{}'::jsonb" }, flag("alerts", false),
+        ],
+        indexes: [{ on: ["user_id"] }],
+        policies: personal("saved_searches"),
+      },
       inquiries([ref("property_id", "properties", true)]),
     ],
+    optional: {
+      locations: or(/\b(locations?|neighbou?rhoods?|areas?|districts?|communities|cities|regions?)\b/i),
+      favorites: orMember(SAVED),
+      saved_searches: orMember(/\b(saved searches|search alerts?|property alerts?|alerts?)\b/i),
+      recently_viewed: orMember(RECENT),
+      viewing_requests: orMember(/\b(viewings?|book(?:ing)? a (?:viewing|tour|visit)|schedul\w* (?:a )?(?:viewing|tour|visit)|tours?|visits?|appointments?)\b/i),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -307,6 +353,10 @@ export const PRESETS: Preset[] = [
       reviews("rooms", "room_id"),
       inquiries(),
     ],
+    optional: {
+      reviews: or(REVIEWS),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -335,6 +385,10 @@ export const PRESETS: Preset[] = [
       reviews("tours", "tour_id"),
       inquiries(),
     ],
+    optional: {
+      reviews: or(REVIEWS),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -368,6 +422,10 @@ export const PRESETS: Preset[] = [
       },
       inquiries(),
     ],
+    optional: {
+      memberships: orMember(/\b(memberships?|plans?|subscriptions?|join)\b/i),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -394,6 +452,9 @@ export const PRESETS: Preset[] = [
       },
       inquiries(),
     ],
+    optional: {
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -418,6 +479,10 @@ export const PRESETS: Preset[] = [
       },
       inquiries(),
     ],
+    optional: {
+      reservations: orMember(/\b(reserv\w*|book(?:ing)?s? (?:a )?table|table bookings?|bookings?)\b/i),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -446,6 +511,10 @@ export const PRESETS: Preset[] = [
       reviews("services", "service_id"),
       inquiries(),
     ],
+    optional: {
+      reviews: or(REVIEWS),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -477,6 +546,10 @@ export const PRESETS: Preset[] = [
       },
       reviews("courses", "course_id"),
     ],
+    optional: {
+      lesson_progress: orMember(/\b(progress|track(?:ing)?|complet\w*|resume)\b/i),
+      reviews: or(REVIEWS),
+    },
   },
 
   {
@@ -505,6 +578,9 @@ export const PRESETS: Preset[] = [
         policies: personal("saved_jobs", ["insert", "delete"]),
       },
     ],
+    optional: {
+      saved_jobs: orMember(SAVED),
+    },
   },
 
   {
@@ -597,6 +673,11 @@ export const PRESETS: Preset[] = [
       },
       inquiries(),
     ],
+    optional: {
+      donations: or(/\b(donat\w*|give|giving|gifts?|fundrais\w*|campaigns?|appeals?)\b/i),
+      volunteer_signups: or(/\bvolunteer\w*/i),
+      contact_inquiries: or(CONTACT),
+    },
   },
 
   {
@@ -620,6 +701,11 @@ export const PRESETS: Preset[] = [
       inquiries([ref("listing_id", "listings", true)]),
       reviews("listings", "listing_id"),
     ],
+    optional: {
+      favorites: orMember(SAVED),
+      contact_inquiries: or(either(CONTACT, /\b(message (?:the )?sellers?|contact (?:the )?sellers?)\b/i)),
+      reviews: or(REVIEWS),
+    },
   },
 
   {
@@ -659,9 +745,23 @@ export const PRESETS: Preset[] = [
         columns: [...base(), owner(true), { name: "email", type: "text", unique: true }, text("source", true), flag("confirmed", false)],
         policies: submitted("newsletter_subscribers"),
       },
+      {
+        name: "waitlist_signups",
+        what: "People waiting for launch or early access, in the order they joined.",
+        columns: [...base(), owner(true), { name: "email", type: "text", unique: true }, text("full_name", true), text("referral_source", true)],
+        indexes: [{ on: ["created_at"] }],
+        policies: submitted("waitlist_signups"),
+      },
       catalogue("testimonials", "What customers say, shown on the site once approved.", [text("author_name"), text("author_title", true), text("quote"), { name: "rating", type: "integer", nullable: true, check: "rating is null or rating between 1 and 5" }]),
       catalogue("case_studies", "Past work, shown on the site.", [text("title"), slug(), text("client", true), text("summary"), text("body", true), text("image_url", true)]),
     ],
+    optional: {
+      contact_inquiries: or(either(CONTACT, /\b(forms?|book a call|consultation)\b/i)),
+      newsletter_subscribers: or(/\b(newsletter|subscribe|subscribers?|mailing list|email (?:list|updates|signups?)|updates)\b/i),
+      waitlist_signups: or(/\b(wait[- ]?list|early access|pre[- ]?launch|launch list|join the list|coming soon|beta (?:access|list|signups?))\b/i),
+      testimonials: or(/\b(testimonials?|reviews?|what (?:our )?(?:clients|customers) say)\b/i),
+      case_studies: or(/\b(case stud(?:y|ies)|portfolio|our work|past (?:work|projects))\b/i),
+    },
   },
 ];
 
@@ -678,4 +778,74 @@ export function presetFor(text: string, kind: BuildKind): Preset | null {
   const match = PRESETS.find((preset) => preset.says.test(text));
   if (match) return match;
   return kind === "landing" ? (PRESETS.find((preset) => preset.id === "business") ?? null) : null;
+}
+
+export type Modules = {
+  /** The tables to create, core first, in the preset's own order. */
+  tables: Table[];
+  /** The optional modules the brief switched on. */
+  chosen: string[];
+  /** The optional modules it did not, kept out on purpose. */
+  left: string[];
+};
+
+/**
+ * The modules this brief needs from a preset — never more.
+ *
+ * The core is always there: an estate agency without properties is not one.
+ * Each optional module joins only when the brief asks for it, in its own words
+ * or by asking for what it is part of (a dashboard asks for saved homes and
+ * viewings; "a complete platform" asks for everything). Then the references
+ * are settled: a kept table that cannot exist without a left-out one brings it
+ * back, and an optional link to a left-out one is dropped with its index, so
+ * no table points at something that was never created.
+ *
+ * A preset whose modules are all optional (the business site) and a brief
+ * that names none of them still asked for a database, and the one thing such
+ * a site does with one is take enquiries, so that is what it gets.
+ */
+export function modulesFor(preset: Preset, text: string): Modules {
+  const all = preset.tables();
+  const optional = preset.optional ?? {};
+  const keep = new Set(
+    all.filter((table) => !(table.name in optional) || optional[table.name].test(text)).map((table) => table.name),
+  );
+  if (keep.size === 0 && all.some((table) => table.name === "contact_inquiries")) keep.add("contact_inquiries");
+
+  const names = new Set(all.map((table) => table.name));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const table of all) {
+      if (!keep.has(table.name)) continue;
+      for (const column of table.columns) {
+        const target = column.references?.table;
+        if (target && names.has(target) && !keep.has(target) && !column.nullable) {
+          keep.add(target);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  const tables = all
+    .filter((table) => keep.has(table.name))
+    .map((table) => {
+      const dropped = new Set(
+        table.columns
+          .filter((column) => column.references && names.has(column.references.table) && !keep.has(column.references.table))
+          .map((column) => column.name),
+      );
+      if (dropped.size === 0) return table;
+      return {
+        ...table,
+        columns: table.columns.filter((column) => !dropped.has(column.name)),
+        indexes: table.indexes?.filter((index) => !index.on.some((column) => dropped.has(column))),
+      };
+    });
+
+  return {
+    tables,
+    chosen: Object.keys(optional).filter((name) => keep.has(name)),
+    left: Object.keys(optional).filter((name) => !keep.has(name)),
+  };
 }
