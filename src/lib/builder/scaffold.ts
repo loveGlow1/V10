@@ -30,7 +30,7 @@ import type { MemberArea } from "./member-area";
 import { allCommerce } from "./commerce";
 import { type DataModel, schemaBrief, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
-import { repairStructure } from "./next-structure";
+import { AUTH_DEFER, repairStructure } from "./next-structure";
 import { type BuildMode, buildModeOf } from "./build-mode";
 import type { FileTree, ProjectFile } from "./tree";
 
@@ -502,9 +502,12 @@ function connect() {
    * createClient's second type parameter defaults to it, and then \`db.schema\`
    * is required to be "public" too — which would be a lie about which schema is
    * really being read. Naming it settles both halves. */
-  return createClient<Database, "${model.schema}">(url, anonKey, {
+  const created = createClient<Database, "${model.schema}">(url, anonKey, {
     db: { schema: schema as "${model.schema}" },
   });
+
+${AUTH_DEFER}
+  return created;
 }
 
 let client: ReturnType<typeof connect> | null = null;
@@ -1298,6 +1301,13 @@ export function treeBrief(
       "- Sign in, sign up and sign out through `supabase.auth`. Session state comes from `onAuthStateChange` and an initial `getSession`, held in one provider — never read from localStorage by hand.",
       "- Signing up writes the profiles row for the new user. Nothing sets `role`: it defaults, and the database refuses a change to it from anyone but an admin.",
       "- A protected page renders nothing until the session has actually loaded. Rendering the signed-out view first and correcting it is a flash of the wrong page on every load.",
+      /* "Signing in…" for ever, on a live site: the header listened with
+         onAuthStateChange(() => load()) and load() called Supabase, which
+         deadlocks the sign-in that fired the event. lib/supabase.ts defers
+         listeners now (AUTH_DEFER); these keep the generated code from
+         depending on that alone. */
+      "- Never call Supabase from inside an onAuthStateChange callback. Read the session the callback is handed, or schedule the follow-up read (`setTimeout(load, 0)`). A Supabase call made inside the callback deadlocks the sign-in that fired it, and the button stays on \"Signing in…\" for ever.",
+      "- Every sign-in, sign-up and sign-out handler puts its busy state back in a `finally`, and catches what it awaits: a failed request shows the reason in words under the form, never a button stuck on its busy label.",
     );
   }
 

@@ -262,6 +262,43 @@ const IMPORTS_JSX = /import\s+(?:type\s+)?\{[^}]*\bJSX\b[^}]*\}\s*from\s*["']rea
 /** Every source file, not just the routable ones — this is a types problem. */
 const SOURCE_FILE = /\.(?:tsx?|jsx?)$/;
 
+/* ── Sign-in that never returns ────────────────────────────────────────────
+ *
+ * supabase-js runs onAuthStateChange listeners INSIDE the auth operation that
+ * fired them, holding its lock, and waits for them. A listener that calls
+ * Supabase again — `onAuthStateChange(() => load())`, where load() reads the
+ * user and their profile, which is how every generated header knows who is
+ * signed in — waits for that same lock. Neither side moves, so
+ * signInWithPassword never resolves and the button sits on "Signing in…"
+ * forever. Supabase's own documentation names this deadlock.
+ *
+ * Deferring each listener to the next task is their recommended answer, and it
+ * is written once, into the client every page imports, rather than asked of
+ * every component that listens. The marker is how the repair below knows a
+ * client already has it. */
+export const AUTH_DEFER_MARK = "deferAuthListeners";
+
+export const AUTH_DEFER = `  /* ${AUTH_DEFER_MARK}: every onAuthStateChange listener runs just after the
+     auth event rather than inside it. A listener that calls Supabase from
+     inside the event deadlocks sign-in — the button stays on "Signing in…" for
+     ever. See Supabase's onAuthStateChange documentation. */
+  type Listener = (event: string, session: unknown) => unknown;
+  const auth = created.auth;
+  const listen = auth.onAuthStateChange.bind(auth) as unknown as (
+    callback: Listener,
+  ) => ReturnType<typeof auth.onAuthStateChange>;
+  auth.onAuthStateChange = ((callback: Listener) =>
+    listen((event, session) => {
+      setTimeout(() => {
+        void callback(event, session);
+      }, 0);
+    })) as unknown as typeof auth.onAuthStateChange;
+`;
+
+/* Where the scaffold's client is returned, captured whole: the createClient
+   call through its closing parenthesis, and the brace that ends connect(). */
+const CLIENT_RETURN = /return (createClient<[\s\S]*?\n {2}\}\);)\n\}/;
+
 /* A type-scale token inside an arbitrary text- class, which Tailwind compiles
    as a colour. Preceded by a class boundary, so variants such as `md:` and
    `hover:` are caught and a longer class that merely ends in "text-" is not. */
@@ -749,6 +786,23 @@ export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repa
       what: `${file.path} sets its font sizes with text-[length:…], so Tailwind stops reading them as a text colour`,
       file: file.path,
     });
+  }
+
+  /* The client every page imports, given the listener deferral above when it
+     was written before that existed. Only the scaffold's own client is
+     touched, recognised by its shape, so a hand-written one is left alone. */
+  {
+    const held = byPath.get("lib/supabase.ts");
+    if (held && !held.content.includes(AUTH_DEFER_MARK) && CLIENT_RETURN.test(held.content)) {
+      held.content = held.content.replace(
+        CLIENT_RETURN,
+        (_whole, call: string) => `const created = ${call}\n\n${AUTH_DEFER}\n  return created;\n}`,
+      );
+      repairs.push({
+        what: "lib/supabase.ts now runs sign-in listeners after the auth event, so signing in can no longer hang on \"Signing in…\"",
+        file: "lib/supabase.ts",
+      });
+    }
   }
 
   for (const file of tree) {
