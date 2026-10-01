@@ -676,5 +676,27 @@ has(
   has(clean.tree === sound, "a project without the mistake is returned untouched");
 }
 
+/* ── Sign-in that never returns ───────────────────────────────────────────
+ *
+ * Aurelia's live login stuck on "Signing in…": its header listened with
+ * onAuthStateChange(() => load()) and load() called Supabase inside the event,
+ * which deadlocks the sign-in. The scaffold's client defers every listener;
+ * a client written before that gets the same deferral from the repair. */
+{
+  const before = file(
+    "lib/supabase.ts",
+    'import { createClient } from "@supabase/supabase-js";\nfunction connect() {\n  return createClient<Database, "public">(url, anonKey, {\n    db: { schema: schema as "public" },\n  });\n}\nlet client = null;\n',
+  );
+  const { tree: fixed, repairs } = repairStructure([SHELL, HOME, before]);
+  const client = at(fixed, "lib/supabase.ts");
+  has(client.includes("deferAuthListeners") && client.includes("setTimeout(() =>"), "an older client gets its auth listeners deferred");
+  has(/const created = createClient</.test(client) && /return created;\n\}/.test(client), "around the same client, still returned from connect()");
+  has(repairs.some((repair) => repair.file === "lib/supabase.ts"), "and the repair is reported");
+  has(!repairStructure(fixed).repairs.some((repair) => repair.file === "lib/supabase.ts"), "and it is applied once, not on every pass");
+
+  const handWritten = file("lib/supabase.ts", 'export const supabase = makeMyOwnClient();\n');
+  has(at(repairStructure([SHELL, HOME, handWritten]).tree, "lib/supabase.ts") === handWritten.content, "a client somebody wrote by hand is left alone");
+}
+
 console.log(failed === 0 ? "\nAll Next.js structure checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
