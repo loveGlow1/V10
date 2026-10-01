@@ -85,6 +85,8 @@ import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import {
   type ArchitectureManifest,
   architectureFromChoice,
+  LAYERS,
+  raiseArchitecture,
   architectureOptions,
   architectureQuestion,
   decideArchitecture,
@@ -128,7 +130,8 @@ import { searchContext } from "@/lib/builder/images";
 import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
-import { isSinglePage } from "@/lib/builder/tree";
+import { type FileTree, isSinglePage } from "@/lib/builder/tree";
+import { type FeatureAsk, featureBrief, featureFor } from "@/lib/builder/feature";
 import { indexTree, retrieve } from "@/lib/context/project-index";
 import {
   deploymentName,
@@ -1087,7 +1090,7 @@ async function handle(
     ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html" &&
     isPageDataAsk(prompt, planEdit(prompt, knownArchitecture).touches);
 
-  const intent: Intent = stageAsk
+  const routedIntent: Intent = stageAsk
     ? pathForStage(Boolean(currentHtml)) === "edit"
       ? "edit"
       : "new_project"
@@ -1096,6 +1099,41 @@ async function handle(
         ? "edit"
         : decision.intent
       : "new_project";
+
+  /* ── A feature for this project, rather than a change to one file ────────
+   *
+   * "Add a user dashboard", "build an admin area", "I need bookings": an edit
+   * can only patch a file that already exists, so it could not write one page
+   * of these, and the full build they used to fall into wrote the whole
+   * project again and charged for all of it. A person adds the rooms to the
+   * house that is there.
+   *
+   * So a request for an area this multi-file project does not have yet goes
+   * through the build path — the orchestrator, the database provisioning, the
+   * photographs — as an ADDITION: it keeps the project's kind, design and data,
+   * is shown the project's own files, returns only what it creates or changes,
+   * and is merged over the project when it lands. See lib/builder/feature.ts.
+   *
+   * A single page keeps the edit path, which can add sections to one document
+   * and keep form input in the owner's database (page-data). A new project is
+   * still asked for in so many words — see FEATURE_NOUN in intent.ts. */
+  let featureBase: { ask: FeatureAsk; tree: FileTree; buildId: string } | null = null;
+  if (routedIntent === "edit" && service && !stageAsk && !pageDataAsk) {
+    const existing = await currentTree(service, project.id);
+    if (existing.buildId && existing.tree.length > 0 && !isSinglePage(existing.tree)) {
+      const ask = featureFor(prompt, existing.tree);
+      if (ask) featureBase = { ask, tree: existing.tree, buildId: existing.buildId };
+    }
+  }
+
+  const intent: Intent = featureBase ? "new_project" : routedIntent;
+  if (featureBase) {
+    steps.mark(
+      "feature",
+      `Adding ${featureBase.ask.areas.join(", ")} to your project`,
+      "every existing page is kept — only the new files and the ones that link to them are written",
+    );
+  }
 
   if (stageAsk && activePlan) {
     steps.mark(
@@ -1547,7 +1585,7 @@ async function handle(
   }
 
   // ── NEW PROJECT, over something that exists ──────────────────────────────
-  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true) {
+  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true && !featureBase) {
     /* Nothing has happened yet and nothing will until this comes back
        confirmed. Replacing a page someone spent real time and credits on is
        not a thing to do on a classifier's say-so. */
@@ -3544,7 +3582,15 @@ async function handle(
      used it but the order of four buttons, and bestKindGuess orders them for
      nothing. So on this path no model is consulted before generation, in the
      app for the same reason none is consulted in the orchestrator. */
-  const chosen = isBuildKind(body.buildKind) ? body.buildKind : null;
+  /* A feature is added to the project that is there, so it is the kind that
+     project already is — a dashboard added to a store does not make it a web
+     app. */
+  const knownKind = isBuildKind(projectContextRow?.state.kind)
+    ? projectContextRow.state.kind
+    : isBuildKind(knownArchitecture?.type)
+      ? knownArchitecture.type
+      : null;
+  const chosen = featureBase && knownKind ? knownKind : isBuildKind(body.buildKind) ? body.buildKind : null;
   const quick: KindResult | null = chosen
     ? { kind: chosen, confidence: 1, source: "selection", reason: "you chose it" }
     : heuristicKind(brief.text);
@@ -3612,6 +3658,11 @@ async function handle(
   const needs = chosenStack
     ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
     : decideStack(brief.text, kind.kind);
+  /* A feature lands in the project it is added to, which is a file tree. */
+  if (featureBase) {
+    needs.stack = "nextjs";
+    needs.certain = true;
+  }
 
   /* ── What this project is actually made of ──────────────────────────────
    *
@@ -3644,9 +3695,23 @@ async function handle(
   const chosenArchitecture =
     answered && !canOfferManaged && databaseChoice(answered) === "managed" ? "own" : answered;
   const decided = decideArchitecture(brief.text, kind.kind, needs);
-  const architecture = chosenArchitecture
+  const answeredArchitecture = chosenArchitecture
     ? architectureFromChoice(chosenArchitecture, kind.kind, decided)
     : decided;
+  /* A feature ADDS layers to what the project has and never takes one away:
+     "add a booking page" says nothing about the admin, and is not a request to
+     lose it. What the project already is counts as decided, so the only thing
+     left to ask about is a database it has never had. */
+  const architecture =
+    featureBase && knownArchitecture
+      ? (() => {
+          const raised = raiseArchitecture(
+            knownArchitecture,
+            LAYERS.filter((layer) => answeredArchitecture.manifest[layer]),
+          );
+          return { ...answeredArchitecture, manifest: raised.manifest, needsProject: true, certain: true };
+        })()
+      : answeredArchitecture;
 
   /* An answer settles the artefact as well as the layers, so it is applied to
      `needs` before either question below is considered. "The front of it" is a
@@ -4170,7 +4235,12 @@ async function handle(
    *
    * Free, deterministic, and one of six systems written by hand — see
    * src/lib/builder/design.ts. */
-  const design = decideDesign(plan.direction.register, kind.kind, brief.text);
+  /* A feature wears the project's own design; choosing again could hand a new
+     page a different system from the pages beside it. */
+  const design =
+    featureBase && knownDesign
+      ? { dna: knownDesign, reason: "kept from the project it is added to" }
+      : decideDesign(plan.direction.register, kind.kind, brief.text);
   steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
 
   steps.mark(
@@ -4239,9 +4309,11 @@ async function handle(
      * The plan reaches the model as part of the prompt: which stage this is,
      * what is already built and must not be rebuilt, and what comes later and
      * must not be built early. See stagePlanBrief. */
-    let plannedStages = activePlan;
+    /* Never for a feature: it is one addition to a finished project, and a
+       plan would hold back half of it for "a later stage". */
+    let plannedStages = featureBase ? null : activePlan;
 
-    if (!plannedStages && service) {
+    if (!plannedStages && service && !featureBase) {
       const split = decompose({
         brief: brief.text,
         requirements: extractRequirements(brief.text),
@@ -4299,6 +4371,12 @@ async function handle(
     /* Held as a value rather than inlined, because the brief may have to be
        restructured below and the prompt recomposed around it — and two
        literals are two chances for the second one to differ from the first. */
+    /* The file-tree brief, turned into an addition when this is a feature: the
+       same rules, the project's own files to read, and "write only what you
+       create or change". See featureBrief. */
+    const asFeature = (base: string) =>
+      featureBase ? featureBrief(base, featureBase.ask, prompt, featureBase.tree) : base;
+
     const promptContext = {
       projectName: project.name,
       attachmentText: attachedText,
@@ -4319,7 +4397,7 @@ async function handle(
          the shape of the answer changes. */
       treeInstructions:
         needs.stack === "nextjs"
-          ? treeBrief(
+          ? asFeature(treeBrief(
               kind.kind,
               architecture.manifest,
               dataModel,
@@ -4359,7 +4437,7 @@ async function handle(
                  one. Without it a "dashboard" brief was answered with a login
                  page and nothing behind it. See member-area.ts. */
               memberAreaFor(brief.text, architecture.manifest, kind.kind),
-            )
+            ))
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */
@@ -4436,6 +4514,23 @@ async function handle(
          See the effort note in model-request.ts. */
       needs.stack === "nextjs" ? "project" : "page",
     );
+
+    /* Which build this is, written where the save route will look. The files
+       come back through the orchestrator as an ordinary build, and only this
+       tells the save route to lay them OVER the project rather than replace it
+       — and to charge for the files written rather than for the project. */
+    if (featureBase && service) {
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: projectContextRow?.version ?? 1,
+        state: {
+          ...(projectContextRow?.state ?? {}),
+          feature: { requestId, baseBuildId: featureBase.buildId, areas: featureBase.ask.areas },
+        },
+        cache: projectContextRow?.cache ?? {},
+      });
+    }
 
     result = await startBuild({
       prompt: buildBrief,

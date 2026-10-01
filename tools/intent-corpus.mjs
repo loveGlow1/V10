@@ -195,4 +195,23 @@ export const REVERTS = [
   ["restore the original spacing on the hero", true, "revert"],
 ];
 
-export const SETS = { corpus: CORPUS, holdout: HOLDOUT, blind: BLIND, final: FINAL, reverts: REVERTS };
+/* Features for the project that is open. Every one of these used to be read
+   as new_project — a full rebuild that threw the project away — because it has
+   a build verb and something to build. A person asking for these is adding a
+   room to the house they have. A new project still has to be asked for. */
+export const FEATURES = [
+  ["build a user dashboard with login", true, "edit"],
+  ["create an admin dashboard to manage listings", true, "edit"],
+  ["build a booking system for this site", true, "edit"],
+  ["add a dashboard for users to see their saved properties", true, "edit"],
+  ["I need customer accounts and a members area", true, "edit"],
+  ["add login and sign up", true, "edit"],
+  ["create a new pricing page", true, "edit"],
+
+  ["start over and build a dashboard for my gym", true, "new_project"],
+  ["create a new project: a CRM dashboard", true, "new_project"],
+  ["build a different site, a portfolio for a photographer", true, "new_project"],
+  ["I want a site for my coffee shop with a hero, menu, and contact form", true, "new_project"],
+];
+
+export const SETS = { corpus: CORPUS, holdout: HOLDOUT, blind: BLIND, final: FINAL, reverts: REVERTS, features: FEATURES };

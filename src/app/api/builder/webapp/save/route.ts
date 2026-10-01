@@ -18,7 +18,8 @@ import { allIssues, autofix, describeQa, evidenceFrom, runQaLoop } from "@/lib/b
 import { isBuildKind } from "@/lib/builder/kinds";
 import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
-import { storeTree } from "@/lib/builder/store-tree";
+import { loadTree, storeTree } from "@/lib/builder/store-tree";
+import { mergeFeature } from "@/lib/builder/feature";
 import { extractRequirements } from "@/lib/context/compress";
 import { absorbToolResult } from "@/lib/context/tool-output";
 import { indexPage, indexTree } from "@/lib/context/project-index";
@@ -399,10 +400,31 @@ export async function POST(request: Request) {
     summaryBackend?.schema ?? schemaNameFor(claim.projectId),
   );
 
+  /* ── A feature, laid over the project it was added to ─────────────────
+   *
+   * /api/build marks a feature build in the project's context before it sends
+   * it. Its answer is only the files it created or changed, so storing it as
+   * the project would delete every page it did not touch. It is merged over
+   * the build it was added to instead, and priced on the files it wrote.
+   * Matched on the signed request id, so a stale marker can never turn an
+   * ordinary rebuild into a merge. See lib/builder/feature.ts. */
+  let featureLanded: { created: string[]; changed: string[]; areas: string[] } | null = null;
+
   if (body.files !== undefined && body.files !== null) {
     try {
+      let returned = readTree(body.files);
+      const marker = (await readContext(supabase, claim.projectId)).state.feature;
+      if (marker && claim.requestId && marker.requestId === claim.requestId) {
+        const base = await loadTree(supabase, marker.baseBuildId);
+        if (base.length > 0) {
+          const merged = mergeFeature(base, returned);
+          returned = merged.tree;
+          featureLanded = { created: merged.created, changed: merged.changed, areas: marker.areas };
+        }
+      }
+
       tree = completeTree(
-        readTree(body.files),
+        returned,
         (project.name as string | null) ?? "app",
         summaryArchitecture,
         summaryModel,
@@ -918,7 +940,13 @@ export async function POST(request: Request) {
     });
   }
 
-  const filesTouched = tree.length > 0 ? tree.length : filesTouchedFor(html);
+  /* A feature is priced on what it wrote, not on the size of the project it
+     was added to — adding a dashboard is not a whole new build. */
+  const filesTouched = featureLanded
+    ? Math.max(1, featureLanded.created.length + featureLanded.changed.length)
+    : tree.length > 0
+      ? tree.length
+      : filesTouchedFor(html);
 
   const { data: inserted, error: insertError } = await supabase.from("project_builds").insert({
     project_id: project.id,
@@ -1350,7 +1378,22 @@ export async function POST(request: Request) {
     projectId: project.id,
     userId: claim.userId,
     role: "system",
-    body: "Your page is ready.",
+    /* A feature says what it added and what it touched, in that order: the
+       new pages are the news, and the existing files it changed are what
+       somebody checks to see their site was left alone. */
+    body: featureLanded
+      ? [
+          `Added ${featureLanded.areas.join(", ")} to your project — everything that was there is kept.`,
+          featureLanded.created.length > 0
+            ? `New: ${featureLanded.created.slice(0, 12).join(", ")}${featureLanded.created.length > 12 ? ` and ${featureLanded.created.length - 12} more` : ""}.`
+            : "",
+          featureLanded.changed.length > 0
+            ? `Updated to connect it: ${featureLanded.changed.slice(0, 8).join(", ")}${featureLanded.changed.length > 8 ? ` and ${featureLanded.changed.length - 8} more` : ""}.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : "Your page is ready.",
     /* Both addresses, and the file is one of them.
        The card under this message offers Download and Publish for a few minutes
        and then takes them away, which is what a shortcut should do. These links
@@ -1429,9 +1472,10 @@ export async function POST(request: Request) {
        request and the workflow forwarded — not a browser's word for it. */
     cost: roundCredits(pageCost + contextCost),
     description:
-      contextCost > 0
-        ? `Build: ${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
-        : `Build: ${str(body.prompt).slice(0, 60) || "new page"}`,
+      (featureLanded ? "Feature: " : "Build: ") +
+      (contextCost > 0
+        ? `${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
+        : `${str(body.prompt).slice(0, 60) || "new page"}`),
     projectId: project.id,
     filesTouched,
     /* The most expensive charge in the system, and the one most exposed to

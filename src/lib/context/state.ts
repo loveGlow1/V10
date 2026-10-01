@@ -49,6 +49,11 @@ export type ContextState = {
    * this project", asked by the same callers, and a plan in a second place is a
    * plan that can disagree with the row beside it. See stages.ts. */
   plan?: StagePlan;
+  /* A feature build in flight: which request it is, and the build it is being
+     added to. Set by /api/build when it sends one, read by the save route to
+     merge the returned files over that build instead of replacing it, and gone
+     once the save route writes the state again. See lib/builder/feature.ts. */
+  feature?: { requestId: string; baseBuildId: string; areas: string[] };
 };
 
 /** The blocks worth keeping built. Each is derived from a different slice of
