@@ -58,6 +58,7 @@ import {
 } from "./database-connect";
 import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
+import { VISUAL_ASK_EVENT, type VisualAsk } from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
@@ -985,6 +986,22 @@ export default function ChatPanel({
     }
     window.addEventListener(CONNECTED_EVENT, onConnected);
     return () => window.removeEventListener(CONNECTED_EVENT, onConnected);
+  }, [project?.id]);
+
+  /* The visual editor's AI requests, sent as an ordinary message so they are
+     charged, stepped and threaded like any other edit. See visual-ask.ts. */
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    const id = project?.id;
+    if (!id) return;
+    function onAsk(event: Event) {
+      const detail = (event as CustomEvent<VisualAsk>).detail;
+      if (detail?.projectId !== id || !detail.text.trim()) return;
+      void sendRef.current(detail.text);
+    }
+    window.addEventListener(VISUAL_ASK_EVENT, onAsk);
+    return () => window.removeEventListener(VISUAL_ASK_EVENT, onAsk);
   }, [project?.id]);
 
   async function send(
