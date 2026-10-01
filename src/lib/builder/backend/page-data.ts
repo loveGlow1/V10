@@ -35,7 +35,7 @@ export const PAGE_TABLE = "submissions";
 /* What a page can hold without a server. Kept narrow on purpose: every word
    here is a way of saying "keep what somebody typed". */
 const PAGE_DATA =
-  /\b(databases?|supabase|db|backend|sav(?:e|es|ing)|stor(?:e|es|ing)|collect\w*|captur\w*|submissions?|responses?|entries|leads?|wait ?lists?|wait-lists?|newsletters?|subscrib\w*|sign[ -]?ups?|signups?|contact forms?|forms?|rsvps?|bookings?|enquir\w+|inquir\w+|feedback|messages?)\b/i;
+  /\b(databases?|supabase|db|backend|sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing)|collect\w*|captur\w*|submissions?|responses?|entries|leads?|wait ?lists?|wait-lists?|newsletters?|subscrib\w*|sign[ -]?ups?|signups?|contact forms?|forms?|rsvps?|bookings?|enquir\w+|inquir\w+|feedback|messages?)\b/i;
 
 /* What a page genuinely cannot do, whatever is patched into it. Any of these
    and the existing answer stands: rebuild it as a project. */
@@ -58,7 +58,13 @@ export function isPageDataAsk(message: string, touches: readonly Layer[]): boole
      reaches past the markup — or names the database outright — is asking for
      somewhere to put things. */
   const namesDatabase = /\b(databases?|supabase|db)\b/i.test(asked);
-  if (deep.length === 0 && !namesDatabase) return false;
+  /* Or asks, in plain words, for what is sent to be kept: "I want the
+     enquiries from the form saved". Nobody has to say "database" to want one,
+     any more than they have to say "plumbing" to want a tap. */
+  const keepsWhatIsSent =
+    /\b(sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing)|keep|kept|collect\w*|captur\w*|record(?:ed|s)?)\b/i.test(asked) &&
+    /\b(forms?|enquir\w+|inquir\w+|submissions?|responses?|entries|leads?|sign[ -]?ups?|signups?|messages?|rsvps?|bookings?|subscrib\w*|newsletters?|wait ?lists?)\b/i.test(asked);
+  if (deep.length === 0 && !namesDatabase && !keepsWhatIsSent) return false;
 
   return PAGE_DATA.test(asked);
 }

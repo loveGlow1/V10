@@ -109,6 +109,36 @@ const DIFFERENT_THING =
 const BUILD_VERB = /\b(build|create|make|generate|design|scaffold|put together)\b/i;
 const SITE_NOUN =
   /\b(site|website|web ?app|landing page|home ?page|store|shop|portfolio|blog|dashboard|page (for|about)|app (for|about))\b/i;
+/* ── A feature for THIS project, rather than a different project ──────────
+ *
+ * "build a user dashboard with login", "create an admin dashboard to manage
+ * listings", "build a booking system for this site" — each has a build verb and
+ * a noun SITE_NOUN knows, so each scored as a brief and was routed to
+ * new_project: a full rebuild that threw the existing project away and charged
+ * for all of it. A person asked to add a room to their house and was handed a
+ * new house.
+ *
+ * What a human hears in those sentences is a feature for the thing already on
+ * the table. So a feature noun, with no sign of wanting a different project,
+ * reads as an addition. A new project is still a new project — it just has to
+ * be asked for: "a new site", "a different app", "start over", "from scratch". */
+const FEATURE_NOUN =
+  /\b(dashboard|admin(?: panel| area| side| dashboard)?|back ?office|portal|members?(?:'s)? area|account (?:area|page|section)|user accounts?|customer accounts?|log ?in|sign[- ]?(?:in|up)|auth(?:entication)?|booking(?: system| flow| page| form)?|appointments?|reservations?|checkout|cart|basket|crm|inventory|analytics|reporting|messag(?:es|ing)|live chat|notifications?|payments?|subscriptions?|contact form|enquiry form|inquiry form|newsletter(?: sign[- ]?up)?|search(?: bar| and filters?)?|filters?|reviews?|ratings?|favou?rites|wish ?list|saved (?:items|properties|listings)|profile page|settings page|new page|another page|(?:an?|the) (?:about|contact|pricing|faq|team|services|gallery|careers|blog|menu|booking|properties|listings|products|shop) page)\b/i;
+
+/* Pointing at what already exists: "this site", "our app", "to it". */
+const THIS_PROJECT =
+  /\b(?:this|the|my|our|existing|current) (?:site|website|app|web ?app|project|page|platform|store|shop)\b|\b(?:to|into|on|for|in) (?:it|this)\b/i;
+
+/* A whole site for somebody: "a site for my coffee shop with a hero, menu and
+   contact form". It lists features, and it is still a brief — the thing asked
+   for is the site, and the features are what goes in it. */
+const WHOLE_SITE_FOR =
+  /\b(?:an?|one) (?:site|website|web ?app|app|landing page|one[- ]pager|store|shop|portfolio|blog|platform)\b[^.]{0,24}\bfor (?:my|a|an|our)\b/i;
+
+/* Asking for a project of its own, in so many words. */
+const EXPLICIT_NEW =
+  /\b(?:new|another|separate|different|second|fresh) (?:project|site|website|web ?app|app|application|store|shop|platform|landing page)\b/i;
+
 /* "for my bakery", "for a law firm" — a brief names who it is for. */
 const FOR_WHOM = /\bfor (my|a|an|our)\b/i;
 /* "with a hero, a menu and a contact form" — a brief lists what goes in it. */
@@ -196,10 +226,30 @@ function score(m: string): Scores {
   if (DISCARD.test(m) && !REVERT_LAST.test(m)) scores.new_project += 5;
   if (DIFFERENT_THING.test(m)) scores.new_project += 4;
 
+  /* A feature for the project that is open — see FEATURE_NOUN. Decided before
+     the brief rules below, because every one of these sentences also looks
+     like a brief: it has a build verb and something to build. */
+  const featureForThis =
+    FEATURE_NOUN.test(m) &&
+    !DISCARD.test(m) &&
+    !DIFFERENT_THING.test(m) &&
+    !EXPLICIT_NEW.test(m) &&
+    !WHOLE_SITE_FOR.test(m);
+
+  if (featureForThis) {
+    scores.edit += 4;
+    if (THIS_PROJECT.test(m)) scores.edit += 2;
+  }
+
   /* A build verb alone is not a brief — "make the header darker" has one. It
      counts only alongside something a brief has and an edit does not: a kind of
-     site, who it is for, or a list of what goes in it. */
-  if (BUILD_VERB.test(m)) {
+     site, who it is for, or a list of what goes in it.
+
+     Not for a feature of this project: "build a booking system for our site"
+     names who it is for and what goes in it, and is still an addition. */
+  if (featureForThis) {
+    /* Nothing: see above. */
+  } else if (BUILD_VERB.test(m)) {
     if (SITE_NOUN.test(m)) scores.new_project += 3;
     if (FOR_WHOM.test(m)) scores.new_project += 2;
     if (SECTION_LIST.test(m)) scores.new_project += 2;
@@ -428,6 +478,7 @@ You are only asked when a fast rule-based pass could not decide, so these are th
 - Undoing AND changing. "undo the footer change and make the header taller" is "revert": the undo has to happen first, and what remains can be asked for again.
 - Going back to a previous STATE is "revert". Going back to a previous CHOICE is "edit" — "go back to using Inter" is an instruction to set a font, not to undo anything.
 - Wanting a different site is "new_project". Wanting this site different is "edit". "a completely different page about hiking" is the first; "make it look completely different" is the second.
+- ADDING A FEATURE to the existing project is "edit", however it is worded: "build a user dashboard with login", "create an admin area", "add a booking system", "I need a contact form that saves to a database", "make a new pricing page". A person adds rooms to the house they have. Only a request for a NEW or DIFFERENT project, or to start over, is "new_project".
 - Dissatisfaction with no direction is "clarify" — "I hate the colours", "something feels off". Dissatisfaction WITH a direction is "edit" — "the colours are too cold".
 
 Choose "new_project" only when the user clearly wants to throw the current page away — it is the only intent that proposes discarding work.
