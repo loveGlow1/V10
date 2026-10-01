@@ -333,8 +333,21 @@ has(
    still decides WHICH row; this decides which of that build's two hostnames
    a person can actually open. */
 has(
-  /const url = publicAddress\(live\?\.deployment_url/.test(deployRoute),
+  /const hosted = publicAddress\(live\?\.deployment_url/.test(deployRoute) && /let url = hosted;/.test(deployRoute),
   "and that is what the workspace is handed, as an address that opens",
+);
+
+/* Unless the project is published: then it is the address it was published
+   to, never Vercel's. A project published to <slug>.quickstark.tech was being
+   framed and linked as something.vercel.app whenever the newest deployment row
+   carried a vercel.app host. */
+has(
+  /row\.published_url && !isVercel\(row\.published_url\)/.test(deployRoute) && /url = row\.published_url/.test(deployRoute),
+  "a published project is handed its own address rather than Vercel's",
+);
+has(
+  /attachProjectDomain\(vercelProject, wanted, creds\)/.test(deployRoute) && /update\(\{ published_url: url \}\)/.test(deployRoute),
+  "and one left on a vercel.app host is bound to its own address and keeps it",
 );
 
 /* The failure is still the LAST attempt's, not the last deployment's — those
