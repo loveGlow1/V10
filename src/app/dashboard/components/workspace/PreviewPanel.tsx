@@ -145,6 +145,17 @@ export default function PreviewPanel({
      Held apart from `diagnosis` because it must never replace the preview —
      see the deploy route's `behind`. */
   const [behind, setBehind] = useState<Diagnosis | null>(null);
+  /* "Your live site is behind this preview" is said once per version: it can
+     be dismissed, and it goes by itself after a few seconds. A newer version
+     shows it again. */
+  const behindNoteKey = `${project?.id ?? ""}#${project?.last_build_at ?? ""}`;
+  const [behindNoteFor, setBehindNoteFor] = useState<string | null>(null);
+  const showBehindNote = behindNoteFor !== behindNoteKey;
+  useEffect(() => {
+    if (!showBehindNote) return;
+    const timer = setTimeout(() => setBehindNoteFor(behindNoteKey), 10_000);
+    return () => clearTimeout(timer);
+  }, [behindNoteKey, showBehindNote]);
   /* The banner can be put away, and the deploy tried again from it. Put away
      for this failure only: a new one shows itself. The retry is the deploy
      route's POST — the same stored files, no model and no credits. */
@@ -1017,8 +1028,17 @@ export default function PreviewPanel({
             </div>
           ) : null}
 
-          {publishedLive && !building && !liveIsCurrent ? (
-            <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5">
+          {publishedLive && !building && !liveIsCurrent && showBehindNote ? (
+            <div className="relative shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-2.5 pr-10">
+              <button
+                type="button"
+                onClick={() => setBehindNoteFor(behindNoteKey)}
+                aria-label="Dismiss"
+                title="Dismiss"
+                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               <p className="text-[12px] font-medium text-ink">Your live site is behind this preview</p>
               <p className="mt-1 text-[12px] leading-relaxed text-muted">
                 You are looking at the newest version of your project. The site at the address
