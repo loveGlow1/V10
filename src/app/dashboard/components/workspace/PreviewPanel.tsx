@@ -802,7 +802,7 @@ export default function PreviewPanel({
             <button
               onClick={() => setEditMode((on) => !on)}
               aria-pressed={editMode}
-              aria-label={editMode ? "Stop editing" : "Edit visually"}
+              aria-label={editMode ? "Close visual edit" : "Visual edit"}
               className={`shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] ${editMode ? "bg-layer/[0.1]" : ""}`}
             >
               <MousePointerClick className="h-3.5 w-3.5" />
@@ -1679,12 +1679,13 @@ export default function PreviewPanel({
           <button
             onClick={() => setEditMode((on) => !on)}
             disabled={!previewUrl || isReceipt}
-            title={editMode ? "Stop editing" : "Edit visually — click anything in the preview"}
+            title={editMode ? "Close visual edit" : "Visual edit — click anything in the preview to change it"}
+            aria-label={editMode ? "Close visual edit" : "Visual edit"}
             aria-pressed={editMode}
             className={`${action} ${editMode ? "bg-layer/[0.1] text-ink" : ""}`}
           >
             <MousePointerClick className="h-4 w-4 shrink-0" />
-            <span className="hidden lg:inline">Edit</span>
+            <span className="hidden lg:inline">Visual edit</span>
           </button>
 
           {divider}
