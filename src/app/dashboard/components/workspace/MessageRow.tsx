@@ -53,6 +53,18 @@ export function timeOf(at: number): string {
    420px beside the preview, and a thread that alternates margins spends a third
    of that on whitespace. Who is speaking is carried by the avatar and the name,
    which stay legible at any width. */
+/* Chips that open the app itself — "Open it", "Preview" — are already on a
+   desktop screen: the preview fills the pane beside the chat and Open app
+   sits in its toolbar. So they are for phones, where the pane is a tap away,
+   exactly like the download chip. */
+const APP_LABELS = new Set(["Open it", "Preview", "Open preview", "Open app"]);
+function isAppLink(link: { label: string; href: string }): boolean {
+  return APP_LABELS.has(link.label) || /\/preview(?:\/|$|\?)/.test(link.href);
+}
+function inThePane(link: { label: string; href: string }): boolean {
+  return isAppLink(link) || link.href.includes("download=1");
+}
+
 export default function MessageRow({
   message,
   supersededAt,
@@ -182,20 +194,21 @@ export default function MessageRow({
       )}
 
       {chips && chips.length > 0 && !actionsLive && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className={`mt-2 flex flex-wrap gap-1.5 ${chips.every(inThePane) ? "md:hidden" : ""}`}>
           {chips.map((link) => {
             /* A chip that saves a file rather than opening a place.
                Both the arrow and the new tab would be wrong for it: the route
                answers with a Content-Disposition, so the browser saves it and
                the tab it opened would sit there empty. */
             const saves = link.href.includes("download=1");
+            const opensApp = isAppLink(link);
             return (
               <a
                 key={link.href}
                 href={link.href}
                 {...(saves ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
                 className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18] ${
-                  saves ? "md:hidden" : ""
+                  saves || opensApp ? "md:hidden" : ""
                 }`}
               >
                 {link.label}
