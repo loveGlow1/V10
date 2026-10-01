@@ -12,7 +12,23 @@
  * line. */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Redo2, Sparkles, Undo2, X } from "lucide-react";
+import {
+  Heading,
+  Image as ImageIcon,
+  Layers,
+  LayoutTemplate,
+  Link2,
+  List,
+  MousePointerClick,
+  Redo2,
+  Shapes,
+  Sparkles,
+  TextCursorInput,
+  Type,
+  Undo2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 import { applyClassChange, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
@@ -78,6 +94,28 @@ function hasDirect(entry: Entry): boolean {
     Object.keys(entry.classes).length > 0 ||
     (entry.imageSrc !== undefined && entry.imageSrc !== entry.original.imageSrc)
   );
+}
+
+/* What a person calls the thing they clicked — "Heading", not "<h2>". */
+const KINDS: [RegExp, string, LucideIcon][] = [
+  [/^h[1-6]$/, "Heading", Heading],
+  [/^(?:p|span|small|strong|em|label|blockquote)$/, "Text", Type],
+  [/^img$/, "Image", ImageIcon],
+  [/^(?:svg|path|circle|g|rect|polygon|line)$/, "Graphic", Shapes],
+  [/^a$/, "Link", Link2],
+  [/^button$/, "Button", MousePointerClick],
+  [/^(?:input|textarea|select|form)$/, "Form field", TextCursorInput],
+  [/^(?:ul|ol|li)$/, "List", List],
+];
+
+function kindOf(tag: string, path: string): { name: string; Icon: LucideIcon } {
+  const found = KINDS.find(([pattern]) => pattern.test(tag));
+  const name = found?.[1] ?? "Section";
+  /* A component named for what it is — Logo, Navbar, Footer — says more
+     than the element inside it. */
+  const component = path.match(/(?:^|\/)components\/(?:[^/]+\/)*([A-Z][A-Za-z0-9]+)\.[jt]sx$/)?.[1];
+  const label = component ? `${component.replace(/([a-z])([A-Z])/g, "$1 $2")} · ${name.toLowerCase()}` : name;
+  return { name: label, Icon: found?.[2] ?? LayoutTemplate };
 }
 
 function where(src: string): string {
@@ -312,20 +350,39 @@ export default function VisualEditPanel({
           </p>
         ) : (
           <>
-            <div>
-              <p className="text-[12px] font-medium text-ink">
-                &lt;{current.tag}&gt; <span className="font-normal text-muted">· {where(current.src)}</span>
-              </p>
-              {picked && picked.repeated > 1 ? (
-                <p className="mt-1 text-[11px] leading-relaxed text-amber-300">
-                  Used {picked.repeated} times on this page — a change here changes every one.
-                </p>
-              ) : null}
-            </div>
+            {(() => {
+              const at = parseSrc(current.src);
+              const { name, Icon } = kindOf(current.tag, at?.path ?? "");
+              const file = at?.path.split("/").pop() ?? current.src;
+              return (
+                <div className="rounded-xl border border-line/[0.09] bg-layer/[0.04] p-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-layer/[0.08] text-ink">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-ink">{name}</p>
+                      <p className="truncate font-mono text-[11px] text-muted" title={at ? `${at.path}, line ${at.line}` : current.src}>
+                        {file}
+                        {at ? ` · line ${at.line}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  {picked && picked.repeated > 1 ? (
+                    <div className="mt-2.5 flex items-start gap-2 rounded-lg bg-layer/[0.06] px-2.5 py-2">
+                      <Layers className="mt-px h-3.5 w-3.5 shrink-0 text-muted" />
+                      <p className="text-[12px] leading-snug text-soft">
+                        Appears {picked.repeated} times on this page. Changes apply to every one.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
 
             {current.original.text !== null ? (
               <label className="block">
-                <span className="text-[11px] uppercase tracking-wide text-muted">Text</span>
+                <span className="text-[12px] text-muted">Text</span>
                 <textarea
                   value={current.text ?? current.original.text}
                   onChange={(event) => {
@@ -333,18 +390,20 @@ export default function VisualEditPanel({
                     change((entry) => ({ ...entry, text: value }), `text:${current.src}`);
                   }}
                   rows={3}
-                  className="mt-1 w-full resize-y rounded-md border border-line/[0.1] bg-transparent px-2 py-1.5 text-[13px] text-ink outline-none focus:border-accent"
+                  className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
                 />
               </label>
             ) : (
-              <p className="text-[11px] leading-relaxed text-muted">
-                This text comes from your code or database, so describe the change below and the AI will make it.
+              <p className="text-[12px] leading-relaxed text-muted">
+                {/^(?:svg|path|circle|g|rect|polygon|line|img)$/.test(current.tag)
+                  ? "To redraw or replace this, describe what you want below and the AI will make it."
+                  : "This text comes from your code or database — describe the change below and the AI will make it."}
               </p>
             )}
 
             {current.tag === "img" ? (
               <label className="block">
-                <span className="text-[11px] uppercase tracking-wide text-muted">Image address</span>
+                <span className="text-[12px] text-muted">Image address</span>
                 <input
                   key={current.src}
                   defaultValue={current.imageSrc ?? current.original.imageSrc ?? ""}
@@ -353,7 +412,7 @@ export default function VisualEditPanel({
                     if (value && value !== (current.imageSrc ?? current.original.imageSrc)) change((entry) => ({ ...entry, imageSrc: value }));
                   }}
                   placeholder="https://…"
-                  className="mt-1 w-full rounded-md border border-line/[0.1] bg-transparent px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
+                  className="mt-1.5 h-9 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25"
                 />
               </label>
             ) : null}
@@ -402,13 +461,13 @@ export default function VisualEditPanel({
             </Group>
 
             <div>
-              <span className="text-[11px] uppercase tracking-wide text-muted">Ask the AI about this</span>
+              <span className="text-[12px] text-muted">Ask the AI about this</span>
               <textarea
                 value={ask}
                 onChange={(event) => setAsk(event.target.value)}
                 rows={2}
                 placeholder="Say what to change — e.g. make the logo gold and add 'Estates' beside it"
-                className="mt-1 w-full resize-y rounded-md border border-line/[0.1] bg-transparent px-2 py-1.5 text-[12px] text-ink outline-none focus:border-accent"
+                className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
               />
               <button
                 onClick={() => {
@@ -418,7 +477,7 @@ export default function VisualEditPanel({
                   setAsk("");
                 }}
                 disabled={!ask.trim()}
-                className="mt-1 inline-flex items-center gap-1 rounded-md border border-line/[0.1] px-2 py-1 text-[12px] text-ink hover:bg-layer/[0.06] disabled:opacity-40"
+                className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink disabled:opacity-40"
               >
                 <Sparkles className="h-3 w-3" /> Add request
               </button>
@@ -463,7 +522,7 @@ export default function VisualEditPanel({
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <span className="text-[11px] uppercase tracking-wide text-muted">{label}</span>
+      <span className="text-[12px] text-muted">{label}</span>
       <div className="mt-1 flex flex-wrap gap-1">{children}</div>
     </div>
   );
@@ -484,7 +543,7 @@ function Swatches({
 }) {
   return (
     <div>
-      <span className="text-[11px] uppercase tracking-wide text-muted">{label}</span>
+      <span className="text-[12px] text-muted">{label}</span>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {colours.map(([name, value]) => {
           const cls = `${prefix}-[var(${name})]`;
