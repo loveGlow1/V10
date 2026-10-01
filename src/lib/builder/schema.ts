@@ -149,7 +149,7 @@ function base(): Column[] {
  * the way in. Postgres has no column-level WITH CHECK, so the constraint is on
  * the column instead: role defaults to 'customer' and the update policy below
  * refuses to change it unless an admin is asking. */
-function profiles(adminRole: string): Table {
+function profiles(adminRole: string, roles: string[] = ["customer", adminRole]): Table {
   return {
     name: "profiles",
     what: "One row per person with an account, holding what this app knows about them beyond their sign-in.",
@@ -167,7 +167,7 @@ function profiles(adminRole: string): Table {
         name: "role",
         type: "text",
         default: "'customer'",
-        check: `role in ('customer', '${adminRole}')`,
+        check: `role in (${roles.map((role) => `'${role}'`).join(", ")})`,
       },
       { name: "created_at", type: "timestamptz", default: "now()" },
       { name: "updated_at", type: "timestamptz", default: "now()" },
@@ -451,6 +451,80 @@ function commerce(withStorage: boolean, capabilities: Commerce): Table[] {
         },
       ],
     },
+
+    {
+      name: "wishlist_items",
+      what: "The products each signed-in customer has saved for later.",
+      columns: [
+        ...base(),
+        { name: "user_id", type: "uuid", references: { table: "auth.users", column: "id", onDelete: "cascade" } },
+        { name: "product_id", type: "uuid", references: { table: "products", onDelete: "cascade" } },
+      ],
+      indexes: [{ on: ["user_id"] }, { on: ["product_id"] }],
+      policies: [
+        {
+          name: "wishlist_items_own",
+          for: "all",
+          to: ["authenticated"],
+          using: "user_id = auth.uid()",
+          check: "user_id = auth.uid()",
+          why: "A wishlist is the customer's own: they read, add and remove their rows and nobody else's.",
+        },
+        {
+          name: "wishlist_items_admin_read",
+          for: "select",
+          to: ["authenticated"],
+          using: "is_admin()",
+          why: "The merchant may see what is wanted, to know what to restock.",
+        },
+      ],
+    },
+
+    {
+      name: "product_reviews",
+      what: "Ratings and reviews of products by signed-in customers, shown once approved.",
+      columns: [
+        ...base(),
+        { name: "user_id", type: "uuid", references: { table: "auth.users", column: "id", onDelete: "cascade" } },
+        { name: "product_id", type: "uuid", references: { table: "products", onDelete: "cascade" } },
+        { name: "rating", type: "integer", check: "rating between 1 and 5" },
+        { name: "title", type: "text", nullable: true },
+        { name: "body", type: "text", nullable: true },
+        { name: "approved", type: "boolean", default: "false" },
+      ],
+      indexes: [{ on: ["product_id"] }, { on: ["user_id"] }],
+      policies: [
+        {
+          name: "product_reviews_public_read",
+          for: "select",
+          to: ["anon", "authenticated"],
+          using: "approved or user_id = auth.uid() or is_admin()",
+          why: "Shoppers read approved reviews; the author sees their own while it waits; the merchant sees all.",
+        },
+        {
+          name: "product_reviews_insert_own",
+          for: "insert",
+          to: ["authenticated"],
+          check: "user_id = auth.uid() and approved = false",
+          why: "A customer reviews as themselves, and cannot approve their own review.",
+        },
+        {
+          name: "product_reviews_delete_own",
+          for: "delete",
+          to: ["authenticated"],
+          using: "user_id = auth.uid() or is_admin()",
+          why: "A customer may withdraw their review; the merchant may remove any.",
+        },
+        {
+          name: "product_reviews_admin_update",
+          for: "update",
+          to: ["authenticated"],
+          using: "is_admin()",
+          check: "is_admin()",
+          why: "Approving and editing reviews is the merchant's.",
+        },
+      ],
+    },
   ];
 
   /* Filtered on the way out rather than assembled conditionally, so the table
@@ -466,6 +540,9 @@ function commerce(withStorage: boolean, capabilities: Commerce): Table[] {
     order_items: capabilities.orders,
     discounts: capabilities.coupons,
     product_variants: capabilities.variants,
+    /* A wishlist belongs to somebody, so it needs accounts as well. */
+    wishlist_items: capabilities.wishlist && capabilities.customerAccounts,
+    product_reviews: capabilities.reviews,
   };
 
   return tables.filter((table) => NEEDS[table.name] ?? true);
@@ -473,7 +550,13 @@ function commerce(withStorage: boolean, capabilities: Commerce): Table[] {
 
 /* The publishing tables. A blog and a news publication are the same shape —
    the difference between them is editorial, and editorial is not a column. */
-function content(withStorage: boolean): Table[] {
+function content(withStorage: boolean, newsroom = false): Table[] {
+  /* Who may write: an author their own work, an editor anybody's. On a
+     newsroom an author files for review and an editor publishes — the
+     publishing workflow, held by the database rather than by a button. */
+  const writes = newsroom
+    ? "is_admin() or (author_id = auth.uid() and is_author() and status <> 'published')"
+    : "is_admin() or (author_id = auth.uid() and is_author())";
   return [
     {
       name: "posts",
@@ -494,8 +577,29 @@ function content(withStorage: boolean): Table[] {
           check: "status in ('draft', 'published', 'archived')",
         },
         { name: "published_at", type: "timestamptz", nullable: true },
+        ...(newsroom
+          ? [
+              /* Where a story stands on its way to the editor, alongside
+                 status, which only says whether readers can see it. */
+              {
+                name: "editorial_status",
+                type: "text" as const,
+                default: "'writing'",
+                check: "editorial_status in ('writing', 'in_review', 'changes_requested', 'approved')",
+              },
+              { name: "featured", type: "boolean" as const, default: "false" },
+              { name: "breaking", type: "boolean" as const, default: "false" },
+              /* Trending is read from this, counted by record_post_view(). */
+              { name: "view_count", type: "integer" as const, default: "0", check: "view_count >= 0" },
+            ]
+          : []),
       ],
-      indexes: [{ on: ["slug"] }, { on: ["status", "published_at"] }, { on: ["author_id"] }],
+      indexes: [
+        { on: ["slug"] },
+        { on: ["status", "published_at"] },
+        { on: ["author_id"] },
+        ...(newsroom ? [{ on: ["featured"] }, { on: ["breaking"] }, { on: ["view_count"] }, { on: ["editorial_status"] }] : []),
+      ],
       policies: [
         {
           name: "posts_public_read_published",
@@ -515,9 +619,11 @@ function content(withStorage: boolean): Table[] {
           name: "posts_author_write_own",
           for: "all",
           to: ["authenticated"],
-          using: "author_id = auth.uid() or is_admin()",
-          check: "author_id = auth.uid() or is_admin()",
-          why: "A writer edits their own posts; an editor edits any. Written as one policy over all four commands because the rule genuinely is the same for all four.",
+          using: writes,
+          check: writes,
+          why: newsroom
+            ? "An author writes and edits their own stories but cannot publish one — an editor or admin does, and may edit any. A reader who signed up writes nothing."
+            : "An author edits their own posts; an editor edits any. A reader who signed up — to comment or save — writes nothing, which is why being signed in is not enough.",
         },
       ],
     },
@@ -606,8 +712,8 @@ function content(withStorage: boolean): Table[] {
           name: "post_tags_author_write",
           for: "all",
           to: ["authenticated"],
-          using: "exists (select 1 from posts p where p.id = post_id and (p.author_id = auth.uid() or is_admin()))",
-          check: "exists (select 1 from posts p where p.id = post_id and (p.author_id = auth.uid() or is_admin()))",
+          using: "exists (select 1 from posts p where p.id = post_id and ((p.author_id = auth.uid() and is_author()) or is_admin()))",
+          check: "exists (select 1 from posts p where p.id = post_id and ((p.author_id = auth.uid() and is_author()) or is_admin()))",
           why: "You may tag a post you may edit.",
         },
       ],
@@ -742,7 +848,17 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
      not an administrator of anything. */
   const adminRole = manifest.type === "ecommerce" ? "admin" : "editor";
 
-  if (manifest.authentication) tables.push(profiles(adminRole));
+  /* A publication has writers who are not editors: an author writes and
+     edits their own work, an editor (or, on a newsroom, an admin) everyone's.
+     A reader who signs up — to comment, to save — is a customer and writes
+     nothing. */
+  const roles =
+    manifest.type === "news"
+      ? ["customer", "author", "editor", "admin"]
+      : manifest.type === "blog"
+        ? ["customer", "author", "editor"]
+        : ["customer", adminRole];
+  if (manifest.authentication) tables.push(profiles(adminRole, roles));
 
   if (manifest.type === "ecommerce") {
     /* ── A manifest written before commerce existed ────────────────────
@@ -766,7 +882,7 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
       });
     }
   } else if (manifest.type === "blog" || manifest.type === "news") {
-    tables.push(categories(), ...content(manifest.storage));
+    tables.push(categories(), ...content(manifest.storage, manifest.type === "news"));
     if (manifest.storage) {
       buckets.push({
         name: bucketName(schema, "media"),
@@ -826,7 +942,7 @@ function columnSql(column: Column): string {
  * Written unqualified in the table definitions above because the schema name is
  * not known there, and substituted here, where it is. */
 function qualify(expression: string, schema: string): string {
-  return expression.replace(/\bis_admin\(\)/g, `${schema}.is_admin()`);
+  return expression.replace(/\b(is_admin|is_author)\(\)/g, `${schema}.$1()`);
 }
 
 function policySql(table: string, policy: Policy, schema: string): string {
@@ -1057,6 +1173,30 @@ export function toSql(
     );
   }
 
+  /* Who may write, on a publication. Same shape and same reason as is_admin. */
+  const publication = model.tables.find((table) => table.name === "posts");
+  if (publication && model.tables.some((table) => table.name === "profiles")) {
+    out.push(
+      `create or replace function ${model.schema}.is_author()`,
+      "returns boolean",
+      "language sql",
+      "stable",
+      "security definer",
+      `set search_path = ${model.schema}, public`,
+      "as $$",
+      "  select exists (",
+      "    select 1 from profiles",
+      "    where id = auth.uid() and role in ('author', 'editor', 'admin')",
+      "  );",
+      "$$;",
+      "",
+      `comment on function ${model.schema}.is_author() is '${OWNED_MARK} whether the caller may write for this publication.';`,
+      `revoke all on function ${model.schema}.is_author() from public;`,
+      `grant execute on function ${model.schema}.is_author() to anon, authenticated;`,
+      "",
+    );
+  }
+
   for (const table of model.tables) {
     const qualified = `${model.schema}.${table.name}`;
     out.push(`-- ── ${table.name} ${"─".repeat(Math.max(0, 66 - table.name.length))}`);
@@ -1112,6 +1252,29 @@ export function toSql(
       if (allowed.length > 0) out.push(`grant ${allowed.join(", ")} on ${qualified} to ${role};`);
     }
     out.push("");
+  }
+
+  /* Trending, on a newsroom. A reader cannot update posts — nor should they —
+     so a view is counted by a definer function that does exactly one thing:
+     add one to a published story's count. */
+  if (publication?.columns.some((column) => column.name === "view_count")) {
+    out.push(
+      `create or replace function ${model.schema}.record_post_view(post uuid)`,
+      "returns void",
+      "language sql",
+      "volatile",
+      "security definer",
+      `set search_path = ${model.schema}, public`,
+      "as $$",
+      "  update posts set view_count = view_count + 1",
+      "  where id = post and status = 'published' and (published_at is null or published_at <= now());",
+      "$$;",
+      "",
+      `comment on function ${model.schema}.record_post_view(uuid) is '${OWNED_MARK} counts one read of a published story, for trending.';`,
+      `revoke all on function ${model.schema}.record_post_view(uuid) from public;`,
+      `grant execute on function ${model.schema}.record_post_view(uuid) to anon, authenticated;`,
+      "",
+    );
   }
 
   if (model.buckets.length > 0) {
@@ -1203,6 +1366,24 @@ export function schemaBrief(model: DataModel): string {
     lines.push("");
   }
 
+  const posts = model.tables.find((table) => table.name === "posts");
+  const roles = model.tables
+    .find((table) => table.name === "profiles")
+    ?.columns.find((column) => column.name === "role")?.check;
+  if (posts && roles && /'author'/.test(roles)) {
+    lines.push(
+      "ROLES: profiles.role is 'customer' (a reader who signed up — may comment and save, writes nothing), 'author' (writes and edits their own posts), 'editor'" +
+        (/'admin'/.test(roles) ? " or 'admin' (publishes, edits anyone's, moderates)." : " (edits anyone's, moderates)."),
+    );
+    if (posts.columns.some((column) => column.name === "editorial_status")) {
+      lines.push(
+        "PUBLISHING WORKFLOW: an author moves a story writing → in_review via editorial_status and cannot set status 'published' — the database refuses it. An editor sets changes_requested or approved, and publishes by setting status 'published' and published_at. The editorial dashboard shows the review queue (editorial_status = 'in_review') first.",
+        "FEATURED, BREAKING, TRENDING: featured stories lead the home page; a breaking story shows in a banner above everything while breaking is true; trending is published posts ordered by view_count. Count a read by calling supabase.rpc(\"record_post_view\", { post: id }) once when an article page opens — never update view_count directly.",
+      );
+    }
+    lines.push("");
+  }
+
   lines.push(
     "ROW-LEVEL SECURITY IS ON, ON EVERY TABLE, AND IT HAS ALREADY DECIDED.",
     "",
@@ -1282,7 +1463,11 @@ export function toTypes(model: DataModel): string {
 
   lines.push("    };");
   lines.push("    Views: Record<string, never>;");
-  lines.push("    Functions: Record<string, never>;");
+  if (model.tables.some((table) => table.name === "posts" && table.columns.some((column) => column.name === "view_count"))) {
+    lines.push("    Functions: { record_post_view: { Args: { post: string }; Returns: undefined } };");
+  } else {
+    lines.push("    Functions: Record<string, never>;");
+  }
   lines.push("    Enums: Record<string, never>;");
   lines.push("  };");
   lines.push("};");

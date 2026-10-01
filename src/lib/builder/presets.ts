@@ -849,3 +849,77 @@ export function modulesFor(preset: Preset, text: string): Modules {
     left: Object.keys(optional).filter((name) => !keep.has(name)),
   };
 }
+
+/* ── Publications: what a blog or newsroom adds to its own tables ───────────
+ *
+ * A blog and a newsroom already have posts, pages, categories, tags and media
+ * from dataModelFor, with authors and editors held apart by role. What varies
+ * by brief is the rest: public author pages and reader comments. A newsroom
+ * has bylines, so its authors are core; a personal blog's are not. */
+
+const authors = (): Table => ({
+  name: "authors",
+  what: "The public face of each writer — name, bio and photo for bylines and author pages.",
+  columns: [
+    ...base(),
+    { name: "user_id", type: "uuid", nullable: true, unique: true, references: { table: "auth.users", column: "id", onDelete: "set null" } },
+    text("display_name"), slug(), text("role_title", true), text("bio", true), text("avatar_url", true),
+  ],
+  indexes: [{ on: ["user_id"] }],
+  policies: [
+    publicReads("authors"),
+    {
+      name: "authors_own_write",
+      for: "all",
+      to: ["authenticated"],
+      using: "is_admin() or (user_id = auth.uid() and is_author())",
+      check: "is_admin() or (user_id = auth.uid() and is_author())",
+      why: "A writer keeps their own author page up to date; an editor manages everyone's.",
+    },
+  ],
+});
+
+const comments = (): Table => ({
+  name: "comments",
+  what: "What signed-in readers say under a post, shown unless an editor hides it.",
+  columns: [...base(), owner(), ref("post_id", "posts"), ref("parent_id", "comments", true), text("body"), flag("hidden", false)],
+  indexes: [{ on: ["post_id"] }, { on: ["user_id"] }],
+  policies: [
+    publicReads("comments", "(not hidden and exists (select 1 from posts p where p.id = post_id and p.status = 'published')) or user_id = auth.uid() or is_admin()"),
+    { name: "comments_insert_own", for: "insert", to: ["authenticated"], check: "user_id = auth.uid() and hidden = false", why: "A reader comments as themselves, and cannot un-hide." },
+    { name: "comments_delete_own", for: "delete", to: ["authenticated"], using: "user_id = auth.uid() or is_admin()", why: "A reader may delete their comment; an editor may remove any." },
+    { name: "comments_admin_update", for: "update", to: ["authenticated"], using: "is_admin()", check: "is_admin()", why: "Hiding and editing comments is moderation, and that is the editor's." },
+  ],
+});
+
+const PUBLICATION_MODULES: Record<"blog" | "news", Preset> = {
+  blog: {
+    id: "blog",
+    label: "blog",
+    says: /$^/,
+    tables: () => [authors(), comments()],
+    optional: {
+      authors: or(/\b(authors?|writers?|contributors?|bylines?|team|multi[- ]author|guest posts?)\b/i),
+      comments: or(/\b(comments?|discussions?|replies|reader (?:feedback|responses?))\b/i),
+    },
+  },
+  news: {
+    id: "news",
+    label: "newsroom",
+    says: /$^/,
+    tables: () => [authors(), comments()],
+    optional: {
+      comments: or(/\b(comments?|discussions?|replies|reader (?:feedback|responses?))\b/i),
+    },
+  },
+};
+
+/**
+ * The tables a blog or newsroom adds to dataModelFor's, from its brief. Needs
+ * accounts: authors are writers who sign in, and comments are signed readers'.
+ */
+export function publicationModulesFor(kind: BuildKind, text: string): Modules | null {
+  if (kind !== "blog" && kind !== "news") return null;
+  const modules = modulesFor(PUBLICATION_MODULES[kind], text);
+  return modules.tables.length > 0 || modules.left.length > 0 ? modules : null;
+}

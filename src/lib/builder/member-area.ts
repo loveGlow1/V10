@@ -31,7 +31,7 @@ export type MemberSection = {
 
 export type MemberArea = {
   sections: MemberSection[];
-  /** Whether the brief asked for a password reset flow. */
+  /** Whether the area comes with forgot/reset password pages — always, now. */
   passwordReset: boolean;
   /** The phrase that brought it in, for the step list and for anyone disputing it. */
   because: string;
@@ -221,8 +221,16 @@ export function memberAreaFor(
   }
 
   for (const section of fromModules) {
-    /* A brief that said "viewings" already has them, as Bookings. */
-    if (seen.has(section.slug) || (section.slug === "viewings" && seen.has("bookings"))) continue;
+    if (seen.has(section.slug)) continue;
+    /* An estate's bookings are viewings: the vocabulary heard "viewings" and
+       filed it under Bookings, and the module knows what they are called. */
+    const general = sections.findIndex((entry) => entry.slug === "bookings");
+    if (section.slug === "viewings" && general >= 0) {
+      seen.delete("bookings");
+      seen.add("viewings");
+      sections[general] = section;
+      continue;
+    }
     add(section);
   }
 
@@ -231,7 +239,9 @@ export function memberAreaFor(
 
   return {
     sections,
-    passwordReset: /\b(forgot(?:ten)? password|reset (?:your |the )?password|password reset)\b/i.test(brief),
+    /* Anybody who can sign in can forget their password. A member area with
+       no way back into it is a support ticket, so it always has the flow. */
+    passwordReset: true,
     because: asked?.[0] ?? `/dashboard/${explicit[0]}`,
   };
 }
