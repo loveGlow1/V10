@@ -133,7 +133,7 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
-import { modulesFor, presetFor } from "@/lib/builder/presets";
+import { modulesFor, presetFor, publicationModulesFor } from "@/lib/builder/presets";
 import {
   describeTables,
   formatRows,
@@ -4352,6 +4352,22 @@ async function handle(
       `${kindLabel[kind.kind] ?? kind.kind} · ${preset.label}`,
       `Modules: ${modules.tables.map((table) => table.name.replace(/_/g, " ")).join(", ")} — ${dataModel.tables.length} tables, each with row-level security` +
         (modules.left.length ? `. Left out until asked for: ${modules.left.map((name) => name.replace(/_/g, " ")).join(", ")}` : ""),
+    );
+  } else if (
+    architecture.manifest.database &&
+    architecture.manifest.authentication &&
+    (kind.kind === "blog" || kind.kind === "news") &&
+    publicationModulesFor(kind.kind, domainText)
+  ) {
+    /* A publication's own tables come from dataModelFor; the brief decides
+       whether it also has public author pages and reader comments. */
+    const publication = publicationModulesFor(kind.kind, domainText)!;
+    dataModel = withAuthored(deterministic, publication.tables);
+    steps.mark(
+      "schema",
+      `${kind.kind === "news" ? "News" : "Blog"} · ${dataModel.tables.length} tables`,
+      `Modules: ${dataModel.tables.map((table) => table.name.replace(/_/g, " ")).join(", ")}` +
+        (publication.left.length ? `. Left out until asked for: ${publication.left.join(", ")}` : ""),
     );
   } else if (architecture.manifest.database && architecture.manifest.type === "webapp" && !designedAlready) {
     /* Not for a project that already wrote its tables, for the same reason

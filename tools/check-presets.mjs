@@ -39,7 +39,7 @@ writeFileSync(
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { PRESETS, presetFor, modulesFor } = await import(join(out, "lib/builder/presets.js"));
+const { PRESETS, presetFor, modulesFor, publicationModulesFor } = await import(join(out, "lib/builder/presets.js"));
 const { memberAreaFor } = await import(join(out, "lib/builder/member-area.js"));
 const { readProposal } = await import(join(out, "lib/builder/app-schema.js"));
 
@@ -153,6 +153,34 @@ console.log("\nPersonal modules make the customer dashboard, even unnamed:");
   has(area && !(area.sections.some((s) => s.slug === "bookings") && area.sections.some((s) => s.slug === "viewings")), "viewings appear once");
   has(memberAreaFor("a real estate site", { authentication: true }, "webapp", []) === null, "no personal modules, no dashboard");
   has(memberAreaFor("a real estate site", { authentication: false }, "webapp", ["favorites"]) === null, "no accounts, no dashboard");
+}
+
+console.log("\nBlog and News modules come from the brief too:");
+{
+  const names = (kind, brief) => publicationModulesFor(kind, brief)?.tables.map((t) => t.name) ?? [];
+  has(same(names("blog", "a personal food blog"), []), "a personal blog: no author pages, no comments");
+  has(same(names("blog", "a multi-author blog with comments"), ["authors", "comments"]), "multi-author with comments: both");
+  has(same(names("news", "a local news site"), ["authors"]), "a newsroom always has bylines");
+  has(same(names("news", "a news site where readers can comment"), ["authors", "comments"]), "…and comments when asked");
+  has(publicationModulesFor("webapp", "comments") === null, "not for other kinds");
+  for (const table of publicationModulesFor("blog", "authors and comments").tables) {
+    has(table.policies.some((p) => /is_admin\(\)/.test(`${p.using ?? ""} ${p.check ?? ""}`)), `${table.name}: an editor can moderate it`);
+  }
+}
+
+console.log("\nThe spec's own example, end to end:");
+{
+  const brief = "Build a luxury real estate platform where users can search properties, save favorites, schedule viewings and manage their profile.";
+  const preset = presetFor(brief, "webapp");
+  has(preset?.id === "real-estate", "domain: real estate");
+  const modules = modulesFor(preset, brief);
+  const tables = modules.tables.map((t) => t.name);
+  has(same(tables, ["agents", "locations", "properties", "property_images", "favorites", "saved_searches", "recently_viewed", "viewing_requests", "contact_inquiries"]), "modules: properties, images, locations, agents, favorites, saved searches, recently viewed, viewings, inquiries", tables.join(", "));
+  const personal = modules.tables.filter((t) => t.columns.some((c) => c.name === "user_id" && !c.nullable)).map((t) => t.name);
+  const area = memberAreaFor(brief, { authentication: true }, "webapp", personal);
+  const slugs = area?.sections.map((s) => s.slug) ?? [];
+  has(["saved", "saved-searches", "recently-viewed", "viewings", "profile", "settings"].every((s) => slugs.includes(s)), "customer dashboard: saved, saved searches, recently viewed, viewings, profile, settings", slugs.join(", "));
+  has(area?.passwordReset === true, "with password reset");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

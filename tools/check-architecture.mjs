@@ -697,6 +697,46 @@ console.log("\nThe preview");
   }
 }
 
+console.log("\nPublications and stores: roles, workflow, modules");
+{
+  const base = { frontend: true, backend: true, database: true, authentication: true, admin: true, storage: true, payments: false };
+  const schema = schemaNameFor("11111111-2222-3333-4444-555555555555");
+  const check = (ok, what, detail = "") => (ok ? pass(what) : fail(what, detail));
+
+  for (const type of ["blog", "news"]) {
+    const model = dataModelFor({ ...base, type, commerce: false }, schema);
+    const sql = toSql(model);
+    const roles = model.tables.find((t) => t.name === "profiles").columns.find((c) => c.name === "role").check;
+    check(/'author'/.test(roles) && /'editor'/.test(roles), `${type}: authors and editors are roles`, roles);
+    check(sql.includes(`create or replace function ${schema}.is_author()`), `${type}: is_author() is defined`);
+    const write = model.tables.find((t) => t.name === "posts").policies.find((p) => p.name === "posts_author_write_own");
+    check(/is_author\(\)/.test(write.check), `${type}: a signed-up reader cannot write posts`, write.check);
+    check(type === "news" ? /status <> 'published'/.test(write.check) : !/status <> 'published'/.test(write.check),
+      type === "news" ? "news: an author cannot publish — an editor does" : "blog: an author publishes their own", write.check);
+    const unqualified = sql.split("\n").filter((line) => /(?<![.\w])is_author\(\)/.test(line) && !/function/.test(line));
+    check(unqualified.length === 0, `${type}: is_author() is always schema-qualified in policies`, unqualified.join("\n"));
+  }
+
+  const news = dataModelFor({ ...base, type: "news", commerce: false }, schema);
+  const posts = news.tables.find((t) => t.name === "posts").columns.map((c) => c.name);
+  check(["featured", "breaking", "view_count", "editorial_status"].every((c) => posts.includes(c)), "news: featured, breaking, trending and workflow columns", posts.join(", "));
+  check(toSql(news).includes(`grant execute on function ${schema}.record_post_view(uuid) to anon, authenticated;`), "news: readers count views through record_post_view()");
+  check(toTypes(news).includes("record_post_view"), "news: the generated types know the rpc");
+  const blogPosts = dataModelFor({ ...base, type: "blog", commerce: false }, schema).tables.find((t) => t.name === "posts").columns.map((c) => c.name);
+  check(!blogPosts.includes("breaking"), "blog: no newsroom columns");
+
+  const caps = (on) => {
+    const all = ["catalog", "productDetails", "categories", "variants", "inventory", "cart", "wishlist", "checkout", "payments", "orders", "customerAccounts", "reviews", "shipping", "coupons", "admin"];
+    return Object.fromEntries([["enabled", true], ...all.map((c) => [c, on.includes(c)])]);
+  };
+  const shop = (on) => dataModelFor({ ...base, type: "ecommerce", commerce: caps(on) }, schema).tables.map((t) => t.name);
+  const full = shop(["catalog", "productDetails", "cart", "orders", "checkout", "wishlist", "reviews", "customerAccounts"]);
+  check(full.includes("wishlist_items") && full.includes("product_reviews"), "store: wishlist and reviews have tables when asked for", full.join(", "));
+  const plain = shop(["catalog", "productDetails"]);
+  check(!plain.includes("wishlist_items") && !plain.includes("product_reviews") && !plain.includes("orders"), "store: a catalogue gets none of them", plain.join(", "));
+  check(!shop(["catalog", "wishlist"]).includes("wishlist_items"), "store: no wishlist table without customer accounts");
+}
+
 console.log("");
 
 if (failures > 0) {
