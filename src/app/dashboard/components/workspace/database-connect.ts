@@ -35,6 +35,9 @@ export type ParkedBuild = {
   text: string;
   kind?: string;
   stack?: "standalone-html" | "nextjs";
+  /* A single page's upgrade waiting on its database — still an upgrade when it
+     is sent. */
+  upgrade?: boolean;
   at: number;
 };
 

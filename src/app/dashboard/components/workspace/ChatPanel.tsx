@@ -231,6 +231,8 @@ export default function ChatPanel({
       kind?: BuildKind;
       stack?: "standalone-html" | "nextjs";
       options: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
+      /* Carried so the answer does not lose an upgrade already agreed to. */
+      upgrade?: boolean;
     } | null
   >(null);
   /* A build waiting on its own database. "Connect my own database" used to
@@ -240,6 +242,10 @@ export default function ChatPanel({
      in session storage too, because signing in to Supabase leaves the page.
      See database-connect.ts. */
   const [awaitingDatabase, setAwaitingDatabase] = useState<ParkedBuild | null>(null);
+  /* A single page asked for something only an app can hold. The reply offered
+     to upgrade it — keep the page, move it into an app, add the feature — and
+     this holds the message until the person says yes or not now. */
+  const [pendingUpgrade, setPendingUpgrade] = useState<{ text: string } | null>(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -956,6 +962,7 @@ export default function ChatPanel({
       architecture: "own",
       buildKind: (parked.kind as BuildKind | undefined) ?? null,
       stack: parked.stack,
+      upgrade: parked.upgrade === true,
       silent: true,
     });
   };
@@ -988,6 +995,8 @@ export default function ChatPanel({
       /* And to "the real thing, or the front of it" — see pendingArchitecture.
          The broader of the two: it decides whether there is a database at all. */
       architecture?: "managed" | "full" | "frontend" | "own";
+      /* The yes to an upgrade offer — see pendingUpgrade. */
+      upgrade?: boolean;
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -1097,6 +1106,7 @@ export default function ChatPanel({
         /* The answer to the architecture question, when one was given. Absent
            on every ordinary message, which is nearly all of them. */
         architecture: options.architecture ?? null,
+        upgrade: options.upgrade === true,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -1185,6 +1195,13 @@ export default function ChatPanel({
          subsumes it: answering "the front of it" settles the artefact too, and
          asking both would be two questions about one decision. Nothing has run
          and nothing has been charged. */
+      if (reply.needsUpgrade) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setPendingUpgrade({ text });
+        setAttached(sent);
+        return;
+      }
+
       if (reply.needsArchitecture && reply.architectureOptions) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingArchitecture({
@@ -1192,6 +1209,9 @@ export default function ChatPanel({
           kind: reply.buildKind,
           stack: reply.stack,
           options: reply.architectureOptions,
+          /* An upgrade asked which database to use: the answer is still an
+             upgrade, or it would be offered all over again. */
+          upgrade: options.upgrade === true,
         });
         setAttached(sent);
         return;
@@ -1971,6 +1991,7 @@ export default function ChatPanel({
                   architecture: "own",
                   buildKind: (parked.kind as BuildKind | undefined) ?? null,
                   stack: parked.stack,
+                  upgrade: parked.upgrade === true,
                   silent: true,
                 });
               }}
@@ -1987,6 +2008,36 @@ export default function ChatPanel({
               className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
             >
               Cancel
+            </button>
+          </div>
+        )}
+
+        {/* The yes to an upgrade, as an action rather than a sentence: it writes
+            a whole app, so it is never inferred from words. */}
+        {pendingUpgrade && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            <button
+              type="button"
+              onClick={() => {
+                const { text } = pendingUpgrade;
+                setPendingUpgrade(null);
+                setMode("auto");
+                void send(text, { upgrade: true, silent: true });
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/[0.10] px-2 py-1 font-medium text-emerald-300 transition-colors hover:bg-emerald-500/[0.18]"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
+              Upgrade to a full app
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingUpgrade(null)}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Not now
             </button>
           </div>
         )}
@@ -2008,10 +2059,10 @@ export default function ChatPanel({
                   type="button"
                   title={option.blurb}
                   onClick={() => {
-                    const { text, kind, stack } = pendingArchitecture;
+                    const { text, kind, stack, upgrade } = pendingArchitecture;
                     setPendingArchitecture(null);
                     setMode("auto");
-                    startConnecting({ projectId: project.id, text, kind, stack });
+                    startConnecting({ projectId: project.id, text, kind, stack, upgrade });
                   }}
                   className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/[0.10] px-2 py-1 font-medium text-emerald-300 transition-colors hover:bg-emerald-500/[0.18]"
                 >
@@ -2028,13 +2079,14 @@ export default function ChatPanel({
                   type="button"
                   title={option.blurb}
                   onClick={() => {
-                    const { text, kind, stack } = pendingArchitecture;
+                    const { text, kind, stack, upgrade } = pendingArchitecture;
                     setPendingArchitecture(null);
                     setMode("auto");
                     void send(text, {
                       architecture: option.value,
                       buildKind: kind,
                       stack,
+                      upgrade,
                       silent: true,
                     });
                   }}

@@ -85,6 +85,8 @@ import { composeBuildPrompt } from "@/lib/builder/blueprints";
 import {
   type ArchitectureManifest,
   architectureFromChoice,
+  describeUpgrade,
+  type Layer,
   LAYERS,
   raiseArchitecture,
   architectureOptions,
@@ -131,7 +133,14 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
-import { type FeatureAsk, featureBrief, featureFor } from "@/lib/builder/feature";
+import {
+  type FeatureAsk,
+  appFeatureFor,
+  featureBrief,
+  featureFor,
+  upgradeBrief,
+  upgradeOffer,
+} from "@/lib/builder/feature";
 import { indexTree, retrieve } from "@/lib/context/project-index";
 import {
   deploymentName,
@@ -236,6 +245,10 @@ type BuildRequestBody = {
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
+  /* Set only by the "Upgrade to a full app" button: the yes to upgradeOffer.
+     A single page is moved into a project, kept as it is, with the feature it
+     was asked for added. Never inferred — it writes a whole app. */
+  upgrade?: unknown;
   /* Which of the two things to build, when the person was asked and answered.
      Sent back with the next request the same way buildKind is — see the
      needsStack branch, and stack.ts for when the question is worth asking at
@@ -1126,7 +1139,45 @@ async function handle(
     }
   }
 
-  const intent: Intent = featureBase ? "new_project" : routedIntent;
+  /* ── The yes to an upgrade ─────────────────────────────────────────────
+   *
+   * A single page asked for something only an app can hold, was offered an
+   * upgrade (see upgradeOffer), and the person pressed the button. The page
+   * becomes the blueprint: it is reproduced faithfully as the new project's
+   * home page and the feature is built on top, through the same build path as
+   * a feature — the project's kind and design kept, its layers only added to.
+   * Only ever on that button; a sentence never upgrades anything by itself. */
+  let upgradeBase: { html: string; buildId: string; areas: string[] } | null = null;
+  if (
+    body.upgrade === true &&
+    service &&
+    currentHtml &&
+    !featureBase &&
+    ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html"
+  ) {
+    /* The build the page was read from, so the save route reads back the same
+       page and lifts its pictures out in the same order — the tokens the
+       generator was shown are then exactly the ones put back. */
+    if (lastBuild?.id) {
+      upgradeBase = {
+        html: currentHtml,
+        buildId: lastBuild.id as string,
+        areas: appFeatureFor(prompt)?.areas ?? ["the feature you asked for"],
+      };
+    }
+  }
+
+  /* Both build on the project that is there rather than replacing it. */
+  const addingTo = Boolean(featureBase || upgradeBase);
+
+  const intent: Intent = addingTo ? "new_project" : routedIntent;
+  if (upgradeBase) {
+    steps.mark(
+      "upgrade",
+      "Upgrading your page to a full app",
+      `your page is kept exactly as it is, and ${upgradeBase.areas.join(" and ")} added on top`,
+    );
+  }
   if (featureBase) {
     steps.mark(
       "feature",
@@ -1585,7 +1636,7 @@ async function handle(
   }
 
   // ── NEW PROJECT, over something that exists ──────────────────────────────
-  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true && !featureBase) {
+  if (intent === "new_project" && currentHtml && body.confirmNewProject !== true && !addingTo) {
     /* Nothing has happened yet and nothing will until this comes back
        confirmed. Replacing a page someone spent real time and credits on is
        not a thing to do on a classifier's say-so. */
@@ -2744,18 +2795,44 @@ async function handle(
             stack: pageStack,
           });
 
-      if (pageUpgrade.kind === "needs-rebuild") {
-        const stored = await deliver(pageUpgrade.said, { key: "needs-rebuild" });
-        return NextResponse.json(
-          {
-            error: pageUpgrade.said,
-            intent: "edit",
-            code: "needs_rebuild",
-            needsRebuild: true,
-            stored,
+      /* ── Something a page cannot hold: offer to upgrade it ─────────────
+       *
+       * This used to stop at "ask me to rebuild it as a full project", which
+       * meant a new build from the brief: the page somebody had was thrown
+       * away and the app could come back looking different. Now it offers what
+       * a developer would do — keep the page, move it into an app, add the
+       * feature — and waits for a yes, because it writes a whole app.
+       *
+       * Asked on either signal: the capability upgrade (the manifest grew a
+       * layer a page has no room for), or the request naming an app-only area
+       * outright. The second catches "add a user dashboard", which reaches no
+       * layer in the edit planner and would otherwise be drawn as a dashboard
+       * that cannot hold anybody's data. */
+      const appAsk = pageData ? null : appFeatureFor(prompt);
+      if (pageUpgrade.kind === "needs-rebuild" || appAsk) {
+        const what =
+          appAsk?.areas.join(" and ") ??
+          (pageUpgrade.kind === "needs-rebuild" ? describeUpgrade(pageUpgrade.added).replace(/^adding /, "") : "this");
+        const offer = upgradeOffer(what);
+        const stored = await deliver(offer, { key: "offer-upgrade" });
+        return NextResponse.json({
+          stored,
+          steps: steps.list(),
+          intent: "edit",
+          needsUpgrade: true,
+          build: {
+            ok: true,
+            requestId: "",
+            projectId: project.id,
+            intent: "webapp",
+            status: "Built",
+            links: { preview: previewUrl, repo: "", admin: "" },
+            configKeys: {},
+            artifacts: {},
+            message: offer,
           },
-          { status: 409 },
-        );
+          project: null,
+        });
       }
 
       if (pageUpgrade.kind === "raised") {
@@ -3590,7 +3667,7 @@ async function handle(
     : isBuildKind(knownArchitecture?.type)
       ? knownArchitecture.type
       : null;
-  const chosen = featureBase && knownKind ? knownKind : isBuildKind(body.buildKind) ? body.buildKind : null;
+  const chosen = addingTo && knownKind ? knownKind : isBuildKind(body.buildKind) ? body.buildKind : null;
   const quick: KindResult | null = chosen
     ? { kind: chosen, confidence: 1, source: "selection", reason: "you chose it" }
     : heuristicKind(brief.text);
@@ -3658,8 +3735,9 @@ async function handle(
   const needs = chosenStack
     ? { ...decideStack(brief.text, kind.kind), stack: chosenStack, certain: true }
     : decideStack(brief.text, kind.kind);
-  /* A feature lands in the project it is added to, which is a file tree. */
-  if (featureBase) {
+  /* A feature lands in the project it is added to, which is a file tree — and
+     an upgrade is the move into one. */
+  if (addingTo) {
     needs.stack = "nextjs";
     needs.certain = true;
   }
@@ -3702,12 +3780,23 @@ async function handle(
      "add a booking page" says nothing about the admin, and is not a request to
      lose it. What the project already is counts as decided, so the only thing
      left to ask about is a database it has never had. */
+  /* An upgrade adds what the request needs to what the page had — and a
+     dashboard or a checkout needs accounts behind it, even when the sentence
+     only named the screen. */
+  const upgradeLayers: Layer[] = upgradeBase
+    ? [
+        ...planEdit(prompt, knownArchitecture).touches,
+        ...(upgradeBase.areas.some((area) => area !== "a cart and checkout") ? (["authentication"] as Layer[]) : []),
+        ...(upgradeBase.areas.includes("an admin area") ? (["admin"] as Layer[]) : []),
+        ...(upgradeBase.areas.includes("a cart and checkout") ? (["payments"] as Layer[]) : []),
+      ]
+    : [];
   const architecture =
-    featureBase && knownArchitecture
+    addingTo && (knownArchitecture || upgradeBase)
       ? (() => {
           const raised = raiseArchitecture(
-            knownArchitecture,
-            LAYERS.filter((layer) => answeredArchitecture.manifest[layer]),
+            knownArchitecture ?? answeredArchitecture.manifest,
+            [...LAYERS.filter((layer) => answeredArchitecture.manifest[layer]), ...upgradeLayers],
           );
           return { ...answeredArchitecture, manifest: raised.manifest, needsProject: true, certain: true };
         })()
@@ -4238,7 +4327,7 @@ async function handle(
   /* A feature wears the project's own design; choosing again could hand a new
      page a different system from the pages beside it. */
   const design =
-    featureBase && knownDesign
+    addingTo && knownDesign
       ? { dna: knownDesign, reason: "kept from the project it is added to" }
       : decideDesign(plan.direction.register, kind.kind, brief.text);
   steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
@@ -4311,9 +4400,9 @@ async function handle(
      * must not be built early. See stagePlanBrief. */
     /* Never for a feature: it is one addition to a finished project, and a
        plan would hold back half of it for "a later stage". */
-    let plannedStages = featureBase ? null : activePlan;
+    let plannedStages = addingTo ? null : activePlan;
 
-    if (!plannedStages && service && !featureBase) {
+    if (!plannedStages && service && !addingTo) {
       const split = decompose({
         brief: brief.text,
         requirements: extractRequirements(brief.text),
@@ -4375,7 +4464,11 @@ async function handle(
        same rules, the project's own files to read, and "write only what you
        create or change". See featureBrief. */
     const asFeature = (base: string) =>
-      featureBase ? featureBrief(base, featureBase.ask, prompt, featureBase.tree) : base;
+      featureBase
+        ? featureBrief(base, featureBase.ask, prompt, featureBase.tree)
+        : upgradeBase
+          ? upgradeBrief(base, prompt, upgradeBase.areas, stashImages(upgradeBase.html).lean)
+          : base;
 
     const promptContext = {
       projectName: project.name,
@@ -4519,6 +4612,19 @@ async function handle(
        come back through the orchestrator as an ordinary build, and only this
        tells the save route to lay them OVER the project rather than replace it
        — and to charge for the files written rather than for the project. */
+    if (upgradeBase && service) {
+      await saveContext(service, {
+        projectId: project.id,
+        userId: user.id,
+        version: projectContextRow?.version ?? 1,
+        state: {
+          ...(projectContextRow?.state ?? {}),
+          upgrade: { requestId, baseBuildId: upgradeBase.buildId, areas: upgradeBase.areas },
+        },
+        cache: projectContextRow?.cache ?? {},
+      });
+    }
+
     if (featureBase && service) {
       await saveContext(service, {
         projectId: project.id,

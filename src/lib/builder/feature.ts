@@ -70,7 +70,9 @@ const AREAS: { label: string; says: RegExp; routes: RegExp }[] = [
   },
   {
     label: "messaging",
-    says: /\b(messag(?:es|ing)|inbox|live chat|chat (?:feature|system|page))\b/i,
+    /* Not the bare word "messages": "a section with messages from happy
+       customers" is testimonials. */
+    says: /\b(messaging|inbox|live chat|direct messages|private messages|chat (?:feature|system|page))\b/i,
     routes: /^app\/(?:messages|inbox|chat)\//,
   },
   {
@@ -246,4 +248,74 @@ export function mergeFeature(
     ...returned.filter((file) => !base.some((entry) => entry.path === file.path)),
   ];
   return { tree, created, changed };
+}
+
+/* ── Upgrading a single page into a full app ──────────────────────────────
+ *
+ * A single HTML page can take sections, interactions and a form that saves to
+ * the owner's database as ordinary edits. What it can never hold is anything
+ * that needs a server: a session, a private dashboard, an admin, a checkout,
+ * a conversation. The answer used to be "ask me to rebuild it as a full
+ * project" — a NEW build from the brief, which discarded the page somebody had
+ * and could come back looking different.
+ *
+ * A developer would keep the page and move it into an app. That is what an
+ * upgrade is: the existing page, converted faithfully into the new project's
+ * home page and components, with the feature added on top. After it, the
+ * project is a file tree and every later feature is an addition. */
+
+/* The areas a single page genuinely cannot hold. Bookings, a blog or a named
+   page are absent on purpose: on a page they are sections, and an edit adds
+   them. */
+const NEEDS_AN_APP = new Set(["an admin area", "a dashboard", "sign-in and accounts", "a cart and checkout", "messaging", "saved items"]);
+
+/* featureFor against an empty project, so every area reads as missing. Only
+   the areas are kept; the tree is never shown to anything. */
+const NOTHING_YET: FileTree = [{ path: "app/page.tsx", content: "x".repeat(STUB_BELOW) }];
+
+/** The server-only features a single page was asked for, or null. */
+export function appFeatureFor(message: string): FeatureAsk | null {
+  const ask = featureFor(message, NOTHING_YET);
+  if (!ask) return null;
+  const areas = ask.areas.filter((area) => NEEDS_AN_APP.has(area));
+  return areas.length > 0 ? { areas, because: ask.because } : null;
+}
+
+/** What to say before an upgrade, so nothing is spent without a yes. */
+export function upgradeOffer(what: string): string {
+  return [
+    `This needs your site upgraded to a full app. It is a single page with no server behind it, so ${what} cannot actually work in it however it is written.`,
+    `I'll keep your current page exactly as it is — the same design, words and images — and add ${what} on top.`,
+    "The upgrade writes the whole app once, so it costs about what a build does. After that every new feature is added to it and priced on what it writes. Upgrade?",
+  ].join("\n\n");
+}
+
+/**
+ * The instruction for an upgrade: the ordinary file-tree brief, preceded by
+ * the page it must reproduce.
+ *
+ * `page` is the page with its embedded pictures already lifted out (see
+ * stashImages): each one is a `stashed-image-N` token, and the save route puts
+ * the real picture back wherever the token is kept.
+ */
+export function upgradeBrief(base: string, request: string, areas: string[], page: string): string {
+  return `${base}
+
+════════════════════════════════════════
+THIS UPGRADES AN EXISTING PAGE INTO A FULL APP — KEEP THE PAGE
+════════════════════════════════════════
+
+The person has a live single-page site, reproduced in full below, and asked: ${request.trim()}
+
+That needs ${areas.join(", ")}, which a single page cannot hold, so it becomes a project. Two jobs, in this order:
+
+1. REPRODUCE THE PAGE FAITHFULLY as app/page.tsx (with app/layout.tsx and components). Same sections in the same order, the same headings and copy word for word, the same colours, fonts, spacing and imagery, the same links and forms. Somebody who opens the new home page must not be able to tell it moved. Turn its <style> and inline styles into the project's tokens and Tailwind classes; turn its scripts into React state and handlers. Its header becomes the shared Nav and its footer the shared Footer.
+2. ADD ${areas.join(", ").toUpperCase()} as the brief above describes, linked from that header — and, where it has accounts, with the signed-in avatar menu there.
+
+From the WRITE THESE list above, write the shell, the home page, the components, and the files the new feature needs. Do not invent pages the site did not have: a pricing table or contact form that is a SECTION of the page stays a section of the home page, and its link keeps scrolling to it.
+
+Every picture: an \`src\` reading \`stashed-image-N\` is a real photograph the page already has. Keep that exact token as the src wherever the picture belongs (a plain <img src="stashed-image-3" alt="…"> is right; next/image is not, because the token is not a URL until it is put back). Any other picture URL in the page is kept exactly as written. Do not declare new slots for pictures the page already has.
+
+THE PAGE AS IT IS:
+${page}`;
 }

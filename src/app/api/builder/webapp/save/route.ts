@@ -43,7 +43,7 @@ import { deploymentName, deploymentsConfigured, startDeployment } from "@/lib/pu
 import { shouldRedeploy } from "@/lib/publish/redeploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
-import { PageHtmlError, filesTouchedFor, readGeneratedDocument } from "@/lib/page-html";
+import { PageHtmlError, filesTouchedFor, readGeneratedDocument, restoreImages, stashImages } from "@/lib/page-html";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
@@ -409,11 +409,35 @@ export async function POST(request: Request) {
    * Matched on the signed request id, so a stale marker can never turn an
    * ordinary rebuild into a merge. See lib/builder/feature.ts. */
   let featureLanded: { created: string[]; changed: string[]; areas: string[] } | null = null;
+  let upgradeLanded: { areas: string[] } | null = null;
 
   if (body.files !== undefined && body.files !== null) {
     try {
       let returned = readTree(body.files);
-      const marker = (await readContext(supabase, claim.projectId)).state.feature;
+      const landing = (await readContext(supabase, claim.projectId)).state;
+      const marker = landing.feature;
+
+      /* An upgrade's answer is the whole new project, so nothing is merged —
+         but the page it reproduces had its embedded pictures lifted out before
+         the generator saw it (stashImages), and the generator kept their
+         tokens where each picture belongs. They are put back here, from the
+         same page, so the app opens with the photographs the page had. */
+      const upgrade = landing.upgrade;
+      if (upgrade && claim.requestId && upgrade.requestId === claim.requestId) {
+        const { data: pageBuild } = await supabase
+          .from("project_builds")
+          .select("html")
+          .eq("id", upgrade.baseBuildId)
+          .maybeSingle();
+        const pictures = stashImages(String(pageBuild?.html ?? "")).images;
+        returned = returned.map((file) =>
+          file.content.includes("stashed-image-")
+            ? { ...file, content: restoreImages(file.content, pictures) }
+            : file,
+        );
+        upgradeLanded = { areas: upgrade.areas };
+      }
+
       if (marker && claim.requestId && marker.requestId === claim.requestId) {
         const base = await loadTree(supabase, marker.baseBuildId);
         if (base.length > 0) {
@@ -1393,7 +1417,9 @@ export async function POST(request: Request) {
         ]
           .filter(Boolean)
           .join("\n\n")
-      : "Your page is ready.",
+      : upgradeLanded
+        ? `Your site is now a full app. Your page is kept as it was, and ${upgradeLanded.areas.join(" and ")} ${upgradeLanded.areas.length === 1 ? "is" : "are"} added on top. From here, new features are added to it rather than rebuilt.`
+        : "Your page is ready.",
     /* Both addresses, and the file is one of them.
        The card under this message offers Download and Publish for a few minutes
        and then takes them away, which is what a shortcut should do. These links
@@ -1472,7 +1498,7 @@ export async function POST(request: Request) {
        request and the workflow forwarded — not a browser's word for it. */
     cost: roundCredits(pageCost + contextCost),
     description:
-      (featureLanded ? "Feature: " : "Build: ") +
+      (featureLanded ? "Feature: " : upgradeLanded ? "Upgrade to app: " : "Build: ") +
       (contextCost > 0
         ? `${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
         : `${str(body.prompt).slice(0, 60) || "new page"}`),
