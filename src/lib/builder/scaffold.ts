@@ -1282,6 +1282,19 @@ export function treeBrief(
     );
   }
 
+  /* One database, one truth — for every kind that has one. Aurelia Estates
+     showed six listings typed into its pages while its database held eight
+     others, so nothing anybody saved pointed at a listing they could see, and
+     its forms said "sent" having sent nothing. */
+  if (manifest.database) {
+    rules.push(
+      "- WHAT A PAGE LISTS COMES FROM ITS TABLE. When the database has a table for the things a page shows — listings, products, dishes, classes, courses, posts, agents — the page reads them from that table with supabase, and a detail page loads its record by id. Never a typed array of them in the page, never a second copy in lib/data.ts: a list in code and a table in the database are two catalogues, and whatever a person saves points at the one they cannot see.",
+      "- THE ITEMS THE DESIGN NEEDS ARE ROWS. Write them in `lib/seed.sql` as `insert into <table> (<columns>) values (...), (...);` — inserts only, one statement per table, parents before the rows that reference them, and fixed uuids (`'a1000000-0000-4000-8000-000000000001'`) so rows can reference each other. They are added once, only while the table is empty. Image URLs and descriptions go in the rows, not in the page.",
+      "- EVERY FORM WRITES. A contact, enquiry, booking, viewing, newsletter or waitlist form inserts into its table and shows its success state only after the insert succeeds; when it fails, it shows why. `e.preventDefault(); setSent(true);` with nothing in between is a form that throws away what somebody typed.",
+      "- EVERY SAVE WRITES. A favourite, save, like, wishlist or follow button inserts or deletes its row, and reads the row back to show its state on load. A button that only flips local state looks saved and is gone on reload.",
+    );
+  }
+
   /* Where the environment is allowed to be read at all. Named against
      manifest.backend rather than .database because that is what decides
      whether lib/supabase.ts is written — a rule naming a file the project does

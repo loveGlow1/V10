@@ -1406,7 +1406,7 @@ export function schemaBrief(model: DataModel): string {
   if (model.tables.length === 0) return "";
 
   const lines = [
-    "THE DATABASE — already created. Do not write migrations, do not create tables, do not guess column names.",
+    "THE DATABASE — already created. Do not write migrations, do not create tables, do not guess column names. The one SQL file you do write is lib/seed.sql: the rows the design shows, as inserts into these tables.",
     "",
     `Schema: ${model.schema}. The client in lib/supabase.ts is already pointed at it, so query table names bare: supabase.from("products"), never "${model.schema}.products".`,
     "",

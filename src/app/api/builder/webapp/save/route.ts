@@ -20,7 +20,7 @@ import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { loadTree, storeTree } from "@/lib/builder/store-tree";
 import { mergeFeature } from "@/lib/builder/feature";
-import { authoredSql, missingTables, prepareAuthoredSql } from "@/lib/builder/backend/authored-sql";
+import { authoredSql, missingTables, prepareAuthoredSql, prepareSeedSql, seedSqlOf } from "@/lib/builder/backend/authored-sql";
 import { runnerFor } from "@/lib/builder/backend/schema-sync";
 import { describeLiveCheck, liveCheckSql, readLiveCheck } from "@/lib/builder/backend/live-check";
 import { extractRequirements } from "@/lib/context/compress";
@@ -1456,6 +1456,45 @@ export async function POST(request: Request) {
         tone: tablesNote.startsWith("Created") ? "normal" : "error",
         kind: "chat",
         dedupeKey: `tables:${claim.requestId || project.id}`,
+      });
+    }
+  }
+
+  /* ── Starter rows ─────────────────────────────────────────────────────
+   *
+   * The items the design shows — listings, dishes, courses — written as rows
+   * in lib/seed.sql, so the pages read them from their tables and what people
+   * save points at something real. Each table gets them only while it is
+   * empty. See prepareSeedSql. Before the live check, which then sees them. */
+  const seed = tree.length > 0 && summaryBackend && summaryBackend.mode !== "shared" ? seedSqlOf(tree) : null;
+  if (seed && summaryBackend) {
+    const prepared = prepareSeedSql(seed, summaryBackend.schema ?? "public");
+    let failure: string | null = prepared.ok ? null : `I did not add the starter rows in lib/seed.sql because ${prepared.reason}.`;
+    if (prepared.ok) {
+      let runner: Awaited<ReturnType<typeof runnerFor>> = null;
+      try {
+        runner = await runnerFor(supabase, summaryBackend, project.id as string);
+        if (runner) {
+          const ran = await runner.query(prepared.sql);
+          if (!ran.ok) failure = `Adding the starter rows for ${prepared.tables.join(", ")} failed: ${ran.reason}. The rows are in lib/seed.sql.`;
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`save: ${project.id} — the starter rows could not be added:`, error);
+        failure = "Adding the starter rows failed. They are in lib/seed.sql — run it in your Supabase SQL editor.";
+      } finally {
+        await runner?.close().catch(() => undefined);
+      }
+    }
+    if (failure) {
+      await recordMessage(supabase, {
+        projectId: project.id as string,
+        userId: claim.userId,
+        role: "system",
+        body: failure,
+        tone: "error",
+        kind: "chat",
+        dedupeKey: `seed:${claim.requestId || project.id}`,
       });
     }
   }

@@ -31,11 +31,22 @@ const FENCED = /```(?:sql|postgres|postgresql|pgsql|psql)?\s*\n([\s\S]+?)```/i;
 const BARE_SQL =
   /^\s*(?:select|insert\s+into|update\s+\w|delete\s+from|create\s+(?:table|index|unique\s+index|policy|type|view|function|or\s+replace|extension|schema|trigger)|alter\s+(?:table|type|policy|view)|drop\s+(?:table|index|policy|type|view|function|column)|truncate|grant|revoke|comment\s+on|with\s+\w+\s+as\s*\(|do\s+\$\$)\b[\s\S]*(?:;|\bfrom\b|\bvalues\b|\(|\bset\b)/i;
 
+/* What a copy does to a fence. Pasting a message that came with ```sql around
+   it from somewhere that renders markdown, or out of a file viewer, arrives
+   as "sql\ninsert into …" or "``sql\ninsert into …" — the backticks gone or
+   half gone, the language left on a line of its own. That was read as a code
+   edit, and the SQL never reached the database. So a leading label line and
+   any stray backticks at either end are taken off before deciding. */
+const LOOSE_FENCE_HEAD = /^\s*`{0,3}\s*(?:sql|postgres|postgresql|pgsql|psql)?\s*\r?\n/i;
+const LOOSE_FENCE_TAIL = /\r?\n\s*`{1,3}\s*$/;
+
 /** The SQL in a message, when the message carries some. */
 export function sqlFromMessage(message: string): string | null {
   const fenced = message.match(FENCED);
   if (fenced) return fenced[1].trim();
-  return BARE_SQL.test(message) ? message.trim() : null;
+  if (BARE_SQL.test(message)) return message.trim();
+  const unwrapped = message.replace(LOOSE_FENCE_HEAD, "").replace(LOOSE_FENCE_TAIL, "").replace(/^`+|`+$/g, "");
+  return unwrapped !== message && BARE_SQL.test(unwrapped) ? unwrapped.trim() : null;
 }
 
 /* Something to do to data or structure. */
