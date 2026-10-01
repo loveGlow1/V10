@@ -40,7 +40,7 @@ export function sqlFromMessage(message: string): string | null {
 
 /* Something to do to data or structure. */
 const DB_VERB =
-  /\b(add|create|make|drop|delete|remove|rename|insert|seed|populate|backfill|update|change|alter|truncate|clear|empty|show|list|count|query|select|fetch|find|how many|run|execute|apply|grant|revoke|index)\b/i;
+  /\b(add|create|make|fix|repair|drop|delete|remove|rename|insert|seed|populate|backfill|update|change|alter|truncate|clear|empty|show|list|count|query|select|fetch|find|how many|run|execute|apply|grant|revoke|index)\b/i;
 
 /* Somewhere that can only be the database. "the pricing table" on a landing
    page is HTML; "the profiles table", a snake_case name, or the word

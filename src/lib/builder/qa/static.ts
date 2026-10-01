@@ -23,6 +23,7 @@
 import type { ArchitectureManifest } from "@/lib/builder/architecture";
 import type { DesignDNA } from "@/lib/builder/design";
 import { typeScale } from "@/lib/builder/design";
+import { MARKER_LINE } from "@/lib/builder/patch";
 import type { FileTree } from "@/lib/builder/tree";
 import { AA_TEXT, AAA_TEXT, check as contrastCheck } from "./contrast";
 import { planFor } from "./plan";
@@ -299,9 +300,27 @@ export function functionalGate(
   manifest: ArchitectureManifest | null | undefined,
 ): GateResult {
   const plan = planFor(manifest);
-  if (!plan.derivable) return emptyGate(false);
 
-  const issues: Issue[] = [];
+  /* ── A file that cannot compile at all ────────────────────────────────
+   *
+   * A `=======` line from a malformed edit reply, written into the code.
+   * Next.js stops the whole production build on it ("Merge conflict marker
+   * encountered") while the preview may still render, so it is checked
+   * whatever the plan says — no project of any kind can ship one. */
+  const marked = tree.filter((file) => /\.(?:[jt]sx?|css|html?|mjs|json)$/.test(file.path) && MARKER_LINE.test(file.content)).map((file) => file.path);
+  const markerIssue: Issue[] = marked.length
+    ? [{
+        gate: "functional",
+        severity: "error",
+        rule: "functional/patch-markers",
+        message: `${marked.length} file${marked.length === 1 ? " has" : "s have"} leftover <<<<<<< / ======= / >>>>>>> lines and will not compile: ${marked.slice(0, 5).join(", ")}.`,
+        where: marked[0],
+      }]
+    : [];
+
+  if (!plan.derivable) return markerIssue.length ? { ran: true, passed: false, issues: markerIssue } : emptyGate(false);
+
+  const issues: Issue[] = [...markerIssue];
   const markup = markupOf(html);
   const paths = tree.map((file) => file.path).join("\n");
 

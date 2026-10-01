@@ -923,3 +923,114 @@ export function publicationModulesFor(kind: BuildKind, text: string): Modules | 
   const modules = modulesFor(PUBLICATION_MODULES[kind], text);
   return modules.tables.length > 0 || modules.left.length > 0 ? modules : null;
 }
+
+/* ── Staff: the people who work in the business ─────────────────────────────
+ *
+ * An estate agency has agents, a gym trainers, a clinic receptionists. Until
+ * now a web app had two kinds of person — a customer and the owner — so an
+ * agent who needed to see viewing requests had to be made an owner, and could
+ * then delete the catalogue. A staff role sits between: it reads and answers
+ * what customers send (their requests, bookings, enquiries) and leaves the
+ * catalogue to the owner. Only when the brief has people working in the
+ * product; a site its owner runs alone has no staff. */
+
+const STAFF_WORDS =
+  /\b(agents?|staff|employees?|team members?|managers?|trainers?|instructors?|teachers?|tutors?|coaches|moderators?|receptionists?|stylists?|therapists?|doctors?|nurses?|guides?|coordinators?|operators?)\b[^.\n]{0,60}\b(log ?in|sign ?in|portal|dashboards?|panel|accounts?|access|manage|respond|handle|confirm|see (?:the|their|all))\b|\b(staff|agent|employee|team|manager|trainer|instructor|moderator|teacher|coach) (?:portal|dashboard|area|panel|login|accounts?|view|roles?)\b|\brole[- ]based\b|\b(?:user )?roles? (?:and|&) permissions\b/i;
+
+const STAFF_ROLE: Record<string, string> = {
+  "real-estate": "agent",
+  fitness: "trainer",
+  courses: "instructor",
+  community: "moderator",
+  tours: "guide",
+};
+
+/** The staff role this brief asks for, or null when nobody works in it but the owner. */
+export function staffFor(preset: Preset, text: string): string | null {
+  if (preset.id === "business" || preset.id === "crm" || preset.id === "projects") return null;
+  return STAFF_WORDS.test(text) ? (STAFF_ROLE[preset.id] ?? "staff") : null;
+}
+
+/* Tables staff answer: each holds one person's rows (a user_id) and is not
+   public writing like a forum post. Notifications are the exception the other
+   way — staff write them for customers but do not read anyone's. */
+const isPersonal = (table: Table) =>
+  table.columns.some((column) => column.name === "user_id") &&
+  table.policies.some((policy) => /user_id = auth\.uid\(\)/.test(`${policy.using ?? ""} ${policy.check ?? ""}`)) &&
+  !["threads", "replies", "comments", "reviews", "notifications"].includes(table.name);
+
+/** The model with a staff role: in profiles' allowed roles, and on every table staff answer. */
+export function withStaff<M extends { tables: Table[]; staffRole?: string }>(model: M, role: string): M {
+  const tables = model.tables.map((table): Table => {
+    if (table.name === "profiles") {
+      return {
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === "role" && column.check && !column.check.includes(`'${role}'`)
+            ? { ...column, check: column.check.replace(/\)\s*$/, `, '${role}')`) }
+            : column,
+        ),
+        policies: [
+          ...table.policies,
+          { name: "profiles_staff_read", for: "select", to: ["authenticated"], using: "is_staff()", why: "Staff see who they are answering — a name and contact details on each request." },
+        ],
+      };
+    }
+    if (table.name === "notifications") {
+      return {
+        ...table,
+        policies: [
+          ...table.policies,
+          { name: "notifications_staff_send", for: "insert", to: ["authenticated"], check: "is_staff()", why: "Staff tell a customer when something of theirs changes." },
+        ],
+      };
+    }
+    if (!isPersonal(table)) return table;
+    return {
+      ...table,
+      policies: [
+        ...table.policies,
+        { name: `${table.name}_staff_read`, for: "select", to: ["authenticated"], using: "is_staff()", why: "Staff see every customer's, because answering them is the job." },
+        { name: `${table.name}_staff_update`, for: "update", to: ["authenticated"], using: "is_staff()", check: "is_staff()", why: "Staff confirm, reschedule and close them. They cannot delete one, and cannot touch the catalogue." },
+      ],
+    };
+  });
+  return { ...model, tables, staffRole: role };
+}
+
+/* ── Modules any signed-in web app can have ───────────────────────────────── */
+
+const NOTIFY = /\b(notifications?|notify|notified|alerts?|bell|inbox|reminders?)\b/i;
+const UPLOADS = /\b(upload\w*|attach(?:ment|ments|ed)?|documents?|files?|avatars?|profile (?:photos?|pictures?|images?)|resumes?|cvs?)\b/i;
+
+const notifications = (): Table => ({
+  name: "notifications",
+  what: "Messages to one signed-in person — a viewing confirmed, a booking changed. Shown as a bell with an unread count in the dashboard header and a list in the dashboard; opening one sets read_at. When the owner or staff change the status of something a customer sent, insert a notification for that customer in the same action.",
+  columns: [...base(), owner(), text("title"), text("body", true), text("link", true), when("read_at", true)],
+  indexes: [{ on: ["user_id", "read_at"] }],
+  policies: [
+    { name: "notifications_read_own", for: "select", to: ["authenticated"], using: "user_id = auth.uid()", why: "A person reads their own notifications and nobody else's." },
+    { name: "notifications_mark_own", for: "update", to: ["authenticated"], using: "user_id = auth.uid()", check: "user_id = auth.uid()", why: "Marking one read is the reader's." },
+    { name: "notifications_delete_own", for: "delete", to: ["authenticated"], using: "user_id = auth.uid()", why: "A person may clear their own." },
+    { name: "notifications_owner_send", for: "insert", to: ["authenticated"], check: "is_admin()", why: "The owner sends them; a customer cannot write into anyone's inbox." },
+  ],
+});
+
+/**
+ * What a signed-in web app gets on top of its domain's tables, when its brief
+ * asks: notifications as a table, uploads as a private bucket. Neither is
+ * anybody's default.
+ */
+export function commonModulesFor(text: string): { tables: Table[]; uploads: boolean } {
+  return { tables: NOTIFY.test(text) ? [notifications()] : [], uploads: UPLOADS.test(text) };
+}
+
+/** The private bucket each person uploads their own files to. */
+export function uploadsBucket(name: string) {
+  return {
+    name,
+    public: false,
+    perUser: true,
+    what: `Files people upload — avatars, documents. Private: upload to \`\${user.id}/<file name>\` with supabase.storage.from("${name}").upload(...), and show one with createSignedUrl. Only that person and the owner can read it; a path outside their own folder is refused.`,
+  };
+}

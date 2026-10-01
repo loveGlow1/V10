@@ -22,6 +22,7 @@ import { loadTree, storeTree } from "@/lib/builder/store-tree";
 import { mergeFeature } from "@/lib/builder/feature";
 import { authoredSql, missingTables, prepareAuthoredSql } from "@/lib/builder/backend/authored-sql";
 import { runnerFor } from "@/lib/builder/backend/schema-sync";
+import { describeLiveCheck, liveCheckSql, readLiveCheck } from "@/lib/builder/backend/live-check";
 import { extractRequirements } from "@/lib/context/compress";
 import { absorbToolResult } from "@/lib/context/tool-output";
 import { indexPage, indexTree } from "@/lib/context/project-index";
@@ -1456,6 +1457,48 @@ export async function POST(request: Request) {
         kind: "chat",
         dedupeKey: `tables:${claim.requestId || project.id}`,
       });
+    }
+  }
+
+  /* ── The app, tried against its real database ──────────────────────────
+   *
+   * After the tables are made, every one the code queries is read as a
+   * visitor and as a member who signed up a moment ago, and the test member
+   * is rolled back. What a customer would have found on their first visit —
+   * a missing table, a policy that errors, private rows anybody can read, a
+   * sign-up that cannot write its profile — the owner is told now, in the
+   * thread. See lib/builder/backend/live-check.ts. Never fails the save. */
+  if (tree.length > 0 && summaryBackend && summaryBackend.mode !== "shared") {
+    const queried = missingTables(tree, []);
+    if (queried.length > 0) {
+      let runner: Awaited<ReturnType<typeof runnerFor>> = null;
+      try {
+        runner = await runnerFor(supabase, summaryBackend, project.id as string);
+        if (runner) {
+          const ran = await runner.query(liveCheckSql(summaryBackend.schema ?? "public", queried));
+          const check = ran.ok ? readLiveCheck(ran.rows) : null;
+          if (check) {
+            const said = describeLiveCheck(check);
+            await recordMessage(supabase, {
+              projectId: project.id as string,
+              userId: claim.userId,
+              role: "system",
+              body: said.text,
+              tone: said.ok ? "normal" : "error",
+              kind: "chat",
+              dedupeKey: `live:${claim.requestId || project.id}`,
+            });
+          } else if (!ran.ok) {
+            // eslint-disable-next-line no-console
+            console.warn(`save: ${project.id} — the live database check could not run: ${ran.reason}`);
+          }
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`save: ${project.id} — the live database check failed:`, error);
+      } finally {
+        await runner?.close().catch(() => undefined);
+      }
     }
   }
 

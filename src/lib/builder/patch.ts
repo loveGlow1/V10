@@ -25,6 +25,9 @@ export type PatchResult = {
 const BLOCK =
   /<{7} SEARCH\r?\n([\s\S]*?)\r?\n={7}\r?\n([\s\S]*?)\r?\n>{7} REPLACE/g;
 
+/* A line that is only a patch or merge marker. Never valid TypeScript, CSS or HTML. */
+export const MARKER_LINE = /^(?:<{7}|={7}|>{7})(?:[ \t].*)?\r?$/m;
+
 /** Whether the output contains anything that looks like a patch at all. */
 export function hasPatches(modelOutput: string): boolean {
   BLOCK.lastIndex = 0;
@@ -151,6 +154,15 @@ export function applyPatches(html: string, modelOutput: string): PatchResult {
   while ((match = BLOCK.exec(modelOutput)) !== null) {
     const search = match[1];
     const replace = match[2];
+
+    /* A marker inside the replacement is a malformed reply — two blocks run
+       together, or one with a second divider — not code. Written in, it is a
+       file Next.js refuses to compile ("Merge conflict marker encountered"),
+       and every later edit that copies the region copies the markers too. */
+    if (MARKER_LINE.test(replace)) {
+      failures.push({ reason: "the REPLACE text contains a <<<<<<< / ======= / >>>>>>> marker line; write each block with exactly one divider", search });
+      continue;
+    }
 
     /* Uniqueness is judged against the ORIGINAL page, not the page as it has
        been changed so far — and this is the whole subtlety of applying more
@@ -315,6 +327,14 @@ export function applyLineEdits(html: string, modelOutput: string): PatchResult {
     /* The body runs to the END marker, so it carries the newline that put that
        marker on its own line. One is dropped; the rest is the person's text. */
     const replacement = match[3].replace(/\r?\n$/, "");
+    /* The habit of the other format: a `=======` divider written inside a
+       line edit, which has none. It went into the file as code — that is how
+       a dashboard settings page shipped four copies of one function between
+       divider lines, and the production build stopped on it. */
+    if (MARKER_LINE.test(replacement)) {
+      failures.push({ reason: `${named} contains a <<<<<<< / ======= / >>>>>>> line; a line edit is only the new lines, with no divider`, search: named });
+      continue;
+    }
     ranges.push({ from, to, replacement });
   }
 

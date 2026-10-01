@@ -90,7 +90,7 @@ const {
   isArchitectureChoice,
   raiseArchitecture,
 } = await import(join(out, "lib/builder/architecture.js"));
-const { dataModelFor, schemaNameFor, toSql, toTypes } = await import(
+const { dataModelFor, schemaBrief, schemaNameFor, toSql, toTypes } = await import(
   join(out, "lib/builder/schema.js")
 );
 const { decideStack } = await import(join(out, "lib/builder/stack.js"));
@@ -735,6 +735,22 @@ console.log("\nPublications and stores: roles, workflow, modules");
   const plain = shop(["catalog", "productDetails"]);
   check(!plain.includes("wishlist_items") && !plain.includes("product_reviews") && !plain.includes("orders"), "store: a catalogue gets none of them", plain.join(", "));
   check(!shop(["catalog", "wishlist"]).includes("wishlist_items"), "store: no wishlist table without customer accounts");
+}
+
+console.log("\nStaff, private uploads, and roles that grow");
+{
+  const schema = schemaNameFor("11111111-2222-3333-4444-555555555555");
+  const check = (ok, what, detail = "") => (ok ? pass(what) : fail(what, detail));
+  const base = dataModelFor({ type: "webapp", frontend: true, backend: true, database: true, authentication: true, admin: true, storage: false, payments: false, commerce: false }, schema);
+  const plain = toSql(base);
+  check(!plain.includes("is_staff()"), "no staff function without staff");
+  check(plain.includes("drop constraint if exists profiles_role_check") && /add constraint profiles_role_check check \(.*\) not valid;/.test(plain), "the role rule is set again, NOT VALID, so older profiles tables accept new roles");
+  const staffed = toSql({ ...base, staffRole: "agent", buckets: [{ name: `${schema}-user-files`, public: false, perUser: true, what: "x" }] });
+  check(staffed.includes(`create or replace function ${schema}.is_staff()`) && staffed.includes("role in ('agent', 'admin', 'editor')"), "is_staff() counts the staff role and the owner");
+  check(staffed.includes("(storage.foldername(name))[1] = auth.uid()::text"), "a private bucket is per person's folder");
+  check(!staffed.includes(`"${schema}-user-files_public_read"`), "and has no public read");
+  check(schemaBrief({ ...base, staffRole: "agent" }).includes("/staff area"), "the generator is told to build the staff area");
+  check(schemaBrief(base).includes(".maybeSingle()"), "and to use maybeSingle where a row may be missing");
 }
 
 console.log("");

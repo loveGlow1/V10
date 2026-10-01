@@ -133,7 +133,7 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
-import { modulesFor, presetFor, publicationModulesFor } from "@/lib/builder/presets";
+import { commonModulesFor, modulesFor, presetFor, publicationModulesFor, staffFor, uploadsBucket, withStaff } from "@/lib/builder/presets";
 import {
   describeTables,
   formatRows,
@@ -165,7 +165,7 @@ import { existingVercelProject, recordDeployment } from "@/lib/publish/deploymen
 import { diagnoseFindings } from "@/lib/publish/diagnosis";
 import { shouldRedeploy } from "@/lib/publish/redeploy";
 import type { PublishState } from "@/lib/project-status";
-import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
+import { bucketName, dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { type Stack, decideStack, stackOptions, stackQuestion } from "@/lib/builder/stack";
 import { classifyKind } from "@/lib/builder/classify-kind";
 import {
@@ -1324,7 +1324,22 @@ async function handle(
                columns, read now rather than remembered. */
             const snap = await runner.query(snapshotSql([backend.schema || "public"]));
             const tables = snap.ok ? parseSnapshot(snap.rows)?.tables ?? [] : [];
-            const generated = await generateSql(prompt, describeTables(tables));
+            /* "Fix the database" after the live check: what it found is the
+               request. The latest finding in this thread, said in full. */
+            let request = prompt;
+            if (/\b(fix|repair|sort out)\b/i.test(prompt)) {
+              const { data: found } = await service
+                .from("project_messages")
+                .select("body")
+                .eq("project_id", project.id)
+                .like("dedupe_key", "live:%")
+                .eq("tone", "error")
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (found?.body) request = `${prompt}\n\nFix exactly these problems the live check found, and nothing else:\n${found.body}`;
+            }
+            const generated = await generateSql(request, describeTables(tables));
             if (!generated.ok) {
               return answer(`I couldn't write the SQL for that — ${generated.reason}. You can paste the SQL itself and I'll run it.`, {}, "error");
             }
@@ -4384,6 +4399,38 @@ async function handle(
     }
   }
 
+  /* ── What any signed-in web app adds, when asked ──────────────────────
+   *
+   * Staff who work in the business, notifications, and a private place for
+   * people's own uploads. None is a default: each comes from the brief, and
+   * only for a web app with accounts — see presets.ts. */
+  if (
+    architecture.manifest.database &&
+    architecture.manifest.authentication &&
+    kind.kind === "webapp" &&
+    !designedAlready &&
+    dataModel.tables.some((table) => table.name === "profiles")
+  ) {
+    const common = commonModulesFor(brief.text);
+    const added: string[] = [];
+    if (common.tables.length > 0) {
+      dataModel = withAuthored(dataModel, common.tables);
+      added.push(...common.tables.map((table) => table.name));
+    }
+    const staff = preset ? staffFor(preset, domainText) : null;
+    if (staff) {
+      dataModel = withStaff(dataModel, staff);
+      added.push(`${staff} role`);
+    }
+    if (common.uploads && !dataModel.buckets.some((bucket) => bucket.perUser)) {
+      dataModel = { ...dataModel, buckets: [...dataModel.buckets, uploadsBucket(bucketName(dataModel.schema, "user-files"))] };
+      added.push("private uploads");
+    }
+    if (added.length > 0) {
+      steps.mark("modules", `Also: ${added.join(", ")}`, staff ? `A ${staff} answers customers' requests and cannot change the catalogue` : "Only because the brief asks for it");
+    }
+  }
+
   if (service && backend && dataModel.tables.length > 0) {
     /* The stage is entered only when there is something to provision. A
        project with no database layer never reaches this branch at all, which
@@ -4782,7 +4829,7 @@ async function handle(
                 /* A web app's signed-in modules make its dashboard even
                    when the word was never used: saved homes and viewings
                    need somewhere to be seen. */
-                kind.kind === "webapp" ? modules?.tables.filter((table) => table.columns.some((column) => column.name === "user_id" && !column.nullable)).map((table) => table.name) : undefined,
+                kind.kind === "webapp" ? dataModel.tables.filter((table) => table.columns.some((column) => column.name === "user_id" && !column.nullable)).map((table) => table.name) : undefined,
               ),
             ))
           : undefined,

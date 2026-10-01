@@ -341,6 +341,21 @@ console.log("\nA page that says it is not built is caught");
   } else pass("a finished page and an honest 'coming soon' are left alone");
 }
 
+console.log("\nLeftover patch markers");
+{
+  const broken = { path: "app/dashboard/settings/page.tsx", content: 'export default function S() {\n  save();\n=======\n  save();\n  return null;\n}\n' };
+  const fine = { path: "app/page.tsx", content: 'export default function H() { const rule = "======="; return <hr />; }' };
+  for (const [label, over] of [["a web app", { type: "webapp", backend: true, database: true }], ["a plan with nothing derivable", { type: "landing" }]]) {
+    const caught = await qa.runQa({ html: CLEAN, tree: [broken, fine], manifest: manifest(over), design: CRAFT });
+    const rule = qa.allIssues(caught).find((issue) => issue.rule === "functional/patch-markers");
+    if (!rule || rule.severity !== "error" || !rule.message.includes("settings/page.tsx")) fail("functional/patch-markers", `${label}: a file with a ======= line passed QA`);
+    else pass(`${label}: a file with a ======= line is an error, and named`);
+  }
+  const clean = await qa.runQa({ html: CLEAN, tree: [fine], manifest: manifest(), design: CRAFT });
+  if (qa.allIssues(clean).some((issue) => issue.rule === "functional/patch-markers")) fail("functional/patch-markers", "a string containing ======= was flagged");
+  else pass("======= inside a string is left alone");
+}
+
 /* ── Repairs (§9) ─────────────────────────────────────────────────────────*/
 
 console.log("\nRepairs");
