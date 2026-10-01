@@ -134,6 +134,21 @@ export const PREVIEW_RUNTIME = `
 
   window.__qsNavigate = navigate;
 
+  /* A plain <a href="/somewhere">, which is not next/link and so never reached
+     navigate(): in this document it resolved against the WORKSPACE's address
+     and loaded QuickStark's own home page inside the pane. Internal links are
+     routed here instead; anything leaving the project is left alone. */
+  document.addEventListener('click', function (event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    var node = event.target;
+    while (node && node.nodeName !== 'A') node = node.parentNode;
+    if (!node || node.target === '_blank' || node.hasAttribute('download')) return;
+    var href = node.getAttribute('href');
+    if (!href || href.charAt(0) !== '/' || href.charAt(1) === '/') return;
+    event.preventDefault();
+    navigate(href);
+  });
+
   /* What the pane is offered. A dynamic segment is given something concrete to
      stand in for it, because /products/[slug] is not an address a browser can
      open and the point is to SEE the screen. */
@@ -214,9 +229,21 @@ export const PREVIEW_RUNTIME = `
    * written against; react/jsx-runtime is supplied below. */
   var compiled = {};
 
+  /* window.location.href = "/dashboard" — how a generated login page sends
+     somebody on after signing in. In this document that loads the
+     workspace's own site into the pane, so it is routed like a link. Only
+     assignments and assign()/replace() calls are rewritten; reading
+     location.href is left exactly as written. */
+  function rewriteNavigation(source) {
+    return String(source)
+      .replace(/(?:window\\.)?location\\.href\\s*=(?!=)\\s*([^;\\n]+)/g, 'window.__qsNavigate($1)')
+      .replace(/(?:window\\.)?location\\.(?:assign|replace)\\(/g, 'window.__qsNavigate(');
+  }
+
   function compile(path) {
     if (Object.prototype.hasOwnProperty.call(compiled, path)) return compiled[path];
     var source = FILES[path];
+    if (path.slice(-5) !== '.json') source = rewriteNavigation(source);
     if (path.slice(-5) === '.json') {
       compiled[path] = 'module.exports = ' + source + ';';
       return compiled[path];
@@ -463,6 +490,34 @@ export const PREVIEW_RUNTIME = `
      project provisioned there is nothing to read, so every query resolves
      empty. That is the truthful answer — the tables are not there yet — and it
      lets the page render its empty state instead of throwing. */
+  /* The real client, when the host gave this project's database to the
+     preview (see the preview route). Signing in, signing up and every query
+     then work exactly as on the published site, against the same database.
+     Two things a sandboxed preview cannot have are supplied: storage — the
+     session is kept in memory, so it lasts until the preview is reloaded —
+     and the cross-tab lock, which an opaque origin is refused. */
+  function liveSupabase() {
+    var lib = window.supabase;
+    if (!lib || typeof lib.createClient !== 'function') return null;
+    if (!PROCESS.env.NEXT_PUBLIC_SUPABASE_URL || !PROCESS.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+    var memory = {};
+    var storage = {
+      getItem: function (key) { return Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null; },
+      setItem: function (key, value) { memory[key] = String(value); },
+      removeItem: function (key) { delete memory[key]; }
+    };
+    function lock(name, timeout, fn) { return fn(); }
+    return function createClient(url, key, options) {
+      var opts = Object.assign({}, options || {});
+      opts.auth = Object.assign(
+        { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+        opts.auth || {},
+        { storage: storage, lock: lock }
+      );
+      return lib.createClient(url, key, opts);
+    };
+  }
+
   function supabaseStub() {
     var result = Promise.resolve({ data: [], error: null, count: 0 });
     var chain = new Proxy(function () { return chain; }, {
@@ -580,7 +635,7 @@ export const PREVIEW_RUNTIME = `
           useMotionValue: function (initial) { return { get: function () { return initial; }, set: function () {}, on: function () { return function () {}; } }; }
         };
       case '@supabase/supabase-js':
-        return { __esModule: true, createClient: supabaseStub };
+        return { __esModule: true, createClient: liveSupabase() || supabaseStub };
       case 'clsx':
       case 'classnames':
         return { __esModule: true, default: classNames, clsx: classNames };

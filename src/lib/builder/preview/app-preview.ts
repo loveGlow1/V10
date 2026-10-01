@@ -58,6 +58,10 @@ const LUCIDE = "https://cdnjs.cloudflare.com/ajax/libs/lucide/0.462.0/lucide.min
 /* The same play CDN the single-page stack has always styled itself with — see
    lib/standalone-page.ts, which exists because of what it does NOT do offline. */
 const TAILWIND = "https://cdn.tailwindcss.com";
+/* The real client, so the preview signs in and reads the project's rows.
+   Pinned to the version the generated projects install, and loaded only for
+   a project that has a database to talk to. */
+const SUPABASE = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.7/dist/umd/supabase.js";
 
 /** The file extensions the runtime can compile. Everything else is not source. */
 const SOURCE = /\.(?:tsx?|jsx?|mjs|json)$/;
@@ -295,6 +299,7 @@ ${styles ? `<style type="text/tailwindcss">${styles.replace(/<\/style/gi, "<\\/s
 <script src="${REACT_DOM}" crossorigin></script>
 <script src="${LUCIDE}"></script>
 <script src="${BABEL}"></script>
+${env?.NEXT_PUBLIC_SUPABASE_URL && env?.NEXT_PUBLIC_SUPABASE_ANON_KEY ? `<script src="${SUPABASE}" crossorigin></script>` : ""}
 <script>
 window.__QS_FILES = ${embed(files)};
 window.__QS_ROUTES = ${embed(

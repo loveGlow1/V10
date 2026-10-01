@@ -10,6 +10,7 @@ import { currentTree, loadTree } from "@/lib/builder/store-tree";
 import { isSinglePage, type FileTree } from "@/lib/builder/tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 
 /* Serves the page a build produced.
  *
@@ -526,15 +527,20 @@ export async function GET(
          * Each is included only when set, so an unconfigured deployment sends
          * an empty object and the generated client says it is unconfigured on
          * first use instead of throwing on import. */
-        const previewEnv: Record<string, string> = {};
-        for (const name of [
-          "NEXT_PUBLIC_SUPABASE_URL",
-          "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-          "NEXT_PUBLIC_SUPABASE_SCHEMA",
-        ] as const) {
-          const value = process.env[name];
-          if (value) previewEnv[name] = value;
-        }
+        /* The PROJECT's database, not this platform's.
+         *
+         * This read the three values from this server's own environment —
+         * QuickStark's Supabase — so a project on its owner's database was
+         * previewed against ours, and its sign-in, its rows and its tables
+         * were all somebody else's. They are the connection the project's
+         * deploy compiles in (envFor, the same as /api/projects/[id]/deploy),
+         * and a project with no database gets none and keeps the stub. */
+        const previewService = createSupabaseServiceClient();
+        const previewBackend = previewService ? await resolveBackend(previewService, projectId) : null;
+        const previewEnv: Record<string, string> =
+          previewBackend && previewBackend.mode !== "none" && previewBackend.url && previewBackend.anonKey
+            ? envFor(previewBackend)
+            : {};
 
         const document = appPreviewDocument({
           tree,
