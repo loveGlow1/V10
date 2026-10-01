@@ -98,8 +98,11 @@ console.log("\nStaying signed in across reloads of the preview:");
   has(withAuthSeed(page, store, "p1") === page, "signing out forgets it");
   has(withAuthSeed(page, null, "p1") === page, "no storage, no change");
   has(/window\.__qsAuthSeed/.test(PREVIEW_RUNTIME) && /report\('auth-storage'/.test(PREVIEW_RUNTIME), "the runtime reads the seed and reports every change");
+  const bridge = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/preview-bridge.ts"), "utf8");
+  has(/event\.source !== frameRef\.current\.contentWindow/.test(bridge) && /rememberAuthWrite/.test(bridge), "the workspace only takes a session from its own frame");
+  const sheet = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/PreviewSheet.tsx"), "utf8");
   const panel = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
-  has(/event\.source !== frameRef\.current\.contentWindow/.test(panel), "the workspace only takes a session from its own frame");
+  has(/usePreviewBridge/.test(sheet) && /withAuthSeed/.test(sheet) && /usePreviewBridge/.test(panel), "and the phone's preview sheet keeps the session the same way as the desktop pane");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

@@ -229,6 +229,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
         open={previewSheetOpen}
         url={safeHttpUrl(project?.preview_url)}
         title={project?.name ?? "App"}
+        projectId={project?.id ?? null}
+        lastBuildAt={project?.last_build_at ?? null}
         onClose={() => setPreviewSheetOpen(false)}
         /* On App settings, the pane's own first section, rather than on a
            particular one: this is the general way in, not an answer to a

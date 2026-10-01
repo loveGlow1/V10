@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
-import { rememberAuthWrite, withAuthSeed } from "@/lib/builder/preview/auth-seed";
-import VisualEditPanel, { type Picked, type PreviewChange } from "./VisualEditPanel";
+import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
+import VisualEditPanel from "./VisualEditPanel";
+import { usePreviewBridge } from "./preview-bridge";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -390,19 +391,16 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; the panel beside it
    * makes the changes. See VisualEditPanel. */
-  const [editMode, setEditMode] = useState(false);
-  const [picked, setPicked] = useState<Picked | null>(null);
-  const [designTokens, setDesignTokens] = useState<Record<string, string>>({});
-  const editModeRef = useRef(false);
-  editModeRef.current = editMode;
-  const tellFrame = useCallback((message: Record<string, unknown>) => {
-    frameRef.current?.contentWindow?.postMessage({ source: "quickstark-workspace", ...message }, "*");
-  }, []);
-  useEffect(() => {
-    tellFrame({ editMode });
-    if (!editMode) setPicked(null);
-  }, [editMode, tellFrame]);
-  const previewVisual = useCallback((change: PreviewChange) => tellFrame({ preview: change }), [tellFrame]);
+  const {
+    editMode,
+    setEditMode,
+    picked,
+    setPicked,
+    tokens: designTokens,
+    previewVisual,
+    deselect,
+    selectParent,
+  } = usePreviewBridge(frameRef, project?.id, !isDesktop);
   /* Editing happens on the project rendered from its source, never on the
      live site, which knows nothing of where its elements were written. */
   const framesLive = !editMode;
@@ -424,32 +422,7 @@ export default function PreviewPanel({
         | { source?: string; state?: string; detail?: { routes?: { pattern: string; href: string }[] } }
         | null;
       if (!data || data.source !== "quickstark-preview") return;
-      /* What was clicked in edit mode — only from our own frame. */
-      if (data.state === "select") {
-        if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
-        const detail = data.detail as unknown as Partial<Picked> | null;
-        if (detail && typeof detail.src === "string" && typeof detail.tag === "string") {
-          setPicked({
-            src: detail.src,
-            tag: detail.tag,
-            className: typeof detail.className === "string" ? detail.className : "",
-            text: typeof detail.text === "string" ? detail.text : null,
-            imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
-            repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
-          });
-        }
-        return;
-      }
       if (data.state !== "ready") return;
-      const tokens = (data.detail as { tokens?: unknown } | null)?.tokens;
-      if (tokens && typeof tokens === "object") {
-        setDesignTokens(Object.fromEntries(Object.entries(tokens as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
-      }
-      /* A reloaded frame starts outside edit mode; put it back. */
-      if (editModeRef.current) {
-        setPicked(null);
-        frameRef.current?.contentWindow?.postMessage({ source: "quickstark-workspace", editMode: true }, "*");
-      }
       const offered = Array.isArray(data.detail?.routes) ? data.detail.routes : [];
       setRoutes(
         offered.filter(
@@ -545,23 +518,7 @@ export default function PreviewPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageHtml, reloads]);
 
-  useEffect(() => {
-    const projectId = project?.id;
-    if (!projectId) return;
-    function onAuth(event: MessageEvent) {
-      if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
-      const data = event.data as { source?: string; state?: string; detail?: { key?: unknown; value?: unknown } } | null;
-      if (!data || data.source !== "quickstark-preview" || data.state !== "auth-storage") return;
-      try {
-        rememberAuthWrite(window.sessionStorage, projectId as string, data.detail?.key, data.detail?.value);
-      } catch {
-        /* No sessionStorage (a private window that refuses it): the preview
-           keeps the session for as long as the frame, as before. */
-      }
-    }
-    window.addEventListener("message", onAuth);
-    return () => window.removeEventListener("message", onAuth);
-  }, [project?.id]);
+
 
   const [pageFailed, setPageFailed] = useState(false);
   /* Whether what came back is a receipt rather than a page.
@@ -784,8 +741,8 @@ export default function PreviewPanel({
   const preview = (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       {previewUrl ? (
-        <div className="flex h-full min-h-[280px] flex-col gap-3 md:flex-row">
-        <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
+        <div className="flex h-full min-h-[280px] gap-3">
+        <div className="relative flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
           {/* Nothing is written across the top of the frame. What used to sit
               here was a private preview URL — nothing to click, nothing to do
               with it, and on every screenshot and screen-share of somebody's
@@ -1197,9 +1154,27 @@ export default function PreviewPanel({
               </p>
             </div>
           )}
+          {/* On a phone the controls are a sheet over the preview, never a
+              second box stacked under it — see VisualEditPanel's sheet. */}
+          {editMode && project?.id && !isDesktop ? (
+            <VisualEditPanel
+              layout="sheet"
+              projectId={project.id}
+              picked={picked}
+              tokens={designTokens}
+              onPreview={previewVisual}
+              onApplied={() => {
+                setPicked(null);
+                setReloads((count) => count + 1);
+              }}
+              onClose={() => setEditMode(false)}
+              onDeselect={deselect}
+              onSelectParent={selectParent}
+            />
+          ) : null}
         </div>
-          {editMode && project?.id ? (
-            <div className="flex max-h-[60vh] min-h-0 overflow-hidden rounded-2xl border border-line/[0.07] md:max-h-none">
+          {editMode && project?.id && isDesktop ? (
+            <div className="flex min-h-0 w-72 shrink-0 overflow-hidden rounded-2xl border border-line/[0.07]">
               <VisualEditPanel
                 projectId={project.id}
                 picked={picked}
@@ -1210,6 +1185,8 @@ export default function PreviewPanel({
                   setReloads((count) => count + 1);
                 }}
                 onClose={() => setEditMode(false)}
+                onDeselect={deselect}
+                onSelectParent={selectParent}
               />
             </div>
           ) : null}
