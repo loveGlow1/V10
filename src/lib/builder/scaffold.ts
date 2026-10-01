@@ -1311,6 +1311,7 @@ export function treeBrief(
       /* "Sign in to save properties" over a signed-in person, with no way out
          but one small button: the prompt decided from a stale read, and the
          dialog had no close. */
+      "- Never write whether somebody is signed in as a constant (`const isLoggedIn = false`). Every page that needs to know asks `supabase.auth.getSession()`, and every button that saves something writes it to its table through supabase — never a local state flip that looks saved and is gone on reload.",
       "- A sign-in prompt is shown only after `supabase.auth.getSession()` returns no session at the moment of the click — never from state read earlier or from a guess — and a signed-in click goes straight to the action. Its \"Sign in\" link carries `?next=` the current path, so the person comes back to what they were doing.",
     );
   }
