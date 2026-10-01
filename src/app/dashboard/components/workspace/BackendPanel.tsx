@@ -7,6 +7,7 @@ import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "l
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
 
 import ConnectSupabase from "./ConnectSupabase";
+import { CONNECT_EVENT, announceConnected, takeConnectIntent } from "./database-connect";
 import FormNotifications from "./FormNotifications";
 
 /* Where this app's data lives, and how to move it.
@@ -196,6 +197,34 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
   const [connecting, setConnecting] = useState(Boolean(returned));
   const [connected, setConnected] = useState<{ preview: string | null; authNote: string | null; name: string } | null>(null);
 
+  /* Asked for from the conversation — the "Connect my own database" chip, or
+     the "Connect your database" button on a message. Read once on arrival,
+     because the panel usually mounts BECAUSE it was asked for and the event
+     fired a moment before it existed; and listened for after that, for when the
+     panel was already on screen. See database-connect.ts. */
+  useEffect(() => {
+    if (!projectId) return;
+    if (takeConnectIntent(projectId)) setConnecting(true);
+
+    function onAsk(event: Event) {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId === projectId && takeConnectIntent(projectId)) setConnecting(true);
+    }
+    window.addEventListener(CONNECT_EVENT, onAsk);
+    return () => window.removeEventListener(CONNECT_EVENT, onAsk);
+  }, [projectId]);
+
+  /* The same rule the panel's own buttons follow: Supabase sign-in where this
+     deployment has it, the URL-and-key form where it does not. Without this a
+     request from the chat on a deployment with no OAuth opened a panel with
+     nothing to connect in it. */
+  useEffect(() => {
+    if (connecting && backend && !backend.oauthConfigured) {
+      setConnecting(false);
+      setOpen(true);
+    }
+  }, [connecting, backend]);
+
   const load = useCallback(async () => {
     if (!projectId) {
       setLoading(false);
@@ -303,6 +332,9 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
       await load();
       setOpen(false);
       setOverridable(false);
+      /* The project's own address is the clearest name a pasted connection
+         has: the ref, as it appears in the Supabase dashboard. */
+      announceConnected(projectId, typedUrl.replace(/^https?:\/\//, "").replace(/\.supabase\.co$/, ""));
       setUrl("");
       setAnonKey("");
       setDbUrl("");
@@ -742,6 +774,9 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                   setConnected(result);
                   setConnecting(false);
                   void load();
+                  /* The conversation confirms it and carries on with the build
+                     that was waiting for it. */
+                  if (projectId) announceConnected(projectId, result.name);
                 }}
               />
             )}

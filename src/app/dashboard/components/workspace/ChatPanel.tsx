@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  Database,
   Eye,
   ExternalLink,
   GitFork,
@@ -47,6 +48,14 @@ import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
 import { RESUME_STEP_POLL_MS, resumableFrom } from "./resume";
 import { cardFor, cardIndex } from "./threadView";
+import {
+  CONNECTED_EVENT,
+  clearParkedBuild,
+  parkOwnBuild,
+  parkedBuildFor,
+  requestConnect,
+  type ParkedBuild,
+} from "./database-connect";
 import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -224,6 +233,13 @@ export default function ChatPanel({
       options: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
     } | null
   >(null);
+  /* A build waiting on its own database. "Connect my own database" used to
+     send the build there and then, so it ran with no database and the tables
+     only arrived on a second build after somebody found the Database panel by
+     themselves. Now the chip opens the connect flow and the build waits here —
+     in session storage too, because signing in to Supabase leaves the page.
+     See database-connect.ts. */
+  const [awaitingDatabase, setAwaitingDatabase] = useState<ParkedBuild | null>(null);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -905,6 +921,61 @@ export default function ChatPanel({
     router.push(`/dashboard/project/${created.id}?prompt=${encodeURIComponent(text)}`);
   }
 
+  /* ── Connecting a database from the conversation ──────────────────────
+   *
+   * The chip parks the build and opens the connect flow; the Database panel
+   * announces the connection; this confirms it in the thread and sends the
+   * build that was waiting, so its tables are created in that same build. */
+  function startConnecting(build: Omit<ParkedBuild, "at">) {
+    parkOwnBuild(build);
+    setAwaitingDatabase({ ...build, at: Date.now() });
+    say({
+      from: "system",
+      text: "Let's connect your Supabase. I've opened the connect flow — sign in to Supabase and pick a project, or have one created. Your build starts the moment it's linked, and its tables are created there.",
+    });
+    requestConnect(build.projectId);
+    onConnectDatabase?.();
+  }
+
+  /* `send` and `say` close over this render's state; the listener below is
+     attached once per project, so it reaches them through a ref. */
+  const connectedRef = useRef<(name: string) => void>(() => undefined);
+  connectedRef.current = (name: string) => {
+    if (!project?.id) return;
+    const parked = parkedBuildFor(project.id);
+    say({
+      from: "system",
+      text: parked
+        ? `✓ Connected to ${name}. Your app now runs on your own Supabase — building it there now.`
+        : `✓ Connected to ${name}. Your app now runs on your own Supabase, and the next build creates its tables there.`,
+    });
+    if (!parked) return;
+    clearParkedBuild();
+    setAwaitingDatabase(null);
+    void send(parked.text, {
+      architecture: "own",
+      buildKind: (parked.kind as BuildKind | undefined) ?? null,
+      stack: parked.stack,
+      silent: true,
+    });
+  };
+
+  useEffect(() => {
+    const id = project?.id;
+    if (!id) return;
+    /* A build parked before the Supabase sign-in redirect is still waiting
+       when the page comes back. */
+    setAwaitingDatabase(parkedBuildFor(id));
+
+    function onConnected(event: Event) {
+      const detail = (event as CustomEvent<{ projectId?: string; name?: string }>).detail;
+      if (detail?.projectId !== id) return;
+      connectedRef.current(detail.name ?? "your Supabase project");
+    }
+    window.addEventListener(CONNECTED_EVENT, onConnected);
+    return () => window.removeEventListener(CONNECTED_EVENT, onConnected);
+  }, [project?.id]);
+
   async function send(
     prompt?: string,
     options: {
@@ -1540,7 +1611,15 @@ export default function ChatPanel({
             supersededAt={lastRunAt}
             onOpenPreview={onOpenPreview}
             onPublish={onPublish}
-            onConnectDatabase={onConnectDatabase}
+            onConnectDatabase={
+              onConnectDatabase
+                ? () => {
+                    /* Straight into the connect flow, not just the panel. */
+                    if (project?.id) requestConnect(project.id);
+                    onConnectDatabase();
+                  }
+                : undefined
+            }
           />
         ))}
 
@@ -1858,6 +1937,60 @@ export default function ChatPanel({
           </div>
         )}
 
+        {/* Waiting on the database the person chose to connect. Live, because
+            it is: the build starts the moment the Database panel links a
+            project, and this says so rather than leaving a chip that seemed to
+            do nothing. */}
+        {awaitingDatabase && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-2 text-[12px]">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            </span>
+            <span className="min-w-0 flex-1 text-emerald-200">
+              Waiting for your Supabase connection — your build starts as soon as it&apos;s linked.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (!project?.id) return;
+                requestConnect(project.id);
+                onConnectDatabase?.();
+              }}
+              className="rounded-md bg-emerald-500/20 px-2 py-1 font-medium text-emerald-200 transition-colors hover:bg-emerald-500/30"
+            >
+              Open connect
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const parked = awaitingDatabase;
+                clearParkedBuild();
+                setAwaitingDatabase(null);
+                void send(parked.text, {
+                  architecture: "own",
+                  buildKind: (parked.kind as BuildKind | undefined) ?? null,
+                  stack: parked.stack,
+                  silent: true,
+                });
+              }}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Build without it
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                clearParkedBuild();
+                setAwaitingDatabase(null);
+              }}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* The real thing, or the front of it. The costliest question here and
             the last one that is free: past this the schema is created and the
             build runs. Only ever shown when the planner said it was guessing —
@@ -1865,27 +1998,52 @@ export default function ChatPanel({
             it, and neither does one that says "no backend". */}
         {pendingArchitecture && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
-            {pendingArchitecture.options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                title={option.blurb}
-                onClick={() => {
-                  const { text, kind, stack } = pendingArchitecture;
-                  setPendingArchitecture(null);
-                  setMode("auto");
-                  void send(text, {
-                    architecture: option.value,
-                    buildKind: kind,
-                    stack,
-                    silent: true,
-                  });
-                }}
-                className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
-              >
-                {option.label}
-              </button>
-            ))}
+            {pendingArchitecture.options.map((option) =>
+              /* The one answer that is an ACTION rather than a reply: it takes
+                 the person into the Supabase connect flow there and then, and
+                 looks like it — a live control, not a label to read. */
+              option.value === "own" && project?.id && onConnectDatabase ? (
+                <button
+                  key={option.value}
+                  type="button"
+                  title={option.blurb}
+                  onClick={() => {
+                    const { text, kind, stack } = pendingArchitecture;
+                    setPendingArchitecture(null);
+                    setMode("auto");
+                    startConnecting({ projectId: project.id, text, kind, stack });
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/[0.10] px-2 py-1 font-medium text-emerald-300 transition-colors hover:bg-emerald-500/[0.18]"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                  </span>
+                  <Database className="h-3.5 w-3.5" />
+                  {option.label}
+                </button>
+              ) : (
+                <button
+                  key={option.value}
+                  type="button"
+                  title={option.blurb}
+                  onClick={() => {
+                    const { text, kind, stack } = pendingArchitecture;
+                    setPendingArchitecture(null);
+                    setMode("auto");
+                    void send(text, {
+                      architecture: option.value,
+                      buildKind: kind,
+                      stack,
+                      silent: true,
+                    });
+                  }}
+                  className="rounded-md border border-line/[0.12] px-2 py-1 text-ink transition-colors hover:bg-layer/[0.06]"
+                >
+                  {option.label}
+                </button>
+              ),
+            )}
             <button
               type="button"
               onClick={() => setPendingArchitecture(null)}

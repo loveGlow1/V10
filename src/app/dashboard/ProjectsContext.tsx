@@ -263,7 +263,14 @@ type ProjectsValue = {
     /* Stops the waiting, not the build. See `signal` on BuildOptions. */
     signal?: AbortSignal,
   ) => Promise<Project | null>;
+  /** Re-reads one project's row and folds it in if anything shown has moved. */
+  refresh: (id: string) => Promise<Project | null>;
 };
+
+/* The columns whose change means something on screen. Compared before a row is
+   folded in, so a watcher that re-reads every few seconds re-renders nothing
+   until there is actually something new to show. */
+const WATCHED: (keyof Project)[] = ["last_build_at", "status", "published_at", "preview_url", "slug", "name"];
 
 const ProjectsContext = createContext<ProjectsValue | null>(null);
 
@@ -708,6 +715,38 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  /* ── One row, read again ──────────────────────────────────────────────
+   *
+   * The list only learned about a new version from the request that made it:
+   * the reply to a message, or watchBuild while a build it started was still
+   * running. A build that landed after the watching stopped, a change made in
+   * another tab, a stage finished by the orchestrator — none of those reached
+   * the workspace, so the preview went on showing the old version until the
+   * browser was reloaded. This is what the preview's own watcher calls. */
+  const refresh = useCallback(async (id: string): Promise<Project | null> => {
+    if (!isSupabaseConfigured) return null;
+    const { data } = await createSupabaseBrowserClient()
+      .from("projects")
+      .select(COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    const row = data as unknown as Project | null;
+    if (!row) return null;
+
+    setProjects((current) => {
+      let changed = false;
+      const next = current.map((project) => {
+        if (project.id !== id) return project;
+        if (WATCHED.every((key) => project[key] === row[key])) return project;
+        changed = true;
+        return { ...project, ...row };
+      });
+      /* The same array when nothing moved, so nothing downstream re-renders. */
+      return changed ? next : current;
+    });
+    return row;
+  }, []);
+
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab
      relabelled, and one deleted anywhere loses its tab, without the row above
@@ -734,8 +773,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       remove,
       build,
       watchBuild,
+      refresh,
     }),
-    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild],
+    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild, refresh],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;
