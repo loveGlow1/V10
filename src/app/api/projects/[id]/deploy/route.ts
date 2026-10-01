@@ -33,7 +33,15 @@ import { blocking, inspectStructure, repairStructure } from "@/lib/builder/next-
 import { diagnose, diagnoseFindings } from "@/lib/publish/diagnosis";
 import { canBeFramed } from "@/lib/publish/framable";
 import { loadTree } from "@/lib/builder/store-tree";
-import { deploymentName, deploymentsConfigured, publicAddress, startDeployment } from "@/lib/publish/vercel-deploy";
+import {
+  appDomainFor,
+  attachProjectDomain,
+  deploymentName,
+  deploymentsConfigured,
+  publicAddress,
+  startDeployment,
+  vercelCredentials,
+} from "@/lib/publish/vercel-deploy";
 import {
   existingVercelProject,
   latestDeployment,
@@ -182,7 +190,60 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
    * stableHost landed still hold that host, and this is what stops them
    * reaching anybody. See publicAddress. */
   const vercelProject = service ? await existingVercelProject(service, owned.projectId) : null;
-  const url = publicAddress(live?.deployment_url ?? null, vercelProject);
+  const hosted = publicAddress(live?.deployment_url ?? null, vercelProject);
+
+  /* ── A published project answers on ITS address, never Vercel's ─────────
+   *
+   * `hosted` is read off the newest deployment, and on a lot of projects that
+   * row says vercel.app: builds deployed before the wildcard was bound, and
+   * any publish whose domain binding was refused that day. publicAddress then
+   * does its best and returns the Vercel production alias — so a customer who
+   * had published to <slug>.quickstark.tech opened their preview and saw
+   * something.vercel.app instead, which is the hosting provider's name in
+   * front of their product.
+   *
+   * The published address is the one they were given, and it is what the
+   * pane shows. When all that was recorded is a vercel.app host, the binding
+   * that failed at publish is tried again here and the answer kept, so the
+   * project repairs itself the next time anybody opens it rather than staying
+   * on Vercel's name until it is republished. Best effort: a refused binding
+   * leaves the Vercel alias, which still opens. */
+  const isVercel = (address: string | null | undefined) => {
+    try {
+      return Boolean(address) && new URL(address as string).hostname.endsWith(".vercel.app");
+    } catch {
+      return false;
+    }
+  };
+  let url = hosted;
+  if (service && hosted) {
+    const { data: row } = await service
+      .from("projects")
+      .select("slug, published_url, published_at")
+      .eq("id", owned.projectId)
+      .maybeSingle<{ slug: string | null; published_url: string | null; published_at: string | null }>();
+
+    if (row?.published_at) {
+      if (row.published_url && !isVercel(row.published_url)) {
+        url = row.published_url;
+      } else if (row.slug && vercelProject && isVercel(hosted)) {
+        const wanted = appDomainFor(row.slug);
+        const creds = vercelCredentials();
+        if (wanted && creds) {
+          try {
+            const bound = await attachProjectDomain(vercelProject, wanted, creds);
+            if (bound.ok) {
+              url = `https://${wanted}`;
+              await service.from("projects").update({ published_url: url }).eq("id", owned.projectId);
+            }
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.warn(`deploy: ${owned.projectId} could not be bound to ${wanted}:`, error);
+          }
+        }
+      }
+    }
+  }
 
   /* ── Whether the site at that address is still THIS project ────────────
    *
