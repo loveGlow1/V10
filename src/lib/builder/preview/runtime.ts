@@ -180,7 +180,9 @@ export const PREVIEW_RUNTIME = `
     if (event.source !== parent) return;
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
-    if (typeof data.editMode === 'boolean') { setEditing(data.editMode); return; }
+    if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
+    if (data.deselect === true) { selected = null; place(selectBox, null); return; }
+    if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
     if (typeof data.navigate !== 'string') return;
     navigate(data.navigate);
@@ -197,6 +199,11 @@ export const PREVIEW_RUNTIME = `
   var hoverBox = null;
   var selectBox = null;
   var selected = null;
+  var hovered = null;
+  var following = 0;
+  /* On a phone the workspace's controls are a sheet over the lower part of
+     the screen, so a tapped element is brought up above it. */
+  var touchLayout = false;
 
   function overlay(colour, width) {
     var box = document.createElement('div');
@@ -255,7 +262,44 @@ export const PREVIEW_RUNTIME = `
 
   function onHover(event) {
     if (!editing) return;
-    place(hoverBox, taggedFrom(event.target));
+    hovered = touchLayout ? null : taggedFrom(event.target);
+    place(hoverBox, hovered);
+  }
+
+  /* Outlines stay on their elements every frame while editing. Positioned
+     once and moved only on scroll, they drifted whenever the page moved
+     without scrolling — a picture loading above, a phone's address bar
+     folding away, the keyboard opening — and sat beside the thing they
+     named. One rect per outline per frame is nothing. */
+  function tick() {
+    if (!editing) { following = 0; return; }
+    place(selectBox, selected);
+    if (hovered) place(hoverBox, hovered);
+    following = window.requestAnimationFrame(tick);
+  }
+
+  function reveal(element) {
+    if (!touchLayout || !element) return;
+    var rect = element.getBoundingClientRect();
+    var limit = window.innerHeight * 0.45;
+    if (rect.top < 0 || rect.bottom > limit) {
+      window.scrollBy({ top: rect.top - window.innerHeight * 0.12, behavior: 'smooth' });
+    }
+  }
+
+  function selectElement(element) {
+    selected = element;
+    place(selectBox, element);
+    reveal(element);
+    report('select', describeElement(element));
+  }
+
+  /* A finger cannot always hit the small thing it means, so the workspace can
+     ask for the element around the one that was picked. */
+  function selectParentOf() {
+    if (!editing || !selected) return;
+    var parent = taggedFrom(selected.parentElement);
+    if (parent) selectElement(parent);
   }
 
   function onPick(event) {
@@ -265,9 +309,7 @@ export const PREVIEW_RUNTIME = `
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     if (!element) return;
-    selected = element;
-    place(selectBox, element);
-    report('select', describeElement(element));
+    selectElement(element);
   }
 
   function onBlock(event) {
@@ -292,6 +334,7 @@ export const PREVIEW_RUNTIME = `
       window.addEventListener('scroll', follow, true);
       window.addEventListener('resize', follow);
       document.documentElement.style.cursor = 'crosshair';
+      if (!following) following = window.requestAnimationFrame(tick);
     } else {
       window.removeEventListener('mousemove', onHover, true);
       window.removeEventListener('click', onPick, true);
@@ -300,6 +343,8 @@ export const PREVIEW_RUNTIME = `
       window.removeEventListener('resize', follow);
       document.documentElement.style.cursor = '';
       selected = null;
+      hovered = null;
+      if (following) { window.cancelAnimationFrame(following); following = 0; }
       place(hoverBox, null);
       place(selectBox, null);
     }

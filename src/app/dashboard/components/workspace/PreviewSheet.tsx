@@ -1,11 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpRight, RotateCw, X } from "lucide-react";
+import { ArrowUpRight, MousePointerClick, RotateCw, X } from "lucide-react";
+
+import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
+import { isProjectSummary } from "@/lib/builder/project-summary";
 
 import { ManageMark } from "./panelMarks";
+import VisualEditPanel from "./VisualEditPanel";
+import { usePreviewBridge } from "./preview-bridge";
 
 /* The preview, over the whole screen, on a phone.
 
@@ -32,8 +37,16 @@ export default function PreviewSheet({
   title,
   onClose,
   onManage,
+  projectId,
+  lastBuildAt,
 }: {
   open: boolean;
+  /* The same document the desktop pane frames, fetched and written in with
+     this tab's session for the app — so a phone stays signed in across
+     reloads and can use Visual edit. Without a project the sheet frames the
+     address, as it always did. */
+  projectId?: string | null;
+  lastBuildAt?: string | null;
   /** Already passed through safeHttpUrl by the caller. */
   url: string | null;
   title: string;
@@ -48,6 +61,53 @@ export default function PreviewSheet({
   const [nonce, setNonce] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const { editMode, setEditMode, picked, setPicked, tokens, previewVisual, deselect, selectParent } = usePreviewBridge(
+    frameRef,
+    projectId,
+    true,
+  );
+
+  /* The document itself, as the desktop pane loads it. A receipt — a project
+     the in-browser renderer cannot run — or a failure falls back to framing
+     the address, which is what this sheet did before. */
+  const [page, setPage] = useState<string | null>(null);
+  const [byAddress, setByAddress] = useState(false);
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    setPage(null);
+    setByAddress(false);
+    fetch(`/preview/${projectId}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.text() : null))
+      .then((html) => {
+        if (cancelled) return;
+        if (html && !isProjectSummary(html)) setPage(html);
+        else setByAddress(true);
+      })
+      .catch(() => {
+        if (!cancelled) setByAddress(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, projectId, nonce, lastBuildAt]);
+  const framed = useMemo(() => {
+    if (page === null || !projectId) return null;
+    let store: Storage | null = null;
+    try {
+      store = window.sessionStorage;
+    } catch {
+      store = null;
+    }
+    return withAuthSeed(page, store, projectId);
+  }, [page, projectId]);
+  const usingDocument = Boolean(projectId) && !byAddress;
+
+  /* Closing the sheet closes the editor with it. */
+  useEffect(() => {
+    if (!open) setEditMode(false);
+  }, [open, setEditMode]);
 
   useEffect(() => setMounted(true), []);
 
@@ -112,6 +172,19 @@ export default function PreviewSheet({
             {/* Sized and spaced to balance the reload button, so the title sits
                 on the centre line rather than near it. */}
             <div className="flex shrink-0 items-center gap-2">
+              {/* Point at something in the app and change it. */}
+              {usingDocument && framed ? (
+                <button
+                  onClick={() => setEditMode((on) => !on)}
+                  aria-pressed={editMode}
+                  aria-label={editMode ? "Close visual edit" : "Visual edit"}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full text-ink transition-colors ${
+                    editMode ? "bg-layer/[0.2]" : "bg-layer/[0.08] hover:bg-layer/[0.12]"
+                  }`}
+                >
+                  <MousePointerClick className="h-4 w-4" />
+                </button>
+              ) : null}
               {/* Before the two that leave: managing the app is the one thing
                   here you stay for. */}
               {onManage && (
@@ -145,13 +218,16 @@ export default function PreviewSheet({
           </header>
 
           <div className="relative min-h-0 flex-1">
-            {url ? (
+            {usingDocument || url ? (
               <>
                 <iframe
-                  key={`${url}:${nonce}`}
-                  src={url}
+                  key={`${url}:${nonce}:${usingDocument ? "doc" : "addr"}:${lastBuildAt ?? ""}`}
+                  ref={frameRef}
+                  {...(usingDocument ? { srcDoc: framed ?? "" } : { src: url ?? undefined })}
                   title={`${title} preview`}
-                  onLoad={() => setLoaded(true)}
+                  onLoad={() => {
+                    if (!usingDocument || framed) setLoaded(true);
+                  }}
                   /* Generated from someone's prompt and served from another
                      origin: scripts and forms, and no same-origin reach back
                      into the dashboard around it. */
@@ -160,6 +236,22 @@ export default function PreviewSheet({
                 />
                 {/* Over the frame rather than instead of it, so the frame is
                     already loading while this is on screen. */}
+                {editMode && projectId ? (
+                  <VisualEditPanel
+                    layout="sheet"
+                    projectId={projectId}
+                    picked={picked}
+                    tokens={tokens}
+                    onPreview={previewVisual}
+                    onApplied={() => {
+                      setPicked(null);
+                      setNonce((value) => value + 1);
+                    }}
+                    onClose={() => setEditMode(false)}
+                    onDeselect={deselect}
+                    onSelectParent={selectParent}
+                  />
+                ) : null}
                 <AnimatePresence>
                   {!loaded && (
                     <motion.div

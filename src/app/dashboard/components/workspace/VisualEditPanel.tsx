@@ -15,6 +15,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Heading,
   Image as ImageIcon,
+  CornerLeftUp,
   Layers,
   LayoutTemplate,
   Link2,
@@ -143,6 +144,9 @@ export default function VisualEditPanel({
   onPreview,
   onApplied,
   onClose,
+  onDeselect,
+  onSelectParent,
+  layout = "side",
 }: {
   projectId: string;
   picked: Picked | null;
@@ -150,6 +154,12 @@ export default function VisualEditPanel({
   onPreview: (change: PreviewChange) => void;
   onApplied: () => void;
   onClose: () => void;
+  /** Put the selection down — the phone sheet's swipe down. */
+  onDeselect?: () => void;
+  /** Pick the element around the one picked: a finger is not a cursor. */
+  onSelectParent?: () => void;
+  /** Beside the preview on a desktop; a bottom sheet over it on a phone. */
+  layout?: "side" | "sheet";
 }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [past, setPast] = useState<Entry[][]>([]);
@@ -323,22 +333,315 @@ export default function VisualEditPanel({
   }
 
   const chip = (active: boolean) =>
-    `rounded-md border px-2 py-1 text-[12px] transition-colors ${
+    `rounded-lg border px-2.5 py-1 text-[12px] transition-colors ${
       active ? "border-accent bg-accent/10 text-ink" : "border-line/[0.1] text-muted hover:bg-layer/[0.06]"
     }`;
 
+  const sheet = layout === "sheet";
+  const [tab, setTab] = useState<"text" | "colour" | "size" | "layout" | "ask">("text");
+  const [expanded, setExpanded] = useState(false);
+  const dragStart = useRef(0);
+  /* A new selection opens on the control that fits it: words for text, the
+     request box for a graphic or picture whose look is drawn rather than typed. */
+  useEffect(() => {
+    if (!picked) return;
+    setTab(picked.text !== null ? "text" : /^(?:svg|path|circle|g|rect|polygon|line|img)$/.test(picked.tag) ? "ask" : "colour");
+  }, [picked?.src]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── The pieces, shared by both layouts ─────────────────────────────── */
+
+  const at = current ? parseSrc(current.src) : null;
+  const kind = current ? kindOf(current.tag, at?.path ?? "") : null;
+
+  const header = current && kind ? (
+    <div className={sheet ? "flex items-center gap-2.5" : "rounded-xl border border-line/[0.09] bg-layer/[0.04] p-3"}>
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-layer/[0.08] text-ink">
+          <kind.Icon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-ink">{kind.name}</p>
+          <p className="truncate font-mono text-[11px] text-muted" title={at ? `${at.path}, line ${at.line}` : current.src}>
+            {at?.path.split("/").pop() ?? current.src}
+            {at ? ` · line ${at.line}` : ""}
+          </p>
+        </div>
+        {onSelectParent ? (
+          <button
+            onClick={onSelectParent}
+            title="Select the element around this one"
+            aria-label="Select parent element"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-line/[0.09] px-2 text-[12px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+          >
+            <CornerLeftUp className="h-3.5 w-3.5" />
+            <span className={sheet ? "sr-only" : ""}>Parent</span>
+          </button>
+        ) : null}
+      </div>
+      {!sheet && picked && picked.repeated > 1 ? <Shared count={picked.repeated} /> : null}
+    </div>
+  ) : null;
+
+  const textField = current ? (
+    current.original.text !== null ? (
+      <label className="block">
+        <span className="text-[12px] text-muted">Text</span>
+        <textarea
+          value={current.text ?? current.original.text}
+          onChange={(event) => {
+            const value = event.target.value;
+            change((entry) => ({ ...entry, text: value }), `text:${current.src}`);
+          }}
+          rows={sheet ? 2 : 3}
+          className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
+        />
+      </label>
+    ) : (
+      <p className="text-[12px] leading-relaxed text-muted">
+        {/^(?:svg|path|circle|g|rect|polygon|line|img)$/.test(current.tag)
+          ? "To redraw or replace this, describe what you want under Ask AI and the AI will make it."
+          : "This text comes from your code or database — describe the change under Ask AI and the AI will make it."}
+      </p>
+    )
+  ) : null;
+
+  const imageField =
+    current && current.tag === "img" ? (
+      <label className="block">
+        <span className="text-[12px] text-muted">Image address</span>
+        <input
+          key={current.src}
+          defaultValue={current.imageSrc ?? current.original.imageSrc ?? ""}
+          onBlur={(event) => {
+            const value = event.target.value.trim();
+            if (value && value !== (current.imageSrc ?? current.original.imageSrc)) change((entry) => ({ ...entry, imageSrc: value }));
+          }}
+          placeholder="https://…"
+          className="mt-1.5 h-9 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25"
+        />
+      </label>
+    ) : null;
+
+  const colourFields =
+    current && colours.length > 0 ? (
+      <>
+        <Swatches label="Text colour" colours={colours} active={current.classes.textColor} prefix="text" onPick={(value) => setClass("textColor", value)} />
+        <Swatches label="Background" colours={colours} active={current.classes.background} prefix="bg" onPick={(value) => setClass("background", value)} />
+      </>
+    ) : (
+      <p className="text-[12px] text-muted">This project has no colour palette to pick from.</p>
+    );
+
+  const sizeFields = current ? (
+    <>
+      <Group label="Size">
+        {sizes.map(([value, name]) => (
+          <button key={value} onClick={() => setClass("fontSize", value)} className={chip(current.classes.fontSize === value)}>
+            {name}
+          </button>
+        ))}
+      </Group>
+      <Group label="Weight">
+        {WEIGHTS.map(([value, name]) => (
+          <button key={value} onClick={() => setClass("fontWeight", value)} className={chip(current.classes.fontWeight === value)}>
+            {name}
+          </button>
+        ))}
+      </Group>
+    </>
+  ) : null;
+
+  const layoutFields = current ? (
+    <>
+      <Group label="Align">
+        {ALIGN.map(([value, name]) => (
+          <button key={value} onClick={() => setClass("align", value)} className={chip(current.classes.align === value)}>
+            {name}
+          </button>
+        ))}
+      </Group>
+      <Group label="Padding">
+        {PADDING.map((value) => (
+          <button key={value} onClick={() => setClass("padding", value)} className={chip(current.classes.padding === value)}>
+            {value.replace("p-", "")}
+          </button>
+        ))}
+      </Group>
+      <Group label="Corners">
+        {RADIUS.map(([value, name]) => (
+          <button key={value} onClick={() => setClass("radius", value)} className={chip(current.classes.radius === value)}>
+            {name}
+          </button>
+        ))}
+      </Group>
+    </>
+  ) : null;
+
+  const askField = current ? (
+    <div>
+      <span className="text-[12px] text-muted">Ask the AI about this</span>
+      <textarea
+        value={ask}
+        onChange={(event) => setAsk(event.target.value)}
+        rows={2}
+        placeholder="Say what to change — e.g. make the logo gold and add 'Estates' beside it"
+        className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
+      />
+      <button
+        onClick={() => {
+          const text = ask.trim();
+          if (!text) return;
+          change((entry) => ({ ...entry, ask: text }));
+          setAsk("");
+        }}
+        disabled={!ask.trim()}
+        className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink disabled:opacity-40"
+      >
+        <Sparkles className="h-3 w-3" /> Add request
+      </button>
+      {current.ask ? <p className="mt-1 text-[11px] text-muted">Requested: {current.ask}</p> : null}
+    </div>
+  ) : null;
+
+  const count =
+    entries.length === 0
+      ? "No changes yet."
+      : `${entries.length} element${entries.length === 1 ? "" : "s"} changed${entries.some((entry) => entry.ask) ? " · AI requests use credits" : ""}`;
+
+  const history = (
+    <>
+      <button onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink hover:bg-layer/[0.06] disabled:opacity-30">
+        <Undo2 className="h-4 w-4" />
+      </button>
+      <button onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink hover:bg-layer/[0.06] disabled:opacity-30">
+        <Redo2 className="h-4 w-4" />
+      </button>
+    </>
+  );
+
+  const applyButton = (
+    <button
+      onClick={() => void apply()}
+      disabled={entries.length === 0 || busy}
+      className="h-9 rounded-lg bg-accent px-4 text-[13px] font-medium text-white transition-opacity disabled:opacity-40"
+    >
+      {busy ? "Applying…" : "Apply"}
+    </button>
+  );
+
+  const noticeLine = notice ? (
+    <p className={`text-[12px] leading-relaxed ${notice.tone === "error" ? "text-red-400" : "text-muted"}`}>{notice.text}</p>
+  ) : null;
+
+  /* ── On a phone: a sheet over the bottom of the preview ─────────────── */
+  if (sheet) {
+    const onHandleDown = (event: React.PointerEvent) => {
+      dragStart.current = event.clientY;
+      (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+    };
+    const onHandleUp = (event: React.PointerEvent) => {
+      const moved = event.clientY - dragStart.current;
+      if (moved < -40) setExpanded(true);
+      else if (moved > 40) {
+        if (expanded) setExpanded(false);
+        else onDeselect?.();
+      } else setExpanded((open) => !open);
+    };
+    const tabs = [
+      ["text", "Text"],
+      ["colour", "Colour"],
+      ["size", "Size"],
+      ["layout", "Layout"],
+      ["ask", "Ask AI"],
+    ] as const;
+    return (
+      <div
+        className={`absolute inset-x-0 bottom-0 z-20 flex flex-col rounded-t-2xl border-t border-line/[0.1] bg-panel shadow-[0_-12px_40px_rgba(0,0,0,0.45)] pb-[env(safe-area-inset-bottom)] ${
+          current ? (expanded ? "max-h-[85%]" : "max-h-[55%]") : ""
+        }`}
+        role="region"
+        aria-label="Visual edit"
+      >
+        {current ? (
+          <>
+            <div
+              onPointerDown={onHandleDown}
+              onPointerUp={onHandleUp}
+              className="flex h-6 shrink-0 cursor-grab touch-none items-center justify-center"
+              aria-label={expanded ? "Collapse" : "Expand"}
+              role="button"
+            >
+              <span className="h-1 w-10 rounded-full bg-line/[0.25]" />
+            </div>
+            <div className="shrink-0 px-4 pb-2">{header}</div>
+            {picked && picked.repeated > 1 ? (
+              <div className="shrink-0 px-4 pb-2">
+                <Shared count={picked.repeated} />
+              </div>
+            ) : null}
+            <div className="flex shrink-0 gap-1 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {tabs.map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  aria-pressed={tab === id}
+                  className={`h-8 shrink-0 rounded-full px-3 text-[13px] transition-colors ${
+                    tab === id ? "bg-layer/[0.12] text-ink" : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pb-3">
+              {tab === "text" ? (
+                <>
+                  {textField}
+                  {imageField}
+                </>
+              ) : tab === "colour" ? (
+                colourFields
+              ) : tab === "size" ? (
+                sizeFields
+              ) : tab === "layout" ? (
+                layoutFields
+              ) : (
+                askField
+              )}
+              {noticeLine}
+            </div>
+          </>
+        ) : (
+          <div className="px-4 pt-3">
+            {noticeLine}
+            <p className="text-[13px] text-soft">Tap anything in your app to edit it.</p>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center gap-1 border-t border-line/[0.08] px-3 py-2">
+          {history}
+          <p className="min-w-0 flex-1 truncate px-1 text-[12px] text-muted">{count}</p>
+          {entries.length > 0 ? (
+            <button onClick={() => commit([])} disabled={busy} className="h-9 rounded-lg px-3 text-[13px] text-soft hover:bg-layer/[0.06] disabled:opacity-40">
+              Discard
+            </button>
+          ) : null}
+          {applyButton}
+          <button onClick={onClose} aria-label="Close visual edit" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink hover:bg-layer/[0.06]">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── On a desktop: beside the preview ───────────────────────────────── */
   return (
-    <aside className="flex w-full shrink-0 flex-col overflow-hidden border-l border-line/[0.06] bg-layer/[0.02] md:w-72">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line/[0.06] px-2.5">
-        <p className="flex-1 text-[12px] font-medium text-ink">Visual edit</p>
-        <button onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" className="rounded-md p-1 text-ink hover:bg-layer/[0.06] disabled:opacity-30">
-          <Undo2 className="h-3.5 w-3.5" />
-        </button>
-        <button onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" className="rounded-md p-1 text-ink hover:bg-layer/[0.06] disabled:opacity-30">
-          <Redo2 className="h-3.5 w-3.5" />
-        </button>
-        <button onClick={onClose} aria-label="Close the visual editor" title="Close" className="rounded-md p-1 text-ink hover:bg-layer/[0.06]">
-          <X className="h-3.5 w-3.5" />
+    <aside className="flex h-full w-full flex-col overflow-hidden bg-layer/[0.02] md:w-72">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-line/[0.06] px-3">
+        <p className="flex-1 text-[13px] font-medium text-ink">Visual edit</p>
+        {history}
+        <button onClick={onClose} aria-label="Close visual edit" title="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink hover:bg-layer/[0.06]">
+          <X className="h-4 w-4" />
         </button>
       </div>
 
@@ -350,172 +653,41 @@ export default function VisualEditPanel({
           </p>
         ) : (
           <>
-            {(() => {
-              const at = parseSrc(current.src);
-              const { name, Icon } = kindOf(current.tag, at?.path ?? "");
-              const file = at?.path.split("/").pop() ?? current.src;
-              return (
-                <div className="rounded-xl border border-line/[0.09] bg-layer/[0.04] p-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-layer/[0.08] text-ink">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium text-ink">{name}</p>
-                      <p className="truncate font-mono text-[11px] text-muted" title={at ? `${at.path}, line ${at.line}` : current.src}>
-                        {file}
-                        {at ? ` · line ${at.line}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  {picked && picked.repeated > 1 ? (
-                    <div className="mt-2.5 flex items-start gap-2 rounded-lg bg-layer/[0.06] px-2.5 py-2">
-                      <Layers className="mt-px h-3.5 w-3.5 shrink-0 text-muted" />
-                      <p className="text-[12px] leading-snug text-soft">
-                        Appears {picked.repeated} times on this page. Changes apply to every one.
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()}
-
-            {current.original.text !== null ? (
-              <label className="block">
-                <span className="text-[12px] text-muted">Text</span>
-                <textarea
-                  value={current.text ?? current.original.text}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    change((entry) => ({ ...entry, text: value }), `text:${current.src}`);
-                  }}
-                  rows={3}
-                  className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
-                />
-              </label>
-            ) : (
-              <p className="text-[12px] leading-relaxed text-muted">
-                {/^(?:svg|path|circle|g|rect|polygon|line|img)$/.test(current.tag)
-                  ? "To redraw or replace this, describe what you want below and the AI will make it."
-                  : "This text comes from your code or database — describe the change below and the AI will make it."}
-              </p>
-            )}
-
-            {current.tag === "img" ? (
-              <label className="block">
-                <span className="text-[12px] text-muted">Image address</span>
-                <input
-                  key={current.src}
-                  defaultValue={current.imageSrc ?? current.original.imageSrc ?? ""}
-                  onBlur={(event) => {
-                    const value = event.target.value.trim();
-                    if (value && value !== (current.imageSrc ?? current.original.imageSrc)) change((entry) => ({ ...entry, imageSrc: value }));
-                  }}
-                  placeholder="https://…"
-                  className="mt-1.5 h-9 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25"
-                />
-              </label>
-            ) : null}
-
-            {colours.length > 0 ? (
-              <>
-                <Swatches label="Text colour" colours={colours} active={current.classes.textColor} prefix="text" onPick={(value) => setClass("textColor", value)} />
-                <Swatches label="Background" colours={colours} active={current.classes.background} prefix="bg" onPick={(value) => setClass("background", value)} />
-              </>
-            ) : null}
-
-            <Group label="Size">
-              {sizes.map(([value, name]) => (
-                <button key={value} onClick={() => setClass("fontSize", value)} className={chip(current.classes.fontSize === value)}>
-                  {name}
-                </button>
-              ))}
-            </Group>
-            <Group label="Weight">
-              {WEIGHTS.map(([value, name]) => (
-                <button key={value} onClick={() => setClass("fontWeight", value)} className={chip(current.classes.fontWeight === value)}>
-                  {name}
-                </button>
-              ))}
-            </Group>
-            <Group label="Align">
-              {ALIGN.map(([value, name]) => (
-                <button key={value} onClick={() => setClass("align", value)} className={chip(current.classes.align === value)}>
-                  {name}
-                </button>
-              ))}
-            </Group>
-            <Group label="Padding">
-              {PADDING.map((value) => (
-                <button key={value} onClick={() => setClass("padding", value)} className={chip(current.classes.padding === value)}>
-                  {value.replace("p-", "")}
-                </button>
-              ))}
-            </Group>
-            <Group label="Corners">
-              {RADIUS.map(([value, name]) => (
-                <button key={value} onClick={() => setClass("radius", value)} className={chip(current.classes.radius === value)}>
-                  {name}
-                </button>
-              ))}
-            </Group>
-
-            <div>
-              <span className="text-[12px] text-muted">Ask the AI about this</span>
-              <textarea
-                value={ask}
-                onChange={(event) => setAsk(event.target.value)}
-                rows={2}
-                placeholder="Say what to change — e.g. make the logo gold and add 'Estates' beside it"
-                className="mt-1.5 w-full resize-y rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus-visible:border-line/25 md:rounded-lg"
-              />
-              <button
-                onClick={() => {
-                  const text = ask.trim();
-                  if (!text) return;
-                  change((entry) => ({ ...entry, ask: text }));
-                  setAsk("");
-                }}
-                disabled={!ask.trim()}
-                className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink disabled:opacity-40"
-              >
-                <Sparkles className="h-3 w-3" /> Add request
-              </button>
-              {current.ask ? <p className="mt-1 text-[11px] text-muted">Requested: {current.ask}</p> : null}
-            </div>
+            {header}
+            {textField}
+            {imageField}
+            {colourFields}
+            {sizeFields}
+            {layoutFields}
+            {askField}
           </>
         )}
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-line/[0.06] p-3">
-        {notice ? (
-          <p className={`text-[12px] leading-relaxed ${notice.tone === "error" ? "text-red-400" : "text-muted"}`}>{notice.text}</p>
-        ) : null}
-        <p className="text-[11px] text-muted">
-          {entries.length === 0
-            ? "No changes yet."
-            : `${entries.length} element${entries.length === 1 ? "" : "s"} changed${
-                entries.some((entry) => entry.ask) ? " · AI requests use credits like a normal edit" : ""
-              }`}
-        </p>
+        {noticeLine}
+        <p className="text-[11px] text-muted">{count}</p>
         <div className="flex gap-2">
-          <button
-            onClick={() => void apply()}
-            disabled={entries.length === 0 || busy}
-            className="flex-1 rounded-lg bg-accent px-3 py-2 text-[13px] font-medium text-white transition-opacity disabled:opacity-40"
-          >
-            {busy ? "Applying…" : "Apply"}
-          </button>
+          <div className="flex-1 [&>button]:w-full">{applyButton}</div>
           <button
             onClick={() => commit([])}
             disabled={entries.length === 0 || busy}
-            className="rounded-lg border border-line/[0.1] px-3 py-2 text-[13px] text-ink hover:bg-layer/[0.06] disabled:opacity-40"
+            className="h-9 rounded-lg border border-line/[0.1] px-3 text-[13px] text-ink hover:bg-layer/[0.06] disabled:opacity-40"
           >
             Discard
           </button>
         </div>
       </div>
     </aside>
+  );
+}
+
+function Shared({ count }: { count: number }) {
+  return (
+    <div className="mt-2.5 flex items-start gap-2 rounded-lg bg-layer/[0.06] px-2.5 py-2">
+      <Layers className="mt-px h-3.5 w-3.5 shrink-0 text-muted" />
+      <p className="text-[12px] leading-snug text-soft">Appears {count} times on this page. Changes apply to every one.</p>
+    </div>
   );
 }
 
