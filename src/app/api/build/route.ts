@@ -4326,8 +4326,15 @@ async function handle(
    * what it had. With no preset, a web app's schema is designed below exactly
    * as before, and authored-sql.ts still catches anything the code then uses
    * that is not there. */
+  /* A project that already wrote its own tables keeps them. Its code was
+     written against those columns, and a preset with different ones would
+     have the next feature written against a database it does not have. */
+  const existingTree = featureBase?.tree ?? [];
+  const designedAlready = existingTree.some(
+    (file) => /(?:^lib\/schema\.sql$|^supabase\/.*\.sql$)/.test(file.path) && /\bcreate\s+table\b/i.test(file.content),
+  );
   const preset =
-    architecture.manifest.database && architecture.manifest.authentication
+    architecture.manifest.database && architecture.manifest.authentication && !designedAlready
       ? presetFor(
           [project.name, projectContextRow?.state.summary ?? "", brief.text].join("\n"),
           kind.kind,
@@ -4341,7 +4348,11 @@ async function handle(
       `Using the ${preset.label} database`,
       `${dataModel.tables.length} tables, each with row-level security — the standard shape for this kind of site`,
     );
-  } else if (architecture.manifest.database && architecture.manifest.type === "webapp") {
+  } else if (architecture.manifest.database && architecture.manifest.type === "webapp" && !designedAlready) {
+    /* Not for a project that already wrote its tables, for the same reason
+       as the preset: a new design would not match the columns its code
+       uses. What a feature adds arrives in its own SQL, which authored-sql.ts
+       runs when the files land. */
     const authored = await authorSchema({ brief: brief.text, manifest: architecture.manifest });
 
     if (authored.ok) {
