@@ -8,7 +8,9 @@
 
 export const VISUAL_ASK_EVENT = "quickstark:visual-ask";
 
-export type VisualAsk = { projectId: string; text: string };
+/* One message per file: an edit changes one file, so elements in two files
+   are two requests, sent one after the other. */
+export type VisualAsk = { projectId: string; texts: string[] };
 
 export function askChat(ask: VisualAsk) {
   if (typeof window === "undefined") return;

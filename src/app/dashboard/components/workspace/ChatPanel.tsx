@@ -995,13 +995,16 @@ export default function ChatPanel({
   useEffect(() => {
     const id = project?.id;
     if (!id) return;
-    function onAsk(event: Event) {
+    async function onAsk(event: Event) {
       const detail = (event as CustomEvent<VisualAsk>).detail;
-      if (detail?.projectId !== id || !detail.text.trim()) return;
-      void sendRef.current(detail.text);
+      if (detail?.projectId !== id) return;
+      for (const text of detail.texts) {
+        if (text.trim()) await sendRef.current(text);
+      }
     }
-    window.addEventListener(VISUAL_ASK_EVENT, onAsk);
-    return () => window.removeEventListener(VISUAL_ASK_EVENT, onAsk);
+    const listener = (event: Event) => void onAsk(event);
+    window.addEventListener(VISUAL_ASK_EVENT, listener);
+    return () => window.removeEventListener(VISUAL_ASK_EVENT, listener);
   }, [project?.id]);
 
   async function send(

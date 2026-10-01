@@ -37,6 +37,9 @@ import {
   sourcePrompt,
   SOURCE_LINES_SYSTEM,
   sourceLinesPrompt,
+  VISUAL_LINES_ADDENDUM,
+  pointedAt,
+  visualLinesPrompt,
 } from "./prompts";
 
 /* The two model calls that run in the app rather than in the orchestrator.
@@ -1213,6 +1216,55 @@ export async function editSource(
       kind: "reasoning",
       text: `Looking at ${sites.join(" and ")} before making the change…`,
     });
+  }
+
+  /* ── The person pointed at it ─────────────────────────────────────────
+   *
+   * A request from the visual editor already says where: the element's file
+   * and line. Asking the model to quote the file to find a place it has been
+   * given is how "update logo" on a clicked <svg> came back three times as
+   * nothing. So these go by line number first, with the element marked and
+   * a vague request read as "improve this element" — see
+   * VISUAL_LINES_ADDENDUM. Anything that does not land falls through to the
+   * ordinary path below, unchanged. */
+  const pointed = pointedAt(userMessage, file.path);
+  if (pointed.length > 0) {
+    onProgress?.({
+      kind: "reasoning",
+      text: `Changing the ${pointed.map((p) => `<${p.tag}>`).join(", ")} you picked in ${file.path}…`,
+    });
+    const picked = await ask(
+      `${SOURCE_LINES_SYSTEM}\n${VISUAL_LINES_ADDENDUM}`,
+      visualLinesPrompt(
+        userMessage,
+        file.path,
+        numberLines(file.content),
+        pointed,
+        architecture,
+        neighbourBrief(tree, file.path),
+      ),
+      PATCH_TOKENS,
+      [],
+      prior,
+      onProgress,
+      false,
+      EDIT_MODEL_STRONG,
+      deadlineAt,
+    );
+    const landed = applyLineEdits(file.content, textOf(picked));
+    if (landed.applied > 0) {
+      return {
+        path: file.path,
+        why,
+        contents: landed.html,
+        applied: landed.applied,
+        failures: landed.failures,
+        note: noteAfterPatches(textOf(picked)),
+        outputTokens: picked.usage?.output_tokens ?? 0,
+        retried: false,
+        model: EDIT_MODEL_STRONG,
+      };
+    }
   }
 
   const first = await ask(
