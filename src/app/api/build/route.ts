@@ -2220,6 +2220,43 @@ async function handle(
       const qa = inspection.result;
       const qaErrors = allIssues(qa).filter((issue) => issue.severity === "error");
 
+      /* ── Only what THIS edit broke holds it back ────────────────────────
+       *
+       * The gate below used to stop on any error in the project, and almost
+       * every error it found was already in the version that was live: a
+       * `grid-cols-2`, a missing loading state, an off-palette colour, all from
+       * the first build. So once a project had a single old problem, no edit
+       * was ever put live again — a customer changed their Rent button four
+       * times, the preview showed it each time, and their site stayed on the
+       * version from the night before, with "your live site is behind this
+       * preview" over every one.
+       *
+       * Holding back a change is right when the change makes the site worse
+       * for a visitor. It is not right when the site was already like that,
+       * because then holding it back protects nobody and costs them every
+       * change since. So the same check is run over the project as it was, and
+       * only what is new is a reason to wait. Counted, not just matched: an
+       * edit that adds a second copy of a problem has still added one. The
+       * full verdict is still recorded on the build row below. */
+      const before = await runQaLoop({
+        html: currentHtml ?? "",
+        tree: project_.tree,
+        manifest: manifestNow,
+        design: knownDesign,
+      });
+      const alreadyThere = new Map<string, number>();
+      for (const issue of allIssues(before.result).filter((entry) => entry.severity === "error")) {
+        const key = `${issue.rule}\u0000${issue.message}`;
+        alreadyThere.set(key, (alreadyThere.get(key) ?? 0) + 1);
+      }
+      const introduced = qaErrors.filter((issue) => {
+        const key = `${issue.rule}\u0000${issue.message}`;
+        const left = alreadyThere.get(key) ?? 0;
+        if (left === 0) return true;
+        alreadyThere.set(key, left - 1);
+        return false;
+      });
+
       if (qaErrors.length > 0) {
         // eslint-disable-next-line no-console
         console.info(
@@ -2353,7 +2390,7 @@ async function handle(
           `${diagnosis?.summary ?? "This change leaves something the build will refuse."}\n\nYour change is saved and the preview shows it. The live site is still serving the version before it, so nothing your visitors see is broken. Tell me what you want done about this and I'll fix it.`,
           { tone: "error", key: "edit-not-deployable" },
         );
-      } else if (deploymentsConfigured() && redeploy.deploy && qaErrors.length > 0) {
+      } else if (deploymentsConfigured() && redeploy.deploy && introduced.length > 0) {
         /* ── Stored, and not put in front of anybody ──────────────────────
          *
          * The change is saved and the preview shows it, because it is theirs
@@ -2368,7 +2405,7 @@ async function handle(
          * customers with its layout unexamined, which is exactly what the
          * whole of this pass is for. */
         await deliver(
-          `I've made the change and saved it — the preview shows it. I haven't put it live, because checking it turned up ${qaErrors.length === 1 ? "something" : `${qaErrors.length} things`} a visitor would see:\n\n${qaErrors
+          `I've made the change and saved it — the preview shows it. I haven't put it live, because this change introduced ${introduced.length === 1 ? "something" : `${introduced.length} things`} a visitor would see:\n\n${introduced
             .slice(0, 4)
             .map((issue) => `- ${issue.message}`)
             .join("\n")}\n\nThe live site is still serving the version before this, so nothing your visitors see is broken. Tell me to fix these, or to put it live anyway.`,
