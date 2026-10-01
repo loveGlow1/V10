@@ -33,13 +33,14 @@ writeFileSync(
       moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/presets.ts"), join(process.cwd(), "src/lib/builder/app-schema.ts")],
+    files: [join(process.cwd(), "src/lib/builder/presets.ts"), join(process.cwd(), "src/lib/builder/app-schema.ts"), join(process.cwd(), "src/lib/builder/member-area.ts")],
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { PRESETS, presetFor } = await import(join(out, "lib/builder/presets.js"));
+const { PRESETS, presetFor, modulesFor } = await import(join(out, "lib/builder/presets.js"));
+const { memberAreaFor } = await import(join(out, "lib/builder/member-area.js"));
 const { readProposal } = await import(join(out, "lib/builder/app-schema.js"));
 
 let failed = 0;
@@ -100,6 +101,58 @@ for (const [brief, kind, want] of [
 ]) {
   const got = presetFor(brief, kind)?.id ?? null;
   has(got === want, `${String(want).padEnd(12)} ← ${brief.replace(/\n/g, " / ")}`, `got ${got}`);
+}
+
+console.log("\nOnly the modules the brief asks for — never more:");
+const tablesOf = (brief, kind) => {
+  const preset = presetFor(brief, kind);
+  return preset ? modulesFor(preset, brief).tables.map((table) => table.name) : [];
+};
+const same = (got, want) => JSON.stringify([...got].sort()) === JSON.stringify([...want].sort());
+for (const [brief, kind, want] of [
+  ["a real estate site listing our properties with agents", "webapp", ["agents", "properties", "property_images"]],
+  ["a real estate site with a contact form", "webapp", ["agents", "properties", "property_images", "contact_inquiries"]],
+  ["a real estate site with login and a customer dashboard", "webapp",
+    ["agents", "properties", "property_images", "favorites", "saved_searches", "recently_viewed", "viewing_requests"]],
+  ["a real estate platform with login and a customer dashboard", "webapp",
+    ["agents", "locations", "properties", "property_images", "favorites", "saved_searches", "recently_viewed", "viewing_requests", "contact_inquiries"]],
+  ["real estate listings grouped by neighbourhood, where people can save favourites", "webapp",
+    ["agents", "properties", "property_images", "locations", "favorites"]],
+  ["a landing page for my consulting agency with a contact form", "landing", ["contact_inquiries"]],
+  ["a launch page for my app with a waitlist", "landing", ["waitlist_signups"]],
+  ["a landing page with a newsletter signup", "landing", ["newsletter_subscribers"]],
+  ["a landing page that stores something", "landing", ["contact_inquiries"]],
+  ["a job board for remote developers", "webapp", ["companies", "jobs", "job_applications"]],
+]) {
+  const got = tablesOf(brief, kind);
+  has(same(got, want), `${brief}`, `got ${got.join(", ")}`);
+}
+
+/* A link to a module that was left out goes with it, index and all. */
+{
+  const preset = PRESETS.find((entry) => entry.id === "real-estate");
+  const properties = modulesFor(preset, "real estate listings").tables.find((table) => table.name === "properties");
+  has(!properties.columns.some((column) => column.name === "location_id"), "properties has no location_id when there are no locations");
+  const withLocations = modulesFor(preset, "real estate listings by neighbourhood").tables.find((table) => table.name === "properties");
+  has(withLocations.columns.some((column) => column.name === "location_id"), "…and has it when there are");
+  /* Every reference in every selection points at a table that is there. */
+  for (const brief of ["real estate", "real estate with dashboard", "a full featured real estate platform"]) {
+    const { tables } = modulesFor(preset, brief);
+    const names = new Set(tables.map((table) => table.name));
+    const dangling = tables.flatMap((table) => table.columns.filter((column) => column.references && !column.references.table.includes(".") && !names.has(column.references.table)).map((column) => `${table.name}.${column.name}`));
+    has(dangling.length === 0, `no dangling references: ${brief}`, dangling.join(", "));
+    const verdict = readProposal({ tables, why: brief });
+    has(verdict.ok, `selection is a valid schema: ${brief}`, verdict.reason);
+  }
+}
+
+console.log("\nPersonal modules make the customer dashboard, even unnamed:");
+{
+  const area = memberAreaFor("real estate site where people save homes and book viewings", { authentication: true }, "webapp", ["favorites", "viewing_requests"]);
+  has(area && area.sections.some((s) => s.slug === "saved") && area.sections.some((s) => s.slug === "bookings" || s.slug === "viewings"), "saved homes and viewings → Saved and Viewings", JSON.stringify(area?.sections.map((s) => s.slug)));
+  has(area && !(area.sections.some((s) => s.slug === "bookings") && area.sections.some((s) => s.slug === "viewings")), "viewings appear once");
+  has(memberAreaFor("a real estate site", { authentication: true }, "webapp", []) === null, "no personal modules, no dashboard");
+  has(memberAreaFor("a real estate site", { authentication: false }, "webapp", ["favorites"]) === null, "no accounts, no dashboard");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

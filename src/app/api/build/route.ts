@@ -133,7 +133,7 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
-import { presetFor } from "@/lib/builder/presets";
+import { modulesFor, presetFor } from "@/lib/builder/presets";
 import {
   describeTables,
   formatRows,
@@ -4333,20 +4333,25 @@ async function handle(
   const designedAlready = existingTree.some(
     (file) => /(?:^lib\/schema\.sql$|^supabase\/.*\.sql$)/.test(file.path) && /\bcreate\s+table\b/i.test(file.content),
   );
+  const domainText = [project.name, projectContextRow?.state.summary ?? "", brief.text].join("\n");
   const preset =
     architecture.manifest.database && architecture.manifest.authentication && !designedAlready
-      ? presetFor(
-          [project.name, projectContextRow?.state.summary ?? "", brief.text].join("\n"),
-          kind.kind,
-        )
+      ? presetFor(domainText, kind.kind)
       : null;
+  /* The domain decides the modules and the modules decide the tables: only
+     the core of this kind of site and what the brief asked for. "An estate
+     agency with a contact form" gets listings and enquiries, not viewings,
+     saved searches and a dashboard nobody wanted. See modulesFor. */
+  const modules = preset ? modulesFor(preset, domainText) : null;
 
-  if (preset) {
-    dataModel = withAuthored(deterministic, preset.tables());
+  if (preset && modules) {
+    dataModel = withAuthored(deterministic, modules.tables);
+    const kindLabel: Record<string, string> = { webapp: "Web app", landing: "Landing page", ecommerce: "Store", blog: "Blog", news: "News" };
     steps.mark(
       "schema",
-      `Using the ${preset.label} database`,
-      `${dataModel.tables.length} tables, each with row-level security — the standard shape for this kind of site`,
+      `${kindLabel[kind.kind] ?? kind.kind} · ${preset.label}`,
+      `Modules: ${modules.tables.map((table) => table.name.replace(/_/g, " ")).join(", ")} — ${dataModel.tables.length} tables, each with row-level security` +
+        (modules.left.length ? `. Left out until asked for: ${modules.left.map((name) => name.replace(/_/g, " ")).join(", ")}` : ""),
     );
   } else if (architecture.manifest.database && architecture.manifest.type === "webapp" && !designedAlready) {
     /* Not for a project that already wrote its tables, for the same reason
@@ -4754,7 +4759,15 @@ async function handle(
               /* The signed-in area, file by file, when the brief asked for
                  one. Without it a "dashboard" brief was answered with a login
                  page and nothing behind it. See member-area.ts. */
-              memberAreaFor(brief.text, architecture.manifest, kind.kind),
+              memberAreaFor(
+                brief.text,
+                architecture.manifest,
+                kind.kind,
+                /* A web app's signed-in modules make its dashboard even
+                   when the word was never used: saved homes and viewings
+                   need somewhere to be seen. */
+                kind.kind === "webapp" ? modules?.tables.filter((table) => table.columns.some((column) => column.name === "user_id" && !column.nullable)).map((table) => table.name) : undefined,
+              ),
             ))
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
