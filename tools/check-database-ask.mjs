@@ -59,7 +59,14 @@ for (const [message, want] of [
   ["add a contact form that saves to the database", false],
   ["update the footer text", false],
   ["change the colour of the dashboard button", false],
-]) has(isDatabaseAsk(message) === want, `${want ? "yes" : "no"}: ${message}`);
+  /* The prompt this broke on, sent four times: a feature request that
+     mentions the database. It was turned into SQL every time. */
+  ["Finish the dashboard against the tables that now exist in my database. On the property pages, make the favourite heart, Schedule Viewing and Contact Agent save for the signed-in user, and record each property opened in recently_viewed. In the dashboard, make Overview, Saved, Scheduled Viewings, Recently Viewed, Profile and Settings read and update the signed-in user's real rows, with empty states for a new account. Replace the placeholder admin page with a real admin area where an editor manages properties, agents, viewing requests (confirm or cancel) and contact inquiries. Keep the current design and every existing page.", false],
+  ["create the tables my dashboard uses in my database", false],
+  ["build an admin area to manage the properties table", false],
+  ["create a favorites table in my database", true],
+  ["drop the old_listings table from my database", true],
+]) has(isDatabaseAsk(message) === want, `${want ? "yes" : "no"}: ${message.slice(0, 90)}`);
 
 console.log("\nWhat runs at once:");
 const safe = judgeSql("create table if not exists a (id int); insert into a values (1); select * from a;");

@@ -50,8 +50,15 @@ const SNAKE = /\b[a-z]+_[a-z0-9_]+\b/;
 const NAMED_TABLE = /\b(?:the|my|our|in|to|from|into|on)\s+(?!pricing\b|comparison\b|html\b|size\b|feature\b|features\b|price\b|specs?\b|data\b)([a-z][a-z0-9_]*)\s+table\b/i;
 const DB_NOUN = /\b(columns?|rows?|records?|tables?|indexes|index|policy|policies|seed data|foreign keys?)\b/i;
 
-/* Words about the page, which outrank a vague database reading. */
-const PAGE_WORDS = /\b(page|section|button|hero|header|footer|nav|navbar|menu|card|layout|image|photo|font|colou?r|style|styling|design|mobile|form)\b/i;
+/* Words about the app — its pages, screens and controls. A message using any
+   of these is asking for app work, even when it mentions the database: "finish
+   the dashboard against the tables in my database" is a feature, and reading
+   it as a database command wrote SQL for a dashboard. */
+const APP_WORDS =
+  /\b(pages?|section|button|heart|hero|header|footer|nav|navbar|menu|card|layout|image|photo|font|colou?r|style|styling|design|mobile|form|modal|dashboard|admin(?: area| panel)?|screens?|ui|sign[- ]?in|log[- ]?in|sidebar|overview|empty states?)\b/i;
+
+/* A database command is a sentence or two. A paragraph is a feature spec. */
+const LONGEST_ASK = 300;
 
 /**
  * Whether a plain-English message is asking for something in the database.
@@ -65,9 +72,9 @@ export function isDatabaseAsk(message: string): boolean {
      read verb ("show me the latest viewing_requests"), it is a database ask. */
   const structural = SNAKE.test(m) && (DB_NOUN.test(m) || /\b(show|list|count|how many|fetch|query|select)\b/i.test(m));
   if (!explicit && !structural) return false;
-  /* "make the signup form save to the database" is the page-data path's, and
-     anything that is mostly about the page stays with the page. */
-  if (PAGE_WORDS.test(m) && !DB_NOUN.test(m) && !/\bsql\b/i.test(m)) return false;
+  /* Anything about the app stays with the app — the page-data path, the edit
+     path, the feature path — and so does anything long enough to be a spec. */
+  if (APP_WORDS.test(m) || m.length > LONGEST_ASK) return false;
   return true;
 }
 
