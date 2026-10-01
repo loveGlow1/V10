@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Loader2,
   Link2,
+  MousePointerClick,
   RotateCw,
   Rocket,
   SlidersHorizontal,
@@ -21,6 +22,7 @@ import {
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { rememberAuthWrite, withAuthSeed } from "@/lib/builder/preview/auth-seed";
+import VisualEditPanel, { type Picked, type PreviewChange } from "./VisualEditPanel";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -372,6 +374,28 @@ export default function PreviewPanel({
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [route, setRoute] = useState("/");
 
+  /* ── The visual editor ─────────────────────────────────────────────────
+   *
+   * Edit mode is the preview's: the frame outlines and selects what is
+   * clicked (see preview/runtime.ts) and reports it here; the panel beside it
+   * makes the changes. See VisualEditPanel. */
+  const [editMode, setEditMode] = useState(false);
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const [designTokens, setDesignTokens] = useState<Record<string, string>>({});
+  const editModeRef = useRef(false);
+  editModeRef.current = editMode;
+  const tellFrame = useCallback((message: Record<string, unknown>) => {
+    frameRef.current?.contentWindow?.postMessage({ source: "quickstark-workspace", ...message }, "*");
+  }, []);
+  useEffect(() => {
+    tellFrame({ editMode });
+    if (!editMode) setPicked(null);
+  }, [editMode, tellFrame]);
+  const previewVisual = useCallback((change: PreviewChange) => tellFrame({ preview: change }), [tellFrame]);
+  /* Editing happens on the project rendered from its source, never on the
+     live site, which knows nothing of where its elements were written. */
+  const framesLive = !editMode;
+
   /* What the preview says about itself.
    *
    * report() in the runtime has been posting 'ready', 'error' and 'navigate'
@@ -389,7 +413,32 @@ export default function PreviewPanel({
         | { source?: string; state?: string; detail?: { routes?: { pattern: string; href: string }[] } }
         | null;
       if (!data || data.source !== "quickstark-preview") return;
+      /* What was clicked in edit mode — only from our own frame. */
+      if (data.state === "select") {
+        if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
+        const detail = data.detail as unknown as Partial<Picked> | null;
+        if (detail && typeof detail.src === "string" && typeof detail.tag === "string") {
+          setPicked({
+            src: detail.src,
+            tag: detail.tag,
+            className: typeof detail.className === "string" ? detail.className : "",
+            text: typeof detail.text === "string" ? detail.text : null,
+            imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
+            repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
+          });
+        }
+        return;
+      }
       if (data.state !== "ready") return;
+      const tokens = (data.detail as { tokens?: unknown } | null)?.tokens;
+      if (tokens && typeof tokens === "object") {
+        setDesignTokens(Object.fromEntries(Object.entries(tokens as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
+      }
+      /* A reloaded frame starts outside edit mode; put it back. */
+      if (editModeRef.current) {
+        setPicked(null);
+        frameRef.current?.contentWindow?.postMessage({ source: "quickstark-workspace", editMode: true }, "*");
+      }
       const offered = Array.isArray(data.detail?.routes) ? data.detail.routes : [];
       setRoutes(
         offered.filter(
@@ -724,7 +773,8 @@ export default function PreviewPanel({
   const preview = (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       {previewUrl ? (
-        <div className="flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
+        <div className="flex h-full min-h-[280px] flex-col gap-3 md:flex-row">
+        <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
           {/* Nothing is written across the top of the frame. What used to sit
               here was a private preview URL — nothing to click, nothing to do
               with it, and on every screenshot and screen-share of somebody's
@@ -738,6 +788,14 @@ export default function PreviewPanel({
               whole strip stands down rather than reserving nine pixels of
               border for nothing. */}
           <div className="flex h-9 shrink-0 items-center justify-end gap-2 border-b border-line/[0.06] px-2.5 md:hidden">
+            <button
+              onClick={() => setEditMode((on) => !on)}
+              aria-pressed={editMode}
+              aria-label={editMode ? "Stop editing" : "Edit visually"}
+              className={`shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] ${editMode ? "bg-layer/[0.1]" : ""}`}
+            >
+              <MousePointerClick className="h-3.5 w-3.5" />
+            </button>
             <button
               onClick={() => setReloads((count) => count + 1)}
               aria-label="Reload the preview"
@@ -1049,7 +1107,7 @@ export default function PreviewPanel({
            * `src` rather than `srcDoc`: this is a real site on its own origin,
            * which is a stronger boundary than the opaque one srcDoc gets, and
            * the app needs its own origin anyway to hold a Supabase session. */}
-          {publishedLive && !building && liveIsCurrent && liveViewable ? (
+          {publishedLive && !building && liveIsCurrent && liveViewable && framesLive ? (
             <iframe
               /* The build stamp as well: a live frame that stays mounted
                  across a redeploy would otherwise keep the page it loaded
@@ -1127,6 +1185,22 @@ export default function PreviewPanel({
               </p>
             </div>
           )}
+        </div>
+          {editMode && project?.id ? (
+            <div className="flex max-h-[60vh] min-h-0 overflow-hidden rounded-2xl border border-line/[0.07] md:max-h-none">
+              <VisualEditPanel
+                projectId={project.id}
+                picked={picked}
+                tokens={designTokens}
+                onPreview={previewVisual}
+                onApplied={() => {
+                  setPicked(null);
+                  setReloads((count) => count + 1);
+                }}
+                onClose={() => setEditMode(false)}
+              />
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
@@ -1627,6 +1701,18 @@ export default function PreviewPanel({
             className={`${action} w-9 px-0`}
           >
             <RotateCw className="h-4 w-4" />
+          </button>
+
+          {/* Point at something in the preview and change it. */}
+          <button
+            onClick={() => setEditMode((on) => !on)}
+            disabled={!previewUrl || isReceipt}
+            title={editMode ? "Stop editing" : "Edit visually — click anything in the preview"}
+            aria-pressed={editMode}
+            className={`${action} ${editMode ? "bg-layer/[0.1] text-ink" : ""}`}
+          >
+            <MousePointerClick className="h-4 w-4 shrink-0" />
+            <span className="hidden lg:inline">Edit</span>
           </button>
 
           {divider}

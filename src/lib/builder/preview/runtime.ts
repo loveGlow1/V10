@@ -180,9 +180,164 @@ export const PREVIEW_RUNTIME = `
     if (event.source !== parent) return;
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
+    if (typeof data.editMode === 'boolean') { setEditing(data.editMode); return; }
+    if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
     if (typeof data.navigate !== 'string') return;
     navigate(data.navigate);
   });
+
+  /* ── Edit mode ─────────────────────────────────────────────────────────
+   *
+   * Switched on by the workspace. Hovering outlines the element under the
+   * pointer; a click selects it instead of doing what it would do — no link
+   * followed, no form sent — and tells the workspace what it is and where it
+   * was written. Changes the workspace is about to make are shown here first
+   * (previewChange), on every element written at that same place. */
+  var editing = false;
+  var hoverBox = null;
+  var selectBox = null;
+  var selected = null;
+
+  function overlay(colour, width) {
+    var box = document.createElement('div');
+    box.setAttribute('data-qs-overlay', '');
+    box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border-radius:3px;display:none;box-sizing:border-box;border:' + width + 'px solid ' + colour + ';';
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function place(box, element) {
+    if (!box) return;
+    if (!element || !element.isConnected) { box.style.display = 'none'; return; }
+    var rect = element.getBoundingClientRect();
+    box.style.display = 'block';
+    box.style.left = rect.left + 'px';
+    box.style.top = rect.top + 'px';
+    box.style.width = rect.width + 'px';
+    box.style.height = rect.height + 'px';
+  }
+
+  function taggedFrom(node) {
+    while (node && node.nodeType === 1) {
+      if (node.hasAttribute('data-qs-src')) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function sameSource(src) {
+    var escaped = window.CSS && window.CSS.escape ? window.CSS.escape(src) : src.replace(/"/g, '');
+    return document.querySelectorAll('[data-qs-src="' + escaped + '"]');
+  }
+
+  function onlyText(element) {
+    for (var i = 0; i < element.childNodes.length; i += 1) {
+      if (element.childNodes[i].nodeType !== 3) return false;
+    }
+    return element.textContent.trim().length > 0;
+  }
+
+  function describeElement(element) {
+    var src = element.getAttribute('data-qs-src');
+    var style = getComputedStyle(element);
+    return {
+      src: src,
+      tag: element.tagName.toLowerCase(),
+      className: element.getAttribute('class') || '',
+      text: onlyText(element) ? element.textContent : null,
+      imageSrc: element.tagName === 'IMG' ? element.getAttribute('src') : null,
+      repeated: sameSource(src).length,
+      color: style.color,
+      background: style.backgroundColor,
+      fontSize: style.fontSize
+    };
+  }
+
+  function onHover(event) {
+    if (!editing) return;
+    place(hoverBox, taggedFrom(event.target));
+  }
+
+  function onPick(event) {
+    if (!editing) return;
+    var element = taggedFrom(event.target);
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    if (!element) return;
+    selected = element;
+    place(selectBox, element);
+    report('select', describeElement(element));
+  }
+
+  function onBlock(event) {
+    if (!editing) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function follow() {
+    if (!editing) return;
+    place(selectBox, selected);
+  }
+
+  function setEditing(on) {
+    if (on === editing) return;
+    editing = on;
+    if (!hoverBox) { hoverBox = overlay('rgba(59,130,246,0.7)', 1); selectBox = overlay('#2563eb', 2); }
+    if (on) {
+      window.addEventListener('mousemove', onHover, true);
+      window.addEventListener('click', onPick, true);
+      window.addEventListener('submit', onBlock, true);
+      window.addEventListener('scroll', follow, true);
+      window.addEventListener('resize', follow);
+      document.documentElement.style.cursor = 'crosshair';
+    } else {
+      window.removeEventListener('mousemove', onHover, true);
+      window.removeEventListener('click', onPick, true);
+      window.removeEventListener('submit', onBlock, true);
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
+      document.documentElement.style.cursor = '';
+      selected = null;
+      place(hoverBox, null);
+      place(selectBox, null);
+    }
+  }
+
+  /* A change shown before it is made: the class string, words and picture the
+     workspace has worked out, on every element written at that place. */
+  function previewChange(change) {
+    var elements = sameSource(change.src);
+    for (var i = 0; i < elements.length; i += 1) {
+      var element = elements[i];
+      if (typeof change.className === 'string') element.setAttribute('class', change.className);
+      if (typeof change.text === 'string' && onlyText(element)) element.textContent = change.text;
+      if (typeof change.imageSrc === 'string' && element.tagName === 'IMG') element.setAttribute('src', change.imageSrc);
+    }
+    follow();
+  }
+
+  /* The project's design tokens — its colours and type sizes — so the panel
+     offers the palette the site was designed with rather than any colour. */
+  function designTokens() {
+    var out = {};
+    try {
+      for (var s = 0; s < document.styleSheets.length; s += 1) {
+        var rules;
+        try { rules = document.styleSheets[s].cssRules; } catch (ignored) { continue; }
+        for (var r = 0; r < rules.length; r += 1) {
+          var rule = rules[r];
+          if (!rule.style || !rule.selectorText || rule.selectorText.indexOf(':root') < 0) continue;
+          for (var k = 0; k < rule.style.length; k += 1) {
+            var name = rule.style[k];
+            if (name.indexOf('--') === 0 && !Object.prototype.hasOwnProperty.call(out, name)) out[name] = rule.style.getPropertyValue(name).trim();
+          }
+        }
+      }
+    } catch (ignored) {}
+    return out;
+  }
 
   /* ── Module resolution ─────────────────────────────────────────────────
    *
@@ -240,6 +395,36 @@ export const PREVIEW_RUNTIME = `
       .replace(/(?:window\\.)?location\\.(?:assign|replace)\\(/g, 'window.__qsNavigate(');
   }
 
+  /* ── Where each element was written ────────────────────────────────────
+   *
+   * Every HTML element the project renders carries data-qs-src="file:line:col"
+   * — line from 1, column from 0 — so a click in edit mode knows exactly what
+   * it is pointing at. Components are left alone: the attribute would arrive
+   * as a prop they ignore. Only here, in the preview; the published site is
+   * built from the files and never sees it. See lib/builder/visual-edit.ts. */
+  function tagWithSource(path) {
+    return function (api) {
+      var t = api.types;
+      return {
+        visitor: {
+          JSXOpeningElement: function (p) {
+            var node = p.node;
+            var name = node.name;
+            if (!name || name.type !== 'JSXIdentifier' || !/^[a-z]/.test(name.name) || !node.loc) return;
+            for (var i = 0; i < node.attributes.length; i += 1) {
+              var attribute = node.attributes[i];
+              if (attribute.type === 'JSXAttribute' && attribute.name && attribute.name.name === 'data-qs-src') return;
+            }
+            node.attributes.push(t.jsxAttribute(
+              t.jsxIdentifier('data-qs-src'),
+              t.stringLiteral(path + ':' + node.loc.start.line + ':' + node.loc.start.column)
+            ));
+          }
+        }
+      };
+    };
+  }
+
   function compile(path) {
     if (Object.prototype.hasOwnProperty.call(compiled, path)) return compiled[path];
     var source = FILES[path];
@@ -254,7 +439,7 @@ export const PREVIEW_RUNTIME = `
         ['react', { runtime: 'automatic' }],
         ['typescript', { isTSX: /\\.tsx$/.test(path), allExtensions: true }]
       ],
-      plugins: ['transform-modules-commonjs'],
+      plugins: [tagWithSource(path), 'transform-modules-commonjs'],
       sourceMaps: false
     }).code;
     compiled[path] = out;
@@ -878,7 +1063,7 @@ export const PREVIEW_RUNTIME = `
        * So the list goes to the pane instead, and the pane puts the control
        * in its own toolbar where it belongs: ours in our furniture, theirs
        * left alone. Patterns only — nothing about the files. */
-      report('ready', { routes: routePatterns() });
+      report('ready', { routes: routePatterns(), tokens: designTokens() });
     } catch (error) {
       report('error', String((error && error.message) || error));
       root.innerHTML = '';
