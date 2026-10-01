@@ -133,6 +133,7 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
+import { presetFor } from "@/lib/builder/presets";
 import {
   describeTables,
   formatRows,
@@ -4312,7 +4313,35 @@ async function handle(
    * defect. */
   let dataModel = deterministic;
 
-  if (architecture.manifest.database && architecture.manifest.type === "webapp") {
+  /* ── A ready-made database for this kind of site, when there is one ──────
+   *
+   * An estate agency, a salon, a gym, a hotel, a job board: each has a schema
+   * that works, and a developer reaches for it rather than designing one from
+   * nothing. See presets.ts. Read from the project's name and what it is as
+   * well as this message, so "add a dashboard" on Aurelia Estates still finds
+   * the real-estate tables.
+   *
+   * Only with accounts on: every preset's owner policies call is_admin(),
+   * which exists only alongside profiles. A project without accounts keeps
+   * what it had. With no preset, a web app's schema is designed below exactly
+   * as before, and authored-sql.ts still catches anything the code then uses
+   * that is not there. */
+  const preset =
+    architecture.manifest.database && architecture.manifest.authentication
+      ? presetFor(
+          [project.name, projectContextRow?.state.summary ?? "", brief.text].join("\n"),
+          kind.kind,
+        )
+      : null;
+
+  if (preset) {
+    dataModel = withAuthored(deterministic, preset.tables());
+    steps.mark(
+      "schema",
+      `Using the ${preset.label} database`,
+      `${dataModel.tables.length} tables, each with row-level security — the standard shape for this kind of site`,
+    );
+  } else if (architecture.manifest.database && architecture.manifest.type === "webapp") {
     const authored = await authorSchema({ brief: brief.text, manifest: architecture.manifest });
 
     if (authored.ok) {
