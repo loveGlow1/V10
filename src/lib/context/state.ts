@@ -54,6 +54,11 @@ export type ContextState = {
      merge the returned files over that build instead of replacing it, and gone
      once the save route writes the state again. See lib/builder/feature.ts. */
   feature?: { requestId: string; baseBuildId: string; areas: string[] };
+  /* A single page being upgraded into a project: which request, and the build
+     holding the page it reproduces. The save route reads the page back from
+     that build to put its embedded pictures where the generator kept their
+     tokens. Gone once the save route writes the state again. */
+  upgrade?: { requestId: string; baseBuildId: string; areas: string[] };
 };
 
 /** The blocks worth keeping built. Each is derived from a different slice of

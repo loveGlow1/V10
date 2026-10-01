@@ -67,6 +67,9 @@ export type BuildReply = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
+  /* A single page was asked for something only an app can hold, and the
+     reply is the offer to upgrade it. See upgradeOffer. */
+  needsUpgrade?: boolean;
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -101,6 +104,9 @@ type BuildPayload = {
      own answer as a guess. The costliest of the three questions: it decides
      whether a database is provisioned. See lib/builder/architecture.ts. */
   needsArchitecture?: boolean;
+  /* A single page was asked for something only an app can hold, and the
+     reply is the offer to upgrade it. See upgradeOffer. */
+  needsUpgrade?: boolean;
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -158,6 +164,8 @@ export type BuildOptions = {
    * lib/builder/architecture.ts.
    */
   architecture?: "managed" | "full" | "frontend" | "own" | null;
+  /** The yes to an upgrade offer: move this single page into a full app, kept as it is. */
+  upgrade?: boolean;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -450,6 +458,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
            * lib/builder/architecture.ts. */
           stack: options.stack ?? null,
           architecture: options.architecture ?? null,
+          upgrade: options.upgrade === true,
           model: options.model ?? null,
         }),
       });
@@ -590,6 +599,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         needsStack: payload.needsStack === true,
         stackOptions: payload.stackOptions,
         needsArchitecture: payload.needsArchitecture === true,
+        needsUpgrade: payload.needsUpgrade === true,
         architectureOptions: payload.architectureOptions,
         stack: payload.stack,
         buildKind: payload.buildKind,

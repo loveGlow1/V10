@@ -35,7 +35,9 @@ execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 /* feature.ts imports only a type, which tsc erases, so the output loads as is. */
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { featureFor, featureBrief, mergeFeature } = await import(join(out, "lib/builder/feature.js"));
+const { featureFor, featureBrief, mergeFeature, appFeatureFor, upgradeOffer, upgradeBrief } = await import(
+  join(out, "lib/builder/feature.js")
+);
 
 let failed = 0;
 let passed = 0;
@@ -88,6 +90,33 @@ has(merged.created.join() === "app/dashboard/page.tsx", "created files are told 
 has(merged.changed.join() === "components/Nav.tsx", "from changed ones — and a file returned unchanged is neither");
 has(merged.tree.find((file) => file.path === "components/Nav.tsx").content === "nav with a dashboard link", "a returned file replaces the old one");
 has(mergeFeature(project, []).tree.length === project.length, "an empty answer leaves the project exactly as it was");
+
+/* ── Upgrading a single page ──────────────────────────────────────────────
+ *
+ * A page that is asked for something only an app can hold is offered an
+ * upgrade — kept as it is, moved into an app, the feature added — instead of
+ * "ask me to rebuild it", which threw the page away. */
+console.log("\nA single page is offered an upgrade only for what a page cannot hold:");
+has(appFeatureFor("add login and a dashboard")?.areas.join() === "a dashboard,sign-in and accounts", "accounts and a dashboard");
+has(appFeatureFor("add a user dashboard")?.areas.join() === "a dashboard", "a dashboard on its own — which reaches no layer in the edit planner");
+has(appFeatureFor("add an admin area to manage the menu")?.areas.join() === "an admin area", "an admin");
+has(appFeatureFor("add a shopping cart and checkout")?.areas.join() === "a cart and checkout", "a checkout");
+has(appFeatureFor("add a booking section") === null, "not bookings — on a page that is a section");
+has(appFeatureFor("add a pricing page") === null, "not a named page");
+has(appFeatureFor("add a gallery") === null, "not anything else an edit can do");
+has(appFeatureFor("add a section with messages from happy customers") === null, "'messages' alone is testimonials, not messaging");
+has(appFeatureFor("add direct messages between members")?.areas.includes("messaging"), "while real messaging is");
+has(appFeatureFor("make the dashboard image bigger") === null, "not a change to something already there");
+
+const offer = upgradeOffer("a dashboard");
+has(/keep your current page exactly as it is/.test(offer) && /Upgrade\?$/.test(offer), "the offer promises to keep the page and asks first");
+has(/costs about what a build does/.test(offer), "and says what it costs before anything is spent");
+
+const upgrade = upgradeBrief("BASE RULES", "add a dashboard", ["a dashboard"], '<section><h1>Fresh bread</h1><img src="stashed-image-0" alt="Loaf"></section>');
+has(upgrade.startsWith("BASE RULES"), "the upgrade keeps every rule of a project build");
+has(/REPRODUCE THE PAGE FAITHFULLY/.test(upgrade) && /word for word/.test(upgrade), "the page is reproduced, copy word for word");
+has(/Keep that exact token as the src/.test(upgrade) && upgrade.includes("stashed-image-0"), "and its pictures are kept by their tokens");
+has(/Do not invent pages the site did not have/.test(upgrade), "and no pages are invented that the site never had");
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
