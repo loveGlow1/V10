@@ -33,14 +33,15 @@ writeFileSync(
       moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"],
       baseUrl: process.cwd(), paths: { "@/*": ["src/*"] },
     },
-    files: [join(process.cwd(), "src/lib/builder/presets.ts"), join(process.cwd(), "src/lib/builder/app-schema.ts"), join(process.cwd(), "src/lib/builder/member-area.ts")],
+    files: [join(process.cwd(), "src/lib/builder/presets.ts"), join(process.cwd(), "src/lib/builder/app-schema.ts"), join(process.cwd(), "src/lib/builder/member-area.ts"), join(process.cwd(), "src/lib/builder/backend/live-check.ts")],
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { PRESETS, presetFor, modulesFor, publicationModulesFor } = await import(join(out, "lib/builder/presets.js"));
+const { PRESETS, presetFor, modulesFor, publicationModulesFor, staffFor, withStaff, commonModulesFor, uploadsBucket } = await import(join(out, "lib/builder/presets.js"));
 const { memberAreaFor } = await import(join(out, "lib/builder/member-area.js"));
+const { liveCheckSql, readLiveCheck, describeLiveCheck } = await import(join(out, "lib/builder/backend/live-check.js"));
 const { readProposal } = await import(join(out, "lib/builder/app-schema.js"));
 
 let failed = 0;
@@ -181,6 +182,53 @@ console.log("\nThe spec's own example, end to end:");
   const slugs = area?.sections.map((s) => s.slug) ?? [];
   has(["saved", "saved-searches", "recently-viewed", "viewings", "profile", "settings"].every((s) => slugs.includes(s)), "customer dashboard: saved, saved searches, recently viewed, viewings, profile, settings", slugs.join(", "));
   has(area?.passwordReset === true, "with password reset");
+}
+
+console.log("\nStaff, notifications and uploads — only when asked:");
+{
+  const estate = PRESETS.find((p) => p.id === "real-estate");
+  has(staffFor(estate, "a real estate site with listings") === null, "an agency site alone has no staff accounts");
+  has(staffFor(estate, "an agent portal where agents log in to confirm viewings") === "agent", "agents who log in → the agent role");
+  has(staffFor(PRESETS.find((p) => p.id === "fitness"), "trainers can log in to see their class bookings") === "trainer", "a gym's staff are trainers");
+  has(staffFor(PRESETS.find((p) => p.id === "appointments"), "staff dashboard for the salon") === "staff", "otherwise just staff");
+  has(staffFor(PRESETS.find((p) => p.id === "business"), "staff login") === null, "a business landing site never has staff");
+
+  const tables = modulesFor(estate, "real estate with a dashboard").tables;
+  const profiles = { name: "profiles", what: "", columns: [{ name: "id", type: "uuid", primaryKey: true }, { name: "role", type: "text", check: "role in ('customer', 'editor')" }], policies: [] };
+  const staffed = withStaff({ schema: "s", tables: [profiles, ...tables], buckets: [] }, "agent");
+  has(staffed.staffRole === "agent", "the model carries the role");
+  has(/'agent'/.test(staffed.tables[0].columns[1].check), "profiles accepts it", staffed.tables[0].columns[1].check);
+  const viewings = staffed.tables.find((t) => t.name === "viewing_requests");
+  has(viewings.policies.some((p) => p.name === "viewing_requests_staff_read") && viewings.policies.some((p) => p.name === "viewing_requests_staff_update"), "staff read and answer viewing requests");
+  has(!viewings.policies.some((p) => /staff/.test(p.name) && p.for === "delete"), "but never delete one");
+  const props = staffed.tables.find((t) => t.name === "properties");
+  has(!props.policies.some((p) => /is_staff/.test(`${p.using ?? ""} ${p.check ?? ""}`)), "and never touch the catalogue");
+
+  has(commonModulesFor("a booking site").tables.length === 0 && !commonModulesFor("a booking site").uploads, "nothing extra unless asked");
+  const both = commonModulesFor("send customers notifications and let them upload documents");
+  has(both.tables.map((t) => t.name).join() === "notifications" && both.uploads, "notifications and uploads when asked");
+  const note = both.tables[0];
+  has(!note.policies.some((p) => p.for === "insert" && /auth\.uid\(\)/.test(p.check ?? "")), "a customer cannot write into anyone's notifications");
+  const bucket = uploadsBucket("s-user-files");
+  has(bucket.perUser && !bucket.public, "uploads are private, per person");
+  const area = memberAreaFor("a site", { authentication: true }, "webapp", ["notifications"]);
+  has(area?.sections.some((s) => s.slug === "notifications"), "notifications get a dashboard section");
+}
+
+console.log("\nThe live database check:");
+{
+  const sql = liveCheckSql("app_x", ["properties", "favorites", "bad name; drop table x"]);
+  has(sql.includes("array['properties', 'favorites']::text[]"), "only safe table names reach the SQL");
+  has(!/drop table x/.test(sql), "an unsafe name is dropped, not quoted");
+  has(/raise exception using errcode = 'P0001', message = 'quickstark_rollback'/.test(sql), "the test member is always rolled back");
+  has(liveCheckSql("bad schema!", []).includes("'public'"), "an unsafe schema falls back to public");
+
+  const clean = readLiveCheck([{}, { result: { checked: ["a", "b"], findings: [], signup: true } }]);
+  has(clean && describeLiveCheck(clean).ok, "a clean result reads as clean");
+  const bad = readLiveCheck([{ result: JSON.stringify({ checked: ["favorites"], findings: [{ table: "favorites", problem: "missing" }, { table: "notes", problem: "public_personal_rows" }], signup: null }) }]);
+  const said = describeLiveCheck(bad);
+  has(!said.ok && /favorites/.test(said.text) && /anybody read all of them/.test(said.text) && /fix the database/.test(said.text), "problems are named, with the way to fix them", said.text);
+  has(readLiveCheck([{ result: "nonsense" }]) === null && readLiveCheck([]) === null, "an unreadable answer is not a pass");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

@@ -117,6 +117,10 @@ const extended = schemaMod.toSql(model, { extend: { products: [{ name: "badge", 
 has(/create table if not exists public\.products[\s\S]*?\);\s*\nalter table public\.products add column if not exists badge text;/.test(extended),
   "a missing column is added right after its table, before any index or policy names it");
 has(schemaMod.destructiveStatements(extended).length === 0, "and adding columns is not destructive");
+has(schemaMod.destructiveStatements("alter table public.profiles drop constraint if exists profiles_role_check;").length === 1,
+  "dropping the role rule on its own is still destructive");
+has(schemaMod.destructiveStatements("alter table public.profiles drop constraint if exists profiles_role_check; alter table public.orders drop constraint if exists x;").length === 2,
+  "and so is any other constraint drop");
 
 console.log("\nThe scan reads and never writes:");
 const scan = inspect.snapshotSql(["public", "qs_x"]).toLowerCase();

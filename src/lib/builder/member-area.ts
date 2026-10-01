@@ -132,6 +132,7 @@ const MODULE_SECTIONS: Record<string, MemberSection> = {
   job_applications: { slug: "applications", title: "Applications", purpose: "the jobs they applied to, newest first, each with its status" },
   memberships: { slug: "membership", title: "Membership", purpose: "their plan, when it renews or ends, and its status" },
   recently_viewed: section("recently-viewed"),
+  notifications: section("notifications"),
 };
 
 /* Segments written out as routes — "/dashboard/favorites" — are the most

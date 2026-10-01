@@ -342,5 +342,12 @@ has(nothingFinished.applied === 0 && nothingFinished.html === PAGE, "a reply cut
 const noBlocksAtAll = applyPatches(PAGE, "<<<<<<< SEARCH\n  <foot");
 has(noBlocksAtAll.applied === 0 && noBlocksAtAll.html === PAGE, "and the same for search/replace");
 
+/* A marker inside the new text is a malformed reply, never code. Written in,
+   it stops the production build ("Merge conflict marker encountered"). */
+const dividerInReplace = applyPatches(PAGE, `<<<<<<< SEARCH\n    <h2>Build. Edit. Launch.</h2>\n=======\n    <h2>A</h2>\n=======\n    <h2>B</h2>\n>>>>>>> REPLACE`);
+has(dividerInReplace.applied === 0 && dividerInReplace.html === PAGE, "a replacement carrying a second ======= is refused", JSON.stringify(dividerInReplace.failures));
+const dividerInLines = applyLineEdits(PAGE, "<<<<<<< LINES 3\n    <h2>A</h2>\n=======\n    <h2>B</h2>\n>>>>>>> END");
+has(dividerInLines.applied === 0 && dividerInLines.html === PAGE, "and so is a line edit with a ======= in it", JSON.stringify(dividerInLines.failures));
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

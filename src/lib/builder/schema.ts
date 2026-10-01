@@ -110,6 +110,8 @@ export type Bucket = {
   /** Whether anybody may read the files without signing in. */
   public: boolean;
   what: string;
+  /** Each signed-in person reads and writes only the folder named by their user id. */
+  perUser?: boolean;
 };
 
 export type DataModel = {
@@ -117,6 +119,8 @@ export type DataModel = {
   schema: string;
   tables: Table[];
   buckets: Bucket[];
+  /** The role that works in the business — an agent, a trainer — when it has one. See presets.ts withStaff. */
+  staffRole?: string;
 };
 
 /* ── Pieces the models are assembled from ──────────────────────────────────
@@ -942,7 +946,7 @@ function columnSql(column: Column): string {
  * Written unqualified in the table definitions above because the schema name is
  * not known there, and substituted here, where it is. */
 function qualify(expression: string, schema: string): string {
-  return expression.replace(/\b(is_admin|is_author)\(\)/g, `${schema}.$1()`);
+  return expression.replace(/\b(is_admin|is_author|is_staff)\(\)/g, `${schema}.$1()`);
 }
 
 function policySql(table: string, policy: Policy, schema: string): string {
@@ -1046,11 +1050,22 @@ function bareSql(sql: string): string {
  * above, and provision.ts, which refuses to run a migration this answers for.
  */
 export function destructiveStatements(sql: string): string[] {
-  return bareSql(sql)
+  const statements = bareSql(sql)
     .split(";")
     .map((statement) => statement.trim().replace(/\s+/g, " ").toLowerCase())
-    .filter((statement) => statement.length > 0)
+    .filter((statement) => statement.length > 0);
+  return statements
     .filter((statement) => DESTRUCTIVE.some((pattern) => pattern.test(statement)))
+    /* The one constraint toSql replaces: the allowed roles on profiles, set
+       again so a role added later (an author, an agent) is accepted by a table
+       made before it. Exempt only when the very next statement puts the rule
+       back — a drop on its own is still refused. */
+    .filter((statement) => {
+      const role = statement.match(/^alter table ([\w.]+) drop constraint if exists profiles_role_check$/);
+      if (!role) return true;
+      const next = statements[statements.indexOf(statement) + 1] ?? "";
+      return !next.startsWith(`alter table ${role[1]} add constraint profiles_role_check check (`);
+    })
     /* Trimmed for a message somebody has to read, and the verb is at the front
        so the first few words are the part that matters. */
     .map((statement) => (statement.length > 120 ? `${statement.slice(0, 117)}…` : statement));
@@ -1173,6 +1188,30 @@ export function toSql(
     );
   }
 
+  /* Who works in the business, when it has staff. Same shape and same reason
+     as is_admin; an admin counts as staff, so the owner sees what staff see. */
+  if (model.staffRole && model.tables.some((table) => table.name === "profiles")) {
+    out.push(
+      `create or replace function ${model.schema}.is_staff()`,
+      "returns boolean",
+      "language sql",
+      "stable",
+      "security definer",
+      `set search_path = ${model.schema}, public`,
+      "as $$",
+      "  select exists (",
+      "    select 1 from profiles",
+      `    where id = auth.uid() and role in ('${model.staffRole.replace(/[^a-z_]/g, "")}', 'admin', 'editor')`,
+      "  );",
+      "$$;",
+      "",
+      `comment on function ${model.schema}.is_staff() is '${OWNED_MARK} whether the caller works in this business.';`,
+      `revoke all on function ${model.schema}.is_staff() from public;`,
+      `grant execute on function ${model.schema}.is_staff() to anon, authenticated;`,
+      "",
+    );
+  }
+
   /* Who may write, on a publication. Same shape and same reason as is_admin. */
   const publication = model.tables.find((table) => table.name === "posts");
   if (publication && model.tables.some((table) => table.name === "profiles")) {
@@ -1218,6 +1257,18 @@ export function toSql(
 
     for (const column of options.extend?.[table.name] ?? []) {
       out.push(`alter table ${qualified} add column if not exists ${columnSql(column).trim()};`);
+    }
+
+    /* The roles a person can have grow with the app — authors on a blog,
+       agents on an estate — and `create table if not exists` leaves an older
+       profiles table refusing the new ones. So the rule is set again. NOT
+       VALID: rows already there are not re-judged, only what is written. */
+    const role = table.name === "profiles" ? table.columns.find((column) => column.name === "role" && column.check) : undefined;
+    if (role) {
+      out.push(
+        `alter table ${qualified} drop constraint if exists profiles_role_check;`,
+        `alter table ${qualified} add constraint profiles_role_check check (${role.check}) not valid;`,
+      );
     }
 
     out.push(`comment on table ${qualified} is '${OWNED_MARK} ${table.what.replace(/'/g, "''")}';`);
@@ -1291,6 +1342,21 @@ export function toSql(
         "  on conflict (id) do nothing;",
         "",
       );
+
+      if (bucket.perUser) {
+        const mine = `bucket_id = '${bucket.name}' and ((storage.foldername(name))[1] = auth.uid()::text or ${model.schema}.is_admin())`;
+        out.push(
+          `-- Private: each person's files sit in a folder named by their user id, and`,
+          `-- only they (and the owner) can reach it.`,
+          `drop policy if exists "${bucket.name}_own" on storage.objects;`,
+          `create policy "${bucket.name}_own" on storage.objects`,
+          "  for all to authenticated",
+          `  using (${mine})`,
+          `  with check (${mine});`,
+          "",
+        );
+        continue;
+      }
 
       if (bucket.public) {
         out.push(
@@ -1384,6 +1450,14 @@ export function schemaBrief(model: DataModel): string {
     lines.push("");
   }
 
+  if (model.staffRole) {
+    const staff = model.staffRole.replace(/_/g, " ");
+    lines.push(
+      `STAFF: profiles.role '${model.staffRole}' is a ${staff} — somebody who works in the business. A ${staff} reads and updates every customer's requests, bookings and messages (to confirm, reschedule, reply) but cannot change the catalogue; that stays the owner's. Build a /staff area — a sign-in-guarded queue of what needs a response, newest first, each with its status and a way to change it — guarded like the admin is, by reading the profile's role. The owner gives somebody this role from the admin's people page by setting profiles.role, which only an admin may do.`,
+      "",
+    );
+  }
+
   lines.push(
     "ROW-LEVEL SECURITY IS ON, ON EVERY TABLE, AND IT HAS ALREADY DECIDED.",
     "",
@@ -1391,6 +1465,7 @@ export function schemaBrief(model: DataModel): string {
     "- Never filter for permission. Do not write `.eq(\"status\", \"published\")` to hide drafts or `.eq(\"customer_id\", user.id)` to hide other people's orders; that is already done, and writing it again hides the case where it was not.",
     "- Never gate an action on a role you read in JavaScript. Attempt the write and handle the refusal — the database is what says no, and an interface that decides for itself is an interface somebody can edit in a console.",
     "- A write that comes back with an error because a policy refused it is a correct outcome, not a bug. Show what happened.",
+    "- Use .maybeSingle(), never .single(), wherever a row might not be there — a profile for an account made before the table, a row RLS hides. .single() on no rows is the error \"Cannot coerce the result to a single JSON object\". Save a person's own profile with upsert({ id: user.id, email: user.email, ...changes }), never a bare update.",
   );
 
   return lines.join("\n");
