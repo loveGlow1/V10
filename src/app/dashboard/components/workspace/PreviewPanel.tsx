@@ -143,6 +143,13 @@ export default function PreviewPanel({
      Held apart from `diagnosis` because it must never replace the preview —
      see the deploy route's `behind`. */
   const [behind, setBehind] = useState<Diagnosis | null>(null);
+  /* The banner can be put away, and the deploy tried again from it. Put away
+     for this failure only: a new one shows itself. The retry is the deploy
+     route's POST — the same stored files, no model and no credits. */
+  const [dismissedBehind, setDismissedBehind] = useState<string | null>(null);
+  const [redeploying, setRedeploying] = useState(false);
+  const [redeployError, setRedeployError] = useState<string | null>(null);
+  const [deployNonce, setDeployNonce] = useState(0);
   /* Whether the technical panel is open. Closed by default and per failure: a
      log that unfurls itself has taken the place of the summary again. */
   const [showLog, setShowLog] = useState(false);
@@ -289,7 +296,28 @@ export default function PreviewPanel({
      * With the build stamp here, a new version re-asks: the answer is "behind,
      * building", so the pane shows the newest preview straight away, and the
      * poll above follows the redeploy until the live site catches up. */
-  }, [project?.id, project?.last_build_at, project?.published_at]);
+  }, [project?.id, project?.last_build_at, project?.published_at, deployNonce]);
+
+  async function redeploy() {
+    if (!project?.id || redeploying) return;
+    setRedeploying(true);
+    setRedeployError(null);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/deploy`, { method: "POST" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+        setRedeployError(body?.error ?? body?.message ?? "The deploy could not be started. Try again in a moment.");
+      } else {
+        setDismissedBehind(null);
+      }
+    } catch {
+      setRedeployError("The deploy could not be started. Check your connection and try again.");
+    } finally {
+      setRedeploying(false);
+      /* Ask again, so the pane follows the new deploy as it builds. */
+      setDeployNonce((n) => n + 1);
+    }
+  }
 
   /* ── Noticing a new version, whoever made it ─────────────────────────────
    *
@@ -902,8 +930,16 @@ export default function PreviewPanel({
            * Amber rather than red for the same reason. See the deploy route's
            * `behind`, which is what decides that this is the current build's
            * failure rather than an old one nobody needs reminding of. */}
-          {behind && !building ? (
-            <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5">
+          {behind && !building && dismissedBehind !== behind.summary ? (
+            <div className="relative shrink-0 border-b border-amber-500/20 bg-amber-500/[0.06] px-3 py-2.5 pr-10">
+              <button
+                type="button"
+                onClick={() => setDismissedBehind(behind.summary)}
+                aria-label="Dismiss"
+                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md text-amber-200/70 transition-colors hover:bg-amber-500/10 hover:text-amber-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               <p className="text-[12px] font-medium text-amber-200">
                 Your last change didn&apos;t reach the live site
               </p>
@@ -917,6 +953,17 @@ export default function PreviewPanel({
                 The site below is still running, on the last version that deployed. Nothing your
                 visitors see has changed.
               </p>
+              <button
+                type="button"
+                onClick={() => void redeploy()}
+                disabled={redeploying}
+                className="mt-2 inline-flex h-8 items-center rounded-md bg-amber-500/15 px-3 text-[12px] font-medium text-amber-100 transition-colors hover:bg-amber-500/25 disabled:opacity-60"
+              >
+                {redeploying ? "Starting the deploy…" : "Deploy again — no credits"}
+              </button>
+              {redeployError ? (
+                <p className="mt-1.5 text-[12px] leading-relaxed text-amber-200">{redeployError}</p>
+              ) : null}
             </div>
           ) : null}
 
