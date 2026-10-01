@@ -364,6 +364,23 @@ export function functionalGate(
     });
   }
 
+  /* A sign-up that never asks whether it got a session. On a project that
+     confirms email addresses there is none until the link is clicked, and a
+     page that goes home regardless leaves somebody believing they are signed
+     in — then told to sign in by every button that needs it. */
+  const blindSignup = tree
+    .filter((file) => /\.(?:tsx?|jsx?)$/.test(file.path) && /\.auth\.signUp\(/.test(file.content) && !/\bsession\b/.test(file.content.slice(file.content.indexOf(".auth.signUp("))))
+    .map((file) => file.path);
+  if (blindSignup.length > 0) {
+    issues.push({
+      gate: "functional",
+      severity: "error",
+      rule: "functional/signup-without-session",
+      message: `Sign-up in ${blindSignup.slice(0, 3).join(", ")} never checks whether a session came back; with email confirmation on, the new account is not signed in and nothing says so.`,
+      where: blindSignup[0],
+    });
+  }
+
   /* Links that go nowhere. The oldest tell of a generated page: a navigation
      of six items where every href is "#". */
   const dead = (markup.match(/href\s*=\s*["']#["']/gi) ?? []).length;

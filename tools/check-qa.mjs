@@ -356,6 +356,19 @@ console.log("\nLeftover patch markers");
   else pass("======= inside a string is left alone");
 }
 
+console.log("\nSign-up that ignores email confirmation");
+{
+  const blind = { path: "app/login/page.tsx", content: 'async function s(){ const { error } = await supabase.auth.signUp({ email, password }); if (error) return; window.location.href = "/"; }' };
+  const aware = { path: "app/login/page.tsx", content: 'async function s(){ const { data, error } = await supabase.auth.signUp({ email, password }); if (!data.session) { setNotice("Check your email"); return; } }' };
+  const wm = manifest({ type: "webapp", backend: true, database: true, authentication: true });
+  const caught = qa.allIssues(await qa.runQa({ html: CLEAN, tree: [blind], manifest: wm, design: CRAFT })).find((i) => i.rule === "functional/signup-without-session");
+  if (!caught || caught.severity !== "error") fail("functional/signup-without-session", "a sign-up that never checks the session passed");
+  else pass("a sign-up that never checks for a session is an error");
+  const fine = qa.allIssues(await qa.runQa({ html: CLEAN, tree: [aware], manifest: wm, design: CRAFT })).some((i) => i.rule === "functional/signup-without-session");
+  if (fine) fail("functional/signup-without-session", "a sign-up that handles confirmation was flagged");
+  else pass("and one that handles confirmation is left alone");
+}
+
 /* ── Repairs (§9) ─────────────────────────────────────────────────────────*/
 
 console.log("\nRepairs");
