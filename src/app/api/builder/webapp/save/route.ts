@@ -20,6 +20,8 @@ import { completeTree, missingFrom } from "@/lib/builder/scaffold";
 import { dataModelFor, schemaNameFor } from "@/lib/builder/schema";
 import { loadTree, storeTree } from "@/lib/builder/store-tree";
 import { mergeFeature } from "@/lib/builder/feature";
+import { authoredSql, missingTables, prepareAuthoredSql } from "@/lib/builder/backend/authored-sql";
+import { runnerFor } from "@/lib/builder/backend/schema-sync";
 import { extractRequirements } from "@/lib/context/compress";
 import { absorbToolResult } from "@/lib/context/tool-output";
 import { indexPage, indexTree } from "@/lib/context/project-index";
@@ -1398,6 +1400,65 @@ export async function POST(request: Request) {
      Written before the charge, and the charge is skipped if it cannot be
      written: a build nobody can find in their conversation is not one that was
      delivered. */
+  /* ── The tables the code was written against, made real ────────────────
+   *
+   * The build's own provisioning creates the tables it was planned with. When
+   * a web app's table design is refused or fails, that plan quietly falls back
+   * to the starter tables — and the generator, told nothing, writes the app
+   * the person asked for anyway: a dashboard reading `favorites`, with the SQL
+   * for it in lib/schema.sql that nothing ever ran. The app then shipped
+   * answering "Could not find the table 'public.favorites' in the schema
+   * cache". See lib/builder/backend/authored-sql.ts.
+   *
+   * So when the code queries tables the plan did not have and the build wrote
+   * SQL for them, that SQL is run here: made safe to run twice, refused
+   * outright if it does anything but create, through the same runner
+   * provisioning uses. Never fails the save — the files are stored either way,
+   * and the person is told what happened in words they can act on. */
+  let tablesNote: string | null = null;
+  if (tree.length > 0 && summaryBackend) {
+    const authored = authoredSql(tree);
+    const missing = missingTables(
+      tree,
+      summaryModel.tables.map((table) => table.name),
+    );
+    if (authored && missing.length > 0) {
+      const prepared = prepareAuthoredSql(authored.sql, summaryBackend.schema ?? "public");
+      if (!prepared.ok) {
+        tablesNote = `This app uses ${missing.join(", ")}, which are not in your database yet, and I did not create them automatically because ${prepared.reason}. The SQL is in ${authored.path} — run it in your Supabase SQL editor, or ask me to fix the schema.`;
+      } else {
+        let runner: Awaited<ReturnType<typeof runnerFor>> = null;
+        try {
+          runner = await runnerFor(supabase, summaryBackend, project.id as string);
+          if (!runner) {
+            tablesNote = `This app uses ${missing.join(", ")}, which are not in your database yet, and I could not reach your database to create them. Reconnect Supabase from the Database panel and send any change, or run ${authored.path} in your Supabase SQL editor.`;
+          } else {
+            const ran = await runner.query(prepared.sql);
+            tablesNote = ran.ok
+              ? `Created the tables this app uses in your database: ${prepared.tables.join(", ")} — each with row-level security, so people only ever see their own rows.`
+              : `This app uses ${missing.join(", ")}, and creating them in your database failed: ${ran.reason}. The SQL is in ${authored.path}.`;
+          }
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error(`save: ${project.id} — the authored tables could not be created:`, error);
+          tablesNote = `This app uses ${missing.join(", ")}, and creating them in your database failed. The SQL is in ${authored.path} — run it in your Supabase SQL editor.`;
+        } finally {
+          await runner?.close().catch(() => undefined);
+        }
+      }
+
+      await recordMessage(supabase, {
+        projectId: project.id as string,
+        userId: claim.userId,
+        role: "system",
+        body: tablesNote,
+        tone: tablesNote.startsWith("Created") ? "normal" : "error",
+        kind: "chat",
+        dedupeKey: `tables:${claim.requestId || project.id}`,
+      });
+    }
+  }
+
   const announced = await recordAndConfirm(supabase, {
     projectId: project.id,
     userId: claim.userId,
