@@ -134,6 +134,17 @@ import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
 import {
+  describeTables,
+  formatRows,
+  generateSql,
+  isDatabaseAsk,
+  judgeSql,
+  sqlFromMessage,
+  wrapSql,
+} from "@/lib/builder/backend/database-ask";
+import { parseSnapshot, snapshotSql } from "@/lib/builder/backend/inspect";
+import { runnerFor } from "@/lib/builder/backend/schema-sync";
+import {
   type FeatureAsk,
   appFeatureFor,
   featureBrief,
@@ -249,6 +260,11 @@ type BuildRequestBody = {
      A single page is moved into a project, kept as it is, with the feature it
      was asked for added. Never inferred — it writes a whole app. */
   upgrade?: unknown;
+  /* The "Run it" on SQL that was shown first because it changes or removes
+     what is there: the exact SQL, sent back with confirmSql. Only ever from
+     that button. See lib/builder/backend/database-ask.ts. */
+  sql?: unknown;
+  confirmSql?: unknown;
   /* Which of the two things to build, when the person was asked and answered.
      Sent back with the next request the same way buildKind is — see the
      needsStack branch, and stack.ts for when the question is worth asking at
@@ -1237,6 +1253,138 @@ async function handle(
   const previewUrl = publishPreviewUrl(addressed);
 
   // ── REVERT ───────────────────────────────────────────────────────────────
+  /* ── The database, asked directly ─────────────────────────────────────
+   *
+   * SQL somebody pasted, or a request that can only mean the database — "add
+   * a phone column to profiles", "seed ten listings", "show me the latest
+   * viewing_requests" — answered against their connected database with the
+   * access connecting it granted. Safe statements run; anything that removes
+   * or rewrites is shown first and runs only on "Run it"; the server's own
+   * files and the shared instance are never touched. A request this does not
+   * recognise carries on to the page exactly as before. */
+  {
+    const confirmed = body.confirmSql === true && typeof body.sql === "string" ? body.sql : null;
+    const pasted = confirmed ? null : sqlFromMessage(prompt);
+    const asked = !confirmed && !pasted && !pageDataAsk && isDatabaseAsk(prompt);
+
+    if (service && (confirmed || pasted || asked)) {
+      const backend = await resolveBackend(service, project.id);
+      const answer = async (said: string, extra: Record<string, unknown> = {}, tone?: "error") => {
+        const stored = await deliver(said, { key: `database:${requestId}`, tone, links: extra.links as { label: string; href: string }[] | undefined });
+        return NextResponse.json({
+          stored,
+          steps: steps.list(),
+          intent: "question",
+          build: {
+            ok: true,
+            requestId: "",
+            projectId: project.id,
+            intent: "webapp",
+            status: "Built",
+            links: { preview: "", repo: "", admin: "" },
+            configKeys: {},
+            artifacts: {},
+            message: said,
+          },
+          project: null,
+          ...extra,
+        });
+      };
+
+      const usable = backend && backend.mode !== "none" && backend.mode !== "shared" && backend.url;
+
+      if (!usable && (pasted || confirmed)) {
+        return answer(
+          backend?.mode === "shared"
+            ? "This project's data is on QuickStark's shared database, where other people's projects live too, so I don't run SQL there. Connect your own Supabase from the Database panel and I can run anything you need on it."
+            : "There's no database connected to this project yet, so there's nowhere to run that. Connect your Supabase and send it again.",
+          { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+        );
+      }
+
+      if (usable) {
+        steps.begin("database", "Working in your database", "connecting…");
+        const runner = await runnerFor(service, backend, project.id);
+        if (!runner) {
+          return answer(
+            "I couldn't reach your database just now. Reconnect Supabase from the Database panel — it takes a moment — and send this again.",
+            { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+            "error",
+          );
+        }
+
+        try {
+          let sql = confirmed ?? pasted;
+          let writtenFor: string | null = null;
+          let spentTokens = 0;
+
+          if (!sql) {
+            /* Written against what is actually there: the live tables and
+               columns, read now rather than remembered. */
+            const snap = await runner.query(snapshotSql([backend.schema || "public"]));
+            const tables = snap.ok ? parseSnapshot(snap.rows)?.tables ?? [] : [];
+            const generated = await generateSql(prompt, describeTables(tables));
+            if (!generated.ok) {
+              return answer(`I couldn't write the SQL for that — ${generated.reason}. You can paste the SQL itself and I'll run it.`, {}, "error");
+            }
+            sql = generated.sql;
+            writtenFor = prompt;
+            spentTokens = generated.outputTokens;
+          }
+
+          const judged = judgeSql(sql);
+          if (judged.statements.length === 0) return answer("There was no SQL in that to run.");
+
+          if (judged.forbidden.length > 0) {
+            return answer(
+              `I won't run that: \`${judged.forbidden[0].slice(0, 120)}\` reaches the database server's own files or processes, which no app needs and nothing here is allowed to touch.`,
+              {},
+              "error",
+            );
+          }
+
+          if (judged.risky.length > 0 && !confirmed) {
+            const shown = sql.length > 6000 ? `${sql.slice(0, 6000)}\n-- …` : sql;
+            return answer(
+              `${writtenFor ? "Here is the SQL for that. " : ""}It changes or removes data that is already there (${judged.risky
+                .slice(0, 3)
+                .map((statement) => `\`${statement.slice(0, 60)}${statement.length > 60 ? "…" : ""}\``)
+                .join(", ")}), so I'll run it only when you say so:\n\n\`\`\`sql\n${shown}\n\`\`\``,
+              { needsSqlConfirm: true, sql },
+            );
+          }
+
+          const ran = await runner.query(wrapSql(judged.statements, backend.schema || "public", judged.ddl));
+          steps.mark("database", ran.ok ? "Ran it in your database" : "Your database refused it", `${judged.statements.length} statement${judged.statements.length === 1 ? "" : "s"}`);
+
+          if (spentTokens > 0) {
+            await chargeCredits(service, {
+              userId: user.id,
+              action: "chat",
+              cost: creditCostOf("chat", { outputTokens: spentTokens }),
+              description: `Database: ${project.name}`,
+              projectId: project.id,
+              outputTokens: spentTokens,
+              dedupeKey: `database:${requestId}`,
+            });
+          }
+
+          if (!ran.ok) {
+            return answer(`Your database refused it: ${ran.reason}\n\nNothing was changed.${writtenFor ? `\n\nThe SQL I tried:\n\n\`\`\`sql\n${sql}\n\`\`\`` : ""}`, {}, "error");
+          }
+
+          const reads = judged.statements.some((statement) => /^\s*(?:select|with)\b/i.test(statement)) && ran.rows.length > 0;
+          const done = reads
+            ? formatRows(ran.rows)
+            : `Done — ran ${judged.statements.length} statement${judged.statements.length === 1 ? "" : "s"} in your database${judged.ddl ? ", and the app can see the change straight away" : ""}.`;
+          return answer(writtenFor ? `${done}\n\n\`\`\`sql\n${sql}\n\`\`\`` : done);
+        } finally {
+          await runner.close().catch(() => undefined);
+        }
+      }
+    }
+  }
+
   if (intent === "revert") {
     steps.begin("history", "Looking up the previous version", "reading back through what you've built…");
     const { data: history2 } = await supabase
