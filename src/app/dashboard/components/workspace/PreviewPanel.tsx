@@ -803,14 +803,6 @@ export default function PreviewPanel({
             >
               <RotateCw className="h-3.5 w-3.5" />
             </button>
-            <a
-              href={previewUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 rounded-md px-1.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
-            >
-              Open
-            </a>
           </div>
           {/* ── Why it is not hosted, where somebody will read it ───────────
            *
@@ -1559,21 +1551,6 @@ export default function PreviewPanel({
                   Manage your app
                 </h2>
 
-                {previewUrl ? (
-                  <a
-                    href={previewUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Open the app in a new tab"
-                    className={manageAction}
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
-                ) : (
-                  <button disabled aria-label="Nothing to open yet" className={manageAction}>
-                    <ExternalLink className="h-4 w-4" />
-                  </button>
-                )}
 
                 <button onClick={share} aria-label="Copy a link to this app" className={manageAction}>
                   {shared ? <Check className="h-4 w-4 text-accent" /> : <Link2 className="h-4 w-4" />}
@@ -1664,31 +1641,6 @@ export default function PreviewPanel({
           </button>
 
           {divider}
-
-          {/* The app on its own, outside this pane. An anchor when there is
-              somewhere to go and a dead button when there is not — an anchor
-              with no href is not a control, it is text that takes focus. */}
-          {previewUrl ? (
-            <a
-              href={previewUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open in a new tab"
-              aria-label="Open the app in a new tab"
-              className={`${action} w-9 px-0`}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          ) : (
-            <button
-              disabled
-              title="Nothing to open yet"
-              aria-label="Open the app in a new tab"
-              className={`${action} w-9 px-0`}
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
-          )}
 
           {/* A build writes to the same address, so the frame has to be told to
               look again. Disabled until there is something to look at, so it
