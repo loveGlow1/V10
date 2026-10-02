@@ -7,7 +7,6 @@ import { ArrowUp } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
 import { useProjects } from "../ProjectsContext";
 import { nameFromPrompt } from "../projectName";
-import { SendArrow } from "./marks";
 
 /* Home's send button.
  *
@@ -127,14 +126,11 @@ export default function StartBuildButton({
       onClick={() => void start()}
       disabled={!ready}
       aria-label="Send"
-      className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed sm:h-10 sm:w-10 sm:rounded-full ${
-        ready
-          ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-          : "border-transparent bg-layer/[0.07] text-ink/30 md:bg-layer/[0.1] md:text-ink"
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-[0.96] disabled:cursor-not-allowed sm:h-10 sm:w-10 ${
+        ready ? "bg-white text-[#111113] hover:bg-white/90" : "bg-[#26262b] text-[#6e6e76]"
       }`}
     >
-      <SendArrow className="h-4 w-4 md:hidden" />
-      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+      <ArrowUp className="h-4 w-4 stroke-[2.5]" />
     </button>
   );
 }
