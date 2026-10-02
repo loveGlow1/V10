@@ -47,6 +47,8 @@ export type BuildIntent = "edit" | "new_project" | "question" | "revert" | "clar
    carries which of the four things happened — and, for the one that would
    replace someone's page, a request to be asked again rather than an outcome. */
 export type BuildReply = {
+  /** The edit stopped at the time limit with work left; the panel carries on. */
+  continuable?: boolean;
   intent?: BuildIntent;
   /* What the server actually did, in order, with what each operation cost.
      Absent only when the request never got far enough to do anything. */
@@ -93,6 +95,7 @@ export type BuildReply = {
 
 /* The last line of the stream, which is what the whole response used to be. */
 type BuildPayload = {
+  continuable?: boolean;
   intent?: BuildIntent;
   steps?: BuildStep[];
   needsConfirmation?: boolean;
@@ -626,6 +629,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         outcome: payload.build,
         stored: payload.stored === true,
         messageLinks: payload.messageLinks,
+        continuable: payload.continuable === true,
       };
     },
     [],

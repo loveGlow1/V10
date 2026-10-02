@@ -3472,7 +3472,7 @@ async function handle(
              landed is real and correct, and saying which part is missing is the
              difference between a person asking for the rest and a person
              repeating the whole thing and hitting the same wall. */
-          `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} before running out of time — that's as much as fits in one edit. Ask for the rest and I'll carry on from here.`
+          `I made ${edited.applied} ${edited.applied === 1 ? "change" : "changes"} so far — carrying straight on with the rest.`
         : edited.failures.length > 0
           ? `Done — though ${edited.failures.length} part of that could not be matched in the page.`
           : /* ── "Done." has to have been earned ──────────────────────────
@@ -3596,6 +3596,13 @@ async function handle(
       stored: storedEdit,
       steps: steps.list(),
       intent: "edit",
+      /* Stopped at the time limit with real progress made: the panel sends
+         the next round itself, so an edit is never cut short by how long one
+         request may stay open — only by the person pressing stop or the
+         balance running out (the next round is refused at 402). Zero changes
+         applied is never continuable, because a round that placed nothing
+         would place nothing again. */
+      continuable: edited.ranOutOfTime && edited.applied > 0,
       build: {
         ok: true,
         requestId: "",

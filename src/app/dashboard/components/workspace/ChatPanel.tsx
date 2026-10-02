@@ -140,6 +140,16 @@ const PREVIEW_READY_MS = 6_000;
 
 type ComposerMode = "auto" | "edit" | "new_project";
 
+/* How many rounds an edit may carry itself on for, at up to five minutes each.
+   A backstop against a loop; a real edit finishes long before it. */
+const CONTINUE_ROUNDS = 8;
+
+/* What the next round is asked. The page already holds what the last round
+   finished, so it says plainly not to redo it. */
+function continuationOf(original: string): string {
+  return `Continue the change below. Part of it is already in the page from the previous step — finish only what is still missing, and don't redo or undo anything that's already there.\n\n${original}`;
+}
+
 export default function ChatPanel({
   project,
   onOpenIntegrations,
@@ -1058,6 +1068,9 @@ export default function ChatPanel({
       /* Files that arrive with the message rather than through the paperclip:
          the pictures picked on Home, uploaded before the jump here. */
       attachments?: Attachment[];
+      /* An edit carrying on after the time limit: which round this is, and the
+         request it is finishing. See CONTINUE_ROUNDS. */
+      continuing?: { round: number; original: string };
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -1109,6 +1122,9 @@ export default function ChatPanel({
        it are the same press of the button as far as anybody is concerned. */
     const run = new AbortController();
     running.current = run;
+    /* Set when the edit stops at the time limit with work left; acted on once
+       this run has fully ended, below the finally. */
+    let carryOn: { original: string; round: number; attachments: Attachment[] } | null = null;
 
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
@@ -1325,6 +1341,11 @@ export default function ChatPanel({
       setPendingConfirm(null);
       setPendingKind(null);
       const outcome = reply.outcome;
+      if (reply.continuable && !run.signal.aborted) {
+        const original = options.continuing?.original ?? text;
+        const round = (options.continuing?.round ?? 0) + 1;
+        carryOn = { original, round, attachments: sent };
+      }
       /* The server's own account of what it did, which replaces the one this
          panel was guessing at. It names the operations and what each cost —
          which classifier answered, how many patch blocks landed, what the model
@@ -1464,6 +1485,33 @@ export default function ChatPanel({
       /* Even a refused build is worth a refresh: "not enough credits" is the
          one answer where the number in the header is the whole explanation. */
       onBuildSettled?.();
+    }
+
+    /* ── An edit is not limited by how long a request may stay open ───────
+     *
+     * One request has five minutes. An edit that needs longer stops on time,
+     * keeps everything it finished, and says so — and this sends the next
+     * round straight away, asking only for what is still missing. It keeps
+     * going while there is progress and credit: a round that places nothing
+     * is not continuable (the server says so), a balance that runs out is
+     * refused at 402 and ends the chain with that sentence, and the stop
+     * button ends it like any other run. CONTINUE_ROUNDS is a backstop
+     * against a loop, not a limit anyone should meet. */
+    if (carryOn) {
+      const next = carryOn;
+      if (next.round > CONTINUE_ROUNDS) {
+        say({
+          from: "system",
+          text: `That's ${CONTINUE_ROUNDS} rounds on this change. Everything done so far is in the page — say "continue" and I'll keep going.`,
+        });
+        return;
+      }
+      void send(continuationOf(next.original), {
+        silent: true,
+        intentOverride: "edit",
+        attachments: next.attachments,
+        continuing: { round: next.round, original: next.original },
+      });
     }
   }
 
