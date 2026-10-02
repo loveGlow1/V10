@@ -3073,3 +3073,119 @@ drop trigger if exists form_notifications_set_updated_at on public.form_notifica
 create trigger form_notifications_set_updated_at
   before update on public.form_notifications
   for each row execute function public.set_updated_at();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Video Studio — storage and versioning for every video pipeline.
+--
+-- One set of tables for all ten pipelines (see src/lib/video/pipelines.ts):
+--   video_projects   one video: which pipeline, the brief, Step 2's answers,
+--                    and — for Create Your Clone — when the owner confirmed
+--                    they may use the likeness and voice.
+--   video_versions   every production plan the Creative Director or a person
+--                    produced, numbered; nothing is overwritten, so any plan
+--                    can be gone back to or varied from.
+--   video_assets     references (product, person, photo) and finished renders,
+--                    stored in the private video-assets bucket.
+--   video_renders    one row per scene per render, per engine — the queue the
+--                    generation router writes and the engines work through.
+--
+-- Owner-only through RLS; the studio's routes act under the owner's session.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.video_projects (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  pipeline        text not null check (pipeline in (
+                    'animated_graphics','commercial_ad','product_showcase','clone','cinematic_short',
+                    'ugc_influencer','social_video','explainer','trailer','photo_to_video')),
+  title           text not null default 'Untitled video' check (char_length(title) <= 160),
+  brief           text not null default '' check (char_length(brief) <= 8000),
+  answers         jsonb not null default '{}'::jsonb,
+  consent_at      timestamptz,
+  status          text not null default 'planning' check (status in ('planning','planned','rendering','ready','failed')),
+  current_version integer not null default 0,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  -- A clone is never planned without the owner's confirmation on record.
+  constraint video_projects_clone_consent check (pipeline <> 'clone' or consent_at is not null)
+);
+create index if not exists video_projects_user_idx on public.video_projects (user_id, updated_at desc);
+
+drop trigger if exists video_projects_set_updated_at on public.video_projects;
+create trigger video_projects_set_updated_at
+  before update on public.video_projects
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.video_versions (
+  id         uuid primary key default gen_random_uuid(),
+  video_id   uuid not null references public.video_projects (id) on delete cascade,
+  user_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  version    integer not null check (version >= 1),
+  plan       jsonb not null,
+  issues     jsonb not null default '[]'::jsonb,
+  note       text not null default '' check (char_length(note) <= 300),
+  created_at timestamptz not null default now(),
+  unique (video_id, version)
+);
+
+create table if not exists public.video_assets (
+  id           uuid primary key default gen_random_uuid(),
+  video_id     uuid not null references public.video_projects (id) on delete cascade,
+  user_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  kind         text not null check (kind in ('product','person','photo','reference','render')),
+  storage_path text not null check (char_length(storage_path) <= 400),
+  mime         text not null default '' check (char_length(mime) <= 100),
+  created_at   timestamptz not null default now()
+);
+create index if not exists video_assets_video_idx on public.video_assets (video_id);
+
+create table if not exists public.video_renders (
+  id          uuid primary key default gen_random_uuid(),
+  video_id    uuid not null references public.video_projects (id) on delete cascade,
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  version     integer not null,
+  scene       integer,
+  engine      text not null check (engine in ('video','image','avatar','voice','music','compose')),
+  provider    text not null default '',
+  status      text not null default 'queued' check (status in ('queued','running','done','failed')),
+  output_path text,
+  error       text check (error is null or char_length(error) <= 2000),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists video_renders_video_idx on public.video_renders (video_id, version);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['video_projects','video_versions','video_assets','video_renders'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "owner reads %1$s" on public.%1$I', t);
+    execute format('create policy "owner reads %1$s" on public.%1$I for select using (user_id = auth.uid())', t);
+    execute format('drop policy if exists "owner writes %1$s" on public.%1$I', t);
+    execute format('create policy "owner writes %1$s" on public.%1$I for insert with check (user_id = auth.uid())', t);
+    execute format('drop policy if exists "owner updates %1$s" on public.%1$I', t);
+    execute format('create policy "owner updates %1$s" on public.%1$I for update using (user_id = auth.uid()) with check (user_id = auth.uid())', t);
+    execute format('drop policy if exists "owner deletes %1$s" on public.%1$I', t);
+    execute format('create policy "owner deletes %1$s" on public.%1$I for delete using (user_id = auth.uid())', t);
+  end loop;
+end $$;
+
+insert into storage.buckets (id, name, public)
+values ('video-assets', 'video-assets', false)
+on conflict (id) do nothing;
+
+-- <user_id>/<video_id>/<file>, the same shape as attachments.
+drop policy if exists "Owners read their video assets" on storage.objects;
+create policy "Owners read their video assets"
+  on storage.objects for select
+  using (bucket_id = 'video-assets' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners upload their video assets" on storage.objects;
+create policy "Owners upload their video assets"
+  on storage.objects for insert
+  with check (bucket_id = 'video-assets' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "Owners delete their video assets" on storage.objects;
+create policy "Owners delete their video assets"
+  on storage.objects for delete
+  using (bucket_id = 'video-assets' and (storage.foldername(name))[1] = auth.uid()::text);

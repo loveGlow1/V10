@@ -318,6 +318,5 @@ ${rules.map((rule) => `- ${rule}`).join("\n")}`;
    categories whose output is a stand-in carry one. */
 export const CATEGORY_NOTE: Partial<Record<Category, string>> = {
   fliers: "Built at its exact print or post size, with a Download PNG button.",
-  video: "Plays as an animated storyboard with script, shot list and voiceover. MP4 export is not available yet.",
   mobile_app: "Built as an installable mobile app that runs in any phone browser.",
 };
