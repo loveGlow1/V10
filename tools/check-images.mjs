@@ -145,6 +145,38 @@ try {
    * possible tell that nothing on the page is real. */
   is(new Set(filled.used).size, filled.used.length, "no photograph is used twice on one page");
   is(filled.used.length, 3, "and every one that was used is reported back");
+
+  /* ── The save route has sixty seconds, and photographs are optional ─────
+   *
+   * Searches used to run one after another at up to twelve seconds each with
+   * no limit on the whole, so a page of slow slots outlived the function that
+   * was saving it and the build was lost. A provider that never answers must
+   * cost no more than the deadline, and leave the page whole. */
+  const stalled = { name: "stalled", shotFor: () => new Promise(() => {}) };
+  const began = Date.now();
+  const late = await fillImages(page, stalled, { deadline: Date.now() + 2_000 });
+  const took = Date.now() - began;
+  is(took < 3_000, true, `a provider that never answers costs no more than the deadline (took ${took}ms)`);
+  is(late.filled, 0, "and fills nothing");
+  is((late.html.match(/<img[^>]*\ssrc="/g) ?? []).length, 3, "and every slot still leaves with a placeholder source");
+
+  let inFlight = 0;
+  let peak = 0;
+  const slow = {
+    name: "slow",
+    async shotFor(_slot, _width, _context, choice) {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      inFlight -= 1;
+      const id = ["slow:1", "slow:2", "slow:3", "slow:4"].find((candidate) => !choice?.exclude?.has(candidate));
+      return { id, bytes: PIXEL, contentType: "image/png", credit: null };
+    },
+  };
+  const together = await fillImages(page, slow);
+  is(peak > 1, true, "searches run side by side rather than one after another");
+  is(together.filled, 3, "and running together still fills every slot");
+  is(new Set(together.used).size, 3, "with a different photograph in each");
   is(
     asked.every((call) => call.choice && call.choice.exclude instanceof Set),
     true,

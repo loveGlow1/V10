@@ -18,7 +18,7 @@
  * Pure, like kinds.ts: read by the browser bundle (the tabs and their chips)
  * and by the build route, and compiled on its own by tools/check-targets.mjs. */
 
-import { heuristicKind, type BuildKind } from "./kinds";
+import { heuristicKind, labelledKind, type BuildKind } from "./kinds";
 
 export const CATEGORIES = ["web_app", "website", "fliers", "video", "mobile_app"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -284,6 +284,12 @@ export function inferSubtype(category: Category, brief: string): SubType {
     const read = heuristicKind(brief);
     const byKind = read ? options.find((entry) => entry.kind === read.kind) : null;
     if (byKind) return byKind;
+    /* What the brief called itself, before any single word in it. The scan
+       below is a keyword match in list order, so "dark, editorial, technical"
+       — a description of a look — made a landing page a news front page. */
+    const named = labelledKind(brief);
+    const byName = named ? options.find((entry) => entry.kind === named) : null;
+    if (byName) return byName;
   }
   return options.find((entry) => entry.match?.test(brief)) ?? options[0];
 }

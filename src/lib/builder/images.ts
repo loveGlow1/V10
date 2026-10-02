@@ -232,6 +232,8 @@ export async function fillImages(
     seed?: string;
     /* What this project has already used, from earlier builds. */
     exclude?: Iterable<PhotoId>;
+    /* When to stop, as a Date.now() timestamp. See FETCHERS. */
+    deadline?: number;
   } = {},
 ): Promise<FillResult> {
   const slots = readSlots(html);
@@ -276,22 +278,65 @@ export async function fillImages(
      unconfigured deployment and a page of broken-image icons. Returning early
      when there was nothing to fetch did exactly that, and it is why this loop
      is a spending decision rather than the whole function. */
-  for (const { slot, index } of provider ? queue : []) {
-    if (spent >= budget) break;
-
-    let shot: Shot | null = null;
-    try {
-      shot = await withTimeout(
-        provider!.shotFor(slot, WIDTH[slot.weight], options.context, {
-          exclude: used,
-          seed: options.seed,
-        }),
-        timeoutMs,
-      );
-    } catch {
-      shot = null;
+  /* ── Fetched side by side, inside a deadline ─────────────────────────
+   *
+   * This was one photograph at a time, twelve seconds allowed for each, and no
+   * limit on the whole. The save route that calls it is stopped by the
+   * platform at sixty seconds, so a page with six slots whose searches were
+   * slow — abstract subjects are the slow ones, "dark angular 3D shape" finds
+   * nothing quickly — ran past the ceiling while the photographs were still
+   * coming. The function was killed mid-request, the workflow got the
+   * platform's own error page back, and the customer read "The build could
+   * not be finished: An error occurred with your deployment" about a page that
+   * had generated perfectly.
+   *
+   * Now FETCHERS searches run at once, each slot gets what is left of the
+   * deadline at most, and nothing new starts after it. A slot that misses it
+   * keeps its placeholder, which is what an unconfigured deployment ships
+   * anyway: fewer photographs on a page that saved, never a page lost to
+   * them. Spending is still decided in weight order below, so the hero is
+   * still the first thing the budget pays for. */
+  const deadline = options.deadline ?? Number.POSITIVE_INFINITY;
+  const fetched = new Map<number, Shot>();
+  let next = 0;
+  const fetcher = async () => {
+    while (provider && next < queue.length) {
+      const position = next++;
+      const { slot } = queue[position];
+      /* Searches running together are each told what is used SO FAR, so two
+         of them can come back with the same photograph. The later one asks
+         again — the first one's pick is in `used` by then, so the provider
+         hands back its next — rather than two slots showing one picture. */
+      for (let attempt = 0; attempt <= DUPLICATE_RETRIES; attempt += 1) {
+        const remaining = deadline - Date.now();
+        if (remaining < MIN_FETCH_MS) return;
+        let shot: Shot | null = null;
+        try {
+          shot = await withTimeout(
+            provider.shotFor(slot, WIDTH[slot.weight], options.context, {
+              exclude: used,
+              seed: options.seed,
+            }),
+            Math.min(timeoutMs, remaining),
+          );
+        } catch {
+          shot = null;
+        }
+        if (!shot) break;
+        if (used.has(shot.id)) continue;
+        used.add(shot.id);
+        fetched.set(position, shot);
+        break;
+      }
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(FETCHERS, queue.length) }, fetcher));
+
+  for (let position = 0; position < queue.length; position += 1) {
+    if (spent >= budget) break;
+    const shot = fetched.get(position);
     if (!shot) continue;
+    const { index } = queue[position];
 
     const encoded = shot.bytes.toString("base64");
     /* Measured as it will be stored, not as it was downloaded: base64 is the
@@ -300,7 +345,6 @@ export async function fillImages(
 
     spent += encoded.length;
     filled += 1;
-    used.add(shot.id);
     picked.push(shot.id);
     replacements.set(index, `data:${shot.contentType};base64,${encoded}`);
     if (shot.credit) credits.push(shot.credit);
@@ -341,6 +385,15 @@ function setAttribute(tag: string, name: string, value: string): string {
   }
   return tag.replace(/<img\b/i, `<img ${name}="${escaped}"`);
 }
+
+/* How many searches run at once. Enough that six slots finish in the time
+   two used to; few enough not to look like a burst to a stock provider. */
+const FETCHERS = 4;
+/* How many times a slot asks again after being handed a photograph another
+   slot took first. */
+const DUPLICATE_RETRIES = 2;
+/* Not worth starting a search with less time than this left. */
+const MIN_FETCH_MS = 1_500;
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([

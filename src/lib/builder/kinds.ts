@@ -227,6 +227,15 @@ const SHOP_MACHINERY =
 const APP_MACHINERY =
   /\b(log[- ]?in|sign[- ]?in|signed[- ]?in|user accounts?|customer accounts?|member (area|s only)|authenticat(e|ion)|roles?( and | & )permissions?|permissions?|multi[- ]?tenant|database|back ?end|api endpoints?|crud|supabase|postgres|admin (users|roles)|team members?|user management)\b/i;
 
+/* What only an application has: people signing in and things belonging to
+   them. The rest of APP_MACHINERY — "database", "Supabase", "backend",
+   "permissions" — is also how anyone describes a landing page whose contact
+   form keeps what it collects, and a single page does that already (see
+   backend/page-data.ts). So a brief that calls itself a landing page is only
+   overruled by these. */
+const ACCOUNT_MACHINERY =
+  /\b(log[- ]?in|sign[- ]?in|signed[- ]?in|sign[- ]?up|user accounts?|customer accounts?|member (area|s only)|authenticat(e|ion)|roles?( and | & )permissions?|multi[- ]?tenant|crud|admin (users|roles|dashboard|panel)|team members?|user management|dashboard for (users|customers|members))\b/i;
+
 /* ── Weighing ─────────────────────────────────────────────────────────────
  *
  * A winner has to clear a floor and beat the runner-up by a margin, exactly as
@@ -398,7 +407,12 @@ export function heuristicKind(brief: string): KindResult | null {
        app threw the catalogue, the basket and the checkout away. Only a
        landing page, which has no accounts of its own, is overruled by them. */
     const accountsFit = demanded === "webapp" && labelled !== "landing";
-    if (demanded && demanded !== labelled && !accountsFit) {
+    /* "A landing page whose contact form saves to Supabase" names a database
+       and is still one page. Seen in production: a brief that said "one-page
+       landing site" and then specified the form's table was read as a web
+       app, and the build went to the wrong blueprint. */
+    const storesFormsOnly = labelled === "landing" && demanded === "webapp" && !ACCOUNT_MACHINERY.test(m) && !FULL_STACK.test(m);
+    if (demanded && demanded !== labelled && !accountsFit && !storesFormsOnly) {
       return {
         kind: demanded,
         confidence: 0.9,

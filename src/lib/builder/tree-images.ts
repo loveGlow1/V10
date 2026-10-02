@@ -84,6 +84,8 @@ export async function fillTreeImages(
     context?: string;
     seed?: string;
     exclude?: Iterable<PhotoId>;
+    /* One deadline for every file, as Date.now() — see fillImages. */
+    deadline?: number;
   } = {},
 ): Promise<TreeFill> {
   const credits: FillResult["credits"] = [];
@@ -131,6 +133,7 @@ export async function fillTreeImages(
         context: options.context,
         seed: options.seed,
         exclude,
+        deadline: options.deadline,
       });
     } catch {
       /* One file's fetch failing must not cost the project its other pictures,
