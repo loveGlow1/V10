@@ -1003,6 +1003,28 @@ console.log("\nContrast");
   else pass(`${SYSTEMS.length} shipped systems measured through the same implementation`);
 }
 
+/* ── A page carrying a phone screenshot ─────────────────────────────────────
+ *
+ * One 2.6 MB embedded picture made autofix run for more than ten minutes, so
+ * every edit that put a phone screenshot into a page — "update the logo" with
+ * the logo attached — hung until the connection died, after the change itself
+ * had taken milliseconds. Pictures are lifted out before the fixes run, and
+ * the grid rule reads stylesheets rather than the whole document. */
+{
+  const prose = Array.from({ length: 40 }, (_, i) => `<section id="s${i}"><h2>Section ${i}</h2><p>${"Lorem ipsum dolor sit amet ".repeat(40)}</p></section>`).join("\n");
+  const shot = `data:image/png;base64,${"iVBORw0KGgoAAAANSUhEUgAA".repeat(110_000)}`;
+  const heavy = `<!doctype html><html><head><title>T</title><style>.g{display:grid;grid-template-columns:repeat(4,1fr)}</style></head><body><header><a href="#" class="brand"><img src="${shot}" alt="Logo"></a></header><main>${prose}</main></body></html>`;
+  const began = Date.now();
+  const fixed = qa.autofix(heavy);
+  const took = Date.now() - began;
+  if (took > 2000) fail("autofix with a 2.6 MB picture", `took ${took}ms`);
+  else pass(`autofix on a page carrying a 2.6 MB picture: ${took}ms`);
+  if (!fixed.html.includes(shot)) fail("autofix with a picture", "the picture did not come back intact");
+  else pass("and the picture comes back byte for byte");
+  if (!fixed.applied.some((fix) => fix.rule === "visual/rigid-grid")) fail("autofix with a picture", "the grid in the stylesheet was not found");
+  else pass("and the fixed-column grid in the stylesheet is still found");
+}
+
 console.log("");
 
 if (failures > 0) {
