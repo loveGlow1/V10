@@ -902,7 +902,9 @@ export default function DashboardPage() {
             />
           )}
           {!videoMode && (
-          <div className="relative z-10 mt-3 flex flex-col items-center gap-2">
+          /* Desktop only, like the starters below: a phone goes straight from
+             the composer to the list of projects, as Emergent's does. */
+          <div className="relative z-10 mt-3 hidden flex-col items-center gap-2 md:flex">
             <div className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {SUBTYPES[activeCategory].map((option) => {
                 /* No Auto chip: until one is picked, the chip the sentence
@@ -937,7 +939,7 @@ export default function DashboardPage() {
               the size they have on a desktop. Not under Video: those starters
               build apps, and the video row above is that tab's starting point. */}
           {!videoMode && (
-          <div className="mt-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mt-3 hidden overflow-x-auto pb-1 [scrollbar-width:none] md:block [&::-webkit-scrollbar]:hidden">
             {/* w-max + mx-auto centres the row under the composer while it fits, and lets
                 it start at the left edge once it is wider than the column — centring the
                 flex line itself would push the first chip out of reach when it scrolls. */}
