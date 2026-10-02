@@ -229,7 +229,7 @@ export default function StartBuildButton({
       disabled={!ready}
       title={starting ? "Starting…" : !prompt.trim() ? "Describe what you want first" : blockedReason ?? "Send"}
       aria-label="Send"
-      className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed sm:h-10 sm:w-10 sm:rounded-full ${
+      className={`qs-send flex h-9 w-12 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] disabled:cursor-not-allowed sm:h-10 sm:w-10 sm:rounded-full ${
         ready
           ? "border-transparent bg-white text-[#111113] hover:bg-white/90"
           : "border-transparent bg-layer/[0.07] text-ink/30"

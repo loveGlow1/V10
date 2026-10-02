@@ -515,7 +515,7 @@ export default function DashboardPage() {
                   /* Emergent's tab strip: rounded-top tabs standing on the
                      box, the selected one a shade lighter. */
                   aria-label={CATEGORY_LABEL[tab.id]}
-                  className={`relative flex h-11 min-w-[52px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-4 text-[15px] font-medium transition-colors md:h-auto md:min-w-0 md:justify-start md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
+                  className={`qs-pill relative flex h-11 min-w-[52px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-4 text-[15px] font-medium transition-colors md:h-auto md:min-w-0 md:justify-start md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
                     active
                       ? "border-line/[0.16] bg-layer/[0.05] text-ink md:bg-layer/[0.13] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                       : "border-transparent bg-layer/[0.09] text-muted hover:bg-layer/[0.07] hover:text-soft md:bg-layer/[0.045]"
@@ -524,7 +524,7 @@ export default function DashboardPage() {
                   <Icon className={`h-[18px] w-[18px] shrink-0 md:h-4 md:w-4 ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
                   <span className={active ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
                   {tab.id === "video" && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-3 rounded-[5px] bg-[#e5243b] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white ring-1 ring-white/80 md:static md:translate-x-0 md:rotate-0 md:ring-0">
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-[4deg] rounded-[6px] bg-[#e5243b] qs-new px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white ring-1 ring-white/80 md:static md:translate-x-0 md:rotate-0 md:ring-0">
                       New
                     </span>
                   )}
@@ -534,14 +534,14 @@ export default function DashboardPage() {
           </div>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
+          <div className="qs-composer-shell group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
             </div>
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
+            <div className="qs-composer relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -630,7 +630,7 @@ export default function DashboardPage() {
                     onClick={() => fileInputRef.current?.click()}
                     aria-label="Attach images"
                     title="Attach images"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.08] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
+                    className="qs-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.08] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
                   >
                     <Paperclip className="h-4 w-4" />
                   </button>
@@ -666,7 +666,7 @@ export default function DashboardPage() {
                     }}
                     aria-expanded={isModelPopoverOpen}
                     aria-label="Choose an agent"
-                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
+                    className="qs-control flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
                     <ProviderMark provider={chosenModel.provider} />
                     {/* The agent's name when the chosen model is one, and the
@@ -688,7 +688,7 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-line/[0.08] bg-layer/[0.06] text-sm text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] md:bg-layer/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                    className="qs-control flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-line/[0.08] bg-layer/[0.06] text-sm text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] md:bg-layer/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
                     <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
@@ -697,7 +697,7 @@ export default function DashboardPage() {
                     onClick={() => setIsAdvancedModalOpen(true)}
                     title="Advanced controls"
                     aria-label="Advanced controls"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
+                    className="qs-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
                   >
                     <TuneMark className="h-[18px] w-[18px]" />
                   </button>
@@ -709,7 +709,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
+                        : "qs-control bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
                     }`}
                   >
                     {isRecording ? (
