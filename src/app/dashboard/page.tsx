@@ -7,7 +7,6 @@ import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
 import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
 import {
-  DEFAULT_MODEL,
   modelById,
   shortModelName,
 } from "./models";
@@ -16,6 +15,7 @@ import { useModel } from "./useModel";
 import { useCredits } from "./useCredits";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import WorkspaceTabs from "./components/WorkspaceTabs";
+import { MicMark } from "./components/marks";
 import ProjectList from "./components/ProjectList";
 import KeepBuilding from "./components/KeepBuilding";
 import StartBuildButton, { type StartBuildHandle } from "./components/StartBuildButton";
@@ -28,7 +28,16 @@ import { ComingSoonModal } from "./components/ComingSoon";
 import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
-import { heuristicKind, type BuildKind } from "@/lib/builder/kinds";
+import type { BuildKind } from "@/lib/builder/kinds";
+import {
+  CATEGORY_LABEL,
+  CATEGORY_NOTE,
+  SUBTYPES,
+  categoryFor,
+  formatTarget,
+  inferSubtype,
+  type Category,
+} from "@/lib/builder/targets";
 import { ACCEPT } from "@/lib/project-attachments";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,7 +47,8 @@ import {
   Globe,
   Settings,
   SlidersHorizontal,
-  Crosshair,
+  Clapperboard,
+  Smartphone,
   Mic,
   MicOff,
   Layers,
@@ -151,53 +161,38 @@ const WEBAPP_DATA = [
 type WebappUsers = (typeof WEBAPP_USERS)[number]["id"];
 type WebappData = (typeof WEBAPP_DATA)[number]["id"];
 
-/* The row of targets above the composer, and now a row that decides something.
+/* The five tabs above the composer. Each is a CATEGORY; what used to be the
+ * tabs — Landing Page, Store, Blog, News — are Website's sub-types now, and
+ * keep their own blueprints underneath (src/lib/builder/targets.ts). The tab
+ * travels with the first message as ?target=, and the server reads the
+ * sub-type from the sentence unless a chip under the composer picked one.
  *
- * It used to be three chips that only moved a highlight: pressing "Landing
- * Page" and typing a sentence built exactly what pressing "Web App" built,
- * because there was one prompt behind all of them. Each id is a build kind now
- * (src/lib/builder/kinds.ts) and travels with the first message, so the chip is
- * the answer to "what is this" rather than a guess made from the sentence.
- *
- * Four rather than three: a store was the kind most often asked for and the one
- * the old row could not name at all. "Blog Post" was the third chip and named
- * one post; what people were reaching for was the publication around it.
- *
- * Nothing is selected to begin with, which is new and is the point. The row had
- * a default selection back when the selection meant nothing; now it overrules
- * the classifier, and a default would mean everybody's first build was a web
- * app however the sentence read. Chosen nothing, the server reads the brief —
- * which gets "a landing page for my gym" right on its own. Pressing the
- * selected chip again clears it and hands it back.
- *
- * No badge on any of these. The beta pill moved to the Storefront starter under
- * the composer, where it sits on the thing it is a claim about. */
-const projectTypes = [
-  { id: "webapp", label: "Web App", icon: Layers, phoneIcon: Globe },
-  { id: "landing", label: "Landing Page", icon: AppWindow, phoneIcon: AppWindow },
-  { id: "ecommerce", label: "Store", icon: ShoppingBag, phoneIcon: ShoppingBag },
-  { id: "blog", label: "Blog", icon: FileText, phoneIcon: FileText },
-  { id: "news", label: "News", icon: Newspaper, phoneIcon: Newspaper },
-] satisfies { id: BuildKind; label: string; icon: LucideIcon; phoneIcon: LucideIcon }[];
+ * Website is selected to begin with, which builds what the old Landing Page
+ * default built. Until a tab is clicked it follows what is typed, so
+ * "a poster for our launch party" moves it to Fliers. */
+const categoryTabs = [
+  { id: "web_app", icon: Layers },
+  { id: "website", icon: AppWindow },
+  { id: "fliers", icon: ImageIcon },
+  { id: "video", icon: Clapperboard },
+  { id: "mobile_app", icon: Smartphone },
+] satisfies { id: Category; icon: LucideIcon }[];
 
-/* Every build kind has a chip, checked at compile time.
- *
- * `satisfies` above proves each ENTRY is a valid kind. It cannot prove the list
- * is complete, and that difference shipped: `news` was added to BUILD_KINDS,
- * given a blueprint, taught to the classifier and covered by its own briefs —
- * and the row above still showed four, because nothing required it to change.
- *
- * This is the missing half. The mapped type is exhaustive over BuildKind, so a
- * sixth kind fails the build here rather than quietly never appearing. */
-type ChipKind = (typeof projectTypes)[number]["id"];
-type KindWithoutAChip = Exclude<BuildKind, ChipKind>;
+/* The bar suggests what to ask for by cycling its placeholder rather than
+   sitting on one example — examples for the tab that is selected. */
+const PROMPTS: Record<Category, string[]> = {
+  web_app: ["Build me a SaaS app for...", "Build me a CRM system with...", "Build me a dashboard for...", "Build me an internal tool that..."],
+  website: ["Build me a landing page for...", "Build me an online store for...", "Build me a blog about...", "Build me a news site for..."],
+  fliers: ["Design a flyer for...", "Design an Instagram post announcing...", "Design a sale banner for..."],
+  video: ["Make a 30-second launch video for...", "Make a TikTok reel about...", "Make an explainer video on..."],
+  mobile_app: ["Build me a mobile app for...", "Build me a habit tracker app with...", "Build me a booking app for..."],
+};
 
-/* Reads as `true` only while nothing is missing. Add a kind without a chip and
-   this line stops compiling, naming the kind in the error. */
-const _everyKindHasAChip: [KindWithoutAChip] extends [never]
-  ? true
-  : ["no chip for build kind:", KindWithoutAChip] = true;
-void _everyKindHasAChip;
+/* Every category has a tab: the mapped type is exhaustive over Category, so a
+   sixth category fails the build here rather than quietly never appearing. */
+type TabCategory = (typeof categoryTabs)[number]["id"];
+const _everyCategoryHasATab: [Exclude<Category, TabCategory>] extends [never] ? true : ["no tab for:", Exclude<Category, TabCategory>] = true;
+void _everyCategoryHasATab;
 
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
@@ -205,13 +200,20 @@ export default function DashboardPage() {
   /* Which pane the settings panel opens on. The account menu wants its own; the
      project switcher wants the project's. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
-  /* Landing Page until the person says otherwise — and "says" includes the
-     prompt: until a tab is clicked, the tab follows what is typed, so "an
-     online shop for my candles" moves it to Store. A clicked tab is a choice
-     and stays. The tab is sent as the build's kind, so a default that ignored
-     the prompt would build a landing page for somebody who asked for a CRM. */
-  const [activeType, setActiveType] = useState<BuildKind | null>("landing");
+  /* Website until the person says otherwise — and "says" includes the
+     prompt: until a tab is clicked, the tab follows what is typed. A clicked
+     tab is a choice and stays. The sub-type is null while it is read from the
+     sentence; a chip under the composer sets it. */
+  const [transcript, setTranscript] = useState("");
+  const [activeCategory, setActiveCategory] = useState<Category>("website");
+  const [activeSubtype, setActiveSubtype] = useState<string | null>(null);
   const pickedType = useRef(false);
+  /* The sub-type the build will run as: the picked chip, or what the sentence
+     reads as. Shown on the Auto chip so the guess is never hidden. */
+  const subtype =
+    SUBTYPES[activeCategory].find((entry) => entry.id === activeSubtype) ??
+    inferSubtype(activeCategory, transcript);
+  const activeType: BuildKind = subtype.kind;
   /* Answered only under Web App, and deliberately not cleared when the chip
      changes: switching to Landing and back should not lose a tap. Nothing is
      sent unless Web App is the chip at the moment of sending. */
@@ -231,6 +233,7 @@ export default function DashboardPage() {
           .join(" ")
       : "";
   const [composerFocused, setComposerFocused] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
 
   // The phone header opens this; from md up the drawer never mounts.
@@ -267,7 +270,6 @@ export default function DashboardPage() {
 
   // Voice Recording State & Refs
   const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState("");
   /* Why a send did not open an app. Held here rather than in the button so it
      can be shown under the composer, where the text that failed still is. */
   const [startError, setStartError] = useState<string | null>(null);
@@ -328,14 +330,22 @@ export default function DashboardPage() {
      click. AnchoredPanel's own handler, reached now that Popover passes
      onClose through, excludes the card and the chip both. */
 
+  /* Stop once there is something in the box: the placeholder is hidden then,
+     and a timer nobody can see is just work. */
+  useEffect(() => {
+    if (transcript) return;
+    const id = window.setInterval(() => setPromptIndex((current) => current + 1), 3200);
+    return () => window.clearInterval(id);
+  }, [transcript]);
+
   /* The tab follows the prompt until somebody clicks one. Only a confident
      read moves it — a half-typed sentence should not flick the tabs about. */
   useEffect(() => {
     if (pickedType.current || !transcript.trim()) return;
     const id = window.setTimeout(() => {
       if (pickedType.current) return;
-      const read = heuristicKind(transcript);
-      if (read && read.confidence >= 0.8) setActiveType(read.kind);
+      const category = categoryFor(transcript);
+      if (category) setActiveCategory(category);
     }, 350);
     return () => window.clearTimeout(id);
   }, [transcript]);
@@ -476,40 +486,48 @@ export default function DashboardPage() {
           }}
         />
 
-        <h1 className="hero-offset text-center text-[26px] font-semibold leading-tight tracking-tight text-white sm:text-[34px]">
+        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-ink sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
         <div className="relative mt-14 w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
           {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 flex items-end gap-1 overflow-x-auto px-2 [scrollbar-width:none] sm:px-3 [&::-webkit-scrollbar]:hidden">
-            {projectTypes.map((type) => {
-              const Icon = type.icon;
-              const active = activeType === type.id;
+          <div className="relative z-40 flex items-end gap-1.5 overflow-x-auto px-5 [scrollbar-width:none] md:px-3.5 [&::-webkit-scrollbar]:hidden">
+            {categoryTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeCategory === tab.id;
               return (
                 <button
-                  key={type.id}
+                  key={tab.id}
                   onClick={() => {
                     pickedType.current = true;
-                    setActiveType(type.id);
+                    if (tab.id !== activeCategory) setActiveSubtype(null);
+                    setActiveCategory(tab.id);
                   }}
                   aria-pressed={active}
-                  className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[12px] border border-b-0 px-3.5 py-2 text-[13px] font-medium transition-colors sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm ${
+                  /* Emergent's tab strip: rounded-top tabs standing on the
+                     box, the selected one a shade lighter. */
+                  className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-[12px] px-4 text-[13px] font-medium transition-colors md:px-5 md:text-sm ${
                     active
-                      ? "border-[#303035] bg-[#1c1c20] text-white"
-                      : "border-transparent bg-[#151518] text-[#8b8b93] hover:bg-[#19191c] hover:text-[#c9c9cf]"
+                      ? "bg-layer/[0.13] py-2.5 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                      : "bg-layer/[0.045] py-2.5 text-muted hover:bg-layer/[0.07] hover:text-soft"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 shrink-0 ${active ? "text-white" : "text-[#8b8b93]"}`} strokeWidth={1.75} />
-                  {type.label}
+                  <Icon className={`h-4 w-4 shrink-0 ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
+                  {CATEGORY_LABEL[tab.id]}
+                  {tab.id === "video" && (
+                    <span className="rounded-[5px] bg-[#e5243b] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white">
+                      New
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
-          <div className="group relative w-full overflow-visible rounded-[16px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+          <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
             {/* The upload menu, anchored to the composer it belongs to. It used
                 to hang off the whole column, which put it above the tabs and
                 behind the phone header — its first row was unreadable there. */}
@@ -565,9 +583,13 @@ export default function DashboardPage() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {/* The composer: one dark surface, one quiet border, and a soft
-                glow only while it has focus. */}
-            <div className="relative z-30 flex min-h-[170px] w-full flex-col justify-between overflow-hidden rounded-[16px] border border-[#303035] bg-[#111113] p-4 transition-shadow focus-within:border-[#3d3d44] focus-within:shadow-[0_0_0_4px_rgba(255,255,255,0.03),0_0_32px_rgba(255,255,255,0.05)] sm:p-[18px]">
+            {/* Continuously moving 360-degree white highlight orbiter */}
+            <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
+              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
+            </div>
+
+            {/* Inner Graphite Glass Box matching #26252A */}
+            <div className="relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
               {/* A real placeholder attribute cannot animate, so the prompt is drawn
                   over the box instead and the whole line fades out and back in.
                   It sits behind the caret and ignores the pointer, so typing and
@@ -597,14 +619,21 @@ export default function DashboardPage() {
                   onChange={(e) => setTranscript(e.target.value)}
                   className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-ink outline-none md:h-auto"
                 />
-                {!transcript && (
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute left-0 top-0 select-none text-base text-[#6e6e76]"
-                  >
-                    Build me a dashboard for...
-                  </span>
-                )}
+                <AnimatePresence mode="wait">
+                  {!transcript && (
+                    <motion.span
+                      key={promptIndex}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.45, ease: "easeInOut" }}
+                      aria-hidden
+                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-faint md:text-faint"
+                    >
+                      {PROMPTS[activeCategory][promptIndex % PROMPTS[activeCategory].length]}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
 
               <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
@@ -643,14 +672,13 @@ export default function DashboardPage() {
                     }}
                   />
 
-                  {/* Attachment: straight to the picker on a phone, the menu
-                      of sources from md up. */}
+                  {/* Attachment Clip Button */}
                   <button
                     onClick={() => chooseFilesInputRef.current?.click()}
                     aria-label="Attach a screenshot"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#2a2a2f] bg-[#1a1a1d] text-[#d4d4d8] transition-colors hover:bg-[#222226] md:hidden"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all active:scale-[0.98] md:hidden"
                   >
-                    <Paperclip className="h-4 w-4" />
+                    <Paperclip className="h-4 w-4 -rotate-45" />
                   </button>
                   <button
                     onClick={() => {
@@ -661,8 +689,10 @@ export default function DashboardPage() {
                     }}
                     aria-label="Attach a screenshot"
                     aria-expanded={isUploadPopoverOpen}
-                    className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[#d4d4d8] transition-colors md:flex ${
-                      isUploadPopoverOpen ? "border-[#3d3d44] bg-[#222226]" : "border-[#2a2a2f] bg-[#1a1a1d] hover:bg-[#222226]"
+                    className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
+                      isUploadPopoverOpen
+                        ? "bg-layer/[0.08] border-line/[0.2] text-ink"
+                        : "bg-layer/[0.03] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-ink"
                     }`}
                   >
                     <Paperclip className="h-4 w-4" />
@@ -672,7 +702,7 @@ export default function DashboardPage() {
                   <button
                     title="Connect a repository"
                     aria-label="Connect a repository"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#2a2a2f] bg-[#1a1a1d] text-[#d4d4d8] transition-colors hover:bg-[#222226]"
+                    className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
                   >
                     <Github className="h-4 w-4" />
                   </button>
@@ -698,18 +728,20 @@ export default function DashboardPage() {
                       setIsUploadPopoverOpen(false);
                     }}
                     aria-expanded={isModelPopoverOpen}
-                    aria-label="Agent and settings"
-                    className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#2a2a2f] bg-[#1a1a1d] px-3 text-[13px] text-[#e4e4e7] transition-colors hover:bg-[#222226]"
+                    aria-label="Choose an agent"
+                    className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
-                    <Crosshair className="h-3.5 w-3.5 text-[#a1a1aa]" />
-                    {/* "Auto" while QuickStark chooses; the agent's or model's
-                        name once somebody has chosen one, so a deliberate pick
-                        is never hidden behind a word that says nobody did. */}
+                    <ProviderMark provider={chosenModel.provider} />
+                    {/* The agent's name when the chosen model is one, and the
+                        model's own when it is not — a model picked in the
+                        workspace's fuller list has no agent, and naming it
+                        anyway is better than naming nothing or naming the
+                        wrong thing. */}
                     <span className="font-medium tracking-tight">
-                      {model === DEFAULT_MODEL ? "Auto" : agentForModel(model)?.title ?? shortModelName(chosenModel)}
+                      {agentForModel(model)?.title ?? shortModelName(chosenModel)}
                     </span>
                     <ChevronDown
-                      className={`h-3.5 w-3.5 text-[#a1a1aa] transition-transform ${
+                      className={`h-3.5 w-3.5 text-ink transition-transform ${
                         isModelPopoverOpen ? "rotate-180" : ""
                       }`}
                     />
@@ -717,21 +749,39 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
+                  <button
+                    onClick={() => setIsPrivacyModalOpen(true)}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-line/[0.08] bg-layer/[0.06] text-sm text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] md:bg-layer/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
+                  >
+                    <Globe className="h-4 w-4 shrink-0" />
+                    <span className="hidden font-medium capitalize tracking-tight sm:inline">{selectedPrivacy}</span>
+                  </button>
+                  <button
+                    onClick={() => setIsAdvancedModalOpen(true)}
+                    title="Advanced controls"
+                    aria-label="Advanced controls"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </button>
+
                   {/* Interactive Voice Recording Button */}
                   <button
                     onClick={toggleRecording}
                     title={isRecording ? "Stop Recording" : "Start Recording"}
-                    aria-label={isRecording ? "Stop recording" : "Speak your prompt"}
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
-                        ? "border-red-500 bg-red-500/20 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "border-[#2a2a2f] bg-[#1a1a1d] text-[#d4d4d8] hover:bg-[#222226]"
+                        ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                        : "bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
                     }`}
                   >
                     {isRecording ? (
                       <MicOff className="h-4 w-4" />
                     ) : (
-                      <Mic className="h-4 w-4" />
+                      <>
+                        <MicMark className="h-4 w-4 md:hidden" />
+                        <Mic className="hidden h-4 w-4 md:block" />
+                      </>
                     )}
                   </button>
 
@@ -742,7 +792,8 @@ export default function DashboardPage() {
                   <StartBuildButton
                     ref={sendRef}
                     prompt={transcript}
-                    kind={activeType}
+                    kind={activeSubtype ? activeType : null}
+                    target={formatTarget({ category: activeCategory, subtype: activeSubtype })}
                     context={webappContext}
                     onError={setStartError}
                     disabled={paused !== null}
@@ -782,7 +833,7 @@ export default function DashboardPage() {
             <Popover
               open={isModelPopoverOpen}
               onClose={() => setIsModelPopoverOpen(false)}
-              title="Agent and settings"
+              title="Select agent"
               align="left"
               side="top"
               width="w-[min(340px,100%)]"
@@ -883,36 +934,6 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
-
-              {/* The secondary controls that used to sit in the composer's own
-                  row — visibility and the advanced settings — live here now,
-                  one tap further away, so they stop competing with the box
-                  where the idea is written. */}
-              <div className="-mx-1.5 mt-1.5 border-t border-line/[0.06] px-1.5 pt-1.5" role="menu">
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setIsModelPopoverOpen(false);
-                    setIsPrivacyModalOpen(true);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-[13px] text-ink transition-colors hover:bg-layer/[0.05]"
-                >
-                  <Globe className="h-4 w-4 shrink-0 text-muted" />
-                  <span className="flex-1">Visibility</span>
-                  <span className="capitalize text-muted">{selectedPrivacy}</span>
-                </button>
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setIsModelPopoverOpen(false);
-                    setIsAdvancedModalOpen(true);
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-[13px] text-ink transition-colors hover:bg-layer/[0.05]"
-                >
-                  <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted" />
-                  <span className="flex-1">Advanced settings</span>
-                </button>
-              </div>
             </Popover>
           </div>
 
@@ -929,6 +950,36 @@ export default function DashboardPage() {
               Two rows on a phone rather than one scroller: five chips and two
               labels do not make a line at 360px, and a question you have to
               scroll to finish reading is one nobody finishes. */}
+          {/* The tab's sub-types. Auto names what the sentence reads as, so the
+              guess is visible; a chip overrules it, and pressing it again
+              hands the choice back. */}
+          <div className="relative z-10 mt-3 flex flex-col items-center gap-2">
+            <div className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {[{ id: null as string | null, label: activeSubtype ? "Auto" : `Auto · ${subtype.label}`, blurb: "Read from what you describe" }, ...SUBTYPES[activeCategory]].map((option) => {
+                const chosen = activeSubtype === option.id;
+                return (
+                  <button
+                    key={option.id ?? "auto"}
+                    type="button"
+                    title={option.blurb}
+                    aria-pressed={chosen}
+                    onClick={() => setActiveSubtype((current) => (option.id === null || current === option.id ? null : option.id))}
+                    className={`h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-[12.5px] transition-colors ${
+                      chosen
+                        ? "border-[#3a3a40] bg-[#1c1c20] text-white"
+                        : "border-[#26262b] bg-[#121214] text-[#8b8b93] hover:border-[#303035] hover:text-[#c9c9cf]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            {CATEGORY_NOTE[activeCategory] && (
+              <p className="px-2 text-center text-[12px] text-[#6e6e76]">{CATEGORY_NOTE[activeCategory]}</p>
+            )}
+          </div>
+
           {activeType === "webapp" && (
             <div className="relative z-10 mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
               {[

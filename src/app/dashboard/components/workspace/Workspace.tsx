@@ -14,6 +14,7 @@ import WorkspaceTabs from "../WorkspaceTabs";
 import { useCredits } from "../../useCredits";
 import { useProjects } from "../../ProjectsContext";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { formatTarget, parseTarget } from "@/lib/builder/targets";
 import { isBuildKind } from "@/lib/builder/kinds";
 import { browserAccessToken } from "@/lib/projects/client";
 import { touchProject } from "@/lib/projects/queries";
@@ -42,6 +43,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
      "build from a blueprint that does not exist". */
   const chosen = search.get("kind");
   const initialKind = isBuildKind(chosen) ? chosen : null;
+  /* And ?target=… for the tab it was asked under — validated the same way. */
+  const askedTarget = parseTarget(search.get("target"));
+  const initialTarget = askedTarget ? formatTarget(askedTarget) : null;
   /* "?view=preview" is how the apps list says "they wanted to look at it", and
      "?view=manage" is how it says "they wanted to work on it" — the second is
      what gives every list of apps a way into the Manage pane without each menu
@@ -285,6 +289,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               previewOpen={previewSheetOpen}
               initialPrompt={initialPrompt}
               initialKind={initialKind}
+              initialTarget={initialTarget}
               onBuildSettled={refreshCredits}
               onPublish={() => {
                 setPublishRequest((n) => n + 1);

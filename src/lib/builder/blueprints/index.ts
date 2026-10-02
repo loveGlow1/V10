@@ -62,6 +62,10 @@ export function blueprintFor(kind: BuildKind): Blueprint {
 
 /** What the app knows about this build besides the words that asked for it. */
 export type ProjectContext = {
+  /* The tab and sub-type it was asked under — a flier's canvas size, a
+     phone's touch rules — as written by targetBrief (targets.ts). Absent for
+     a build nobody put under a tab. */
+  target?: string;
   /** What the project is called. Not a brand — a name someone can rename. */
   projectName?: string | null;
   /* What a project has to come back AS, when it is a project rather than a
@@ -287,7 +291,7 @@ ${list(blueprint.completionRules)}
 
 ────────────────────────────────────────
 ${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}${context.design ? `\n${designBrief(context.design)}\n\n────────────────────────────────────────\n` : ""}
-THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
+${context.target ? `${context.target}\n\n────────────────────────────────────────\n\n` : ""}THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
 ${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${context.integrations ? `\n────────────────────────────────────────\n\n${context.integrations}\n` : ""}${context.commerce ? `\n────────────────────────────────────────\n\n${context.commerce}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}

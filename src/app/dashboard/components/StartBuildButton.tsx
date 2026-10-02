@@ -7,6 +7,7 @@ import { ArrowUp } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
 import { useProjects } from "../ProjectsContext";
 import { nameFromPrompt } from "../projectName";
+import { SendArrow } from "./marks";
 
 /* Home's send button.
  *
@@ -32,6 +33,7 @@ export type StartBuildHandle = { start: () => void };
 export default function StartBuildButton({
   prompt,
   kind,
+  target,
   context,
   onError,
   disabled = false,
@@ -43,6 +45,10 @@ export default function StartBuildButton({
      on — see src/lib/builder/blueprints. Null means the chip said nothing and
      the server should classify the sentence itself. */
   kind?: BuildKind | null;
+  /* The tab and sub-type, e.g. "fliers" or "website:blog" — see
+     src/lib/builder/targets.ts. Travels beside the kind; the server resolves
+     the kind from it when no kind was picked. */
+  target?: string | null;
   /* What the follow-up chips under the composer answered, as a sentence, or
      empty when nothing was asked or answered.
      Kept apart from `prompt` rather than folded into it because the two are
@@ -109,7 +115,7 @@ export default function StartBuildButton({
        The prompt travels in the URL rather than in a store: a reload of the
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
-    const target = kind ? `&kind=${encodeURIComponent(kind)}` : "";
+    const query = `${kind ? `&kind=${encodeURIComponent(kind)}` : ""}${target ? `&target=${encodeURIComponent(target)}` : ""}`;
     /* The context rides in the brief rather than in a parameter of its own.
        The blueprint's requirements are conditional on what the brief says — a
        web app gets sign-in "when the product has user accounts, saved data or
@@ -118,7 +124,7 @@ export default function StartBuildButton({
        to be plumbed through the workspace, the classifier and the brief before
        it reached the same place. */
     const brief = context ? `${text}\n\n${context}` : text;
-    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(brief)}${target}`);
+    router.push(`/dashboard/project/${project.id}?prompt=${encodeURIComponent(brief)}${query}`);
   }
 
   return (
@@ -126,11 +132,14 @@ export default function StartBuildButton({
       onClick={() => void start()}
       disabled={!ready}
       aria-label="Send"
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-[0.96] disabled:cursor-not-allowed sm:h-10 sm:w-10 ${
-        ready ? "bg-white text-[#111113] hover:bg-white/90" : "bg-[#26262b] text-[#6e6e76]"
+      className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed sm:h-10 sm:w-10 sm:rounded-full ${
+        ready
+          ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+          : "border-transparent bg-layer/[0.07] text-ink/30 md:bg-layer/[0.1] md:text-ink"
       }`}
     >
-      <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+      <SendArrow className="h-4 w-4 md:hidden" />
+      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
     </button>
   );
 }
