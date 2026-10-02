@@ -136,6 +136,8 @@ type BuildPayload = {
 export type BuildOptions = {
   /** Overrides the classifier. What the composer's mode chip says. */
   intentOverride?: BuildIntent | null;
+  /** Plan mode: answered with a plan, nothing changed. */
+  planOnly?: boolean;
   /** The second press of "Replace project". */
   confirmNewProject?: boolean;
   /** Files uploaded with this message. Ids only — the bytes stay in Storage. */
@@ -283,6 +285,9 @@ type ProjectsValue = {
   ) => Promise<Project | null>;
   /** Re-reads one project's row and folds it in if anything shown has moved. */
   refresh: (id: string) => Promise<Project | null>;
+  /** Reads a project made elsewhere — a fork, made by the server — and puts it
+      at the top of the list, so the screen it opens finds it. */
+  adopt: (id: string) => Promise<Project | null>;
 };
 
 /* The columns whose change means something on screen. Compared before a row is
@@ -452,6 +457,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           projectId: id,
           prompt,
           intentOverride: options.intentOverride ?? null,
+          planOnly: options.planOnly === true,
           confirmNewProject: options.confirmNewProject === true,
           attachmentIds: options.attachmentIds ?? [],
           buildKind: options.buildKind ?? null,
@@ -771,6 +777,19 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     return row;
   }, []);
 
+  const adopt = useCallback(async (id: string): Promise<Project | null> => {
+    if (!isSupabaseConfigured) return null;
+    const { data } = await createSupabaseBrowserClient()
+      .from("projects")
+      .select(COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    const row = data as unknown as Project | null;
+    if (!row) return null;
+    setProjects((current) => [row, ...current.filter((project) => project.id !== id)]);
+    return row;
+  }, []);
+
   /* The open-workspace strip is a view of these rows, so it is reconciled here
      rather than in the strip itself: an app renamed anywhere gets its tab
      relabelled, and one deleted anywhere loses its tab, without the row above
@@ -798,8 +817,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
       build,
       watchBuild,
       refresh,
+      adopt,
     }),
-    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild, refresh],
+    [projects, loading, error, selectedId, create, rename, remove, build, watchBuild, refresh, adopt],
   );
 
   return <ProjectsContext.Provider value={value}>{children}</ProjectsContext.Provider>;

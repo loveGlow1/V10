@@ -256,6 +256,9 @@ type BuildRequestBody = {
      choice always wins over the classifier — the person knows, and the
      classifier is guessing. */
   intentOverride?: unknown;
+  /* Plan mode, from the composer's settings: answer with a plan for this
+     message and change nothing — no edit, no build, no SQL, no stage. */
+  planOnly?: unknown;
   /* Set only by the second press of "Replace project". A brand-new build
      discards a page someone has, so it is never done on a guess. */
   confirmNewProject?: unknown;
@@ -640,6 +643,7 @@ async function handle(
   }
 
   const typed = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const planOnly = body.planOnly === true;
 
   /* A file on its own is a message.
    *
@@ -817,7 +821,7 @@ async function handle(
      typed "Rebuild it" into stage two of seven, applied as an edit, which
      over-closed a <section> — so they were told their change had broken the
      layout when they had not asked for a change. See brief.ts. */
-  const stageAsk = activePlan && advancesStage(prompt) ? currentStage(activePlan) : null;
+  const stageAsk = !planOnly && activePlan && advancesStage(prompt) ? currentStage(activePlan) : null;
 
   /* What the model is actually asked for on a staged turn: the stage, what
      already exists, and the brief it is all part of. The person's own message
@@ -1126,7 +1130,9 @@ async function handle(
     ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html" &&
     isPageDataAsk(prompt, planEdit(prompt, knownArchitecture).touches);
 
-  const routedIntent: Intent = stageAsk
+  const routedIntent: Intent = planOnly
+    ? "question"
+    : stageAsk
     ? pathForStage(Boolean(currentHtml)) === "edit"
       ? "edit"
       : "new_project"
@@ -1196,7 +1202,7 @@ async function handle(
   /* Both build on the project that is there rather than replacing it. */
   const addingTo = Boolean(featureBase || upgradeBase);
 
-  const intent: Intent = addingTo ? "new_project" : routedIntent;
+  const intent: Intent = planOnly ? "question" : addingTo ? "new_project" : routedIntent;
   if (upgradeBase) {
     steps.mark(
       "upgrade",
@@ -1274,8 +1280,8 @@ async function handle(
    * recognise carries on to the page exactly as before. */
   {
     const confirmed = body.confirmSql === true && typeof body.sql === "string" ? body.sql : null;
-    const pasted = confirmed ? null : sqlFromMessage(prompt);
-    const asked = !confirmed && !pasted && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
+    const pasted = confirmed || planOnly ? null : sqlFromMessage(prompt);
+    const asked = !confirmed && !pasted && !planOnly && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
 
     if (service && (confirmed || pasted || asked)) {
       const backend = await resolveBackend(service, project.id);
@@ -1737,16 +1743,21 @@ async function handle(
   }
 
   // ── QUESTION ─────────────────────────────────────────────────────────────
-  if (intent === "question" && currentHtml) {
+  if (intent === "question" && (currentHtml || planOnly)) {
     try {
-      steps.begin("answer", "Looking through the page for your answer", `${editModel} is reading it now…`);
+      steps.begin(
+        "answer",
+        planOnly ? "Planning it out" : "Looking through the page for your answer",
+        `${editModel} is reading it now…`,
+      );
       const answer = await answerQuestion(
         prompt,
-        leanHtml ?? currentHtml,
+        leanHtml ?? currentHtml ?? "",
         files.blocks,
         prior,
-        narrate("answer", "Looking through the page for your answer"),
+        narrate("answer", planOnly ? "Planning it out" : "Looking through the page for your answer"),
         editModel,
+        planOnly,
       );
       steps.mark(
         "answer",
