@@ -39,6 +39,8 @@ import {
   type Category,
 } from "@/lib/builder/targets";
 import { ACCEPT } from "@/lib/project-attachments";
+import { PIPELINES, answersFor, type PipelineId } from "@/lib/video/pipelines";
+import VideoTypeGrid from "./components/video/VideoTypeGrid";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock,
@@ -208,6 +210,12 @@ export default function DashboardPage() {
   const [activeCategory, setActiveCategory] = useState<Category>("website");
   const [activeSubtype, setActiveSubtype] = useState<string | null>(null);
   const pickedType = useRef(false);
+  /* The Video tab's Step 1 and Step 2 — see VideoTypeGrid. */
+  const [videoPipeline, setVideoPipeline] = useState<PipelineId | null>(null);
+  const [videoAnswers, setVideoAnswers] = useState<Record<string, string>>({});
+  const [videoConsent, setVideoConsent] = useState(false);
+  const videoMode = activeCategory === "video";
+  const videoBlocked = videoMode && (!videoPipeline || (PIPELINES[videoPipeline].needsConsent && !videoConsent));
   /* The sub-type the build will run as: the picked chip, or what the sentence
      reads as. Shown on the Auto chip so the guess is never hidden. */
   const subtype =
@@ -794,9 +802,14 @@ export default function DashboardPage() {
                     prompt={transcript}
                     kind={activeSubtype ? activeType : null}
                     target={formatTarget({ category: activeCategory, subtype: activeSubtype })}
+                    video={
+                      videoMode && videoPipeline
+                        ? { pipeline: videoPipeline, answers: answersFor(PIPELINES[videoPipeline], videoAnswers), consent: videoConsent }
+                        : null
+                    }
                     context={webappContext}
                     onError={setStartError}
-                    disabled={paused !== null}
+                    disabled={paused !== null || videoBlocked}
                   />
                 </div>
               </div>
@@ -953,6 +966,17 @@ export default function DashboardPage() {
           {/* The tab's sub-types. Auto names what the sentence reads as, so the
               guess is visible; a chip overrules it, and pressing it again
               hands the choice back. */}
+          {videoMode && (
+            <VideoTypeGrid
+              selected={videoPipeline}
+              onSelect={setVideoPipeline}
+              answers={videoAnswers}
+              onAnswer={(question, value) => setVideoAnswers((current) => ({ ...current, [question]: value }))}
+              consent={videoConsent}
+              onConsent={setVideoConsent}
+            />
+          )}
+          {!videoMode && (
           <div className="relative z-10 mt-3 flex flex-col items-center gap-2">
             <div className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {[{ id: null as string | null, label: activeSubtype ? "Auto" : `Auto · ${subtype.label}`, blurb: "Read from what you describe" }, ...SUBTYPES[activeCategory]].map((option) => {
@@ -979,6 +1003,7 @@ export default function DashboardPage() {
               <p className="px-2 text-center text-[12px] text-[#6e6e76]">{CATEGORY_NOTE[activeCategory]}</p>
             )}
           </div>
+          )}
 
           {activeType === "webapp" && (
             <div className="relative z-10 mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">

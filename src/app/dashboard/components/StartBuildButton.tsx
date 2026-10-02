@@ -34,6 +34,7 @@ export default function StartBuildButton({
   prompt,
   kind,
   target,
+  video,
   context,
   onError,
   disabled = false,
@@ -49,6 +50,10 @@ export default function StartBuildButton({
      src/lib/builder/targets.ts. Travels beside the kind; the server resolves
      the kind from it when no kind was picked. */
   target?: string | null;
+  /* Set under the Video tab: sending opens the Video Studio instead of a
+     website workspace. The video is created first so references can be
+     uploaded against it; the studio makes the plan. */
+  video?: { pipeline: string; answers: Record<string, string>; consent: boolean } | null;
   /* What the follow-up chips under the composer answered, as a sentence, or
      empty when nothing was asked or answered.
      Kept apart from `prompt` rather than folded into it because the two are
@@ -94,6 +99,23 @@ export default function StartBuildButton({
     inFlight.current = true;
     setStarting(true);
     onError(null);
+
+    if (video) {
+      const response = await fetch("/api/video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...video, brief: text }),
+      }).catch(() => null);
+      const body = (await response?.json().catch(() => null)) as { id?: string; error?: string } | null;
+      if (!response?.ok || !body?.id) {
+        inFlight.current = false;
+        setStarting(false);
+        onError(body?.error ?? "Could not start the video. Try again.");
+        return;
+      }
+      router.push(`/dashboard/video/${body.id}`);
+      return;
+    }
 
     const project = await create(nameFromPrompt(text));
 
