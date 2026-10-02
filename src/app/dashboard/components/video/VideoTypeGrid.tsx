@@ -6,8 +6,10 @@
  * Step 2 is only the questions the chosen pipeline asks — never every
  * setting at once — plus the consent a clone needs. */
 
+import Image from "next/image";
 import Link from "next/link";
-import { Box, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Box, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 
 import { GRID, PIPELINES, type PipelineId } from "@/lib/video/pipelines";
 
@@ -40,10 +42,24 @@ export default function VideoTypeGrid({
   onConsent: (value: boolean) => void;
 }) {
   const pipeline = selected ? PIPELINES[selected] : null;
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  }, []);
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure]);
 
-  const card = (id: PipelineId, wide = false) => {
+  /* Emergent's row: a picture card per type, the name under it, one line
+     that scrolls sideways when it runs past the screen. Wider than the
+     composer on purpose — the cards read as a gallery, not a form. */
+  const card = (id: PipelineId) => {
     const entry = PIPELINES[id];
-    const Icon = PIPELINE_ICON[entry.icon] ?? Sparkles;
     const active = selected === id;
     return (
       <button
@@ -52,30 +68,65 @@ export default function VideoTypeGrid({
         aria-pressed={active}
         title={entry.blurb}
         onClick={() => onSelect(active ? null : id)}
-        className={`group flex rounded-[14px] border text-left transition-colors ${
-          wide ? "col-span-full items-center justify-center gap-2.5 px-4 py-3" : "min-h-[84px] flex-col justify-between gap-3 p-3 sm:p-3.5"
-        } ${
-          active
-            ? "border-accent/50 bg-accent/[0.10] text-ink"
-            : "border-line/[0.08] bg-layer/[0.03] text-soft hover:border-line/[0.16] hover:bg-layer/[0.06] hover:text-ink"
-        }`}
+        className="group w-[152px] shrink-0 snap-start text-center sm:w-[176px]"
       >
-        <Icon className={`h-[18px] w-[18px] shrink-0 ${active ? "text-accent" : "text-muted group-hover:text-ink"}`} strokeWidth={1.75} />
-        <span className="text-[13px] font-medium leading-tight sm:text-[13.5px]">{entry.label}</span>
+        <span
+          className={`relative block aspect-[16/10] overflow-hidden rounded-[12px] bg-layer/[0.06] ring-offset-2 ring-offset-canvas transition ${
+            active ? "ring-2 ring-white/85" : "ring-0 group-hover:ring-1 group-hover:ring-white/25"
+          }`}
+        >
+          <Image
+            src={`/video-types/${id}.jpg`}
+            alt=""
+            fill
+            sizes="176px"
+            className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+          />
+        </span>
+        <span className={`mt-2.5 block text-[13px] font-medium leading-tight sm:text-[13.5px] ${active ? "text-ink" : "text-soft group-hover:text-ink"}`}>
+          {entry.label}
+        </span>
       </button>
     );
   };
 
   return (
-    <div className="relative z-10 mt-4 w-full">
-      <div className="mb-2.5 flex items-center justify-between px-0.5">
-        <p className="text-[13px] text-muted">What do you want to create?</p>
-        <Link href="/dashboard/video" className="text-[12.5px] text-muted hover:text-ink">Your videos →</Link>
+    <div className="relative z-10 mt-6 w-full">
+      <div className="relative mb-3.5 flex items-center justify-center">
+        <p className="text-[13.5px] text-soft">↓ What do you want to create? ↓</p>
+        <Link href="/dashboard/video" className="absolute right-0 hidden text-[12.5px] text-muted hover:text-ink sm:block">Your videos →</Link>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        {GRID.map((id) => card(id))}
-        {card("photo_to_video", true)}
+      {/* Breaks out of the composer's 750px column to the page's width. The
+          edges fade, and arrows appear, only where there is more to see. */}
+      <div className="relative left-1/2 w-[min(1180px,calc(100vw-32px))] -translate-x-1/2">
+        <div
+          ref={scroller}
+          onScroll={measure}
+          style={{
+            maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 56px" : "black, black"}, ${edges.right ? "black calc(100% - 56px), transparent" : "black, black"})`,
+            WebkitMaskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 56px" : "black, black"}, ${edges.right ? "black calc(100% - 56px), transparent" : "black, black"})`,
+          }}
+          className="flex snap-x overflow-x-auto pb-2 pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="mx-auto flex w-max gap-4 px-1">{[...GRID, "photo_to_video" as const].map((id) => card(id))}</div>
+        </div>
+        {(["left", "right"] as const).map((side) =>
+          edges[side] ? (
+            <button
+              key={side}
+              type="button"
+              aria-label={side === "left" ? "Earlier video types" : "More video types"}
+              onClick={() => scroller.current?.scrollBy({ left: (side === "left" ? -1 : 1) * 576, behavior: "smooth" })}
+              className={`absolute top-[calc(50%-24px)] hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-line/[0.12] bg-panel/90 text-ink shadow-lg backdrop-blur transition hover:bg-panel md:flex ${
+                side === "left" ? "-left-1" : "-right-1"
+              }`}
+            >
+              {side === "left" ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+          ) : null,
+        )}
       </div>
+      <Link href="/dashboard/video" className="mt-1 block text-center text-[12.5px] text-muted hover:text-ink sm:hidden">Your videos →</Link>
 
       {pipeline && (
         <div className="mt-3 space-y-2.5 rounded-[14px] border border-line/[0.08] bg-layer/[0.02] p-3">
