@@ -102,8 +102,8 @@ export default function MessageRow({
      and the reply answers it in the open below, the way a chat reads. */
   if (you) {
     return (
-      <div className="flex flex-col items-end">
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-br-md bg-layer/[0.09] px-4 py-2.5 text-[15px] leading-relaxed text-ink md:text-[13.5px]">
+      <div className="flex min-w-0 flex-col items-end">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-[20px] [overflow-wrap:anywhere] rounded-br-md bg-layer/[0.09] px-4 py-2.5 text-[15px] leading-relaxed text-ink md:text-[13.5px]">
           {message.text}
         </div>
         {typeof message.at === "number" && (
@@ -122,7 +122,7 @@ export default function MessageRow({
        could not be applied, a build still running, a file too large. Colouring
        the sentence itself made every one of them read as a crash, and made the
        three that matter indistinguishable from the ones that do not. */
-    <div className={`py-1 ${message.tone === "error" ? "border-l-2 border-l-warn/50 pl-3" : ""}`}>
+    <div className={`min-w-0 max-w-full py-1 ${message.tone === "error" ? "border-l-2 border-l-warn/50 pl-3" : ""}`}>
       <div className="flex items-center gap-2">
         {/* The assistant signs with the mark. Not decoration: a logo boxed inside a coloured square reads as an app
             icon, and this is a signature. Still rather than turning, and in the

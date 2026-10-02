@@ -126,7 +126,7 @@ function inline(text: string, keyBase: string): React.ReactNode[] {
 export default function ChatMarkdown({ text, className = "", children }: { text: string; className?: string; children?: React.ReactNode }) {
   const blocks = parse(text);
   return (
-    <div className={`space-y-3 text-[15px] leading-[1.65] text-soft md:text-[13.5px] ${className}`}>
+    <div className={`min-w-0 max-w-full space-y-3 [overflow-wrap:anywhere] text-[15px] leading-[1.65] text-soft md:text-[13.5px] ${className}`}>
       {blocks.map((block, b) => {
         const key = `b${b}`;
         /* Whatever follows the text (the streaming caret) sits on its last line. */
@@ -142,7 +142,7 @@ export default function ChatMarkdown({ text, className = "", children }: { text:
         }
         if (block.kind === "code") {
           return (
-            <pre key={key} className="overflow-x-auto rounded-xl border border-line/[0.08] bg-layer/[0.05] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink md:text-[12px]">
+            <pre key={key} className="max-w-full overflow-x-auto [overflow-wrap:normal] rounded-xl border border-line/[0.08] bg-layer/[0.05] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink md:text-[12px]">
               {block.text}
               {tail}
             </pre>

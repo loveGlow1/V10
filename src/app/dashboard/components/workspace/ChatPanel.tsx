@@ -1580,14 +1580,18 @@ export default function ChatPanel({
 
       {/* Wrapped so the jump control can sit over the thread rather than over
           the composer under it: this box is exactly the scrolling area. */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div
         ref={streamRef}
         onScroll={(event) => {
           const el = event.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
-        className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4"
+        /* Up and down only. A long path or a line of markup in a reply used to
+           make the thread wider than the screen, and a sideways swipe then
+           slid every message half off the left edge. Everything inside wraps
+           now, and this refuses to scroll sideways even if something does not. */
+        className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4"
       >
         {/* Who this is and what it is for, at the top of the thread rather than
             floating in the middle of it — so it scrolls away as the
