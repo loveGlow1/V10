@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Blocks,
   Check,
@@ -87,6 +87,8 @@ export default function PreviewPanel({
 }) {
   const router = useRouter();
   const { rename, remove, refresh } = useProjects();
+  /* How a GitHub sign-in went, on arrival back from github.com. */
+  const githubReturned = useSearchParams().get("github");
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [view, setView] = useState<"preview" | "manage">("preview");
   const [section, setSection] = useState<ManageSection>("settings");
@@ -1372,7 +1374,13 @@ export default function PreviewPanel({
         {section === "integrations" && (
           // Keyed on the category so arriving from Payments opens on that drawer
           // rather than on whatever was last chosen.
-          <Integrations key={integrationsCategory} initialCategory={integrationsCategory} />
+          <Integrations
+            key={integrationsCategory}
+            initialCategory={integrationsCategory}
+            projectId={project?.id ?? null}
+            githubReturned={githubReturned}
+            onUpgrade={onUpgradeClick}
+          />
         )}
 
         {section === "payments" && (

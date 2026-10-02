@@ -22,6 +22,7 @@ import {
 import CreditPill from "./CreditPill";
 import Q3DCanvas from "../../Q3DCanvas";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { connectGitHubHref } from "@/lib/github/connect-link";
 
 interface TopNavProps {
   /* The workspace tab strip, rendered INSIDE this bar rather than under it.
@@ -116,7 +117,7 @@ export default function TopNav({ tabs, onUpgradeClick, onAccountSettingsClick, p
     { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
     { icon: Settings, label: "Account Settings", onClick: () => { setPanelOpen(false); onAccountSettingsClick(); } },
     { icon: Globe, label: "Language", trailing: "chevron" },
-    { icon: Github, label: "Connect to GitHub", trailing: "external" },
+    { icon: Github, label: "Connect to GitHub", trailing: "external", onClick: () => { window.location.assign(connectGitHubHref()); } },
     { icon: Users, label: "Community", trailing: "external" },
     { icon: LifeBuoy, label: "Help Center", trailing: "external" },
   ];
