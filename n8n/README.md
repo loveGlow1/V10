@@ -727,3 +727,23 @@ No new environment variables: the app derives the webhook from `N8N_WEBHOOK_URL`
 - Clip: 9:16 prompt → 768×1344 MP4, 4.46s, in 126s.
 - Voice: one line → 6.0s MP3 in 2.3s.
 - Unauthenticated POST → 403.
+
+## Production stage — fal.ai (app side, not n8n)
+
+With `FAL_KEY` set in Vercel, the app adds the production stage itself, as
+queued fal jobs that call back to `/api/video/{id}/render/fal` (HMAC token in
+the address + fal's Ed25519 signature):
+
+| Step | fal model | When |
+| --- | --- | --- |
+| Lip sync | `fal-ai/sync-lipsync/v2` (sync_mode loop) | an on-camera scene (UGC, presenter) once its clip and voice are in |
+| Clone avatar | `fal-ai/bytedance/omnihuman` | a Create Your Clone presenter scene: the user's photo + its voice line |
+| Music | `fal-ai/stable-audio-25/text-to-audio` | started with the render, for the cut's length |
+| Final MP4 | `fal-ai/ffmpeg-api/compose` | once nothing is still running |
+
+n8n stays the clip and voice engine (MiniMax). Photo → Video clips go through
+`Generate Clip From Photo` (H3 image-to-video, the user's photo as first frame).
+
+**Gateway credits:** on 2026-10-02 MiniMax answered "Payment required" through
+the Gateway. Attach a MiniMax API credential of your own to Generate Clip,
+Generate Clip From Photo and Generate Voice to keep rendering.

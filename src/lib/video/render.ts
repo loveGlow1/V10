@@ -28,11 +28,14 @@ export { CLIP_COST, VOICE_COST };
 export const MAX_CLIP_SECONDS = 6;
 
 export const STALE_AFTER_MS = 8 * 60 * 1000;
+/* fal's jobs (lip sync, avatar, music, the final compose) queue and can take
+   longer; they are given more room before being called lost. */
+export const FAL_STALE_AFTER_MS = 25 * 60 * 1000;
 
 const MAX_AGE_MS = 3 * 60 * 60 * 1000;
 
 export type RenderJob =
-  | { kind: "clip"; n: number; duration: number; prompt: string }
+  | { kind: "clip"; n: number; duration: number; prompt: string; imageUrl?: string }
   | { kind: "voice"; n: number; text: string; voiceId: string; language: string };
 
 export function videoWebhookUrl(env: Record<string, string | undefined> = process.env): string | null {
@@ -62,15 +65,30 @@ export function languageFor(answers: Record<string, string>): string {
 }
 
 /** Every job a plan needs: a clip per scene, a voice line per spoken scene. */
-export function jobsFor(plan: ProductionPlan, answers: Record<string, string>): RenderJob[] {
+export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, opts: { firstFrameUrl?: string | null } = {}): RenderJob[] {
   const voiceId = voiceIdFor(answers);
   const language = languageFor(answers);
   const jobs: RenderJob[] = [];
   for (const scene of plan.scenes) {
+    /* A clone's presenter scene is made by the avatar engine from the person's
+       own photo and voice line — a generated clip of a stranger would be
+       thrown away, so none is ordered. */
+    if (plan.pipeline === "clone" && scene.engine === "avatar") {
+      const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+      if (line) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId, language });
+      continue;
+    }
     /* At most 6s a clip: a 4s MiniMax-H3 clip took ~126s in testing, against
        the instance's 180s run limit. A longer scene holds its last frame
        while its line finishes (the studio's FinalCut). */
-    jobs.push({ kind: "clip", n: scene.n, duration: Math.min(MAX_CLIP_SECONDS, Math.max(4, scene.duration)), prompt: scene.motionPrompt || scene.visual });
+    jobs.push({
+      kind: "clip",
+      n: scene.n,
+      duration: Math.min(MAX_CLIP_SECONDS, Math.max(4, scene.duration)),
+      prompt: scene.motionPrompt || scene.visual,
+      /* Photo → Video animates the photo itself: it is the first frame. */
+      ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
+    });
     /* "NAME: line" is dialogue; the name is for the script, not the voice. */
     const text = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
     if (text) jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });

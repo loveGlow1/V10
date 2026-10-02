@@ -4,9 +4,9 @@
 
 import { NextResponse } from "next/server";
 
-import { readiness } from "@/lib/video/engines";
+import { readiness, renderCost } from "@/lib/video/engines";
 import type { ProductionPlan } from "@/lib/video/plan";
-import { STALE_AFTER_MS } from "@/lib/video/render";
+import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
 
 import { videoSession } from "../shared";
 
@@ -27,7 +27,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   /* A job that never reported is not coming: n8n stops an execution at 180s. */
   const now = Date.now();
-  const stale = (renderRows ?? []).filter((row) => row.status === "running" && now - new Date(row.updated_at).getTime() > STALE_AFTER_MS);
+  const stale = (renderRows ?? []).filter(
+    (row) =>
+      row.status === "running" &&
+      now - new Date(row.updated_at).getTime() > (["avatar", "music", "compose"].includes(row.engine) ? FAL_STALE_AFTER_MS : STALE_AFTER_MS),
+  );
   for (const row of stale) {
     await supabase.from("video_renders").update({ status: "failed", error: "Timed out — the render job never reported back." }).eq("id", row.id);
     row.status = "failed";
@@ -35,7 +39,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
   let status = video.status as string;
   if (stale.length && !(renderRows ?? []).some((row) => row.status === "running")) {
-    status = (renderRows ?? []).some((row) => row.engine === "video" && row.status === "done") ? "ready" : "failed";
+    status = (renderRows ?? []).some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done") ? "ready" : "failed";
     await supabase.from("video_projects").update({ status }).eq("id", id);
   }
 
@@ -59,6 +63,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     versions: (versions ?? []).map(({ version, note, created_at }) => ({ version, note, created_at })),
     assets: assets ?? [],
     readiness: latest ? readiness(latest.plan as ProductionPlan) : null,
+    /* Worked out here, where FAL_KEY is visible: the button shows it. */
+    cost: latest ? renderCost(latest.plan as ProductionPlan) : 0,
     renders,
+    /* The one-file cut, when fal has composed it. */
+    final: renders.find((row) => row.engine === "compose" && row.status === "done")?.url ?? null,
   });
 }

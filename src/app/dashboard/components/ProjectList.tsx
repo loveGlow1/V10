@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Laptop, Pin, Radio } from "lucide-react";
+import { Clapperboard, Laptop, Pin, Radio } from "lucide-react";
+import Image from "next/image";
+import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 
 import { isPublished, useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -72,11 +74,12 @@ function updatedAgo(iso: string) {
  * That job belongs to View all, which is why the grid mark All wore now sits in
  * that link. The two chips left are a real toggle, so they get the middle. */
 
-type View = "apps" | "published";
+type View = "apps" | "published" | "videos";
 
 const VIEWS: { id: View; label: string; heading: string; icon: typeof Laptop }[] = [
   { id: "apps", label: "Apps", heading: "Continue working", icon: Laptop },
   { id: "published", label: "Published", heading: "Live apps", icon: Radio },
+  { id: "videos", label: "Videos", heading: "Your videos", icon: Clapperboard },
 ];
 
 /* Says what to do rather than what is absent — an empty state that only reports
@@ -85,6 +88,18 @@ const VIEWS: { id: View; label: string; heading: string; icon: typeof Laptop }[]
 const EMPTY: Record<View, string> = {
   apps: "No active apps.",
   published: "Nothing published yet. Open an app and press Publish to put it online.",
+  videos: "No videos yet. Pick the Video tab above and choose what to create.",
+};
+
+/* A Video Studio project as /api/video lists it. */
+type VideoRow = { id: string; title: string; pipeline: string; status: string; current_version: number; updated_at: string };
+
+const VIDEO_STATUS: Record<string, string> = {
+  planning: "Planning",
+  planned: "Plan ready",
+  rendering: "Rendering",
+  ready: "Ready",
+  failed: "Needs attention",
 };
 
 /** The dashboard shows three of whatever is being looked at. */
@@ -107,6 +122,22 @@ export default function ProjectList() {
 
   const [ranked, setRanked] = useState<ProjectListItem[] | null>(null);
   const [view, setView] = useState<View>("apps");
+  /* Videos live in their own table and their own route, so they are read
+     beside the apps rather than out of the same ranked list. */
+  const [videos, setVideos] = useState<VideoRow[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/video", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (live && Array.isArray(body?.videos)) setVideos(body.videos as VideoRow[]);
+      })
+      /* Quietly empty: the Videos view says how to make one. */
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   /* Held so the row's click handler has it without awaiting: opening a project
      touches it, and that write must start before the navigation, not after a
@@ -153,7 +184,7 @@ export default function ProjectList() {
       published: rows
         .filter((row) => isPublishedProject(row))
         .sort((a, b) => Date.parse(b.published_at ?? "") - Date.parse(a.published_at ?? "")),
-    } satisfies Record<View, ProjectListItem[]>;
+    } satisfies Record<Exclude<View, "videos">, ProjectListItem[]>;
   }, [ranked]);
 
   /* Pin and archive both move a row, so both change the list in place first and
@@ -196,7 +227,9 @@ export default function ProjectList() {
      this section is Apps and nothing else. */
   const active: View = isWide ? view : "apps";
   const current = VIEWS.find((option) => option.id === active) ?? VIEWS[0];
-  const shown = buckets[active].slice(0, SHOWN);
+  const shown = active === "videos" ? [] : buckets[active].slice(0, SHOWN);
+  const shownVideos = active === "videos" ? videos.slice(0, SHOWN) : [];
+  const count = (id: View) => (id === "videos" ? videos.length : buckets[id].length);
 
   return (
     <section className="mt-10 w-full max-w-[720px] md:mt-16">
@@ -251,7 +284,7 @@ export default function ProjectList() {
                 link, and the arrow was already saying the only thing that
                 needed saying. */}
             <Link
-              href="/dashboard/projects?filter=all"
+              href={active === "videos" ? "/dashboard/video" : "/dashboard/projects?filter=all"}
               className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
             >
               View all →
@@ -295,7 +328,7 @@ export default function ProjectList() {
                   >
                     <Icon className="h-3.5 w-3.5 shrink-0" />
                     {option.label}
-                    {selected && <span className="text-muted">({buckets[option.id].length})</span>}
+                    {selected && <span className="text-muted">({count(option.id)})</span>}
                   </button>
                 );
               })}
@@ -311,9 +344,36 @@ export default function ProjectList() {
             Apps, and an empty Apps is the state the heading already disappears
             for. A line of explanation under a heading that is not there would
             be new furniture on the screen with the least room for it. */}
-        {isWide && !error && shown.length === 0 && (
+        {isWide && !error && shown.length === 0 && shownVideos.length === 0 && (
           <p className="px-3 py-8 text-center text-sm text-muted">{EMPTY[active]}</p>
         )}
+
+        {shownVideos.map((video) => {
+          const pipeline = isPipelineId(video.pipeline) ? PIPELINES[video.pipeline] : null;
+          return (
+            <button
+              key={video.id}
+              onClick={() => router.push(`/dashboard/video/${video.id}`)}
+              className="flex w-full min-w-0 items-center gap-4 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-layer/[0.03]"
+            >
+              {/* The type's own picture, the same one its card shows. */}
+              <span className="relative h-11 w-[70px] shrink-0 overflow-hidden rounded-[10px] bg-layer/[0.06]">
+                {pipeline && <Image src={`/video-types/${video.pipeline}.jpg`} alt="" fill sizes="70px" className="object-cover" />}
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-[15px] text-ink">{video.title}</span>
+                  {video.status === "ready" && (
+                    <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">Ready</span>
+                  )}
+                </span>
+                <span className="mt-1 block truncate text-[13px] text-muted">
+                  {pipeline?.label ?? "Video"} · {VIDEO_STATUS[video.status] ?? video.status} · {updatedAgo(video.updated_at)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
 
         {shown.map((row) => {
           const project = projects.find((candidate) => candidate.id === row.id);

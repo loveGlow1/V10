@@ -13,7 +13,8 @@ import { NextResponse } from "next/server";
 
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { readiness } from "@/lib/video/engines";
+import { readiness, renderCost } from "@/lib/video/engines";
+import { advance, startMusic } from "@/lib/video/production";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { dispatchJobs, engineOf, jobCost, jobsFor, type RenderJob } from "@/lib/video/render";
 
@@ -50,18 +51,49 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const answers = (video.answers ?? {}) as Record<string, string>;
-  let jobs: RenderJob[] = jobsFor(plan, answers);
+  const { data: refs } = await supabase.from("video_assets").select("kind, storage_path").eq("video_id", id).neq("kind", "render").order("created_at");
+  if (plan.pipeline === "clone" && !(refs ?? []).some((asset) => asset.kind === "person")) {
+    return NextResponse.json({ error: "Upload a clear photo of yourself first — your presenter is made from it." }, { status: 400 });
+  }
+  /* Photo → Video animates the photo itself, so it goes in as the first frame. */
+  let firstFrameUrl: string | null = null;
+  const photo = plan.pipeline === "photo_to_video" ? (refs ?? []).find((asset) => asset.kind === "photo") : undefined;
+  if (photo) {
+    const { data } = await supabase.storage.from("video-assets").createSignedUrl(photo.storage_path, 60 * 60);
+    firstFrameUrl = data?.signedUrl ?? null;
+  }
+  let jobs: RenderJob[] = jobsFor(plan, answers, { firstFrameUrl });
 
   const { data: existing } = await supabase.from("video_renders").select("id, scene, engine, status").eq("video_id", id).eq("version", version);
   if (body.retryFailed === true) {
     const failed = new Set((existing ?? []).filter((r) => r.status === "failed").map((r) => `${r.engine}:${r.scene}`));
     jobs = jobs.filter((job) => failed.has(`${engineOf(job.kind)}:${job.n}`));
-    if (jobs.length === 0) return NextResponse.json({ error: "Nothing failed — there is nothing to retry." }, { status: 400 });
+    /* fal's jobs (lip sync, avatar, music) are restarted by the production
+       line once their inputs are in; the final compose is always redone so
+       it takes the new pieces. */
+    const falFailed = (existing ?? []).filter((r) => r.status === "failed" && ["avatar", "music"].includes(r.engine));
+    if (jobs.length === 0 && falFailed.length === 0) return NextResponse.json({ error: "Nothing failed — there is nothing to retry." }, { status: 400 });
+    for (const row of [...falFailed, ...(existing ?? []).filter((r) => r.engine === "compose")]) {
+      await supabase.from("video_renders").delete().eq("id", row.id);
+    }
+    if (jobs.length === 0) {
+      const service = createSupabaseServiceClient();
+      if (service) {
+        const base = { video_id: id, user_id: userId, version };
+        if (falFailed.some((r) => r.engine === "music")) await startMusic(service, base, new URL(request.url).origin, plan);
+        await advance(service, id, version, new URL(request.url).origin);
+      }
+      await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
+      return NextResponse.json({ queued: falFailed.length, failed: 0, readiness: ready });
+    }
   } else if ((existing ?? []).some((r) => r.status === "queued" || r.status === "running")) {
     return NextResponse.json({ error: "This version is already rendering." }, { status: 409 });
+  } else {
+    /* A fresh render: nothing of the last one carries over. */
+    await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version);
   }
 
-  const cost = jobCost(jobs);
+  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -94,6 +126,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const accepted = sent.filter((entry) => entry.ok).length;
+  if (accepted && body.retryFailed !== true) {
+    const service = createSupabaseServiceClient();
+    if (service) await startMusic(service, { video_id: id, user_id: userId, version }, new URL(request.url).origin, plan);
+  }
   await supabase.from("video_projects").update({ status: accepted ? "rendering" : "failed" }).eq("id", id);
   if (!accepted) return NextResponse.json({ error: sent[0]?.error ?? "The render could not be started." }, { status: 502 });
   return NextResponse.json({ queued: accepted, failed: sent.length - accepted, cost, readiness: ready });

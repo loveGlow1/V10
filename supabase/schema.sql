@@ -3153,6 +3153,11 @@ create table if not exists public.video_renders (
   updated_at  timestamptz not null default now()
 );
 create index if not exists video_renders_video_idx on public.video_renders (video_id, version);
+-- One row per job: the clip, voice, lip sync or avatar of a scene, the music,
+-- the final compose. Two callbacks landing together cannot start the same
+-- follow-up job twice, because the second insert is refused.
+create unique index if not exists video_renders_one_per_job
+  on public.video_renders (video_id, version, coalesce(scene, -1), engine);
 
 do $$
 declare t text;
