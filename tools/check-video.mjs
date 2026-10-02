@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -34,6 +34,7 @@ const P = await import(join(dir, "pipelines.js"));
 const L = await import(join(dir, "plan.js"));
 const E = await import(join(dir, "engines.js"));
 const R = await import(join(dir, "render.js"));
+const F = await import(join(dir, "fal.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -87,7 +88,8 @@ has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a 
 has(/SCENE 1/.test(L.scriptText(fixed)) && /CTA: Shop now/.test(L.scriptText(fixed)), "script export");
 
 console.log("\nrendering");
-has(!E.enginesNeeded(fixed).some((e) => e.engine === "avatar"), "a fictional on-camera scene renders as video + voice, not avatar");
+has(E.enginesNeeded(fixed).some((e) => e.engine === "video" && e.required), "a fictional on-camera scene starts as a clip");
+has(E.enginesNeeded(fixed).some((e) => e.engine === "avatar" && !e.required), "lip sync on it is an upgrade, not a requirement");
 has(E.enginesNeeded(fixed).some((e) => e.engine === "voice" && e.required), "a spoken line needs the voice engine");
 const env = { N8N_WEBHOOK_URL: "https://x.app.n8n.cloud/webhook/api/v1/build", N8N_WEBHOOK_TOKEN: "secret" };
 has(E.readiness(fixed, {}).ready === false && E.readiness(fixed, env).ready === true, "ready only when n8n is configured");
@@ -95,6 +97,27 @@ const clone = L.normalizePlan({ scenes: [{ duration: 5, visual: "presenter talks
 has(E.readiness(clone, env).ready === false, "a clone waits for a real avatar engine — never faked");
 has(E.readiness(L.normalizePlan({ music: "upbeat synth", scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "trailer", {}), env).ready === true, "music is optional");
 has(E.readiness(fixed, env).notes.some((n) => /lip sync/i.test(n)), "says lip sync is not available when it would be wanted");
+
+console.log("\nproduction (fal)");
+const fal = { ...env, FAL_KEY: "k" };
+has(E.engineHealth("avatar", env) === "not-configured" && E.engineHealth("avatar", fal) === "available", "lip sync, avatar, music and compose turn on with FAL_KEY");
+has(E.readiness(clone, fal).ready === true, "a clone renders once the avatar engine is there");
+has(E.readiness(fixed, env).notes.some((n) => /FAL_KEY/.test(n)) && !E.readiness(fixed, fal).notes.some((n) => /lip sync needs/i.test(n)), "the studio says what FAL_KEY would add, and stops saying it once set");
+const spokenAvatar = L.normalizePlan({ music: "upbeat", scenes: [{ duration: 5, visual: "creator talks to camera", voiceover: "hi", motionPrompt: "x", engine: "avatar" }, { duration: 5, visual: "b-roll", motionPrompt: "y" }] }, "ugc_influencer", {});
+has(E.renderCost(spokenAvatar, env) === E.CLIP_COST * 2 + E.VOICE_COST, "without fal: clips and voice only");
+has(E.renderCost(spokenAvatar, fal) === E.CLIP_COST * 2 + E.VOICE_COST + E.LIPSYNC_COST + E.MUSIC_COST + E.COMPOSE_COST, "with fal: + lip sync, music and the final MP4");
+const cloneSpoken = L.normalizePlan({ scenes: [{ duration: 5, visual: "presenter talks to camera", voiceover: "hello", motionPrompt: "x", engine: "avatar" }] }, "clone", {});
+const cloneJobs = R.jobsFor(cloneSpoken, {});
+has(cloneJobs.length === 1 && cloneJobs[0].kind === "voice", "a clone's presenter scene orders its voice, not a stranger's clip");
+has(E.renderCost(cloneSpoken, fal) === E.VOICE_COST + E.AVATAR_COST + E.COMPOSE_COST, "and is priced as voice + avatar");
+const photoJobs = R.jobsFor(L.normalizePlan({ scenes: [{ duration: 5, visual: "mountains", motionPrompt: "x" }] }, "photo_to_video", {}), {}, { firstFrameUrl: "https://x/photo.jpg" });
+has(photoJobs[0].imageUrl === "https://x/photo.jpg", "Photo → Video clips start from the photo");
+has(F.parseJobKey("avatar:3")?.scene === 3 && F.parseJobKey("compose")?.scene === null && F.parseJobKey("rm -rf") === null, "fal job keys parse, junk does not");
+const tok = F.falToken("vid", 1, "avatar:2", env);
+has(F.verifyFalToken("vid", 1, "avatar:2", tok, env) && !F.verifyFalToken("vid", 1, "avatar:3", tok, env) && !F.verifyFalToken("vid", 2, "avatar:2", tok, env), "a fal callback token is good for its own job only");
+has(F.outputUrl({ video: { url: "https://v3.fal.media/a.mp4" } }) && F.outputUrl({ audio: { url: "https://v3.fal.media/a.mp3" } }) && F.outputUrl({ video_url: "https://v3.fal.media/b.mp4" }) && !F.outputUrl({ video: { url: "http://evil/a.mp4" } }), "media read out of every model's answer, https only");
+const hook = F.falWebhookUrl("https://www.quickstark.tech", "vid", 4, { engine: "compose", scene: null });
+has(/\/api\/video\/vid\/render\/fal\?v=4&job=compose&t=[0-9a-f]{64}$/.test(hook), "webhook address names the video, version and job");
 
 console.log("\njobs and signing");
 has(R.videoWebhookUrl(env) === "https://x.app.n8n.cloud/webhook/api/v1/video-render", "webhook derived from the build webhook's origin");

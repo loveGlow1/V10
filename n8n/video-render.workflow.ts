@@ -10,8 +10,9 @@ import { workflow, node, trigger, newCredential, switchCase, expr } from '@n8n/w
  * reports back on its own to /api/video/{id}/render/callback.
  *
  *   Read Job       normalise the request; clips capped at 6s
- *   Clip Or Voice  route by job.kind
+ *   Clip Or Voice  route by job.kind (a clip carrying imageUrl → from the photo)
  *   Generate Clip  MiniMax-H3 text-to-video at the plan's aspect ratio (768P)
+ *   Generate Clip From Photo  MiniMax-H3 image-to-video, the photo as first frame
  *   Generate Voice MiniMax speech-2.8-hd
  *   Job Result     the URL, or the error, out of whatever came back
  *   Report To App  POST to the app with X-QuickStark-Token + the app's signature
@@ -57,6 +58,7 @@ const prepare = node({
         "  ratio: ratios[body.aspect] ?? '16:9',\n" +
         "  voiceId: String(job.voiceId || 'English_Graceful_Lady'),\n" +
         "  language: String(job.language || 'auto'),\n" +
+        "  imageUrl: /^https:\\/\\//.test(String(job.imageUrl || '')) ? String(job.imageUrl) : '',\n" +
         '} }];',
     },
   },
@@ -70,8 +72,9 @@ const route = switchCase({
     parameters: {
       rules: {
         values: [
-          { conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.kind }}'), rightValue: 'clip', operator: { type: 'string', operation: 'equals' } }], combinator: 'and' }, renameOutput: true, outputKey: 'clip' },
+          { conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.kind }}'), rightValue: 'clip', operator: { type: 'string', operation: 'equals' } }, { leftValue: expr('{{ $json.imageUrl }}'), rightValue: '', operator: { type: 'string', operation: 'empty', singleValue: true } }], combinator: 'and' }, renameOutput: true, outputKey: 'clip' },
           { conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.kind }}'), rightValue: 'voice', operator: { type: 'string', operation: 'equals' } }], combinator: 'and' }, renameOutput: true, outputKey: 'voice' },
+          { conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.kind }}'), rightValue: 'clip', operator: { type: 'string', operation: 'equals' } }, { leftValue: expr('{{ $json.imageUrl }}'), rightValue: '', operator: { type: 'string', operation: 'notEmpty', singleValue: true } }], combinator: 'and' }, renameOutput: true, outputKey: 'clip from photo' },
         ],
       },
       options: {},
@@ -87,6 +90,18 @@ const clip = node({
     position: [660, 200],
     onError: 'continueRegularOutput',
     parameters: { resource: 'video', operation: 'textToVideo', modelId: 'MiniMax-H3', prompt: expr('{{ $json.prompt }}'), h3Duration: expr('{{ $json.duration }}'), h3Resolution: '768P', ratio: expr('{{ $json.ratio }}'), downloadVideo: false },
+    credentials: { minimaxApi: newCredential('MiniMax') },
+  },
+});
+
+const fromPhoto = node({
+  type: '@n8n/n8n-nodes-langchain.minimax',
+  version: 1.2,
+  config: {
+    name: 'Generate Clip From Photo',
+    position: [660, 520],
+    onError: 'continueRegularOutput',
+    parameters: { resource: 'video', operation: 'imageToVideo', modelId: 'MiniMax-H3', imageInputType: 'url', imageUrl: expr('{{ $json.imageUrl }}'), prompt: expr('{{ $json.prompt }}'), h3Duration: expr('{{ $json.duration }}'), h3Resolution: '768P', downloadVideo: false },
     credentials: { minimaxApi: newCredential('MiniMax') },
   },
 });
@@ -152,7 +167,7 @@ const callback = node({
 export default workflow('quickstark-video-render', 'QuickStark.Ai — Video Render')
   .add(webhook)
   .to(prepare)
-  .to(route.onCase(0, clip.to(result)).onCase(1, voice.to(result)))
+  .to(route.onCase(0, clip.to(result)).onCase(1, voice.to(result)).onCase(2, fromPhoto.to(result)))
   .add(result)
   .to(callback)
-  .group('Generate', [route, clip, voice, result], { description: 'One scene clip (MiniMax-H3, plan aspect ratio) or one voice line (MiniMax speech) per execution — the instance caps a run at 180s. Gateway credits.' });
+  .group('Generate', [route, clip, voice, fromPhoto, result], { description: 'One scene clip (MiniMax-H3, plan aspect ratio) or one voice line (MiniMax speech) per execution — the instance caps a run at 180s. Gateway credits.' });

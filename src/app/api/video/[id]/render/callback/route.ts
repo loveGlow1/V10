@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 
 import { chargeCredits } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { advance } from "@/lib/video/production";
 import { CLIP_COST, VOICE_COST, hasWebhookToken, verifyRender } from "@/lib/video/render";
 
 /* Room to copy a clip into storage before answering n8n. */
@@ -86,11 +87,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
   }
 
+  /* What this result makes possible next: lip sync for an on-camera scene,
+     a clone's avatar, the final compose. Nothing, without FAL_KEY. */
+  await advance(service, id, version, new URL(request.url).origin);
+
   const { data: rows } = await service.from("video_renders").select("engine, status").eq("video_id", id).eq("version", version);
   const open = (rows ?? []).some((row) => row.status === "running" || row.status === "queued");
   if (!open) {
-    const clipsDone = (rows ?? []).some((row) => row.engine === "video" && row.status === "done");
-    await service.from("video_projects").update({ status: clipsDone ? "ready" : "failed" }).eq("id", id);
+    const pictures = (rows ?? []).some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done");
+    await service.from("video_projects").update({ status: pictures ? "ready" : "failed" }).eq("id", id);
   }
 
   return NextResponse.json({ ok: true });
