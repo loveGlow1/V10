@@ -68,6 +68,7 @@ import {
   Newspaper,
   Image as ImageIcon,
 } from "lucide-react";
+import { GITHUB_RETURNED, connectGitHubHref } from "@/lib/github/connect-link";
 
 /* The advanced-controls mark, Google's way: two rails, a ring on the left
    of the top one and on the right of the bottom one. */
@@ -185,6 +186,19 @@ export default function DashboardPage() {
 
   // The phone header opens this; from md up the drawer never mounts.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  /* How a Connect GitHub started from this screen went — ?github= on the way
+     back from github.com. Read once and cleared from the address bar, so a
+     reload does not announce it again. */
+  const [githubNotice, setGithubNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const returned = url.searchParams.get("github");
+    if (!returned) return;
+    setGithubNotice(GITHUB_RETURNED[returned] ?? null);
+    url.searchParams.delete("github");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   // Agent Selector State & Data. The agent list is what a phone chooses from:
   // the sheet has the room for it and the bar has not, so Q1 stays the mobile
@@ -392,6 +406,14 @@ export default function DashboardPage() {
   return (
     <ProjectsProvider>
     <div className="relative flex min-h-[100dvh] w-full flex-col overflow-x-hidden bg-canvas">
+      {githubNotice && (
+        <button
+          onClick={() => setGithubNotice(null)}
+          className="fixed bottom-4 left-1/2 z-[80] max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-xl border border-line/[0.09] bg-panel px-4 py-2.5 text-[13px] text-ink shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+        >
+          {githubNotice}
+        </button>
+      )}
       {/* Shared with the project workspace, so a phone sees the same light on
           both screens. */}
       <PhoneField />
@@ -607,8 +629,9 @@ export default function DashboardPage() {
                     <Paperclip className="h-4 w-4" />
                   </button>
 
-                  {/* Source control, as in the reference toolbar */}
+                  {/* Source control: starts Connect GitHub and comes back here. */}
                   <button
+                    onClick={() => window.location.assign(connectGitHubHref())}
                     title="Connect a repository"
                     aria-label="Connect a repository"
                     className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
@@ -1156,7 +1179,10 @@ export default function DashboardPage() {
                   <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     GitHub
                   </span>
-                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                  <div
+                    onClick={() => window.location.assign(connectGitHubHref())}
+                    className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all"
+                  >
                     <div className="flex items-center gap-3">
                       <Github className="w-4 h-4 text-muted" />
                       <span className="text-sm font-semibold text-ink">Connect to GitHub</span>

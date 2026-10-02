@@ -35,6 +35,7 @@ import { useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { KIND_LABEL } from "@/lib/builder/kinds";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { connectGitHubHref } from "@/lib/github/connect-link";
 
 /* What kind of thing a task is, from the intent a build recorded.
  *
@@ -302,7 +303,14 @@ export default function Sidebar({
         ]
       : []),
     { icon: Globe, label: "Language", trailing: "chevron" as const },
-    { icon: Github, label: "Connect to GitHub", trailing: "external" as const },
+    {
+      icon: Github,
+      label: "Connect to GitHub",
+      trailing: "external" as const,
+      onClick: () => {
+        window.location.assign(connectGitHubHref());
+      },
+    },
     { icon: Users, label: "Community", trailing: "external" as const },
     { icon: LifeBuoy, label: "Help Center", trailing: "external" as const },
   ];

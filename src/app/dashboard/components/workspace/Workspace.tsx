@@ -60,6 +60,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
      happened on supabase.com, and the next step — picking a project — is on
      the Database panel. */
   const openedOnDatabase = search.get("view") === "database";
+  /* "?view=integrations" is where Connect GitHub comes back to. */
+  const openedOnIntegrations = search.get("view") === "integrations";
   const { projects, loading, error, select } = useProjects();
 
   /* Opening an app is the signal the dashboard ranks on — see touch_project in
@@ -147,12 +149,13 @@ export default function Workspace({ projectId }: { projectId: string }) {
      component re-rendered with the parameter still in the address bar. */
   const arrivedOnManage = useRef(false);
   useEffect(() => {
-    if ((!openedOnManage && !openedOnDatabase) || arrivedOnManage.current) return;
+    if ((!openedOnManage && !openedOnDatabase && !openedOnIntegrations) || arrivedOnManage.current) return;
     arrivedOnManage.current = true;
-    openManage(openedOnDatabase ? "database" : "settings");
+    if (openedOnIntegrations) openManage("integrations", "Source");
+    else openManage(openedOnDatabase ? "database" : "settings");
     // openManage is stable for this purpose: it only ever sets state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openedOnManage, openedOnDatabase]);
+  }, [openedOnManage, openedOnDatabase, openedOnIntegrations]);
 
   /* Opening the route is what selects the app, so a link, a reload and a click
      in the list all leave the account on the same project. */
