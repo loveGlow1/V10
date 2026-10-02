@@ -77,13 +77,7 @@ export default function VideoTypeGrid({
             active ? "ring-2 ring-white/85" : "ring-0 group-hover:ring-1 group-hover:ring-white/25"
           }`}
         >
-          <Image
-            src={`/video-types/${id}.jpg`}
-            alt=""
-            fill
-            sizes="176px"
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
+          <LoopingPreview id={id} />
         </span>
         <span className={`mt-2.5 block text-[13px] font-medium leading-tight sm:text-[13.5px] ${active ? "text-ink" : "text-soft group-hover:text-ink"}`}>
           {entry.label}
@@ -205,5 +199,52 @@ export default function VideoTypeGrid({
         </div>
       )}
     </div>
+  );
+}
+
+/* A card's picture, moving: a short silent loop (forward then back, so it
+   has no seam), its still frame as the poster. It plays only while on screen
+   and never for someone who has asked their device for reduced motion — they
+   keep the still. */
+function LoopingPreview({ id }: { id: PipelineId }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [still, setStill] = useState(false);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setStill(true);
+      return;
+    }
+    const seen = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void video.play().catch(() => setStill(true));
+        else video.pause();
+      },
+      { threshold: 0.25 },
+    );
+    seen.observe(video);
+    return () => seen.disconnect();
+  }, []);
+
+  if (still) {
+    return <Image src={`/video-types/${id}.jpg`} alt="" fill sizes="176px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />;
+  }
+  return (
+    <video
+      ref={ref}
+      poster={`/video-types/${id}.jpg`}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      aria-hidden
+      className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+    >
+      {/* H.264 first for Safari and iOS; VP9 for browsers built without it. */}
+      <source src={`/video-types/${id}.mp4`} type="video/mp4" />
+      <source src={`/video-types/${id}.webm`} type="video/webm" />
+    </video>
   );
 }
