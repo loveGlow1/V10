@@ -32,12 +32,14 @@
  * than inventing a likely-sounding one.
  */
 
-/** The ceiling the platform enforces on a request, whatever a route declares. */
-export const FUNCTION_CEILING_MS = 60_000;
+/** The ceiling the platform enforces on a request: 300 seconds with Fluid
+    compute on, which vercel.json asks for. See maxDuration in api/build. */
+export const FUNCTION_CEILING_MS = 300_000;
 
-/* Close enough to the ceiling that the ceiling is the explanation. A run that
-   died at 57 seconds was not unlucky with the network. */
-const NEAR_CEILING_MS = 45_000;
+/* Close enough to the ceiling that the ceiling is the explanation. The edit
+   budget ends at 270 seconds, so a connection that went quiet after 250 was
+   the ceiling and not the network. */
+const NEAR_CEILING_MS = 250_000;
 
 export type RunFailure = {
   /** What happened, in one sentence, with no jargon and no blame. */
