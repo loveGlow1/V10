@@ -905,7 +905,9 @@ export default function DashboardPage() {
 
           {/* Starters, centred under the composer. The row scrolls sideways
               rather than wrapping, so it stays one line on a phone and the chips keep
-              the size they have on a desktop. */}
+              the size they have on a desktop. Not under Video: those starters
+              build apps, and the video row above is that tab's starting point. */}
+          {!videoMode && (
           <div className="mt-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* w-max + mx-auto centres the row under the composer while it fits, and lets
                 it start at the left edge once it is wider than the column — centring the
@@ -963,6 +965,7 @@ export default function DashboardPage() {
             })}
             </div>
           </div>
+          )}
         </div>
 
         <ProjectList />
