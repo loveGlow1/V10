@@ -33,6 +33,7 @@
  * repaired through the edit path like anything else.
  */
 
+import { restoreImages, stashImages } from "@/lib/page-html";
 import { ensureFramingStyles, pictures, readFraming, writeFraming } from "@/lib/builder/framing";
 
 export type Fix = {
@@ -75,6 +76,27 @@ const has = (html: string, pattern: RegExp): boolean => pattern.test(html);
  */
 export function autofix(html: string): FixResult {
   if (!html || html.length < 40) return { html, applied: [] };
+
+  /* ── The pictures, out of the way ───────────────────────────────────────
+   *
+   * An embedded photograph is a single run of base64 that can be millions of
+   * characters long, and several of the patterns below backtrack across
+   * anything that is not a tag. On an 80 KB page carrying one 2.6 MB
+   * screenshot this ran for more than ten minutes — longer than the request
+   * it ran in — so "update the logo" with a phone screenshot attached hung
+   * until the connection died, every time, after the change itself had taken
+   * milliseconds. None of these fixes is about the bytes of a picture, so they
+   * run on the page with its pictures lifted out and the pictures go back
+   * after. */
+  const stashed = stashImages(html);
+  if (stashed.images.length > 0) {
+    const fixed = fixMarkup(stashed.lean);
+    return { html: restoreImages(fixed.html, stashed.images), applied: fixed.applied };
+  }
+  return fixMarkup(html);
+}
+
+function fixMarkup(html: string): FixResult {
 
   const applied: Fix[] = [];
   let out = html;
@@ -211,9 +233,16 @@ export function autofix(html: string): FixResult {
    * shaped in a way this cannot read, nothing matches and nothing is added. */
   {
     const selectors = new Set<string>();
-    for (const match of out.matchAll(
+    /* Only the stylesheets, never the whole document. `[^{}@]+` before a brace
+       is quadratic over text that has no braces in it — which is all of a
+       page's markup — and on an ordinary landing page this one pattern took
+       four seconds; on a long one, far longer. CSS rules live in <style>. */
+    const sheets = [...out.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+      .map((sheet) => sheet[1])
+      .filter((css) => /grid-template-columns/i.test(css));
+    for (const match of sheets.flatMap((css) => [...css.matchAll(
       /([^{}@]+)\{([^{}]*grid-template-columns\s*:\s*repeat\(\s*(\d+)\s*,[^{}]*)\}/gi,
-    )) {
+    )])) {
       const selector = match[1].trim().replace(/\s+/g, " ");
       const columns = Number(match[3]);
       if (columns < 3) continue;
