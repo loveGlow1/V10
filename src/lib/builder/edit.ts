@@ -28,6 +28,7 @@ import {
   EDIT_SYSTEM,
   LINES_SYSTEM,
   QUESTION_SYSTEM,
+  PLAN_ADDENDUM,
   SOURCE_SYSTEM,
   clarifyPrompt,
   editPrompt,
@@ -1100,9 +1101,11 @@ export async function answerQuestion(
   /* A question sends the whole page too, so the same choice applies: the page
      decides, even though nothing is being written. See editModelFor. */
   model: string = EDIT_MODEL,
+  /* Plan mode: the same reader, asked for a plan of the change instead. */
+  plan = false,
 ): Promise<Answer> {
   const message = await ask(
-    QUESTION_SYSTEM,
+    plan ? `${QUESTION_SYSTEM}\n\n${PLAN_ADDENDUM}` : QUESTION_SYSTEM,
     questionPrompt(userMessage, html),
     1_500,
     attachments,

@@ -129,6 +129,14 @@ How to write:
 
 If the message has nothing to do with this page or with building it — general knowledge, a request to write something unrelated — say in one friendly sentence that you're here to help with this app, and suggest one thing you could do to it instead.`;
 
+/* Appended in plan mode. The message is a change they are thinking about, and
+   the answer is the plan for it — nothing is made until plan mode is off. */
+export const PLAN_ADDENDUM = `PLAN MODE IS ON. The message describes something they want built or changed. Do not answer it as a question and do not make the change. Reply with a plan:
+- One sentence saying what you understood they want.
+- "## Plan" and numbered steps: which sections, pages or pieces you would add or change, and what each would contain. Name real sections of the page where they exist. If there is no page yet, plan the page from scratch.
+- One line on anything you need them to decide, if there is something.
+- End with: "Turn off Plan mode and send it again, and I'll build it."`;
+
 export function questionPrompt(userMessage: string, html: string): string {
   return `THE PAGE:
 

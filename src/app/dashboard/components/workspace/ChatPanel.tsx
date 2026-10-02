@@ -13,11 +13,13 @@ import {
   ExternalLink,
   GitFork,
   Github,
+  Cable,
   MicOff,
   Paperclip,
   Plus,
   Repeat2,
   Shuffle,
+  SlidersHorizontal,
   Undo2,
   Wand2,
   X,
@@ -43,6 +45,7 @@ import ScrollToEnds from "../ScrollToEnds";
 import BuildActivity from "./BuildActivity";
 import { usePacedSteps } from "./usePacedSteps";
 import MessageRow, { type Activity } from "./MessageRow";
+import ComposerSettingsSheet from "./ComposerSettingsSheet";
 import ChatMarkdown from "./ChatMarkdown";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
@@ -140,6 +143,7 @@ type ComposerMode = "auto" | "edit" | "new_project";
 export default function ChatPanel({
   project,
   onOpenIntegrations,
+  onOpenConnectors,
   onConnectDatabase,
   onOpenPreview,
   previewOpen = false,
@@ -152,6 +156,8 @@ export default function ChatPanel({
 }: {
   project: Project | null;
   onOpenIntegrations: () => void;
+  /** The composer's connectors button: every integration, unfiltered. */
+  onOpenConnectors?: () => void;
   /** Opens the Database panel, for a reply that asks to link one. */
   onConnectDatabase?: () => void;
   /** Raises the preview sheet over the conversation. Phones only — see Workspace. */
@@ -181,7 +187,7 @@ export default function ChatPanel({
   alone?: boolean;
 }) {
   const router = useRouter();
-  const { create, build, watchBuild } = useProjects();
+  const { create, build, watchBuild, adopt } = useProjects();
   /* A build running is what makes a session active. The tab strip shows it, so
      a workspace left for another one still says it is working. */
   const { setBusy } = useWorkspaceTabs();
@@ -284,6 +290,11 @@ export default function ChatPanel({
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
   const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+  /* The sliders button's sheet, and the one setting in it that changes what
+     sending does: plan mode answers with a plan and touches nothing. */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const [building, setBuilding] = useState(false);
   /* The run in flight, so the send button can end it.
    *
@@ -1060,9 +1071,22 @@ export default function ChatPanel({
        server refuses it too — this only saves the round trip. */
     if (paused) return;
 
+    /* Only an ordinary message is planned. Undo, the visual editor, the yes to
+       a question the builder asked — those are answers, and keep doing what
+       they say. */
+    const planActive =
+      planMode &&
+      !options.intentOverride &&
+      !options.silent &&
+      options.confirmSql === undefined &&
+      !options.upgrade &&
+      !options.stack &&
+      !options.architecture &&
+      !options.confirmNewProject;
+
     /* Asked for outright, by the chip. It never reaches the server as a message
        about THIS project, because it is not one — see startNewProject. */
-    if ((options.intentOverride ?? mode) === "new_project" && !options.silent) {
+    if (!planActive && (options.intentOverride ?? mode) === "new_project" && !options.silent) {
       /* A file on its own can start a change here, and cannot start an app
          elsewhere: the attachment belongs to this project and does not follow
          the message out of it. So this is the one send that still needs words,
@@ -1145,7 +1169,8 @@ export default function ChatPanel({
       setStreamed("");
 
       const reply = await build(project.id, text, {
-        intentOverride: options.intentOverride ?? (mode === "auto" ? null : mode),
+        intentOverride: planActive ? null : options.intentOverride ?? (mode === "auto" ? null : mode),
+        planOnly: planActive,
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
@@ -1449,16 +1474,30 @@ export default function ChatPanel({
      press on Create the fork made two copies. */
   const forkInFlight = useRef(false);
 
+  /* The server copies the app — its latest version, its source files and
+     its architecture — so the fork opens on the same page this one shows, not
+     on a blank one. See /api/projects/[id]/fork. */
   async function fork() {
     if (!project || forkInFlight.current) return;
     forkInFlight.current = true;
     setForking(true);
-    const copy = await create(`${project.name} copy`);
-    forkInFlight.current = false;
-    setForking(false);
-    setForkOpen(false);
-    if (copy) {
-      router.push(`/dashboard/project/${copy.id}`);
+    setForkError(null);
+    try {
+      const response = await fetch(`/api/projects/${project.id}/fork`, { method: "POST" });
+      const body = (await response.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!response.ok || !body.id) {
+        setForkError(body.error ?? "The fork could not be made. Try again.");
+        return;
+      }
+      await adopt(body.id);
+      setForkOpen(false);
+      setSettingsOpen(false);
+      router.push(`/dashboard/project/${body.id}`);
+    } catch {
+      setForkError("The fork could not be made. Check your connection and try again.");
+    } finally {
+      forkInFlight.current = false;
+      setForking(false);
     }
   }
 
@@ -2335,14 +2374,51 @@ export default function ChatPanel({
                   <Paperclip className="h-4 w-4 -rotate-45" />
                 </button>
 
-                {/* The repository this app pushes to. There is no connection to
-                    make yet, so it opens the drawer where that connection will
-                    be made rather than failing on its own. */}
+                {/* Settings: the model, plan mode, Save to GitHub and Fork. */}
+                <button
+                  onClick={() => {
+                    setSettingsOpen(true);
+                    setModelOpen(false);
+                    setForkOpen(false);
+                  }}
+                  title="Settings"
+                  aria-label="Settings"
+                  aria-haspopup="dialog"
+                  className={control}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </button>
+
+                {/* Every integration, unfiltered — the connectors. */}
+                <button
+                  onClick={onOpenConnectors ?? onOpenIntegrations}
+                  title="Integrations"
+                  aria-label="Integrations"
+                  className={control}
+                >
+                  <Cable className="h-4 w-4" />
+                </button>
+
+                {/* On, it says so where the message is written, and one press
+                    turns it off. */}
+                {planMode && (
+                  <button
+                    onClick={() => setPlanMode(false)}
+                    title="Plan mode is on. Press to turn it off."
+                    className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[12.5px] font-medium text-ink"
+                  >
+                    Plan
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+
+                {/* The repository this app pushes to — from md up only; a phone
+                    reaches it as Save to GitHub in Settings. */}
                 <button
                   onClick={onOpenIntegrations}
                   title="Connect a repository"
                   aria-label="Connect a repository"
-                  className={control}
+                  className={`${control} hidden md:flex`}
                 >
                   <Github className="h-4 w-4" />
                 </button>
@@ -2353,7 +2429,7 @@ export default function ChatPanel({
                     setModelOpen(false);
                   }}
                   aria-expanded={forkOpen}
-                  className={chip}
+                  className={`${chip} hidden md:flex`}
                 >
                   <GitFork className="h-4 w-4" />
                   <span className="font-medium tracking-tight">Fork</span>
@@ -2368,7 +2444,9 @@ export default function ChatPanel({
                   }}
                   aria-expanded={modelOpen}
                   aria-label="Choose a model"
-                  className={chip}
+                  /* A phone picks the model in Settings. The list it opens is
+                     anchored to this row, so it opens in the same place. */
+                  className={`${chip} hidden md:flex`}
                 >
                   <ProviderMark provider={chosen.provider} />
                   <span className="font-medium tracking-tight">{shortModelName(chosen)}</span>
@@ -2443,10 +2521,11 @@ export default function ChatPanel({
                   >
                     <p className="text-[13px] font-medium text-ink">Fork this app</p>
                     <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                      Opens a copy you can change without touching{" "}
-                      {project?.name ?? "this one"}. Nothing is built yet, so the copy starts from
-                      the same place this one did.
+                      Makes a copy of {project?.name ?? "this app"} — its latest version and its
+                      files — that you can change without touching the original. The chat,
+                      the live address and connected services stay with this one.
                     </p>
+                    {forkError && <p className="mt-2 text-[12px] text-warn">{forkError}</p>}
                     <button
                       onClick={fork}
                       disabled={!project || forking}
@@ -2578,6 +2657,22 @@ export default function ChatPanel({
           </div>
         </div>
       </div>
+
+      <ComposerSettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        modelName={chosen.name}
+        modelMark={<ProviderMark provider={chosen.provider} />}
+        onChooseModel={() => setModelOpen(true)}
+        planMode={planMode}
+        onPlanMode={setPlanMode}
+        onSaveToGitHub={onOpenIntegrations}
+        projectName={project?.name ?? "this app"}
+        canFork={Boolean(project)}
+        forking={forking}
+        forkError={forkError}
+        onFork={() => void fork()}
+      />
     </section>
   );
 }
