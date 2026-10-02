@@ -530,7 +530,7 @@ export default function DashboardPage() {
                   <PhoneIcon className={`h-[17px] w-[17px] shrink-0 md:hidden ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.5} />
                   <Icon className={`hidden h-4 w-4 shrink-0 md:block ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
                   <span className={active ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
-                  {tab.id === "video" && (
+                  {(tab.id === "video" || tab.id === "fliers") && (
                     <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-[4deg] rounded-[6px] bg-[#e5243b] qs-new px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white ring-1 ring-white/80 md:static md:translate-x-0 md:rotate-0 md:ring-0">
                       New
                     </span>
