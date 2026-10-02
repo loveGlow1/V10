@@ -963,9 +963,9 @@ export default function DashboardPage() {
               Two rows on a phone rather than one scroller: five chips and two
               labels do not make a line at 360px, and a question you have to
               scroll to finish reading is one nobody finishes. */}
-          {/* The tab's sub-types. Auto names what the sentence reads as, so the
-              guess is visible; a chip overrules it, and pressing it again
-              hands the choice back. */}
+          {/* The tab's sub-types. The lit chip is what the sentence reads as,
+              so the guess is visible; pressing a chip fixes it, and pressing
+              it again hands the choice back to the sentence. */}
           {videoMode && (
             <VideoTypeGrid
               selected={videoPipeline}
@@ -979,15 +979,17 @@ export default function DashboardPage() {
           {!videoMode && (
           <div className="relative z-10 mt-3 flex flex-col items-center gap-2">
             <div className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {[{ id: null as string | null, label: activeSubtype ? "Auto" : `Auto · ${subtype.label}`, blurb: "Read from what you describe" }, ...SUBTYPES[activeCategory]].map((option) => {
-                const chosen = activeSubtype === option.id;
+              {SUBTYPES[activeCategory].map((option) => {
+                /* No Auto chip: until one is picked, the chip the sentence
+                   reads as is the lit one, and it moves as they type. */
+                const chosen = (activeSubtype ?? subtype.id) === option.id;
                 return (
                   <button
-                    key={option.id ?? "auto"}
+                    key={option.id}
                     type="button"
                     title={option.blurb}
                     aria-pressed={chosen}
-                    onClick={() => setActiveSubtype((current) => (option.id === null || current === option.id ? null : option.id))}
+                    onClick={() => setActiveSubtype((current) => (current === option.id ? null : option.id))}
                     className={`h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-[12.5px] transition-colors ${
                       chosen
                         ? "border-[#3a3a40] bg-[#1c1c20] text-white"
