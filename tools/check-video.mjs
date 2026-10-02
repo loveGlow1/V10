@@ -15,20 +15,25 @@ const out = join(process.cwd(), "node_modules", ".cache", "quickstark-video");
 mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
-  compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"] },
-  files: ["pipelines.ts", "plan.ts", "engines.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 const dir = join(out, "lib/video");
-for (const entry of readdirSync(dir)) {
-  if (!entry.endsWith(".js")) continue;
-  const path = join(dir, entry);
-  writeFileSync(path, readFileSync(path, "utf8").replace(/(from\s+["'])(\.\/[^"']+?)(["'])/g, (w, a, s, c) => (s.endsWith(".js") ? w : `${a}${s}.js${c}`)));
+/* tsc keeps import specifiers as written; node's ESM loader wants files. */
+for (const entry of readdirSync(out, { recursive: true })) {
+  if (!String(entry).endsWith(".js")) continue;
+  const path = join(out, String(entry));
+  const depth = String(entry).split("/").length - 1;
+  writeFileSync(path, readFileSync(path, "utf8")
+    .replace(/(from\s+["'])@\/([^"']+?)(["'])/g, (_, a, rest, c) => `${a}${"../".repeat(depth)}${rest}.js${c}`)
+    .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (w, a, spec, c) => (spec.endsWith(".js") ? w : `${a}${spec}.js${c}`)));
 }
 const P = await import(join(dir, "pipelines.js"));
 const L = await import(join(dir, "plan.js"));
 const E = await import(join(dir, "engines.js"));
+const R = await import(join(dir, "render.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -77,10 +82,32 @@ has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a 
 has(/SCENE 1/.test(L.scriptText(fixed)) && /CTA: Shop now/.test(L.scriptText(fixed)), "script export");
 
 console.log("\nrendering");
-has(!E.enginesNeeded(fixed).includes("voice"), "no voice engine when the only line is spoken by the avatar");
-has(E.enginesNeeded(ugc.plan).includes("voice") === (ugc.plan.scenes[0].engine !== "avatar"), "a spoken line off-avatar needs the voice engine");
-const r = E.readiness(fixed, { VIDEO_ENGINE_ENABLED: "true", VIDEO_ENGINE_ENDPOINT: "x", VIDEO_ENGINE_API_KEY: "y" });
-has(r.ready === false && r.engines.every((e) => e.health === "no-adapter"), "a key alone does not make an engine ready without its adapter");
+has(!E.enginesNeeded(fixed).some((e) => e.engine === "avatar"), "a fictional on-camera scene renders as video + voice, not avatar");
+has(E.enginesNeeded(fixed).some((e) => e.engine === "voice" && e.required), "a spoken line needs the voice engine");
+const env = { N8N_WEBHOOK_URL: "https://x.app.n8n.cloud/webhook/api/v1/build", N8N_WEBHOOK_TOKEN: "secret" };
+has(E.readiness(fixed, {}).ready === false && E.readiness(fixed, env).ready === true, "ready only when n8n is configured");
+const clone = L.normalizePlan({ scenes: [{ duration: 5, visual: "presenter talks to camera", voiceover: "hi", motionPrompt: "x", engine: "avatar" }] }, "clone", { length: "5s" });
+has(E.readiness(clone, env).ready === false, "a clone waits for a real avatar engine — never faked");
+has(E.readiness(L.normalizePlan({ music: "upbeat synth", scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "trailer", {}), env).ready === true, "music is optional");
+has(E.readiness(fixed, env).notes.some((n) => /lip sync/i.test(n)), "says lip sync is not available when it would be wanted");
+
+console.log("\njobs and signing");
+has(R.videoWebhookUrl(env) === "https://x.app.n8n.cloud/webhook/api/v1/video-render", "webhook derived from the build webhook's origin");
+has(R.videoWebhookUrl({ ...env, N8N_VIDEO_WEBHOOK_URL: "https://y/hook" }) === "https://y/hook", "and overridable");
+const jobs = R.jobsFor(fixed, { voice: "Male" });
+has(jobs.filter((j) => j.kind === "clip").length === fixed.scenes.length, "one clip per scene");
+has(jobs.filter((j) => j.kind === "voice").length === fixed.scenes.filter((s) => s.voiceover).length, "one voice line per spoken scene");
+has(jobs.every((j) => j.kind !== "clip" || (j.duration >= 4 && j.duration <= R.MAX_CLIP_SECONDS)), "clips are 4–6s (the 180s run limit)");
+has(jobs.find((j) => j.kind === "voice")?.voiceId === "English_Trustworth_Man", "male voice when asked");
+has(R.jobsFor(L.normalizePlan({ scenes: [{ duration: 5, visual: "a", voiceover: "MAYA: We go now.", motionPrompt: "x" }] }, "cinematic_short", {}), {}).find((j) => j.kind === "voice")?.text === "We go now.", "dialogue speaker names are not spoken");
+has(R.jobCost(jobs) === E.renderCost(fixed), "the price shown is the price charged");
+const sig = R.signRender("vid", 2, "user", env);
+has(R.verifyRender("vid", 2, "user", sig, env), "a signature verifies for its own render");
+has(!R.verifyRender("vid", 3, "user", sig, env) && !R.verifyRender("other", 2, "user", sig, env) && !R.verifyRender("vid", 2, "someone", sig, env), "and for nothing else");
+has(!R.verifyRender("vid", 2, "user", sig, { N8N_WEBHOOK_TOKEN: "other" }), "a different secret fails");
+has(!R.verifyRender("vid", 2, "user", "1.abc", env), "an expired or forged signature fails");
+const h = new Headers({ "X-QuickStark-Token": "secret" });
+has(R.hasWebhookToken(h, env) && !R.hasWebhookToken(new Headers({ "X-QuickStark-Token": "nope" }), env) && !R.hasWebhookToken(new Headers(), env), "the callback token check");
 
 const root = process.cwd();
 const create = readFileSync(join(root, "src/app/api/video/route.ts"), "utf8");
@@ -89,6 +116,11 @@ const schema = readFileSync(join(root, "supabase/schema.sql"), "utf8");
 has(/video_projects_clone_consent/.test(schema) && /create table if not exists public\.video_versions/.test(schema), "schema: consent constraint and versioning");
 const render = readFileSync(join(root, "src/app/api/video/[id]/render/route.ts"), "utf8");
 has(/if \(!ready\.ready\)/.test(render), "render refuses rather than queue for engines that are not connected");
+has(/currentBalance/.test(render) && /retryFailed/.test(render), "render checks credits first and can retry only what failed");
+const callback = readFileSync(join(root, "src/app/api/video/[id]/render/callback/route.ts"), "utf8");
+has(/hasWebhookToken\(request\.headers\)/.test(callback) && /verifyRender\(/.test(callback), "the callback checks the token AND the signature");
+has(/dedupeKey: `video-job:/.test(callback) && /if \(url\) \{\s*await chargeCredits/.test(callback), "charged once per delivered job, never for a failure");
+has(/video-assets/.test(callback), "media is copied into private storage (provider URLs expire)");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -693,3 +693,37 @@ This workflow's draft expects `generationUrl` and `generationBody` on the
 request. An older app does not send them, and the generation node would POST to
 an empty URL and fail every build. **Deploy the app first, then publish the
 workflow.**
+
+---
+
+# n8n — Video Render
+
+The workflow behind **Generate video** in the Video Studio.
+
+- **Workflow**: `QuickStark.Ai — Video Render` (`bZejkBTNs4XRn1FF`), published
+- **Webhook**: `POST https://neauralist3.app.n8n.cloud/webhook/api/v1/video-render`, Header Auth `X-QuickStark-Token` (same credential and value as the build webhook)
+- **Reference**: [`video-render.workflow.ts`](./video-render.workflow.ts) — a mirror; the live workflow wins.
+- **App side**: `src/lib/video/render.ts` (jobs, signing, dispatch), `src/app/api/video/[id]/render` (start), `…/render/callback` (results).
+
+No new environment variables: the app derives the webhook from `N8N_WEBHOOK_URL`'s origin and signs with `N8N_WEBHOOK_TOKEN`. `N8N_VIDEO_WEBHOOK_URL` overrides the URL if it ever moves.
+
+## How it was vetted against the proposed node map
+
+| Proposed | What runs, and why |
+| --- | --- |
+| 1.1 Cron / Google Sheets ingestion | **Webhook from the app.** Videos start when a person presses Generate, not on a schedule; the job carries its own ids. |
+| 2.1 AI Agent writing the script | **Not in n8n.** The app's Creative Director already wrote, QA'd and locked the plan (with consistency locks and per-scene prompts). A second script agent would cost twice and drift from what the person approved. |
+| 3a ElevenLabs voice | **MiniMax speech** on n8n Gateway credits — no key to manage. One line per scene so voice lines up with scenes. |
+| 3b Loop over scene prompts | **One execution per scene.** The instance caps a run at **180s**; a 4s MiniMax-H3 clip took **126s** in testing. A loop would be killed after the first clip. Clips are capped at 6s. |
+| 3c Metadata branch | Captions and on-screen text come from the plan; the app overlays them. |
+| 4.1 Creatomate / FFmpeg merge | **Not yet** — needs a compose service key. The studio plays the real clips and voice in order (FinalCut) and offers each clip as a download. |
+| 4.2 Polling loop | Not needed: the MiniMax node waits for its own result inside the job. |
+| 5.x Approval + auto-post to TikTok/Reels/Shorts | **Not built.** Posting needs each user's own social accounts connected (OAuth per user, per platform); the studio is the approval step and download is the hand-off. |
+| 6.1 Google Sheets audit | **Supabase**: `video_renders` rows per job (status, output, error), credits in `credit_ledger`. |
+| 6.2 / E1–E2 Discord alerts | Generation nodes continue on error and report the failure per job; the app times out a job that never reports (8 min) and offers **Retry failed scenes**. |
+
+## Tested
+
+- Clip: 9:16 prompt → 768×1344 MP4, 4.46s, in 126s.
+- Voice: one line → 6.0s MP3 in 2.3s.
+- Unauthenticated POST → 403.

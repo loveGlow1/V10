@@ -17,17 +17,20 @@ import { ArrowLeft, Check, Download, Loader2, Pause, Play, RotateCcw, ShieldChec
 
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
+import { renderCost } from "@/lib/video/engines";
 import { scriptText, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 
 import { PIPELINE_ICON } from "../../components/video/VideoTypeGrid";
 
-type Readiness = { ready: boolean; engines: { engine: string; label: string; health: string }[] } | null;
+type Readiness = { ready: boolean; notes?: string[]; engines: { engine: string; label: string; health: string; required?: boolean }[] } | null;
+type RenderRow = { scene: number; engine: string; status: string; error: string | null; url: string | null };
 type Loaded = {
   video: { id: string; user_id: string; pipeline: string; title: string; brief: string; answers: Record<string, string>; status: string; current_version: number };
   latest: { version: number; plan: ProductionPlan; issues: QaIssue[]; note: string } | null;
   versions: { version: number; note: string; created_at: string }[];
   assets: { id: string; kind: string; storage_path: string }[];
   readiness: Readiness;
+  renders: RenderRow[];
 };
 
 const STEPS = ["Type", "Questions", "Plan", "Scenes", "Generate", "QA", "Preview", "Export"];
@@ -36,6 +39,7 @@ const HEALTH: Record<string, string> = {
   disabled: "Not switched on",
   misconfigured: "Key missing",
   "no-adapter": "Not connected yet",
+  "not-configured": "Not configured on the server",
 };
 
 function download(name: string, body: string, type: string) {
@@ -58,7 +62,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [renderResult, setRenderResult] = useState<{ ok: boolean; text: string } | null>(null);
   const autoPlanned = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (keepDraft = false) => {
     const response = await fetch(`/api/video/${id}`, { cache: "no-store" }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as (Loaded & { error?: string }) | null;
     if (!response?.ok || !body?.video) {
@@ -66,8 +70,11 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       return null;
     }
     setData(body);
-    setDraft(body.latest?.plan ?? null);
-    setIssues(body.latest?.issues ?? []);
+    /* A background refresh while rendering must not throw away unsaved edits. */
+    if (!keepDraft) {
+      setDraft(body.latest?.plan ?? null);
+      setIssues(body.latest?.issues ?? []);
+    }
     return body;
   }, [id]);
 
@@ -106,7 +113,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const pipeline = data && isPipelineId(data.video.pipeline) ? PIPELINES[data.video.pipeline] : null;
   const dirty = useMemo(() => Boolean(draft && data?.latest && JSON.stringify(draft) !== JSON.stringify(data.latest.plan)), [draft, data]);
 
-  const step = !data?.latest ? (busy === "plan" ? 2 : 1) : renderResult?.ok ? 4 : 6;
+  const status = data?.video.status;
+  const step = !data?.latest ? (busy === "plan" ? 2 : 1) : status === "ready" ? 7 : status === "rendering" ? 4 : 3;
+
+  /* While a render runs, its jobs report in one by one; check every few seconds. */
+  useEffect(() => {
+    if (status !== "rendering") return;
+    const timer = window.setInterval(() => void load(true), 6000);
+    return () => window.clearInterval(timer);
+  }, [status, load]);
 
   async function upload(files: FileList | null) {
     if (!files?.length || !data || !pipeline) return;
@@ -127,12 +142,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     setBusy(null);
   }
 
-  async function render() {
+  async function render(retryFailed = false) {
     setBusy("render");
     setRenderResult(null);
-    const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
-    const body = (await response?.json().catch(() => null)) as { error?: string; queued?: number; missing?: { label: string; health: string }[] } | null;
-    if (response?.ok) setRenderResult({ ok: true, text: `Queued ${body?.queued ?? 0} render jobs.` });
+    const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retryFailed }) }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { error?: string; queued?: number; failed?: number; missing?: { label: string; health: string }[] } | null;
+    if (response?.ok) {
+      setRenderResult({ ok: true, text: `Rendering ${body?.queued ?? 0} jobs${body?.failed ? ` (${body.failed} could not be sent)` : ""}. Clips arrive one by one — usually within a few minutes.` });
+      await load(true);
+    }
     else
       setRenderResult({
         ok: false,
@@ -341,13 +359,32 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
           <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
             {/* Step 7: preview */}
-            <Animatic plan={shown} />
+            {data.renders.some((r) => r.engine === "video" && r.status === "done" && r.url) ? (
+              <FinalCut plan={data.latest?.plan ?? shown} renders={data.renders} />
+            ) : (
+              <Animatic plan={shown} />
+            )}
 
             {/* Step 5: generate */}
             <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
-              <button onClick={() => void render()} disabled={busy !== null || dirty} className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50">
-                {busy === "render" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Generate video
+              <button
+                onClick={() => void render()}
+                disabled={busy !== null || dirty || status === "rendering"}
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
+              >
+                {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                {status === "rendering" ? "Rendering…" : data.renders.length ? "Render again" : "Generate video"}
+                {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {renderCost(data.latest.plan)} credits</span>}
               </button>
+              {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
+              {data.renders.some((r) => r.status === "failed") && status !== "rendering" && (
+                <button onClick={() => void render(true)} disabled={busy !== null} className="mt-2 flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
+                  <RotateCcw className="h-3.5 w-3.5" /> Retry failed scenes
+                </button>
+              )}
+              {data.readiness?.notes?.map((text) => (
+                <p key={text} className="mt-2 text-[12px] leading-snug text-muted">{text}</p>
+              ))}
               {dirty && <p className="mt-2 text-[12px] text-muted">Save your scene edits first.</p>}
               {renderResult && <p className={`mt-2 text-[12.5px] leading-relaxed ${renderResult.ok ? "text-emerald-400" : "text-soft"}`}>{renderResult.text}</p>}
               {data.readiness && (
@@ -487,6 +524,148 @@ function Animatic({ plan }: { plan: ProductionPlan }) {
         </span>
       </div>
       <p className="mt-1.5 text-[11.5px] text-muted">Animatic preview — timing, text and script. The rendered video replaces it once generation is connected.</p>
+    </section>
+  );
+}
+
+/* Where each scene's clip and voice line stand, one row per scene. */
+function RenderProgress({ renders }: { renders: RenderRow[] }) {
+  const scenes = [...new Set(renders.map((r) => r.scene))].sort((a, b) => a - b);
+  const mark = (row?: RenderRow) =>
+    !row ? null : row.status === "done" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : row.status === "failed" ? <X className="h-3.5 w-3.5 text-warn" /> : <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />;
+  const done = renders.filter((r) => r.status === "done").length;
+  return (
+    <div className="mt-3">
+      <p className="text-[12px] text-muted">{done} of {renders.length} jobs done</p>
+      <ul className="mt-1.5 space-y-1">
+        {scenes.map((n) => {
+          const clip = renders.find((r) => r.scene === n && r.engine === "video");
+          const voice = renders.find((r) => r.scene === n && r.engine === "voice");
+          const failure = [clip, voice].find((r) => r?.status === "failed")?.error;
+          return (
+            <li key={n} className="text-[12px]">
+              <span className="flex items-center gap-2 text-soft">
+                Scene {n}
+                <span className="flex items-center gap-1 text-muted">clip {mark(clip)}</span>
+                {voice && <span className="flex items-center gap-1 text-muted">voice {mark(voice)}</span>}
+              </span>
+              {failure && <span className="block truncate text-[11.5px] text-muted" title={failure}>{failure}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/* Step 7 once clips exist: the cut, played scene by scene — each clip with its
+   voice line and its on-screen text and caption over it. Assembled in the
+   player rather than into one file: the clips and voice are real, the join is
+   here. Each clip can be downloaded on its own. */
+function FinalCut({ plan, renders }: { plan: ProductionPlan; renders: RenderRow[] }) {
+  const scenes = plan.scenes
+    .map((scene) => ({
+      scene,
+      clip: renders.find((r) => r.scene === scene.n && r.engine === "video" && r.status === "done")?.url ?? null,
+      voice: renders.find((r) => r.scene === scene.n && r.engine === "voice" && r.status === "done")?.url ?? null,
+    }))
+    .filter((entry) => entry.clip);
+  const [index, setIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const current = scenes[Math.min(index, scenes.length - 1)];
+  const ratio = plan.aspect === "9:16" ? "9 / 16" : plan.aspect === "1:1" ? "1 / 1" : plan.aspect === "4:5" ? "4 / 5" : "16 / 9";
+
+  useEffect(() => {
+    if (!playing) return;
+    void videoRef.current?.play().catch(() => setPlaying(false));
+    if (audioRef.current && current?.voice) {
+      audioRef.current.currentTime = 0;
+      void audioRef.current.play().catch(() => {});
+    }
+  }, [index, playing, current?.voice]);
+
+  /* A scene ends when its clip AND its line have ended: clips are at most 6s,
+     so a longer line plays over the clip's held last frame. */
+  const ended = useRef({ clip: false, voice: false });
+  useEffect(() => {
+    ended.current = { clip: false, voice: !current?.voice };
+  }, [index, current?.voice]);
+  function finish(part: "clip" | "voice") {
+    ended.current[part] = true;
+    if (!ended.current.clip || !ended.current.voice) return;
+    if (index + 1 < scenes.length) setIndex(index + 1);
+    else {
+      setPlaying(false);
+      setIndex(0);
+    }
+  }
+
+  if (!current) return null;
+  return (
+    <section className="rounded-[16px] border border-line/[0.08] bg-panel p-3">
+      <div className="relative mx-auto overflow-hidden rounded-[10px] bg-black" style={{ aspectRatio: ratio, maxHeight: 420 }}>
+        <video
+          ref={videoRef}
+          key={current.clip}
+          src={current.clip ?? undefined}
+          playsInline
+          muted={Boolean(current.voice)}
+          className="h-full w-full object-cover"
+          onEnded={() => finish("clip")}
+        />
+        {current.voice && <audio ref={audioRef} key={current.voice} src={current.voice} onEnded={() => finish("voice")} />}
+        {current.scene.onScreenText && (
+          <p className="pointer-events-none absolute inset-x-3 top-[38%] text-center text-[clamp(16px,4vw,24px)] font-bold leading-tight text-white [text-shadow:0_2px_12px_rgba(0,0,0,.7)]">
+            {current.scene.onScreenText}
+          </p>
+        )}
+        {current.scene.voiceover && (
+          <p className="pointer-events-none absolute inset-x-3 bottom-3 rounded bg-black/55 px-2 py-1 text-center text-[12px] leading-snug text-white">
+            {current.scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "")}
+          </p>
+        )}
+      </div>
+      <div className="mt-2.5 flex items-center gap-2.5">
+        <button
+          onClick={() => {
+            if (playing) {
+              videoRef.current?.pause();
+              audioRef.current?.pause();
+            }
+            setPlaying((p) => !p);
+          }}
+          aria-label={playing ? "Pause" : "Play the cut"}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-solid text-onSolid"
+        >
+          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        </button>
+        <div className="flex flex-1 gap-1">
+          {scenes.map((entry, i) => (
+            <button
+              key={entry.scene.n}
+              onClick={() => setIndex(i)}
+              aria-label={`Scene ${entry.scene.n}`}
+              className={`h-1.5 flex-1 rounded-full ${i === index ? "bg-accent" : i < index ? "bg-layer/[0.35]" : "bg-layer/[0.12]"}`}
+            />
+          ))}
+        </div>
+        <span className="text-[11.5px] tabular-nums text-muted">
+          {index + 1}/{scenes.length}
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {scenes.map((entry) => (
+          <a key={entry.scene.n} href={entry.clip ?? "#"} download className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2.5 text-[11.5px] text-soft hover:text-ink">
+            <Download className="h-3 w-3" /> Clip {entry.scene.n}
+          </a>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11.5px] text-muted">
+        {scenes.length < plan.scenes.length ? `${plan.scenes.length - scenes.length} scene(s) still missing. ` : ""}
+        The cut plays the real clips and voice in order. A single MP4 export needs a compose engine — coming next.
+      </p>
     </section>
   );
 }

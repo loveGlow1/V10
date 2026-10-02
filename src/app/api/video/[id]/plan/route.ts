@@ -23,6 +23,9 @@ import { videoSession } from "../../shared";
 
 const PLAN_COST = 1;
 
+/* The Creative Director writes a whole production plan in one call. */
+export const maxDuration = 120;
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const session = await videoSession();
