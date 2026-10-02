@@ -2,12 +2,65 @@
 
 import React, { useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Loader2 } from "lucide-react";
 
 import type { BuildKind } from "@/lib/builder/kinds";
 import { useProjects } from "../ProjectsContext";
 import { nameFromPrompt } from "../projectName";
 import { SendArrow } from "./marks";
+import { uploadAttachment, type Attachment } from "@/lib/project-attachments";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
+
+async function currentUserId(): Promise<string | null> {
+  try {
+    const { data } = await createSupabaseBrowserClient().auth.getUser();
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/* Home's pictures, uploaded against the new app the same way the workspace's
+   paperclip does it, then left in this tab's session storage for the
+   workspace's first message to pick up. Returns what went wrong, if anything. */
+async function uploadForProject(projectId: string, files: File[]): Promise<string | null> {
+  const userId = await currentUserId();
+  if (!userId) return "Your images could not be attached — sign in again and add them in the chat.";
+  const done: Attachment[] = [];
+  const errors: string[] = [];
+  for (const file of files) {
+    const result = await uploadAttachment(file, projectId, userId);
+    if (result.attachment) done.push(result.attachment);
+    else if (result.error) errors.push(result.error);
+  }
+  try {
+    if (done.length) window.sessionStorage.setItem(`quickstark:home-attachments:${projectId}`, JSON.stringify(done));
+  } catch {
+    errors.push("Your browser blocked storage, so the images will need attaching again in the chat.");
+  }
+  return errors.length ? errors.join(" ") : null;
+}
+
+/* For a video they are its references — product shots, the photo to animate,
+   the person to present — stored where the studio reads them. */
+async function uploadVideoReferences(videoId: string, pipeline: string, files: File[]): Promise<string | null> {
+  const userId = await currentUserId();
+  if (!userId) return "Your images could not be attached — add them in the studio.";
+  const kind = isPipelineId(pipeline) ? (PIPELINES[pipeline].needsReference ?? "reference") : "reference";
+  const supabase = createSupabaseBrowserClient();
+  let failed = 0;
+  for (const file of files) {
+    const path = `${userId}/${videoId}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+    const { error } = await supabase.storage.from("video-assets").upload(path, file, { contentType: file.type || "image/png" });
+    if (error) {
+      failed += 1;
+      continue;
+    }
+    await supabase.from("video_assets").insert({ video_id: videoId, user_id: userId, kind, storage_path: path, mime: file.type });
+  }
+  return failed ? `${failed} image(s) could not be attached — add them in the studio.` : null;
+}
 
 /* Home's send button.
  *
@@ -38,6 +91,8 @@ export default function StartBuildButton({
   context,
   onError,
   disabled = false,
+  blockedReason = null,
+  files = [],
   ref,
 }: {
   prompt: string;
@@ -66,6 +121,12 @@ export default function StartBuildButton({
      and passes it down rather than asking again here, so the banner and the
      button cannot disagree about whether anything can be built. */
   disabled?: boolean;
+  /* Why this cannot be sent yet, in words — "Pick a video type first".
+     The button stays pressable and says so, rather than sitting there dead. */
+  blockedReason?: string | null;
+  /* Pictures picked on Home. Uploaded once the app (or video) exists, and
+     carried into its first message. */
+  files?: File[];
   /* React 19 passes ref as an ordinary prop, so there is no forwardRef here. */
   ref?: React.Ref<StartBuildHandle>;
 }) {
@@ -95,6 +156,10 @@ export default function StartBuildButton({
        attribute — so a guard that lived only there would stop the mouse and let
        the keyboard through, which is the half-working version of not working. */
     if (disabled) return;
+    if (blockedReason) {
+      onError(blockedReason);
+      return;
+    }
 
     inFlight.current = true;
     setStarting(true);
@@ -112,6 +177,10 @@ export default function StartBuildButton({
         setStarting(false);
         onError(body?.error ?? "Could not start the video. Try again.");
         return;
+      }
+      if (files.length) {
+        const failed = await uploadVideoReferences(body.id, video.pipeline, files);
+        if (failed) onError(failed);
       }
       router.push(`/dashboard/video/${body.id}`);
       return;
@@ -137,6 +206,11 @@ export default function StartBuildButton({
        The prompt travels in the URL rather than in a store: a reload of the
        workspace then re-runs the same build instead of opening an empty
        conversation for an app that has never been built. */
+    if (files.length) {
+      const failed = await uploadForProject(project.id, files);
+      if (failed) onError(failed);
+    }
+
     const query = `${kind ? `&kind=${encodeURIComponent(kind)}` : ""}${target ? `&target=${encodeURIComponent(target)}` : ""}`;
     /* The context rides in the brief rather than in a parameter of its own.
        The blueprint's requirements are conditional on what the brief says — a
@@ -153,15 +227,22 @@ export default function StartBuildButton({
     <button
       onClick={() => void start()}
       disabled={!ready}
+      title={starting ? "Starting…" : !prompt.trim() ? "Describe what you want first" : blockedReason ?? "Send"}
       aria-label="Send"
       className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed sm:h-10 sm:w-10 sm:rounded-full ${
         ready
-          ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-          : "border-transparent bg-layer/[0.07] text-ink/30 md:bg-layer/[0.1] md:text-ink"
+          ? "border-transparent bg-white text-[#111113] hover:bg-white/90"
+          : "border-transparent bg-layer/[0.07] text-ink/30"
       }`}
     >
-      <SendArrow className="h-4 w-4 md:hidden" />
-      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+      {starting ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <>
+          <SendArrow className="h-4 w-4 md:hidden" />
+          <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
+        </>
+      )}
     </button>
   );
 }

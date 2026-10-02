@@ -467,7 +467,20 @@ export default function ChatPanel({
     if (openingPrompt.current === key) return;
     openingPrompt.current = key;
     if (messages.length > 0) return;
-    void send(initialPrompt, { buildKind: initialKind ?? null });
+    /* Pictures picked on Home were uploaded against this app before the jump
+       and left in this tab's session storage; they go with the first message
+       and are then forgotten, so a reload does not attach them twice. */
+    let fromHome: Attachment[] | undefined;
+    try {
+      const key = `quickstark:home-attachments:${project.id}`;
+      const raw = window.sessionStorage.getItem(key);
+      window.sessionStorage.removeItem(key);
+      const parsed = raw ? (JSON.parse(raw) as Attachment[]) : null;
+      if (Array.isArray(parsed) && parsed.length) fromHome = parsed;
+    } catch {
+      /* No storage: the message goes without them. */
+    }
+    void send(initialPrompt, { buildKind: initialKind ?? null, attachments: fromHome });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt, initialKind, threadLoaded]);
 
@@ -1030,6 +1043,9 @@ export default function ChatPanel({
       upgrade?: boolean;
       /* "Run it" on SQL that was shown first — see pendingSql. */
       confirmSql?: string;
+      /* Files that arrive with the message rather than through the paperclip:
+         the pictures picked on Home, uploaded before the jump here. */
+      attachments?: Attachment[];
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -1072,7 +1088,7 @@ export default function ChatPanel({
     /* Taken before the send and put back if it fails, so a refused message
        keeps its files as well as its words — re-attaching four screenshots to
        retry a sentence is the kind of thing that makes people give up. */
-    const sent = attached;
+    const sent = options.attachments ?? attached;
 
     /* `silent` is the re-send behind a confirmation: the message is already in
        the conversation, and saying it twice would read as sending it twice. */

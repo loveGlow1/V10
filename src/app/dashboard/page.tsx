@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import TopNav from "./components/TopNav";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
@@ -38,7 +38,7 @@ import {
   inferSubtype,
   type Category,
 } from "@/lib/builder/targets";
-import { ACCEPT } from "@/lib/project-attachments";
+import { ACCEPT, MAX_ATTACHMENTS } from "@/lib/project-attachments";
 import { PIPELINES, answersFor, type PipelineId } from "@/lib/video/pipelines";
 import VideoTypeGrid from "./components/video/VideoTypeGrid";
 import { motion, AnimatePresence } from "framer-motion";
@@ -48,7 +48,6 @@ import {
   ChevronDown,
   Globe,
   Settings,
-  SlidersHorizontal,
   Clapperboard,
   Smartphone,
   Mic,
@@ -68,10 +67,20 @@ import {
   Shuffle,
   Newspaper,
   Image as ImageIcon,
-  Camera,
-  FolderOpen,
-  Triangle,
 } from "lucide-react";
+
+/* The advanced-controls mark, Google's way: two rails, a ring on the left
+   of the top one and on the right of the bottom one. */
+function TuneMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" className={className} aria-hidden>
+      <circle cx="7" cy="8" r="2.6" />
+      <path d="M9.6 8H20" />
+      <path d="M4 16h10.4" />
+      <circle cx="17" cy="16" r="2.6" />
+    </svg>
+  );
+}
 
 /* What a new account holds — the one-time signup credit, which on Free is the
    whole of it — read from the credit economy rather than written out here, so
@@ -164,7 +173,6 @@ export default function DashboardPage() {
   const [videoAnswers, setVideoAnswers] = useState<Record<string, string>>({});
   const [videoConsent, setVideoConsent] = useState(false);
   const videoMode = activeCategory === "video";
-  const videoBlocked = videoMode && (!videoPipeline || (PIPELINES[videoPipeline].needsConsent && !videoConsent));
   /* The sub-type the build will run as: the picked chip, or what the sentence
      reads as. Shown on the Auto chip so the guess is never hidden. */
   const subtype =
@@ -201,11 +209,24 @@ export default function DashboardPage() {
   const [selectedModel, setSelectedModel] = useState("Auto");
 
   // File Upload Popover & Hidden Inputs State
-  const [isUploadPopoverOpen, setIsUploadPopoverOpen] = useState(false);
+  /* Pictures picked on Home, held here until the app they belong to exists;
+     StartBuildButton uploads them against it and the first message carries
+     them. */
+  const [files, setFiles] = useState<File[]>([]);
+  const previews = useMemo(() => files.map((file) => URL.createObjectURL(file)), [files]);
+  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const photoLibraryInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const chooseFilesInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function addFiles(list: FileList) {
+    const picked = Array.from(list);
+    const images = picked.filter((file) => file.type.startsWith("image/") || /\.(heic|heif)$/i.test(file.name));
+    const room = MAX_ATTACHMENTS - files.length;
+    if (images.length < picked.length) setStartError("Only images can be attached — a screenshot, a logo or a photo.");
+    else if (images.length > room) setStartError(`Up to ${MAX_ATTACHMENTS} images per message.`);
+    else setStartError(null);
+    if (room > 0) setFiles((current) => [...current, ...images.slice(0, room)]);
+  }
 
   // Voice Recording State & Refs
   const [isRecording, setIsRecording] = useState(false);
@@ -247,20 +268,6 @@ export default function DashboardPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Close popover on outside click
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
-        setIsUploadPopoverOpen(false);
-      }
-    };
-    if (isUploadPopoverOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isUploadPopoverOpen]);
 
   /* Home's model list closed itself the same way the workspace's did: the
      handler here asked whether the press landed inside the composer box, and
@@ -467,61 +474,6 @@ export default function DashboardPage() {
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
           <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
-            {/* The upload menu, anchored to the composer it belongs to. It used
-                to hang off the whole column, which put it above the tabs and
-                behind the phone header — its first row was unreadable there. */}
-            <AnimatePresence>
-              {isUploadPopoverOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute bottom-full left-0 right-0 z-[1000] mb-2.5 space-y-1.5 rounded-[20px] border border-line/[0.14] bg-panel p-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl md:right-auto md:mb-3 md:w-72"
-                >
-                  <button
-                    onClick={() => {
-                      photoLibraryInputRef.current?.click();
-                      setIsUploadPopoverOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
-                  >
-                    <span className="font-medium">Photo Library</span>
-                    <ImageIcon className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      cameraInputRef.current?.click();
-                      setIsUploadPopoverOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
-                  >
-                    <span className="font-medium">Take Photo</span>
-                    <Camera className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      chooseFilesInputRef.current?.click();
-                      setIsUploadPopoverOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
-                  >
-                    <span className="font-medium">Choose Images</span>
-                    <FolderOpen className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      alert("Google Drive integration triggered");
-                      setIsUploadPopoverOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm text-ink/90 hover:bg-layer/[0.06] transition-colors text-left group"
-                  >
-                    <span className="font-medium">Google Drive</span>
-                    <Triangle className="w-4 h-4 text-muted group-hover:text-ink transition-colors" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
             {/* Continuously moving 360-degree white highlight orbiter */}
             <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
               <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
@@ -575,64 +527,49 @@ export default function DashboardPage() {
                 </AnimatePresence>
               </div>
 
+              {files.length > 0 && (
+                <div className="relative z-10 mt-2 flex flex-wrap gap-2">
+                  {files.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="group/att relative h-14 w-14 overflow-hidden rounded-[10px] border border-line/[0.1] bg-layer/[0.06]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={previews[index]} alt={file.name} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                        aria-label={`Remove ${file.name}`}
+                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white opacity-100 transition-opacity md:opacity-0 md:group-hover/att:opacity-100"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
                 <div className="relative flex shrink-0 items-center gap-[3px] sm:gap-2">
-                  {/* Hidden File Inputs */}
+                  {/* One input, opened straight away: the device's own picker
+                      is the picker. A desktop gets its file dialog; a phone
+                      gets its native sheet — Photo Library, Take Photo, Choose
+                      File — which `image/*` without `capture` asks for. */}
                   <input
                     type="file"
-                    ref={photoLibraryInputRef}
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={(e) => {
-                      console.log(e.target.files);
-                    }}
-                  />
-                  <input
-                    type="file"
-                    ref={cameraInputRef}
-                    accept="image/*"
-                    capture="environment"
-                    className="sr-only"
-                    onChange={(e) => {
-                      console.log(e.target.files);
-                    }}
-                  />
-                  <input
-                    type="file"
-                    ref={chooseFilesInputRef}
+                    ref={fileInputRef}
                     multiple
-                    /* Pictures only, here as everywhere: a build reads a
-                       screenshot, and a document picked here would be refused
-                       on upload anyway. */
                     accept={ACCEPT}
                     className="sr-only"
+                    tabIndex={-1}
                     onChange={(e) => {
-                      console.log(e.target.files);
+                      if (e.target.files) addFiles(e.target.files);
+                      /* Cleared so picking the same file again still fires. */
+                      e.target.value = "";
                     }}
                   />
-
-                  {/* Attachment Clip Button */}
                   <button
-                    onClick={() => chooseFilesInputRef.current?.click()}
-                    aria-label="Attach a screenshot"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all active:scale-[0.98] md:hidden"
-                  >
-                    <Paperclip className="h-4 w-4 -rotate-45" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Both panels hang above the composer, so only one of
-                      // them can be up at a time.
-                      setIsUploadPopoverOpen(!isUploadPopoverOpen);
-                      setIsModelPopoverOpen(false);
-                    }}
-                    aria-label="Attach a screenshot"
-                    aria-expanded={isUploadPopoverOpen}
-                    className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] md:flex sm:h-10 sm:w-10 ${
-                      isUploadPopoverOpen
-                        ? "bg-layer/[0.08] border-line/[0.2] text-ink"
-                        : "bg-layer/[0.03] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-ink"
-                    }`}
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach images"
+                    title="Attach images"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.08] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
                   >
                     <Paperclip className="h-4 w-4" />
                   </button>
@@ -664,7 +601,6 @@ export default function DashboardPage() {
                   <button
                     onClick={() => {
                       setIsModelPopoverOpen((open) => !open);
-                      setIsUploadPopoverOpen(false);
                     }}
                     aria-expanded={isModelPopoverOpen}
                     aria-label="Choose an agent"
@@ -701,7 +637,7 @@ export default function DashboardPage() {
                     aria-label="Advanced controls"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
                   >
-                    <SlidersHorizontal className="h-4 w-4" />
+                    <TuneMark className="h-[18px] w-[18px]" />
                   </button>
 
                   {/* Interactive Voice Recording Button */}
@@ -738,8 +674,18 @@ export default function DashboardPage() {
                         ? { pipeline: videoPipeline, answers: answersFor(PIPELINES[videoPipeline], videoAnswers), consent: videoConsent }
                         : null
                     }
+                    files={files}
+                    blockedReason={
+                      !videoMode
+                        ? null
+                        : !videoPipeline
+                          ? "Pick a video type below first — Commercial Ad, Product Showcase and so on."
+                          : PIPELINES[videoPipeline].needsConsent && !videoConsent
+                            ? "Tick the permission box under Create Your Clone first."
+                            : null
+                    }
                     onError={setStartError}
-                    disabled={paused !== null || videoBlocked}
+                    disabled={paused !== null}
                   />
                 </div>
               </div>
