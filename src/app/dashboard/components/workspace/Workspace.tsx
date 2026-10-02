@@ -23,6 +23,7 @@ import ChatPanel from "./ChatPanel";
 import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
 import { PreviewMark } from "./panelMarks";
 import PreviewSheet from "./PreviewSheet";
+import QuickActionsSheet from "./QuickActionsSheet";
 
 /* An opened app. The header and drawer are the ones Home carries, so moving
    between the two is a change of the area below the tabs and nothing else.
@@ -111,7 +112,19 @@ export default function Workspace({ projectId }: { projectId: string }) {
      long prompt wants, and the control on the edge brings it back. Unrelated to
      the sheet above, which is the phone's arrangement. */
   const [previewPaneOpen, setPreviewPaneOpen] = useState(true);
+  /* The phone header's ⋯: Deploy, Preview, Manage, Code, Info. */
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const requests = useRef(0);
+
+  /* Publishing lives in the preview half — one flow that says what it costs —
+     so every Deploy button asks for it rather than building a second one. On a
+     phone that also brings that half onto the screen. */
+  function requestPublish() {
+    setPublishRequest((n) => n + 1);
+    setPreviewSheetOpen(false);
+    setView("preview");
+    setPreviewPaneOpen(true);
+  }
 
   /* Every way into the Manage pane goes through here.
    *
@@ -192,7 +205,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           tabs between the chrome and the page. */}
 
       <TopBar
-        onMenuClick={() => setSidebarOpen(true)}
+        onMenuClick={() => setQuickActionsOpen(true)}
         onUpgradeClick={() => setBillingOpen(true)}
         credits={credits}
         projectName={project?.name ?? "Loading…"}
@@ -229,6 +242,15 @@ export default function Workspace({ projectId }: { projectId: string }) {
         credits={credits}
       />
       <SupportChat />
+
+      <QuickActionsSheet
+        open={quickActionsOpen}
+        project={project}
+        onClose={() => setQuickActionsOpen(false)}
+        onDeploy={requestPublish}
+        onPreview={() => setPreviewSheetOpen(true)}
+        onManage={() => openManage("settings")}
+      />
 
       {/* Over everything, and only on a phone — the sheet hides itself from md
           up, where the preview already has a column of its own. */}
@@ -294,13 +316,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               initialKind={initialKind}
               initialTarget={initialTarget}
               onBuildSettled={refreshCredits}
-              onPublish={() => {
-                setPublishRequest((n) => n + 1);
-                /* On a phone the two halves share the screen, so asking for the
-                   preview's flow means bringing that half onto it. */
-                setView("preview");
-                setPreviewPaneOpen(true);
-              }}
+              onPublish={requestPublish}
             />
           </div>
           {/* Put away from md up only: a phone's `view` already decides which

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { MoreHorizontal, PanelLeftClose } from "lucide-react";
+import { ChevronLeft, MoreHorizontal } from "lucide-react";
 
 import CreditPill from "./CreditPill";
 import { MenuMark } from "./marks";
@@ -56,20 +56,14 @@ export default function TopBar({
      this bar opens carries the balance on every width. */
   const balance = credits ? <CreditPill credits={credits} onClick={onUpgradeClick} /> : null;
 
-  /* The way out of an app, and the drawer's own collapse button brought up here:
-     the same squircle and the same mark, so leaving a panel is one gesture with
-     one shape wherever you meet it. Square rather than round is what tells it
-     apart from the menu at the other end of the row. */
-  const exit =
-    "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl border border-line/[0.14] bg-layer/[0.08] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-layer/[0.12] active:scale-[0.98]";
 
   /* Inside an app the bar is about the app: the way back out of it, what it is
      called, and the two things you might want while in it. */
   if (projectName !== undefined) {
     return (
       <header className="relative z-30 flex w-full items-center gap-2.5 px-4 pb-2 pt-[max(10px,env(safe-area-inset-top))] md:hidden">
-        <button onClick={onBack} aria-label="Back to your apps" className={exit}>
-          <PanelLeftClose className="h-4 w-4" />
+        <button onClick={onBack} aria-label="Back to your apps" className={round}>
+          <ChevronLeft className="h-[18px] w-[18px]" />
         </button>
 
         {/* min-w-0 is what lets it truncate rather than push: the name gives way
@@ -82,7 +76,8 @@ export default function TopBar({
 
         {upgrade}
 
-        <button onClick={onMenuClick} aria-label="Open menu" className={round}>
+        {/* Quick actions on an app screen: Deploy, Preview, Manage, Code, Info. */}
+        <button onClick={onMenuClick} aria-label="Quick actions" className={round}>
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </header>
