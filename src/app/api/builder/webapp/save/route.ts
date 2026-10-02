@@ -169,6 +169,12 @@ export const dynamic = "force-dynamic";
  * ceiling. */
 export const maxDuration = 60;
 
+/* How long after the request arrives the photographs must be in. The rest of
+   the sixty seconds is the QA loop, the deploy start and storing the page —
+   all quick, but all of it has to happen, and a photograph is the one thing
+   here that is optional. See the note on fetching in fillImages. */
+const PHOTOS_WITHIN_MS = 25_000;
+
 type SaveRequest = {
   requestId?: unknown;
   projectId?: unknown;
@@ -293,6 +299,7 @@ function str(value: unknown): string {
 }
 
 export async function POST(request: Request) {
+  const photosBy = Date.now() + PHOTOS_WITHIN_MS;
   let body: SaveRequest;
   try {
     body = (await request.json()) as SaveRequest;
@@ -523,6 +530,7 @@ export async function POST(request: Request) {
       context: searchContext(str(body.prompt)),
       seed: project.id as string,
       exclude: await previouslyUsedPhotos(supabase, project.id as string),
+      deadline: photosBy,
     });
     tree = projectPhotos.tree;
 
@@ -559,7 +567,10 @@ export async function POST(request: Request) {
       context: searchContext(str(body.prompt)),
       seed: project.id as string,
       exclude: await previouslyUsedPhotos(supabase, project.id as string),
-      timeoutMs: 15_000,
+      /* Inside the same photograph budget as the fill above, plus a little:
+         fifteen seconds after a fill that used its full twenty-five was
+         forty of the sixty gone before anything was stored. */
+      timeoutMs: Math.max(1_000, Math.min(15_000, photosBy + 8_000 - Date.now())),
     });
     tree = upgraded.tree;
     if (upgraded.upgraded > 0 || upgraded.left > 0) {
@@ -785,6 +796,7 @@ export async function POST(request: Request) {
            this took the first result. */
         seed: project.id as string,
         exclude: usedBefore,
+        deadline: photosBy,
       });
   html = pictures.html;
 
