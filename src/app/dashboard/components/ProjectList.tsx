@@ -232,25 +232,28 @@ export default function ProjectList() {
   const count = (id: View) => (id === "videos" ? videos.length : buckets[id].length);
 
   return (
-    <section className="mt-10 w-full max-w-[720px] md:mt-16">
+    <section className="mt-[120px] w-full max-w-[720px] md:mt-16">
+      {/* On a phone the list stands well clear of the composer — a full breath
+          of empty dark between them, as Emergent spaces it — and its rows are
+          tall, ruled off one from the next, so each reads as its own thing. */}
       {/* What a phone had before the chips existed, restored exactly: the
           heading only when there are rows to name, the link in the corner, and
           nothing else competing for a 360px line. */}
       {!isWide && (
         <div
-          className={`flex items-end gap-4 px-1 ${
+          className={`flex items-center gap-4 px-1 ${
             shown.length === 0 ? "justify-end" : "justify-between"
           }`}
         >
           {shown.length > 0 && (
-            <h2 className="text-[17px] font-semibold tracking-tight text-ink">
+            <h2 className="text-[18px] font-medium tracking-tight text-ink">
               Continue working
             </h2>
           )}
 
           <Link
             href="/dashboard/projects"
-            className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+            className="flex h-9 shrink-0 items-center rounded-full bg-layer/[0.06] px-4 text-[14px] text-soft transition-colors hover:bg-layer/[0.1] hover:text-ink"
           >
             View all →
           </Link>
@@ -337,7 +340,7 @@ export default function ProjectList() {
         </div>
       )}
 
-      <div className="mt-3 space-y-1 md:mt-4">
+      <div className="mt-5 divide-y divide-line/[0.08] border-b border-line/[0.08] md:mt-4 md:space-y-1 md:divide-y-0 md:border-b-0">
         {error && <p className="py-8 text-center text-sm text-danger">{error}</p>}
 
         {/* Wide only, because a phone never had it: below md this section is
@@ -354,7 +357,7 @@ export default function ProjectList() {
             <button
               key={video.id}
               onClick={() => router.push(`/dashboard/video/${video.id}`)}
-              className="flex w-full min-w-0 items-center gap-4 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-layer/[0.03]"
+              className="flex w-full min-w-0 items-center gap-5 px-2 py-5 text-left transition-colors hover:bg-layer/[0.03] md:gap-4 md:rounded-2xl md:px-3 md:py-3"
             >
               {/* The type's own picture, the same one its card shows. */}
               <span className="relative h-11 w-[70px] shrink-0 overflow-hidden rounded-[10px] bg-layer/[0.06]">
@@ -362,12 +365,12 @@ export default function ProjectList() {
               </span>
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
-                  <span className="truncate text-[15px] text-ink">{video.title}</span>
+                  <span className="truncate text-[17px] text-ink md:text-[15px]">{video.title}</span>
                   {video.status === "ready" && (
                     <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">Ready</span>
                   )}
                 </span>
-                <span className="mt-1 block truncate text-[13px] text-muted">
+                <span className="mt-1.5 block truncate text-[15px] text-muted md:mt-1 md:text-[13px]">
                   {pipeline?.label ?? "Video"} · {VIDEO_STATUS[video.status] ?? video.status} · {updatedAgo(video.updated_at)}
                 </span>
               </span>
@@ -407,11 +410,12 @@ export default function ProjectList() {
                    visits and redrawing it when a build lands are the same
                    question, and this is the answer to both. */
                 stamp={project.last_build_at}
+                className="h-[72px] w-[115px] rounded-[10px] ring-1 ring-line/[0.1] md:h-[70px] md:w-[110px] md:rounded-lg md:ring-0"
               />
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
                   {row.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted" />}
-                  <span className="truncate text-[15px] text-ink">{project.name}</span>
+                  <span className="truncate text-[17px] text-ink md:text-[15px]">{project.name}</span>
                   {live && (
                     <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
                       Published
@@ -422,7 +426,7 @@ export default function ProjectList() {
                     Somebody looking at Live apps wants the address, and
                     "updated 3 days ago" is not it. The other views keep the
                     timestamp. */}
-                <span className="mt-1 block truncate text-[13px] text-muted">
+                <span className="mt-1.5 block truncate text-[15px] text-muted md:mt-1 md:text-[13px]">
                   {toLive && address ? (
                     <>
                       {/* The path alone on a phone. The host is the same on
@@ -440,12 +444,12 @@ export default function ProjectList() {
             </>
           );
 
-          const rowClass = "flex min-w-0 flex-1 items-center gap-4 text-left";
+          const rowClass = "flex min-w-0 flex-1 items-center gap-5 text-left md:gap-4";
 
           return (
             <div
               key={row.id}
-              className="flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-layer/[0.03]"
+              className="flex items-center gap-4 px-2 py-5 transition-colors hover:bg-layer/[0.03] md:rounded-2xl md:px-3 md:py-3"
             >
               {toLive && address ? (
                 <a
