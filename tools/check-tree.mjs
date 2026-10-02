@@ -501,7 +501,7 @@ has(
 );
 
 has(
-  route.indexOf("project_.sourceMissing") < route.indexOf("const picked = await pickFile("),
+  route.indexOf("project_.sourceMissing") < route.indexOf("pickFile(stageRequest ?? prompt, project_.tree"),
   "checked before a file is picked, since the file it would pick is the receipt",
 );
 

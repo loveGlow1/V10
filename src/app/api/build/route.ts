@@ -37,6 +37,7 @@ import {
   priorTurns,
 } from "@/lib/builder/brief";
 import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
+import { asksForLogoSwap, listOf, swapLogo, swapLogoInTree } from "@/lib/builder/logo-swap";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -415,6 +416,11 @@ const EDIT_SYSTEM_TOKENS = 4_000;
  * person is told plainly what did not land, which they can act on, rather than
  * shown a dead connection, which they cannot. */
 const REPAIR_FLOOR_MS = 12_000;
+
+/* The largest logo, as a data URI, that fits inside a project's source file:
+   project_files holds up to 256 KB a file, and the component around it needs
+   room too. */
+const TREE_LOGO_MAX_CHARS = 240_000;
 
 const ENTRY_COST = CREDIT_ACTIONS.generate.min;
 const FULL_BUILD_ENTRY_COST = CREDIT_ACTIONS.generate.max;
@@ -1136,8 +1142,20 @@ async function handle(
     ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html" &&
     isPageDataAsk(prompt, planEdit(prompt, knownArchitecture).touches);
 
+  /* A picture and any mention of the logo is a logo swap — an edit, whatever
+     the classifier made of a message as short as "logo" or "new logo". */
+  const logoAsk =
+    Boolean(currentHtml) &&
+    asksForLogoSwap(
+      prompt,
+      files.blocks.filter((block) => block.type === "image").length,
+      attachments.map((file) => file.name),
+    );
+
   const routedIntent: Intent = planOnly
     ? "question"
+    : logoAsk
+    ? "edit"
     : stageAsk
     ? pathForStage(Boolean(currentHtml)) === "edit"
       ? "edit"
@@ -2099,7 +2117,27 @@ async function handle(
         }
       })();
 
-      const picked = await pickFile(stageRequest ?? prompt, project_.tree, undefined, indexHint);
+      /* ── "Use this as the logo", on a project ─────────────────────────
+       *
+       * This path never shows the model the attachments, so asked to swap a
+       * logo it was swapping in a picture it had never seen — and said "I
+       * couldn't place that change in components/Logo.tsx", four times. The
+       * swap is done by hand instead: the Logo component rewritten to draw the
+       * upload, or the inline mark in the header and footer swapped. See
+       * lib/builder/logo-swap.ts. */
+      const treePictures = files.blocks.filter((block) => block.type === "image").length;
+      const treeLogoPicture = asksForLogoSwap(prompt, treePictures, attachments.map((file) => file.name)) ? (await imagePlacements(attachments))[0] : undefined;
+      if (treeLogoPicture && treeLogoPicture.dataUri.length > TREE_LOGO_MAX_CHARS) {
+        const kb = Math.round((treeLogoPicture.dataUri.length * 3) / 4 / 1024);
+        const said = `That logo file is ${kb} KB, which is too large to store inside the project's code — logos there have to be under about 180 KB. Export it as a PNG at around 400px wide, or as an SVG, and send it again; most logos come out well under that.`;
+        const stored = await deliver(said, { tone: "error", key: "logo-too-large" });
+        return NextResponse.json({ error: said, intent: "edit", code: "logo_too_large", stored }, { status: 422 });
+      }
+      const treeLogo = treeLogoPicture ? swapLogoInTree(project_.tree, treeLogoPicture.dataUri, project.name as string) : null;
+
+      const picked = treeLogo
+        ? { path: treeLogo.paths[0], why: "convention" as const }
+        : await pickFile(stageRequest ?? prompt, project_.tree, undefined, indexHint);
       const target = picked
         ? project_.tree.find((file) => file.path === picked.path)
         : undefined;
@@ -2192,8 +2230,20 @@ async function handle(
          a failed request. */
       const imageAsk = asksForImages(prompt) && hasPlaceholders(project_.tree) && providerFromEnv() !== null;
       try {
-        steps.begin("edit", "Making the change", `reading ${picked.path}…`);
-        source = await editSource(
+        steps.begin("edit", "Making the change", treeLogo ? "swapping in your logo…" : `reading ${picked.path}…`);
+        source = treeLogo
+          ? {
+              path: picked.path,
+              why: picked.why,
+              contents: treeLogo.files[0].content,
+              applied: treeLogo.files.length,
+              failures: [],
+              note: null,
+              outputTokens: 0,
+              model: "logo swap",
+              retried: false,
+            }
+          : await editSource(
           stageRequest ?? prompt,
           leanTarget,
           picked.why,
@@ -2248,9 +2298,13 @@ async function handle(
           ? restoreImages(source.contents, stashedSource.images)
           : source.contents;
 
-      const changed = project_.tree.map((file) =>
-        file.path === source.path ? { ...file, content: editedContents } : file,
-      );
+      const changed = project_.tree.map((file) => {
+        if (file.path === source.path) return { ...file, content: editedContents };
+        /* A logo swap can touch more than one file — the component and a
+           footer that draws its own mark. */
+        const alsoSwapped = treeLogo?.files.find((swapped) => swapped.path === file.path);
+        return alsoSwapped ? { ...file, content: alsoSwapped.content } : file;
+      });
 
       /* ── The same repair a fresh build gets ────────────────────────────
        *
@@ -2641,7 +2695,9 @@ async function handle(
       }
 
       const said = [
-        source.applied > 0
+        treeLogo
+          ? `Your logo is in — ${treeLogo.paths.map((path) => `\`${path}\``).join(" and ")} now ${treeLogo.paths.length === 1 ? "draws" : "draw"} your picture, so it shows everywhere the logo appears. Want it bigger or smaller? Just say.`
+          : source.applied > 0
           ? `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`
           : "Done.",
         photoUpgrade.upgraded > 0
@@ -2932,6 +2988,8 @@ async function handle(
     const editPrompt = fitted.prompt;
 
     let edited;
+    /* Where the logo went, when this edit was a logo swap — see logo-swap.ts. */
+    let logoSwapped: string[] | null = null;
     /* Hoisted out of the try below because the verifier after it needs the
        same plan: what the change was classified as decides which criteria the
        result is held to. See verify-edit.ts. */
@@ -3071,8 +3129,40 @@ async function handle(
         await deliver(pageUpgrade.said, { key: "capability" });
       }
 
-      steps.begin("edit", "Making the change", `${editModel} is reading the page…`);
-      edited = await editPage(
+      /* ── "Use this as the logo": by hand, in seconds ─────────────────────
+       *
+       * The commonest edit and the one with exactly one right answer. A model
+       * call took a minute or more to find the mark and place the token, and
+       * was cut off with a picture attached. logo-swap finds the site's own
+       * logo by name — header, nav, footer, mobile menu, never the partner
+       * logos — and swaps the picture in. Only when it finds nothing with
+       * confidence does the model get asked. See lib/builder/logo-swap.ts. */
+      const pictures = files.blocks.filter((block) => block.type === "image").length;
+      const logoPlacement = asksForLogoSwap(prompt, pictures, attachments.map((file) => file.name)) ? (await imagePlacements(attachments))[0] : undefined;
+      const logoSwap = logoPlacement
+        ? swapLogo(currentHtml, logoPlacement.token, {
+            /* Every copy carries the whole picture: a large one is written
+               once, in the header, and not as the tab icon too. */
+            maxCopies: Math.max(1, Math.min(4, Math.floor(1_400_000 / logoPlacement.dataUri.length))),
+            favicon: logoPlacement.dataUri.length < 150_000,
+          })
+        : null;
+      if (logoSwap) logoSwapped = logoSwap.where;
+
+      steps.begin("edit", "Making the change", logoSwap ? "swapping in your logo…" : `${editModel} is reading the page…`);
+      edited = logoSwap
+        ? {
+            html: logoSwap.source,
+            applied: logoSwap.swapped,
+            failures: [],
+            outputTokens: 0,
+            retried: false,
+            ranOutOfTime: false,
+            model: "logo swap",
+            route: "patch" as const,
+            note: null,
+          }
+        : await editPage(
         editPrompt,
         leanHtml ?? currentHtml,
         files.blocks,
@@ -3352,7 +3442,9 @@ async function handle(
      * being read for in the first place. */
     const timeLeft = editDeadline(requestStartedAt) - Date.now();
 
-    if (!verification.complete && timeLeft > REPAIR_FLOOR_MS) {
+    /* Not after a logo swap: it changed exactly what was asked, and a model
+       "repairing" it would be a model second-guessing a measured answer. */
+    if (!verification.complete && timeLeft > REPAIR_FLOOR_MS && !logoSwapped) {
       steps.begin("repair", "Putting that right", verification.reason ?? "the change did not land");
 
       try {
@@ -3467,7 +3559,9 @@ async function handle(
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      edited.ranOutOfTime
+      logoSwapped
+        ? `Your logo is in — swapped in the ${listOf(logoSwapped)}. Want it bigger, smaller or on a different background? Just say.`
+        : edited.ranOutOfTime
         ? /* The change was too big to finish in the time a request has. What
              landed is real and correct, and saying which part is missing is the
              difference between a person asking for the rest and a person
