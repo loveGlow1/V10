@@ -1,5 +1,13 @@
-export type Provider = 'gpt-image-2' | 'gpt-image-1.5' | 'ideogram-v3';
+export type Provider =
+  | 'nano-banana-2'
+  | 'nano-banana-pro'
+  | 'gpt-image-2'
+  | 'gpt-image-1.5'
+  | 'ideogram-v3';
+
 export type FlyerFormat = 'portrait' | 'square' | 'landscape' | 'story';
+export type Stage = 'preview' | 'final';
+export type StyleIntent = 'brand' | 'typography' | 'photo';
 
 export interface BrandKit {
   name: string;
@@ -18,6 +26,7 @@ export interface FlyerSpec {
   imagery?: string;
   format: FlyerFormat;
   textMode: 'ai' | 'overlay';
+  styleIntent?: StyleIntent;
 }
 
 export interface FlyerRequest {
@@ -26,6 +35,9 @@ export interface FlyerRequest {
   spec: FlyerSpec;
   provider?: Provider | 'auto';
   variants?: number;
+  stage?: Stage;
+  parentJobId?: string;
+  selectedPreviewPath?: string;
 }
 
 export interface GenOutput { provider: Provider; images: Buffer[] }
