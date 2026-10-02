@@ -49,28 +49,46 @@ const VOID = /^(img|br|hr|input|meta|link|source)$/i;
 /* A link to the top of the site: the logo, when nothing is named as one. */
 const HOME_HREF = /^\s*(\/|#|#top|#home|#hero|\.\/|index\.html?|\/#|\/index\.html?)\s*$/i;
 
-const LOGO = /\b(logo|logos|brand ?mark|brandmark|wordmark|logotype|site icon|favicon)\b/i;
-const SWAP_VERB =
-  /\b(update|change|replace|swap|switch|use|put|set|add|upload(ed)?|insert|apply|attach(ed)?|new|this|my|our|instead|with)\b/i;
-/* About the logo, but not a swap: these need the model. */
-const NOT_A_SWAP =
-  /\b(bigger|smaller|larger|resize|size|shrink|enlarge|move|align|cent(er|re)|left|right|spacing|margin|padding|position|colou?r|animate|animation|hover|remove|delete|hide|round(ed)?|shadow|border)\b/i;
+/* Any way of saying logo, misspellings included — "logo", "logos", "lgo",
+   "loog", "logi", "brand mark", "icon in the header". */
+const LOGO =
+  /\b(lo+g+o+s?|loog|logoo|lgo|logi|logp|lohgo|lgoo|brand ?(mark|logo|icon)|brandmark|wordmark|logotype|site icon|favicon|header icon|nav(bar)? icon)\b/i;
+/* With a picture attached, saying logo IS asking for the swap — unless the
+   message is only about the size, place or colour of the one that is there,
+   or about taking it away. Those need the model. */
+const ADJUST_ONLY =
+  /\b(bigger|smaller|larger|resize|size|shrink|enlarge|move|align|cent(er|re)|left|right|spacing|margin|padding|position|colou?r|animate|animation|hover|remove|delete|hide|round(ed)?|shadow|border|darker|lighter|bold)\b/i;
+/* Words that mean "this picture, instead", strongly enough to outweigh an
+   adjustment word: "replace the logo with this, it's too big" is a swap,
+   "change the logo colour" is not. Update and change are deliberately not
+   here — on their own they are a swap (below), next to a size or colour they
+   are about the size or colour. */
+const WANTS_PICTURE =
+  /\b(replace|replaced|swap|switch|use|put|new|this|these|here|instead|with|upload(ed)?|attach(ed)?|image|picture|photo|pic|file|png|jpe?g|svg|webp)\b/i;
+
+/* A file named like a logo makes a vague message ("update this", "here") a
+   logo swap too. */
+const LOGO_FILE_NAME = /logo|brand|wordmark|lgo/i;
 
 /**
  * Whether this message asks for an attached picture to become the logo.
  *
- * Needs a picture, a logo and a verb that means "this one instead". A size or
- * position word on its own sends it to the model — but "replace the logo with
- * this, it's too big" is still a swap, so an explicit replace wins.
+ * Generous on purpose: with a picture attached, any mention of the logo is a
+ * swap. The only messages that are not are ones purely about adjusting or
+ * removing the logo that is already there — "make the logo bigger", "move the
+ * logo left", "remove the logo" — and those go to the model. A message that
+ * does not say logo at all still counts when the file itself is named as one.
  */
-export function asksForLogoSwap(message: string, imageCount: number): boolean {
+export function asksForLogoSwap(message: string, imageCount: number, fileNames: string[] = []): boolean {
   if (imageCount < 1) return false;
   const m = message.toLowerCase();
-  if (!LOGO.test(m)) return false;
-  if (!SWAP_VERB.test(m)) return false;
-  if (NOT_A_SWAP.test(m) && !/\b(replace|swap|use this|use my|new logo|this logo|my logo|our logo)\b/.test(m)) {
-    return false;
-  }
+  const saysLogo = LOGO.test(m);
+  const fileIsLogo = fileNames.some((name) => LOGO_FILE_NAME.test(name));
+  if (!saysLogo && !fileIsLogo) return false;
+  /* Named as a logo and nothing much said: "update this", "here", "", "fix". */
+  if (!saysLogo) return !ADJUST_ONLY.test(m) || WANTS_PICTURE.test(m);
+  /* Says logo. A swap unless it is only an adjustment. */
+  if (ADJUST_ONLY.test(m) && !WANTS_PICTURE.test(m.replace(/\b(the|my|our|this)\s+(lo+g+o+s?|lgo|logi)\b/g, "logo"))) return false;
   return true;
 }
 

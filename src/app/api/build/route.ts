@@ -1142,8 +1142,20 @@ async function handle(
     ((architectureRow?.stack as string | null) ?? "standalone-html") === "standalone-html" &&
     isPageDataAsk(prompt, planEdit(prompt, knownArchitecture).touches);
 
+  /* A picture and any mention of the logo is a logo swap — an edit, whatever
+     the classifier made of a message as short as "logo" or "new logo". */
+  const logoAsk =
+    Boolean(currentHtml) &&
+    asksForLogoSwap(
+      prompt,
+      files.blocks.filter((block) => block.type === "image").length,
+      attachments.map((file) => file.name),
+    );
+
   const routedIntent: Intent = planOnly
     ? "question"
+    : logoAsk
+    ? "edit"
     : stageAsk
     ? pathForStage(Boolean(currentHtml)) === "edit"
       ? "edit"
@@ -2114,7 +2126,7 @@ async function handle(
        * upload, or the inline mark in the header and footer swapped. See
        * lib/builder/logo-swap.ts. */
       const treePictures = files.blocks.filter((block) => block.type === "image").length;
-      const treeLogoPicture = asksForLogoSwap(prompt, treePictures) ? (await imagePlacements(attachments))[0] : undefined;
+      const treeLogoPicture = asksForLogoSwap(prompt, treePictures, attachments.map((file) => file.name)) ? (await imagePlacements(attachments))[0] : undefined;
       if (treeLogoPicture && treeLogoPicture.dataUri.length > TREE_LOGO_MAX_CHARS) {
         const kb = Math.round((treeLogoPicture.dataUri.length * 3) / 4 / 1024);
         const said = `That logo file is ${kb} KB, which is too large to store inside the project's code — logos there have to be under about 180 KB. Export it as a PNG at around 400px wide, or as an SVG, and send it again; most logos come out well under that.`;
@@ -3126,7 +3138,7 @@ async function handle(
        * logos — and swaps the picture in. Only when it finds nothing with
        * confidence does the model get asked. See lib/builder/logo-swap.ts. */
       const pictures = files.blocks.filter((block) => block.type === "image").length;
-      const logoPlacement = asksForLogoSwap(prompt, pictures) ? (await imagePlacements(attachments))[0] : undefined;
+      const logoPlacement = asksForLogoSwap(prompt, pictures, attachments.map((file) => file.name)) ? (await imagePlacements(attachments))[0] : undefined;
       const logoSwap = logoPlacement
         ? swapLogo(currentHtml, logoPlacement.token, {
             /* Every copy carries the whole picture: a large one is written

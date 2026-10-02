@@ -53,14 +53,26 @@ for (const message of [
   "Change these exact elements (picked in the visual editor):\n1. <svg> in components/Logo.tsx line 3: update logo",
   "put our new logo in the header",
   "replace the logo with this, the old one is too big",
+  "logo",
+  "new logo",
+  "logo update",
+  "change the logo",
+  "here's the logo",
+  "fix the logo",
+  "logo pls",
+  "can you change our logo",
+  "lgo",
+  "loog change",
 ]) {
   has(asksForLogoSwap(message, 1), `a swap: "${message.split("\n").pop()}"`);
 }
-for (const message of ["make the logo bigger", "move the logo to the left", "change the logo colour to green", "remove the logo"]) {
+for (const message of ["make the logo bigger", "move the logo to the left", "change the logo colour to green", "remove the logo", "make my logo smaller", "add a shadow to the logo", "center the logo", "add a log in button"]) {
   has(!asksForLogoSwap(message, 1), `not a swap, the model's job: "${message}"`);
 }
 has(!asksForLogoSwap("update the logo", 0), "no picture attached, no swap");
 has(!asksForLogoSwap("use this picture in the hero", 1), "a picture that is not a logo is not a swap");
+has(asksForLogoSwap("update this", 1, ["IMG_logo_final.png"]), "a file named as a logo makes \"update this\" a swap");
+has(!asksForLogoSwap("update this", 1, ["IMG_8017.png"]), "an unnamed picture with \"update this\" is the model's to read");
 
 /* ── A page ──────────────────────────────────────────────────────────────── */
 const page = `<!doctype html><html><head><title>Neuralis Systems — AI</title><link rel="icon" href="/old.ico"></head><body>
