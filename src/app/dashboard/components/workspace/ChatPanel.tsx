@@ -144,6 +144,7 @@ export default function ChatPanel({
   previewOpen = false,
   initialPrompt,
   initialKind,
+  initialTarget,
   onBuildSettled,
   onPublish,
   alone = false,
@@ -164,6 +165,11 @@ export default function ChatPanel({
      messages later has changed their mind. Everything after it is classified
      from the brief. */
   initialKind?: BuildKind | null;
+  /* Home's tab, e.g. "fliers" or "website:blog". Sent with every request
+     until the opening build actually starts — the questions a build can ask
+     first ("a site, or software?") must not lose it — then dropped, for the
+     same reason initialKind is. */
+  initialTarget?: string | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
   onBuildSettled?: () => void;
   /** Asks the preview half for its publish flow. See Workspace. */
@@ -454,6 +460,7 @@ export default function ChatPanel({
      and re-running it whenever `send` is redefined is exactly the loop the
      ref is there to prevent. */
   const openingPrompt = useRef<string | null>(null);
+  const targetRef = useRef<string | null>(initialTarget ?? null);
   useEffect(() => {
     if (!project || !initialPrompt || !threadLoaded) return;
     const key = `${project.id}:${initialPrompt}`;
@@ -1125,6 +1132,7 @@ export default function ChatPanel({
         confirmNewProject: options.confirmNewProject === true,
         attachmentIds: sent.map((file) => file.id),
         buildKind: options.buildKind ?? null,
+        target: targetRef.current,
         /* The answer to which of the two things to build, when one was given.
            Absent means the server reads it from the brief — see stack.ts — and
            asks if the brief did not say. */
@@ -1171,6 +1179,7 @@ export default function ChatPanel({
       /* Nothing was changed. The page is exactly as it was, so this is a
          sentence to read rather than a failure to recover from — and the text
          goes back in the composer so it can be reworded, not retyped. */
+      if (!reply.error && !reply.needsKind && !reply.needsStack && !reply.needsArchitecture) targetRef.current = null;
       if (reply.error || !reply.outcome) {
         /* Merged, not replaced. The stream already delivered these as they
            happened; replaying the list over the top only fills in anything the

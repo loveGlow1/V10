@@ -149,6 +149,8 @@ export type BuildOptions = {
    * src/lib/builder/kinds.ts.
    */
   buildKind?: BuildKind | null;
+  /** Home's tab and sub-type, e.g. "fliers" or "website:blog". See lib/builder/targets.ts. */
+  target?: string | null;
   /**
    * One page, or a Next.js project — when the person has been asked and has
    * answered.
@@ -453,6 +455,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           confirmNewProject: options.confirmNewProject === true,
           attachmentIds: options.attachmentIds ?? [],
           buildKind: options.buildKind ?? null,
+          target: options.target ?? null,
           /* BOTH ANSWERS, AND stack WAS NOT BEING SENT AT ALL.
            *
            * BuildOptions has carried `stack` since the question was written,

@@ -184,6 +184,7 @@ import {
   KIND_LABEL,
   type KindResult,
 } from "@/lib/builder/kinds";
+import { CATEGORY_LABEL, parseTarget, resolveTarget, targetBrief } from "@/lib/builder/targets";
 import { builderAvailability } from "@/lib/builder/availability";
 import { detectMarket, isMarket } from "@/lib/builder/market";
 import {
@@ -277,6 +278,10 @@ type BuildRequestBody = {
      project whose kind is settled); otherwise the brief is classified. As with
      intentOverride, an explicit choice beats a guess. */
   buildKind?: unknown;
+  /* The tab and sub-type above Home's composer — "fliers", or
+     "website:blog". Decides the build kind when buildKind does not, and adds
+     its own rules to the build prompt. See lib/builder/targets.ts. */
+  target?: unknown;
   /* Whether this project has a back half, when the person was asked and
      answered — "full" or "frontend". Sent back with the next request the
      same way buildKind and stack are. Anything else here is ignored and the
@@ -3872,7 +3877,15 @@ async function handle(
     : isBuildKind(knownArchitecture?.type)
       ? knownArchitecture.type
       : null;
-  const chosen = addingTo && knownKind ? knownKind : isBuildKind(body.buildKind) ? body.buildKind : null;
+  /* The tab it was asked under. A feature added to a built project keeps
+     that project's kind, so the tab only speaks for a new build. */
+  const askedTarget = parseTarget(body.target);
+  const resolvedTarget = askedTarget && !addingTo ? resolveTarget(askedTarget, brief.text) : null;
+  const chosen = addingTo && knownKind
+    ? knownKind
+    : isBuildKind(body.buildKind)
+      ? body.buildKind
+      : (resolvedTarget?.kind ?? null);
   const quick: KindResult | null = chosen
     ? { kind: chosen, confidence: 1, source: "selection", reason: "you chose it" }
     : heuristicKind(brief.text);
@@ -3917,8 +3930,12 @@ async function handle(
   const kind = quick ?? (await classifyKind({ brief: brief.text }));
   steps.mark(
     "kind",
-    `Building ${KIND_LABEL[kind.kind].toLowerCase()}`,
-    `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
+    resolvedTarget && resolvedTarget.kind === kind.kind
+      ? `Building ${resolvedTarget.subtype.label.toLowerCase()} · ${CATEGORY_LABEL[resolvedTarget.category]}`
+      : `Building ${KIND_LABEL[kind.kind].toLowerCase()}`,
+    resolvedTarget && resolvedTarget.kind === kind.kind
+      ? `${resolvedTarget.subtype.blurb} — ${resolvedTarget.picked ? "you chose it" : "read from what you described"}`
+      : `${KIND_BLURB[kind.kind]} — ${kind.reason}`,
   );
 
   /* ── One page, or a project of files ────────────────────────────────────
@@ -4768,6 +4785,9 @@ async function handle(
           : base;
 
     const promptContext = {
+      /* The tab's own rules — only when the tab still names the kind being
+         built (an answer to "which kind is it" can move it elsewhere). */
+      target: resolvedTarget && resolvedTarget.kind === kind.kind ? targetBrief(resolvedTarget) : undefined,
       projectName: project.name,
       attachmentText: attachedText,
       imageCount: imageUrls.length,
