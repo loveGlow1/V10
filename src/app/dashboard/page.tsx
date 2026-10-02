@@ -218,6 +218,30 @@ export default function DashboardPage() {
   const popoverRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /* Picking a video type writes its brief into the composer, with the first
+     [PLACEHOLDER] selected so typing replaces it. Never over somebody's own
+     words: only an empty box, or one still holding an untouched template, is
+     filled. */
+  function pickVideoType(id: PipelineId | null) {
+    setVideoPipeline(id);
+    if (!id) return;
+    pickedType.current = true;
+    const templates = Object.values(PIPELINES).map((entry) => entry.template);
+    const current = transcript.trim();
+    if (current && !templates.includes(current)) return;
+    const template = PIPELINES[id].template;
+    setTranscript(template);
+    requestAnimationFrame(() => {
+      const box = composerRef.current;
+      if (!box) return;
+      box.focus();
+      const start = template.indexOf("[");
+      const end = start >= 0 ? template.indexOf("]", start) + 1 : 0;
+      if (start >= 0 && end > start) box.setSelectionRange(start, end);
+      box.scrollTop = 0;
+    });
+  }
+
   function addFiles(list: FileList) {
     const picked = Array.from(list);
     const images = picked.filter((file) => file.type.startsWith("image/") || /\.(heic|heif)$/i.test(file.name));
@@ -275,6 +299,15 @@ export default function DashboardPage() {
      outside the composer. It closed on mousedown and the row never saw a
      click. AnchoredPanel's own handler, reached now that Popover passes
      onClose through, excludes the card and the chip both. */
+
+  /* The box grows with what is in it, up to a point, so a full template can
+     be read and edited without scrolling a three-line window. */
+  useEffect(() => {
+    const box = composerRef.current;
+    if (!box) return;
+    box.style.height = "";
+    if (transcript && box.scrollHeight > box.clientHeight) box.style.height = `${Math.min(box.scrollHeight, 300)}px`;
+  }, [transcript]);
 
   /* Stop once there is something in the box: the placeholder is hidden then,
      and a timer nobody can see is just work. */
@@ -832,7 +865,7 @@ export default function DashboardPage() {
           {videoMode && (
             <VideoTypeGrid
               selected={videoPipeline}
-              onSelect={setVideoPipeline}
+              onSelect={pickVideoType}
               answers={videoAnswers}
               onAnswer={(question, value) => setVideoAnswers((current) => ({ ...current, [question]: value }))}
               consent={videoConsent}

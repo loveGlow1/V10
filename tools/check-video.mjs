@@ -46,6 +46,11 @@ for (const id of P.PIPELINE_IDS) {
   has(p.id === id && p.stages.length >= 4 && p.questions.length >= 2 && p.director.length >= 1 && p.engines.includes(p.defaultEngine), `${id}: stages, questions, director rules, engines`);
   has(p.questions.every((q) => !q.initial || q.options.includes(q.initial)), `${id}: every default is one of its options`);
 }
+for (const id of P.PIPELINE_IDS) {
+  const p = P.PIPELINES[id];
+  const seconds = L.secondsFrom(P.answersFor(p, {}).length);
+  has(/\[[A-Z]/.test(p.template) && p.template.includes(`${seconds}-second`), `${id}: a template with [PLACEHOLDERS], timed to its default ${seconds}s`);
+}
 has(P.PIPELINES.clone.needsConsent === true && P.PIPELINE_IDS.filter((id) => P.PIPELINES[id].needsConsent).length === 1, "only the clone asks for likeness consent");
 has(P.PIPELINES.product_showcase.director.some((r) => /LOCKED/.test(r)), "product showcase locks the product");
 has(P.PIPELINES.ugc_influencer.director.some((r) => /never imitate a real influencer/i.test(r)), "UGC creator is fictional");
