@@ -9,7 +9,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 
 import { GRID, PIPELINES, type PipelineId } from "@/lib/video/pipelines";
 
@@ -42,6 +42,8 @@ export default function VideoTypeGrid({
   onConsent: (value: boolean) => void;
 }) {
   const pipeline = selected ? PIPELINES[selected] : null;
+  /* Settings start folded: the defaults are good, and the summary line shows them. */
+  const [open, setOpen] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
   const measure = useCallback(() => {
@@ -128,39 +130,74 @@ export default function VideoTypeGrid({
       </div>
       <Link href="/dashboard/video" className="mt-1 block text-center text-[12.5px] text-muted hover:text-ink sm:hidden">Your videos →</Link>
 
-      {pipeline && (
-        <div className="mt-3 space-y-2.5 rounded-[14px] border border-line/[0.08] bg-layer/[0.02] p-3">
-          <p className="text-[12.5px] text-muted">
-            <span className="font-medium text-ink">{pipeline.label}</span> · {pipeline.blurb}
-          </p>
-          {pipeline.questions.map((question) => (
-            <div key={question.id} className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 w-full shrink-0 text-[12px] text-muted sm:w-[92px]">{question.label}</span>
-              {question.options.map((option) => {
-                const chosen = (answers[question.id] ?? question.initial) === option;
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={chosen}
-                    onClick={() => onAnswer(question.id, option)}
-                    className={`h-7 shrink-0 whitespace-nowrap rounded-full border px-2.5 text-[12px] transition-colors ${
-                      chosen ? "border-accent/40 bg-accent/[0.10] text-ink" : "border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink"
-                    }`}
-                  >
-                    {option}
-                  </button>
-                );
-              })}
+      {pipeline && selected && (
+        <div className="mt-4 overflow-hidden rounded-[18px] border border-line/[0.08] bg-gradient-to-b from-layer/[0.05] to-layer/[0.015] shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+          {/* The header is the toggle. Closed, it still says what will be
+              made — every setting in one line — so the defaults are never a
+              secret; open, it is the place to change them. */}
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-layer/[0.03]"
+          >
+            <span className="relative h-9 w-[58px] shrink-0 overflow-hidden rounded-[8px] bg-layer/[0.06]">
+              <Image src={`/video-types/${selected}.jpg`} alt="" fill sizes="58px" className="object-cover" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-medium text-ink">{pipeline.label}</span>
+              <span className="block truncate text-[12px] text-muted">
+                {open ? pipeline.blurb : pipeline.questions.map((q) => answers[q.id] ?? q.initial ?? q.options[0]).join(" · ")}
+              </span>
+            </span>
+            <span className="hidden shrink-0 text-[12px] text-muted sm:block">{open ? "Done" : "Customize"}</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+          </button>
+
+          <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+            <div className="min-h-0 overflow-hidden">
+              <div className="space-y-3.5 border-t border-line/[0.06] px-3.5 pb-4 pt-3.5">
+                {pipeline.questions.map((question) => {
+                  const value = answers[question.id] ?? question.initial ?? question.options[0];
+                  return (
+                    <div key={question.id} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="shrink-0 whitespace-nowrap text-[11.5px] font-medium uppercase tracking-[0.06em] text-muted sm:w-[124px]">{question.label}</span>
+                      {/* A segmented control: one track, the choice lifted out of it. */}
+                      <div role="radiogroup" aria-label={question.label} className="flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-layer/[0.05] p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        {question.options.map((option) => {
+                          const chosen = value === option;
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              role="radio"
+                              aria-checked={chosen}
+                              onClick={() => onAnswer(question.id, option)}
+                              className={`h-7 shrink-0 whitespace-nowrap rounded-full px-3 text-[12.5px] transition-all ${
+                                chosen ? "bg-white font-medium text-[#111113] shadow-sm" : "text-soft hover:bg-layer/[0.06] hover:text-ink"
+                              }`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {pipeline.needsReference && (
+                  <p className="flex items-center gap-2 text-[12px] text-muted">
+                    <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                    Add {pipeline.needsReference === "product" ? "product images" : pipeline.needsReference === "person" ? "photos or video of yourself" : "your photo"} in the studio, before the plan is made.
+                  </p>
+                )}
+              </div>
             </div>
-          ))}
-          {pipeline.needsReference && (
-            <p className="text-[12px] text-muted">
-              You can add {pipeline.needsReference === "product" ? "product images" : pipeline.needsReference === "person" ? "photos or video of yourself" : "the photo"} in the studio before the plan is made.
-            </p>
-          )}
+          </div>
+
+          {/* Never folded away: a clone cannot be sent without it. */}
           {pipeline.needsConsent && (
-            <label className="flex cursor-pointer items-start gap-2 text-[12.5px] leading-snug text-soft">
+            <label className="flex cursor-pointer items-start gap-2.5 border-t border-line/[0.06] px-3.5 py-3 text-[12.5px] leading-snug text-soft">
               <input type="checkbox" checked={consent} onChange={(e) => onConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#2F6BFF]" />
               I am the person in the reference material, or I have their written permission to use their likeness and voice.
             </label>
