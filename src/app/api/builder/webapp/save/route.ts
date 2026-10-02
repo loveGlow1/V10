@@ -162,12 +162,10 @@ export const dynamic = "force-dynamic";
  * wrote Failed on the project with no reason attached, because writing the
  * reason is this route's job and this route was already gone.
  *
- * 60 rather than 300: the Vercel account this runs on is on Hobby, which caps
- * a function at 60 seconds whatever the code asks for. Declaring 300 here would
- * be a number that reads as a guarantee and is not one. See the note in
- * projects/[id]/deploy/route.ts, which asks for 300 and is subject to the same
- * ceiling. */
-export const maxDuration = 60;
+ * 300: with Fluid compute (turned on in vercel.json) that is Vercel's limit on
+ * every plan, Hobby included. It was 60, the old Hobby limit, which is the
+ * ceiling the photographs ran into. */
+export const maxDuration = 300;
 
 /* How long after the request arrives the photographs must be in. The rest of
    the sixty seconds is the QA loop, the deploy start and storing the page —

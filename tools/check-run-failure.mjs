@@ -68,7 +68,7 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
 /* ── The real one, from the transcript ───────────────────────────────────── */
 {
   const timeout = describeRunFailure({
-    status: 200, answered: false, started: true, elapsedMs: 58_000,
+    status: 200, answered: false, started: true, elapsedMs: 290_000,
   });
 
   has(
@@ -135,8 +135,8 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
 /* ── Nothing anywhere may push them to shrink the request ────────────────── */
 {
   const everyFailure = [
-    { status: 200, answered: false, started: true, elapsedMs: 58_000 },
-    { status: 504, answered: false, started: true, elapsedMs: 61_000 },
+    { status: 200, answered: false, started: true, elapsedMs: 290_000 },
+    { status: 504, answered: false, started: true, elapsedMs: 301_000 },
     { status: 502, answered: false, started: true, elapsedMs: 47_000 },
     { status: 500, answered: false, started: true, elapsedMs: 5_000 },
     { status: 0, answered: false, started: false, elapsedMs: 800 },
@@ -224,10 +224,10 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
 /* ── THE INVARIANT ───────────────────────────────────────────────────────── */
 {
   const everything = [
-    { status: 200, answered: false, started: true, elapsedMs: 58_000 },
+    { status: 200, answered: false, started: true, elapsedMs: 290_000 },
     { status: 0, answered: false, started: false, elapsedMs: 800 },
     { status: 500, answered: false, started: true, elapsedMs: 5_000 },
-    { status: 504, answered: false, started: true, elapsedMs: 61_000 },
+    { status: 504, answered: false, started: true, elapsedMs: 301_000 },
     { status: 429, answered: false, started: false, elapsedMs: 300 },
     { status: 402, answered: true, started: true, elapsedMs: 1_000, said: "Not enough credits." },
     { status: 0, answered: false, started: true, elapsedMs: 100, aborted: true },

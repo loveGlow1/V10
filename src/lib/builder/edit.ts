@@ -312,7 +312,7 @@ function ranOutOfRoom(message: Anthropic.Message): boolean {
  * attempts of PATCH_TOKENS each cannot fit in sixty seconds. A per-call limit
  * would let the first two spend the lot and the third be killed by the
  * platform, which is the failure this exists to prevent. */
-const EDIT_DEADLINE_MS = 45_000;
+const EDIT_DEADLINE_MS = 240_000;
 
 /* ── The budget belongs to the REQUEST, not to the edit ────────────────────
  *
@@ -330,9 +330,12 @@ const EDIT_DEADLINE_MS = 45_000;
  * it. An honest "that was too large to finish in one go" delivered at 50
  * seconds is worth more than a dead connection at 60.
  *
- * 46 rather than 60 because the route still has to store the version, write the
- * index, charge and answer after the edit returns. */
-const REQUEST_BUDGET_MS = 46_000;
+ * The route is allowed 300 seconds (see maxDuration in api/build/route.ts).
+ * 270 rather than 300 because it still has to store the version, write the
+ * index, charge and answer after the edit returns. It was 46 of 60, which cut
+ * off ordinary edits — one with a picture attached, one on a long page — and
+ * asked people to send the same message again. */
+const REQUEST_BUDGET_MS = 270_000;
 
 /**
  * When an edit started from this request has to be finished by.

@@ -244,9 +244,15 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 export const runtime = "nodejs";
 /* A build is a side effect; it must never be served from a cache. */
 export const dynamic = "force-dynamic";
-/* The ceiling this waits under. startBuild gives up at 55s so its own message
-   reaches the chat before the platform cuts the function off at 60. */
-export const maxDuration = 60;
+/* The ceiling this waits under. 300 seconds: with Fluid compute, which
+   vercel.json turns on, that is what Vercel allows on every plan including
+   Hobby. It was 60, the old Hobby limit, and an edit that needed a minute and
+   a half — a picture attached, a long page — was cut off and told to send the
+   same message again. The edit's own budget is sized from this; see
+   REQUEST_BUDGET_MS in lib/builder/edit.ts. startBuild still answers at 55s,
+   because a new build is handed to the orchestrator and watched, not waited
+   on here. */
+export const maxDuration = 300;
 
 type BuildRequestBody = {
   projectId?: unknown;
