@@ -487,14 +487,19 @@ export default function DashboardPage() {
           }}
         />
 
-        <h1 className="hero-offset text-center text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-ink sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight">
+        {/* On a phone the Video tab drops the heading, so the composer rises
+            and the gallery under it is on the first screen. */}
+        <h1 className={`hero-offset text-center ${videoMode ? "hidden md:block" : ""} text-[clamp(18px,4.9vw,22px)] font-normal leading-[26px] tracking-normal text-ink sm:text-[32px] sm:font-semibold sm:leading-tight sm:tracking-tight`}>
           What will you build today?
         </h1>
 
         {/* Tabs and composer share this column, so they stay aligned. */}
-        <div className="relative mt-14 w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))]" ref={popoverRef}>
-          {/* Target tabs, fused to the canvas below them */}
-          <div className="relative z-40 flex items-end gap-1.5 overflow-x-auto px-5 [scrollbar-width:none] md:px-3.5 [&::-webkit-scrollbar]:hidden">
+        <div className={`relative w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))] ${videoMode ? "mt-3" : "mt-14"}`} ref={popoverRef}>
+          {/* Target tabs. From md up they are fused to the canvas below them;
+              on a phone they are a row of pills standing apart from it, only
+              the selected one carrying its name. The top padding is room for
+              the New badge, which sits over its pill's edge there. */}
+          <div className="relative z-40 flex items-end gap-2 overflow-x-auto px-0.5 pb-3 pt-3.5 [scrollbar-width:none] md:gap-1.5 md:px-3.5 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden">
             {categoryTabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeCategory === tab.id;
@@ -509,16 +514,17 @@ export default function DashboardPage() {
                   aria-pressed={active}
                   /* Emergent's tab strip: rounded-top tabs standing on the
                      box, the selected one a shade lighter. */
-                  className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-[12px] px-4 text-[13px] font-medium transition-colors md:px-5 md:text-sm ${
+                  aria-label={CATEGORY_LABEL[tab.id]}
+                  className={`relative flex h-11 min-w-[52px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-4 text-[15px] font-medium transition-colors md:h-auto md:min-w-0 md:justify-start md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
                     active
-                      ? "bg-layer/[0.13] py-2.5 text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-                      : "bg-layer/[0.045] py-2.5 text-muted hover:bg-layer/[0.07] hover:text-soft"
+                      ? "border-line/[0.16] bg-layer/[0.05] text-ink md:bg-layer/[0.13] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                      : "border-transparent bg-layer/[0.09] text-muted hover:bg-layer/[0.07] hover:text-soft md:bg-layer/[0.045]"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 shrink-0 ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
-                  {CATEGORY_LABEL[tab.id]}
+                  <Icon className={`h-[18px] w-[18px] shrink-0 md:h-4 md:w-4 ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
+                  <span className={active ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
                   {tab.id === "video" && (
-                    <span className="rounded-[5px] bg-[#e5243b] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white">
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-3 rounded-[5px] bg-[#e5243b] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-white ring-1 ring-white/80 md:static md:translate-x-0 md:rotate-0 md:ring-0">
                       New
                     </span>
                   )}

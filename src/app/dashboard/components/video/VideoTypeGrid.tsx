@@ -88,6 +88,14 @@ export default function VideoTypeGrid({
 
   return (
     <div className="relative z-10 mt-6 w-full">
+      {/* A phone gets the showcase: one card at a time, centred and full
+          size, its neighbours shrunk and blurred at the edges. */}
+      <div className="md:hidden">
+        <MobileShowcase ids={[...GRID, "photo_to_video"]} selected={selected} onSelect={onSelect} />
+        <Link href="/dashboard/video" className="mt-3 block text-center text-[12.5px] text-muted hover:text-ink">Your videos →</Link>
+      </div>
+
+      <div className="hidden md:block">
       <div className="relative mb-3.5 flex items-center justify-center">
         <p className="text-[13.5px] text-soft">↓ What do you want to create? ↓</p>
         <Link href="/dashboard/video" className="absolute right-0 hidden text-[12.5px] text-muted hover:text-ink sm:block">Your videos →</Link>
@@ -122,7 +130,7 @@ export default function VideoTypeGrid({
           ) : null,
         )}
       </div>
-      <Link href="/dashboard/video" className="mt-1 block text-center text-[12.5px] text-muted hover:text-ink sm:hidden">Your videos →</Link>
+      </div>
 
       {pipeline && selected && (
         <div className="mt-4 overflow-hidden rounded-[18px] border border-line/[0.08] bg-gradient-to-b from-layer/[0.05] to-layer/[0.015] shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
@@ -202,11 +210,107 @@ export default function VideoTypeGrid({
   );
 }
 
+/* The phone's gallery, after Emergent's: the card in the middle is the one
+   on offer — full size, sharp, with its Try now — and the ones either side
+   peek in smaller and blurred. Swiping snaps the next one to the middle;
+   tapping a side card brings it there. */
+function MobileShowcase({
+  ids,
+  selected,
+  onSelect,
+}: {
+  ids: PipelineId[];
+  selected: PipelineId | null;
+  onSelect: (id: PipelineId | null) => void;
+}) {
+  const track = useRef<HTMLDivElement>(null);
+  const [focus, setFocus] = useState(() => Math.max(0, selected ? ids.indexOf(selected) : 0));
+
+  const centre = useCallback((index: number, behavior: ScrollBehavior) => {
+    const el = track.current;
+    const card = el?.children[index] as HTMLElement | undefined;
+    if (!el || !card) return;
+    el.scrollTo({ left: card.offsetLeft - (el.clientWidth - card.offsetWidth) / 2, behavior });
+  }, []);
+
+  /* Back on the tab with a type already chosen: open on that card. */
+  useEffect(() => {
+    centre(focus, "instant");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const measure = () => {
+    const el = track.current;
+    if (!el) return;
+    const middle = el.scrollLeft + el.clientWidth / 2;
+    let best = 0;
+    let distance = Infinity;
+    Array.from(el.children).forEach((child, index) => {
+      const card = child as HTMLElement;
+      const gap = Math.abs(card.offsetLeft + card.offsetWidth / 2 - middle);
+      if (gap < distance) {
+        distance = gap;
+        best = index;
+      }
+    });
+    setFocus(best);
+  };
+
+  return (
+    <div className="pt-6">
+      <p className="mb-4 text-center text-[15px] font-medium text-soft">↓ Get inspired ↓</p>
+      {/* Breaks out of the composer's column to the screen's full width, so
+          the side cards run off its edges. */}
+      <div
+        ref={track}
+        onScroll={measure}
+        className="relative left-1/2 flex w-[100vw] -translate-x-1/2 snap-x snap-mandatory gap-2 overflow-x-auto px-[15vw] pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {ids.map((id, index) => {
+          const entry = PIPELINES[id];
+          const inFocus = focus === index;
+          const active = selected === id;
+          return (
+            <div
+              key={id}
+              className={`w-[70vw] max-w-[320px] shrink-0 snap-center transition-[transform,opacity,filter] duration-300 ease-out ${
+                inFocus ? "scale-100 opacity-100" : "scale-[0.84] opacity-55 blur-[3px]"
+              }`}
+            >
+              <button
+                type="button"
+                aria-label={inFocus ? `${entry.label}: ${entry.blurb}` : `Show ${entry.label}`}
+                tabIndex={inFocus ? 0 : -1}
+                onClick={() => (inFocus ? onSelect(active ? null : id) : centre(index, "smooth"))}
+                className={`relative block aspect-[4/3] w-full overflow-hidden rounded-[14px] bg-layer/[0.06] ring-offset-2 ring-offset-canvas transition ${
+                  active ? "ring-2 ring-white/85" : ""
+                }`}
+              >
+                <LoopingPreview id={id} sizes="320px" />
+                {inFocus && (
+                  <span
+                    className={`absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center whitespace-nowrap rounded-[10px] px-5 py-2 text-[17px] font-medium text-white shadow-lg ${
+                      active ? "bg-black/70 backdrop-blur" : "bg-[#2F6BFF]"
+                    }`}
+                  >
+                    {active ? "Selected ✓" : "Try now"}
+                  </span>
+                )}
+              </button>
+              <p className={`mt-3 truncate text-center text-[16px] font-semibold ${inFocus ? "text-ink" : "text-soft"}`}>{entry.label}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* A card's picture, moving: a short silent loop (forward then back, so it
    has no seam), its still frame as the poster. It plays only while on screen
    and never for someone who has asked their device for reduced motion — they
    keep the still. */
-function LoopingPreview({ id }: { id: PipelineId }) {
+function LoopingPreview({ id, sizes = "176px" }: { id: PipelineId; sizes?: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [still, setStill] = useState(false);
 
@@ -229,7 +333,7 @@ function LoopingPreview({ id }: { id: PipelineId }) {
   }, []);
 
   if (still) {
-    return <Image src={`/video-types/${id}.jpg`} alt="" fill sizes="176px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />;
+    return <Image src={`/video-types/${id}.jpg`} alt="" fill sizes={sizes} className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />;
   }
   return (
     <video
