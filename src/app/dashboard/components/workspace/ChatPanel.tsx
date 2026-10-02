@@ -43,6 +43,7 @@ import ScrollToEnds from "../ScrollToEnds";
 import BuildActivity from "./BuildActivity";
 import { usePacedSteps } from "./usePacedSteps";
 import MessageRow, { type Activity } from "./MessageRow";
+import ChatMarkdown from "./ChatMarkdown";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
@@ -1586,7 +1587,7 @@ export default function ChatPanel({
           const el = event.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
-        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
+        className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4"
       >
         {/* Who this is and what it is for, at the top of the thread rather than
             floating in the middle of it — so it scrolls away as the
@@ -1706,7 +1707,7 @@ export default function ChatPanel({
             that is generated after the reply — so the list grows as they land
             rather than on a timer. The clock is the real one. */}
         {building && runStartedAt !== null && (
-          <div className="rounded-xl border border-line/[0.06] bg-layer/[0.02] px-3 py-2.5">
+          <div className="py-1">
             <div className="flex items-center gap-2">
               <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
               {/* Both halves of the lockup, as everywhere else the name is
@@ -1728,13 +1729,12 @@ export default function ChatPanel({
              * where the next character goes, so a pause in the stream reads as
              * a pause in the writing instead of as the connection dying. */}
             {streamed && (
-              <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
-                {streamed}
+              <ChatMarkdown text={streamed} className="mt-2">
                 <span
                   aria-hidden
                   className="ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.18em] bg-accent/70 motion-safe:animate-[qs-caret_1.1s_steps(1)_infinite]"
                 />
-              </p>
+              </ChatMarkdown>
             )}
 
             <div className="mt-2.5">

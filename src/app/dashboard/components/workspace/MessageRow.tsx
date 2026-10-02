@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Check, Database, Download, ExternalLink, User } from "lucide-react";
+import { Check, Database, Download, ExternalLink } from "lucide-react";
 
 import { isConnectDatabaseHref } from "@/lib/builder/backend/connect-link";
 
@@ -9,6 +9,7 @@ import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
 import BuildResultCard, { useResultActionsLive, type BuildResult } from "./BuildResultCard";
+import ChatMarkdown from "./ChatMarkdown";
 
 /* The build behind one reply, as the tracker needs it. */
 export type Activity = {
@@ -47,12 +48,9 @@ export function timeOf(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/* One turn of the conversation.
-
-   Both sides are the same card rather than opposed bubbles: this column is
-   420px beside the preview, and a thread that alternates margins spends a third
-   of that on whitespace. Who is speaking is carried by the avatar and the name,
-   which stay legible at any width. */
+/* One turn of the conversation, read like a chat: the person's message is a
+   bubble on the right, and the reply is open text under the mark, set from
+   Markdown so a step-by-step answer reads as steps. */
 /* Chips that open the app itself — "Open it", "Preview" — are already on a
    desktop screen: the preview fills the pane beside the chat and Open app
    sits in its toolbar. So they are for phones, where the pane is a tap away,
@@ -100,6 +98,23 @@ export default function MessageRow({
      A reply with chips and no card has nothing to wait for. */
   const actionsLive = useResultActionsLive(message.result, supersededAt);
 
+  /* A conversation, not a log: what you said sits on the right in a bubble,
+     and the reply answers it in the open below, the way a chat reads. */
+  if (you) {
+    return (
+      <div className="flex flex-col items-end">
+        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[20px] rounded-br-md bg-layer/[0.09] px-4 py-2.5 text-[15px] leading-relaxed text-ink md:text-[13.5px]">
+          {message.text}
+        </div>
+        {typeof message.at === "number" && (
+          <time dateTime={new Date(message.at).toISOString()} className="mt-1 pr-1 text-[11px] tabular-nums text-muted">
+            {timeOf(message.at)}
+          </time>
+        )}
+      </div>
+    );
+  }
+
   return (
     /* A reply that reports a problem is still a reply. It gets the same
        typography as every other one and a thin rule down its edge — amber
@@ -107,41 +122,21 @@ export default function MessageRow({
        could not be applied, a build still running, a file too large. Colouring
        the sentence itself made every one of them read as a crash, and made the
        three that matter indistinguishable from the ones that do not. */
-    <div
-      className={`rounded-xl border border-line/[0.06] bg-layer/[0.02] py-2.5 pr-3 ${
-        message.tone === "error" ? "border-l-2 border-l-warn/50 pl-[10px]" : "pl-3"
-      }`}
-    >
+    <div className={`py-1 ${message.tone === "error" ? "border-l-2 border-l-warn/50 pl-3" : ""}`}>
       <div className="flex items-center gap-2">
-        {/* The person gets a chip, the assistant gets the mark. Not symmetry for
-            its own sake: a logo boxed inside a coloured square reads as an app
+        {/* The assistant signs with the mark. Not decoration: a logo boxed inside a coloured square reads as an app
             icon, and this is a signature. Still rather than turning, and in the
             quiet colour rather than the brand green — it repeats down the whole
             thread, and twenty spinning green marks is a fairground. The green
             lives in the wordmark instead, once per row, exactly as the header
             above does it. */}
-        {you ? (
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-layer/[0.10] text-soft">
-            <User className="h-3 w-3" />
-          </span>
-        ) : (
-          <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
-        )}
+        <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-          {you ? (
-            "You"
-          ) : (
-            <>
-              {/* The lockup the landing page uses — silver and emerald, both
-                  halves. It was half of it here: an emerald .Ai after plain
-                  text, which is the name in two materials rather than one
-                  object. Not the shimmer, though: that sweeps every seven
-                  seconds, and twenty rows each catching the light on their own
-                  schedule is a thread that will not sit still. */}
-              <span className="wordmark-quickstart">QuickStark</span>
-              <span className="wordmark-ai">.Ai</span>
-            </>
-          )}
+          {/* The lockup the landing page uses — silver and emerald, both
+              halves, without the shimmer: twenty rows each catching the light
+              on their own schedule is a thread that will not sit still. */}
+          <span className="wordmark-quickstart">QuickStark</span>
+          <span className="wordmark-ai">.Ai</span>
         </p>
         {typeof message.at === "number" && (
           <time
@@ -153,9 +148,7 @@ export default function MessageRow({
         )}
       </div>
 
-      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-soft">
-        {message.text}
-      </p>
+      <ChatMarkdown text={message.text} className="mt-2" />
 
       {/* Said only where it is true: work that actually landed. "Applied" over
           a refusal or a failure would be the panel disagreeing with the
