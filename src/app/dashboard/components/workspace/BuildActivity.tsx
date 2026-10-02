@@ -330,7 +330,7 @@ export default function BuildActivity({
                             ›
                           </span>
                           <span
-                            className={`min-w-0 font-mono text-[11px] leading-[1.45] ${
+                            className={`min-w-0 font-mono text-[11px] leading-[1.45] [overflow-wrap:anywhere] ${
                               step.state === "running" ? "text-accent" : "text-soft"
                             }`}
                           >
