@@ -218,14 +218,64 @@ export function swapLogo(
   src: string,
   options: { jsx?: boolean; maxCopies?: number; brand?: string | null; favicon?: boolean } = {},
 ): LogoSwap | null {
-  const all = openings(source);
   const maxCopies = Math.max(1, options.maxCopies ?? 4);
+  const { outermost, regionOf } = ownLogos(source);
+  if (outermost.length === 0) return null;
+
+  const brand = (options.brand ?? "").trim() || brandFrom(source, outermost);
+  const alt = brand ? `${brand} logo` : "Logo";
+
+  const chosen = outermost.slice(0, maxCopies);
+  const where: string[] = [];
+
+  /* Applied back to front, so earlier indices stay valid. */
+  let out = source;
+  for (const el of [...chosen].sort((a, b) => b.start - a.start)) {
+    const region = regionOf(el);
+    const label = region?.label ?? "header";
+    const height = label === "footer" ? FOOTER_HEIGHT : HEADER_HEIGHT;
+    out = out.slice(0, el.start) + replacement(out, el, src, alt, height, options.jsx === true) + out.slice(el.end);
+    where.unshift(label);
+  }
+
+  /* The browser tab, on a page: the same picture as the favicon. Only when it
+     is small enough not to double the weight of the page. */
+  if (!options.jsx && options.favicon !== false) {
+    const withIcon = setFavicon(out, src);
+    if (withIcon !== out) {
+      out = withIcon;
+      where.push("browser tab");
+    }
+  }
+
+  return { source: out, swapped: chosen.length, where: [...new Set(where)] };
+}
+
+/* The height a swapped-in logo starts at. Readable on a phone without crowding
+   the bar; a person who wants it different says so, and resizeLogo does it. */
+const HEADER_HEIGHT = 44;
+const FOOTER_HEIGHT = 36;
+
+type Region = { start: number; end: number; label: string };
+
+/* The site's own logos, outermost first, and which part of the chrome each is
+   in. Shared by the swap and the resize, so both find the same thing. */
+function ownLogos(source: string): {
+  all: Element[];
+  outermost: Element[];
+  regionOf: (el: Element) => Region | null;
+} {
+  const all = openings(source);
 
   /* The chrome: header, nav, footer, and anything named as a mobile menu. */
-  const regions = all
+  const regions: Region[] = all
     .filter((el) => (CHROME_TAGS as readonly string[]).includes(el.tag.toLowerCase()) || MENU_NAME.test(namesOf(el.open)))
     .map((el) => ({ start: el.start, end: el.end, label: regionLabel(el) }));
-  const regionOf = (el: Element) => regions.find((region) => el.start >= region.start && el.end <= region.end) ?? null;
+  /* The innermost region wins: a nav inside a footer is the footer. */
+  const regionOf = (el: Element) =>
+    regions
+      .filter((region) => el.start >= region.start && el.end <= region.end)
+      .sort((a, b) => (a.label === "footer" ? -1 : b.label === "footer" ? 1 : b.start - a.start))[0] ?? null;
 
   /* Named as a logo, in the chrome, and not somebody else's. */
   let candidates = all.filter((el) => {
@@ -245,7 +295,6 @@ export function swapLogo(
     const home = all.find((el) => isHomeLink(el) && regionOf(el) !== null && regionOf(el)!.label !== "footer");
     if (home) candidates = [home];
   }
-  if (candidates.length === 0) return null;
 
   /* The outermost of nested matches: `<a class="logo"><svg class="logo-mark">`
      is one logo, swapped once, at the link. */
@@ -253,33 +302,7 @@ export function swapLogo(
     (el) => !candidates.some((other) => other !== el && other.start <= el.start && other.end >= el.end && other.start !== el.start),
   );
 
-  const brand = (options.brand ?? "").trim() || brandFrom(source, outermost);
-  const alt = brand ? `${brand} logo` : "Logo";
-
-  const chosen = outermost.slice(0, maxCopies);
-  const where: string[] = [];
-
-  /* Applied back to front, so earlier indices stay valid. */
-  let out = source;
-  for (const el of [...chosen].sort((a, b) => b.start - a.start)) {
-    const region = regionOf(el);
-    const label = region?.label ?? "header";
-    const height = label === "footer" ? 32 : 36;
-    out = out.slice(0, el.start) + replacement(out, el, src, alt, height, options.jsx === true) + out.slice(el.end);
-    where.unshift(label);
-  }
-
-  /* The browser tab, on a page: the same picture as the favicon. Only when it
-     is small enough not to double the weight of the page. */
-  if (!options.jsx && options.favicon !== false) {
-    const withIcon = setFavicon(out, src);
-    if (withIcon !== out) {
-      out = withIcon;
-      where.push("browser tab");
-    }
-  }
-
-  return { source: out, swapped: chosen.length, where: [...new Set(where)] };
+  return { all, outermost, regionOf };
 }
 
 function regionLabel(el: Element): string {
@@ -424,7 +447,7 @@ const LOGO_SRC =
 
 ${hasNamed || !hasDefault ? "export " : ""}function ${named}({
   className = "",
-  height = 36,
+  height = 44,
 }: {
   className?: string;
   height?: number;
@@ -447,4 +470,281 @@ ${hasDefault ? `\nexport default ${named};\n` : ""}`;
 export function listOf(places: string[]): string {
   if (places.length <= 1) return places[0] ?? "header";
   return `${places.slice(0, -1).join(", ")} and ${places[places.length - 1]}`;
+}
+
+/* ── Resizing the logo ───────────────────────────────────────────────────────
+ *
+ * "Make the logo bigger" went to a model, and the model kept answering with
+ * the same size. Not stubbornness: the swap above sets the height as an
+ * inline style, and an inline style outranks every class the model added — so
+ * it wrote `h-14`, the page was stored, and the logo did not move. Asked again,
+ * it did the same thing again.
+ *
+ * Resizing is arithmetic, so it is done here, on the height that actually
+ * applies. It reads every way people say it — bigger, a lot bigger, a little
+ * smaller, twice the size, 50% bigger, 64px, large, "it's too small" — and
+ * writes the new height where it wins. */
+
+export type LogoResize =
+  | { kind: "absolute"; px: number; said: string }
+  | { kind: "scale"; factor: number; said: string };
+
+const BIGGER = /\b(bigger|larger|large?r|biger|increase|increased|enlarge|grow|scale ?up|boost|upsize|more visible|stand out|pop more|blow ?up)\b/i;
+const SMALLER = /\b(smaller|smaler|decrease|reduce|shrink|scale ?down|downsize|tone (it )?down|less (big|large))\b/i;
+const MUCH = /\b(much|a lot|alot|lot|way|very|really|significantly|massively|considerably|far|heaps|loads|super|extremely|more)\b/i;
+const LITTLE = /\b(slightly|a bit|bit|a little|little|tad|touch|tiny bit|small amount|marginally|abit)\b/i;
+const TOO_SMALL = /\b(too (small|tiny|little)|so small|very small|looks? (small|tiny)|is (small|tiny)|barely visible|can'?t see|hard to see|not visible)\b/i;
+const TOO_BIG = /\b(too (big|large|huge)|so (big|large|huge)|looks? (big|huge)|is (huge|massive))\b/i;
+
+/**
+ * What size change a message asks of the logo, or null when it asks none.
+ * Needs the logo named — "make it bigger" alone could be anything.
+ */
+export function asksForLogoResize(message: string): LogoResize | null {
+  const m = message.toLowerCase();
+  if (!LOGO.test(m)) return null;
+
+  /* An exact size: "64px", "64 px", "64 pixels", "height 64". */
+  const px = /\b(\d{2,3})\s*(px|pixels?)\b/.exec(m) ?? /\b(?:height|tall|size)\s*(?:of|to|=|:)?\s*(\d{2,3})\b/.exec(m);
+  if (px) return { kind: "absolute", px: clampHeight(Number(px[1])), said: `${px[1]}px` };
+
+  /* A percentage: "50% bigger", "by 30%", "to 150%". */
+  const pct = /\b(\d{1,3})\s*%/.exec(m);
+  if (pct) {
+    const n = Number(pct[1]);
+    if (SMALLER.test(m)) return { kind: "scale", factor: Math.max(0.2, 1 - n / 100), said: `${n}% smaller` };
+    if (BIGGER.test(m) || /\bby\b/.test(m)) return { kind: "scale", factor: 1 + n / 100, said: `${n}% bigger` };
+    return { kind: "scale", factor: n / 100, said: `${n}% of its size` };
+  }
+
+  /* A multiple: "2x", "1.5x", "double", "twice", "triple", "half". */
+  const times = /\b(\d(?:\.\d)?)\s*(x|times)\b/.exec(m);
+  if (times && Number(times[1]) > 0) {
+    const factor = Number(times[1]);
+    return SMALLER.test(m)
+      ? { kind: "scale", factor: 1 / factor, said: `${factor}× smaller` }
+      : { kind: "scale", factor, said: `${factor}× the size` };
+  }
+  if (/\b(double|twice|two times)\b/.test(m)) return { kind: "scale", factor: 2, said: "double the size" };
+  if (/\b(triple|three times)\b/.test(m)) return { kind: "scale", factor: 3, said: "three times the size" };
+  if (/\b(half|halve)\b/.test(m)) return { kind: "scale", factor: 0.5, said: "half the size" };
+
+  /* "It's too small" means bigger, whatever words come with it. */
+  if (TOO_SMALL.test(m)) return { kind: "scale", factor: MUCH.test(m) ? 1.8 : 1.5, said: "bigger" };
+  if (TOO_BIG.test(m)) return { kind: "scale", factor: MUCH.test(m) ? 0.55 : 0.7, said: "smaller" };
+
+  /* Bigger and smaller, by how much it was said. */
+  const bigger = BIGGER.test(m);
+  const smaller = SMALLER.test(m);
+  if (bigger && !smaller) {
+    if (LITTLE.test(m)) return { kind: "scale", factor: 1.2, said: "a little bigger" };
+    if (MUCH.test(m)) return { kind: "scale", factor: 1.75, said: "a lot bigger" };
+    return { kind: "scale", factor: 1.4, said: "bigger" };
+  }
+  if (smaller && !bigger) {
+    if (LITTLE.test(m)) return { kind: "scale", factor: 0.85, said: "a little smaller" };
+    if (MUCH.test(m)) return { kind: "scale", factor: 0.55, said: "a lot smaller" };
+    return { kind: "scale", factor: 0.72, said: "smaller" };
+  }
+
+  /* A named size: "make the logo large", "logo size: medium". */
+  const named: [RegExp, number, string][] = [
+    [/\b(extra[- ]?large|x-?large|xl|huge|massive|giant|very large|very big)\b/, 88, "extra large"],
+    [/\b(large|big)\b/, 64, "large"],
+    [/\b(medium|normal|regular|default)\b/, 48, "medium"],
+    [/\b(small)\b/, 32, "small"],
+    [/\b(tiny|extra[- ]?small|xs)\b/, 22, "extra small"],
+  ];
+  if (/\b(size|make|set|change|put|logo should be|be)\b/.test(m)) {
+    for (const [pattern, size, said] of named) {
+      if (pattern.test(m)) return { kind: "absolute", px: size, said };
+    }
+  }
+  return null;
+}
+
+function clampHeight(px: number): number {
+  return Math.round(Math.min(220, Math.max(14, px)));
+}
+
+export type LogoResized = {
+  source: string;
+  /** Height before and after, per place, in the order the places appear. */
+  sizes: { where: string; from: number; to: number }[];
+};
+
+/**
+ * The logo at its new size, everywhere it appears — or only in the footer, or
+ * only in the header, when the message says so. Null when there is no logo to
+ * resize, so the caller can hand it to the model.
+ */
+export function resizeLogo(
+  source: string,
+  resize: LogoResize,
+  options: { jsx?: boolean; only?: "header" | "footer" | null; wholeFileIsLogo?: boolean } = {},
+): LogoResized | null {
+  const jsx = options.jsx === true;
+
+  /* The Logo component the swap wrote: its size is the `height` default, and
+     changing that changes it everywhere it is rendered. */
+  const defaulted = options.wholeFileIsLogo ? /(\n\s*height\s*=\s*)(\d+)(\s*,)/.exec(source) : null;
+  if (defaulted && /const LOGO_SRC\b/.test(source)) {
+    const from = Number(defaulted[2]);
+    const to = resize.kind === "absolute" ? resize.px : clampHeight(from * resize.factor);
+    return {
+      source: source.replace(defaulted[0], `${defaulted[1]}${to}${defaulted[3]}`).replace(/maxWidth:\s*\d+/, `maxWidth: ${Math.max(220, to * 6)}`),
+      sizes: [{ where: "logo", from, to }],
+    };
+  }
+
+  const targets = sizeTargets(source, options.wholeFileIsLogo === true).filter(
+    (target) => !options.only || (options.only === "footer" ? target.where === "footer" : target.where !== "footer"),
+  );
+  if (targets.length === 0) return null;
+
+  const sizes: LogoResized["sizes"] = [];
+  let out = source;
+  for (const target of [...targets].sort((a, b) => b.el.start - a.el.start)) {
+    const text = target.text;
+    const from = text ? fontSizeOf(target.el.open, jsx) : heightOf(target.el.open, jsx, target.where);
+    const to = resize.kind === "absolute"
+      ? text ? Math.max(12, Math.round(resize.px * 0.55)) : resize.px
+      : clampHeight(from * resize.factor);
+    const open = text ? withFontSize(target.el.open, to, jsx) : withHeight(target.el.open, to, jsx);
+    out = out.slice(0, target.el.start) + open + out.slice(target.el.openEnd);
+    sizes.unshift({ where: target.where, from, to });
+  }
+
+  return { source: out, sizes };
+}
+
+/** "header 44px → 62px, footer 36px → 50px". */
+export function describeResize(sizes: LogoResized["sizes"]): string {
+  const seen = new Set<string>();
+  return sizes
+    .filter((size) => (seen.has(size.where) ? false : (seen.add(size.where), true)))
+    .map((size) => `${size.where} ${size.from}px → ${size.to}px`)
+    .join(", ");
+}
+
+type SizeTarget = { el: Element; where: string; text: boolean };
+
+/* What to resize: the picture inside each logo — or the drawn mark, or for a
+   logo that is only words, the words. */
+function sizeTargets(source: string, wholeFileIsLogo: boolean): SizeTarget[] {
+  const { all, outermost, regionOf } = ownLogos(source);
+  const where = (el: Element) => regionOf(el)?.label ?? "header";
+
+  /* What the swap put in is marked, and is exactly what to resize. */
+  const marked = all.filter((el) => /\bdata-qs-logo\b/.test(el.open));
+  if (marked.length > 0) return marked.map((el) => ({ el, where: where(el), text: false }));
+
+  /* A file that IS the logo: its first picture or drawing. */
+  if (wholeFileIsLogo) {
+    const mark = all.find((el) => /^(img|svg)$/i.test(el.tag));
+    return mark ? [{ el: mark, where: "header", text: false }] : [];
+  }
+
+  return outermost.map((logo) => {
+    if (/^(img|svg)$/i.test(logo.tag)) return { el: logo, where: where(logo), text: false };
+    const inner = all.find((el) => el.start > logo.start && el.end <= logo.end && /^(img|svg)$/i.test(el.tag));
+    return inner ? { el: inner, where: where(logo), text: false } : { el: logo, where: where(logo), text: true };
+  });
+}
+
+const TW_HEIGHT: Record<string, number> = { "4": 16, "5": 20, "6": 24, "7": 28, "8": 32, "9": 36, "10": 40, "11": 44, "12": 48, "14": 56, "16": 64, "20": 80, "24": 96 };
+const TW_TEXT: Record<string, number> = { xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "3xl": 30, "4xl": 36, "5xl": 48 };
+
+/* The height that applies now: inline style first, because it wins, then the
+   height attribute, then a Tailwind class, then what the swap would have set. */
+function heightOf(open: string, jsx: boolean, where: string): number {
+  const inline = jsx ? /style=\{\{[^}]*\bheight:\s*(\d+)/.exec(open) : /style\s*=\s*["'][^"']*\bheight\s*:\s*(\d+(?:\.\d+)?)px/i.exec(open);
+  if (inline) return Number(inline[1]);
+  const attr = /\bheight\s*=\s*["'{]?(\d+)/.exec(open);
+  if (attr) return Number(attr[1]);
+  const cls = /\bh-(\d+)\b/.exec(open);
+  if (cls && TW_HEIGHT[cls[1]]) return TW_HEIGHT[cls[1]];
+  const arbitrary = /\bh-\[(\d+)px\]/.exec(open);
+  if (arbitrary) return Number(arbitrary[1]);
+  return where === "footer" ? FOOTER_HEIGHT : HEADER_HEIGHT;
+}
+
+function fontSizeOf(open: string, jsx: boolean): number {
+  const inline = jsx ? /style=\{\{[^}]*\bfontSize:\s*(\d+)/.exec(open) : /font-size\s*:\s*(\d+(?:\.\d+)?)px/i.exec(open);
+  if (inline) return Number(inline[1]);
+  const cls = /\btext-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl)\b/.exec(open);
+  return cls ? TW_TEXT[cls[1]] : 20;
+}
+
+/* The new height, written where it wins: the inline style. Width follows the
+   picture's own proportions, and the old max-width cap grows with it so a wide
+   wordmark is not squeezed. */
+function withHeight(open: string, height: number, jsx: boolean): string {
+  const maxWidth = Math.max(220, height * 6);
+  if (jsx) {
+    const style = /style=\{\{([^}]*)\}\}/.exec(open);
+    const rest = style
+      ? style[1].replace(/\b(height|maxHeight|width|maxWidth)\s*:\s*("[^"]*"|'[^']*'|[\w.%-]+)\s*,?/g, "").trim().replace(/^,|,$/g, "").trim()
+      : "";
+    const next = `style={{ height: ${height}, width: "auto", maxWidth: ${maxWidth}, maxHeight: "none"${rest ? `, ${rest}` : ""} }}`;
+    return style ? open.replace(style[0], next) : open.replace(/\s*(\/?)>$/, ` ${next} $1>`);
+  }
+  const style = /\bstyle\s*=\s*(["'])([^"']*)\1/i.exec(open);
+  const rest = style
+    ? style[2].replace(/(^|;)\s*(height|max-height|width|max-width)\s*:[^;]*/gi, "$1").replace(/;{2,}/g, ";").replace(/^;|;$/g, "").trim()
+    : "";
+  const next = `style="height:${height}px;width:auto;max-width:${maxWidth}px;max-height:none${rest ? `;${rest}` : ""}"`;
+  return style ? open.replace(style[0], next) : open.replace(/\s*(\/?)>$/, ` ${next}$1>`);
+}
+
+function withFontSize(open: string, size: number, jsx: boolean): string {
+  if (jsx) {
+    const style = /style=\{\{([^}]*)\}\}/.exec(open);
+    const rest = style ? style[1].replace(/\bfontSize\s*:\s*[\w."']+\s*,?/g, "").trim().replace(/,$/, "") : "";
+    const next = `style={{ fontSize: ${size}${rest ? `, ${rest}` : ""} }}`;
+    return style ? open.replace(style[0], next) : open.replace(/\s*(\/?)>$/, ` ${next}$1>`);
+  }
+  const style = /\bstyle\s*=\s*(["'])([^"']*)\1/i.exec(open);
+  const rest = style ? style[2].replace(/(^|;)\s*font-size\s*:[^;]*/gi, "$1").replace(/^;|;$/g, "").trim() : "";
+  const next = `style="font-size:${size}px${rest ? `;${rest}` : ""}"`;
+  return style ? open.replace(style[0], next) : open.replace(/\s*(\/?)>$/, ` ${next}$1>`);
+}
+
+/** Which part a resize is limited to, when the message names one. */
+export function resizeScope(message: string): "header" | "footer" | null {
+  const m = message.toLowerCase();
+  const footer = /\bfooter\b/.test(m);
+  const header = /\b(header|nav|navbar|top|menu bar|top bar)\b/.test(m);
+  if (footer && !header) return "footer";
+  if (header && !footer) return "header";
+  return null;
+}
+
+/* ── On a project ──────────────────────────────────────────────────────────── */
+
+export type TreeLogoResize = { files: File[]; paths: string[]; sizes: LogoResized["sizes"] };
+
+/** The same resize across a project: the Logo component, then inline marks. */
+export function resizeLogoInTree(tree: File[], resize: LogoResize, only: "header" | "footer" | null = null): TreeLogoResize | null {
+  const changed: File[] = [];
+  const sizes: LogoResized["sizes"] = [];
+  for (const file of tree) {
+    if (!LOGO_FILE.test(file.path) || /\.(test|spec|stories)\./.test(file.path)) continue;
+    if (only === "footer") continue;
+    const done = resizeLogo(file.content, resize, { jsx: true, wholeFileIsLogo: true });
+    if (done) {
+      changed.push({ path: file.path, content: done.source });
+      sizes.push(...done.sizes);
+    }
+  }
+  for (const file of tree) {
+    if (!CHROME_FILE.test(file.path) || changed.some((done) => done.path === file.path)) continue;
+    const done = resizeLogo(file.content, resize, { jsx: true, only });
+    if (done) {
+      changed.push({ path: file.path, content: done.source });
+      sizes.push(...done.sizes);
+    }
+  }
+  if (changed.length === 0) return null;
+  return { files: changed, paths: changed.map((file) => file.path), sizes };
 }

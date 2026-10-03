@@ -37,7 +37,17 @@ import {
   priorTurns,
 } from "@/lib/builder/brief";
 import { previewUrl as publishPreviewUrl } from "@/lib/publish/naming";
-import { asksForLogoSwap, listOf, swapLogo, swapLogoInTree } from "@/lib/builder/logo-swap";
+import {
+  asksForLogoResize,
+  asksForLogoSwap,
+  describeResize,
+  listOf,
+  resizeLogo,
+  resizeLogoInTree,
+  resizeScope,
+  swapLogo,
+  swapLogoInTree,
+} from "@/lib/builder/logo-swap";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { wantsDownload } from "@/lib/builder/download";
 import {
@@ -1146,11 +1156,12 @@ async function handle(
      the classifier made of a message as short as "logo" or "new logo". */
   const logoAsk =
     Boolean(currentHtml) &&
-    asksForLogoSwap(
+    (asksForLogoSwap(
       prompt,
       files.blocks.filter((block) => block.type === "image").length,
       attachments.map((file) => file.name),
-    );
+    ) ||
+      asksForLogoResize(prompt) !== null);
 
   const routedIntent: Intent = planOnly
     ? "question"
@@ -2133,7 +2144,29 @@ async function handle(
         const stored = await deliver(said, { tone: "error", key: "logo-too-large" });
         return NextResponse.json({ error: said, intent: "edit", code: "logo_too_large", stored }, { status: 422 });
       }
-      const treeLogo = treeLogoPicture ? swapLogoInTree(project_.tree, treeLogoPicture.dataUri, project.name as string) : null;
+      const treeSwap = treeLogoPicture ? swapLogoInTree(project_.tree, treeLogoPicture.dataUri, project.name as string) : null;
+
+      /* And the size, done the same way — on the swapped files when this
+         message swapped one too. See resizeLogo. */
+      const treeSizeAsk = asksForLogoResize(prompt);
+      const treeSized = treeSizeAsk
+        ? resizeLogoInTree(
+            project_.tree.map((file) => treeSwap?.files.find((swapped) => swapped.path === file.path) ?? file),
+            treeSizeAsk,
+            resizeScope(prompt),
+          )
+        : null;
+
+      /* Every file the logo work touched, the resized version winning. */
+      const treeLogo = treeSwap || treeSized
+        ? (() => {
+            const byPath = new Map<string, string>();
+            for (const file of treeSwap?.files ?? []) byPath.set(file.path, file.content);
+            for (const file of treeSized?.files ?? []) byPath.set(file.path, file.content);
+            const files = [...byPath].map(([path, content]) => ({ path, content }));
+            return { files, paths: files.map((file) => file.path) };
+          })()
+        : null;
 
       const picked = treeLogo
         ? { path: treeLogo.paths[0], why: "convention" as const }
@@ -2230,7 +2263,11 @@ async function handle(
          a failed request. */
       const imageAsk = asksForImages(prompt) && hasPlaceholders(project_.tree) && providerFromEnv() !== null;
       try {
-        steps.begin("edit", "Making the change", treeLogo ? "swapping in your logo…" : `reading ${picked.path}…`);
+        steps.begin(
+          "edit",
+          "Making the change",
+          treeSwap ? "swapping in your logo…" : treeSized ? "resizing your logo…" : `reading ${picked.path}…`,
+        );
         source = treeLogo
           ? {
               path: picked.path,
@@ -2240,7 +2277,7 @@ async function handle(
               failures: [],
               note: null,
               outputTokens: 0,
-              model: "logo swap",
+              model: treeSwap ? "logo swap" : "logo resize",
               retried: false,
             }
           : await editSource(
@@ -2696,7 +2733,15 @@ async function handle(
 
       const said = [
         treeLogo
-          ? `Your logo is in — ${treeLogo.paths.map((path) => `\`${path}\``).join(" and ")} now ${treeLogo.paths.length === 1 ? "draws" : "draw"} your picture, so it shows everywhere the logo appears. Want it bigger or smaller? Just say.`
+          ? [
+              treeSwap
+                ? `Your logo is in — ${treeSwap.paths.map((path) => `\`${path}\``).join(" and ")} now ${treeSwap.paths.length === 1 ? "draws" : "draw"} your picture, so it shows everywhere the logo appears.`
+                : null,
+              treeSized ? `Logo resized: ${describeResize(treeSized.sizes)}.` : null,
+              `Want it different? Say "bigger", "a lot bigger", "a little smaller", or an exact size like "72px".`,
+            ]
+              .filter(Boolean)
+              .join(" ")
           : source.applied > 0
           ? `Done — ${source.applied} ${source.applied === 1 ? "change" : "changes"} in \`${source.path}\`.`
           : "Done.",
@@ -2990,6 +3035,8 @@ async function handle(
     let edited;
     /* Where the logo went, when this edit was a logo swap — see logo-swap.ts. */
     let logoSwapped: string[] | null = null;
+    /* And its sizes, when this edit resized the logo. */
+    let logoSizes: { where: string; from: number; to: number }[] | null = null;
     /* Hoisted out of the try below because the verifier after it needs the
        same plan: what the change was classified as decides which criteria the
        result is held to. See verify-edit.ts. */
@@ -3139,8 +3186,12 @@ async function handle(
        * confidence does the model get asked. See lib/builder/logo-swap.ts. */
       const pictures = files.blocks.filter((block) => block.type === "image").length;
       const logoPlacement = asksForLogoSwap(prompt, pictures, attachments.map((file) => file.name)) ? (await imagePlacements(attachments))[0] : undefined;
+      /* On the lean page — embedded pictures lifted out — so a page that already
+         carries a large logo is scanned in milliseconds. The pictures go back
+         below, with every other edit's. */
+      const logoBase = leanHtml ?? currentHtml;
       const logoSwap = logoPlacement
-        ? swapLogo(currentHtml, logoPlacement.token, {
+        ? swapLogo(logoBase, logoPlacement.token, {
             /* Every copy carries the whole picture: a large one is written
                once, in the header, and not as the tab icon too. */
             maxCopies: Math.max(1, Math.min(4, Math.floor(1_400_000 / logoPlacement.dataUri.length))),
@@ -3149,16 +3200,33 @@ async function handle(
         : null;
       if (logoSwap) logoSwapped = logoSwap.where;
 
-      steps.begin("edit", "Making the change", logoSwap ? "swapping in your logo…" : `${editModel} is reading the page…`);
-      edited = logoSwap
+      /* ── "Make the logo bigger": arithmetic, not a model ──────────────────
+       *
+       * The model kept answering at the same size: the swap sets the height
+       * inline, and no class it wrote could beat that. resizeLogo changes the
+       * height that applies — bigger, a lot bigger, 64px, double, "too small"
+       * — and asked again, it grows again. With a swap in the same message
+       * ("use this logo and make it bigger") it resizes the new one. */
+      const sizeAsk = asksForLogoResize(prompt);
+      const logoResized = sizeAsk
+        ? resizeLogo(logoSwap ? logoSwap.source : logoBase, sizeAsk, { only: resizeScope(prompt) })
+        : null;
+      if (logoResized) logoSizes = logoResized.sizes;
+
+      steps.begin(
+        "edit",
+        "Making the change",
+        logoSwap ? "swapping in your logo…" : logoResized ? "resizing your logo…" : `${editModel} is reading the page…`,
+      );
+      edited = logoSwap || logoResized
         ? {
-            html: logoSwap.source,
-            applied: logoSwap.swapped,
+            html: logoResized ? logoResized.source : logoSwap!.source,
+            applied: logoResized ? logoResized.sizes.length : logoSwap!.swapped,
             failures: [],
             outputTokens: 0,
             retried: false,
             ranOutOfTime: false,
-            model: "logo swap",
+            model: logoSwap ? "logo swap" : "logo resize",
             route: "patch" as const,
             note: null,
           }
@@ -3444,7 +3512,7 @@ async function handle(
 
     /* Not after a logo swap: it changed exactly what was asked, and a model
        "repairing" it would be a model second-guessing a measured answer. */
-    if (!verification.complete && timeLeft > REPAIR_FLOOR_MS && !logoSwapped) {
+    if (!verification.complete && timeLeft > REPAIR_FLOOR_MS && !logoSwapped && !logoSizes) {
       steps.begin("repair", "Putting that right", verification.reason ?? "the change did not land");
 
       try {
@@ -3559,8 +3627,16 @@ async function handle(
        goes into the thread before it goes into the ledger: the edit is in the
        page, and the sentence saying so must survive the tab that asked for it. */
     const said = [
-      logoSwapped
-        ? `Your logo is in — swapped in the ${listOf(logoSwapped)}. Want it bigger, smaller or on a different background? Just say.`
+      logoSwapped || logoSizes
+        ? [
+            logoSwapped ? `Your logo is in — swapped in the ${listOf(logoSwapped)}.` : null,
+            logoSizes ? `Logo resized: ${describeResize(logoSizes)}.` : null,
+            logoSizes
+              ? `Want it different? Say "bigger", "a lot bigger", "a little smaller", or an exact size like "72px".`
+              : `Want it bigger or smaller? Say "bigger", "a lot bigger", or an exact size like "72px".`,
+          ]
+            .filter(Boolean)
+            .join(" ")
         : edited.ranOutOfTime
         ? /* The change was too big to finish in the time a request has. What
              landed is real and correct, and saying which part is missing is the
