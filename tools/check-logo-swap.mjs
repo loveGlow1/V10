@@ -36,7 +36,7 @@ writeFileSync(
 execFileSync("npx", ["tsc", "-p", join(out, "tsconfig.json")], { stdio: ["ignore", "ignore", "inherit"] });
 
 const require = createRequire(import.meta.url);
-const { asksForLogoSwap, swapLogo, swapLogoInTree } = require(join(out, "lib/builder/logo-swap.js"));
+const { asksForLogoSwap, swapLogo, swapLogoInTree, asksForLogoResize, resizeLogo, resizeLogoInTree, resizeScope, describeResize } = require(join(out, "lib/builder/logo-swap.js"));
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -139,9 +139,75 @@ const named = swapLogoInTree([{ path: "components/brand/SiteLogo.tsx", content: 
 has(named && /^"use client";/.test(named.files[0].content) && /export function SiteLogo\(/.test(named.files[0].content) && !/export default/.test(named.files[0].content), "a named export stays a named export, and \"use client\" is kept");
 
 const inline = swapLogoInTree([{ path: "components/Navbar.tsx", content: `export function Navbar() {\n  return <nav><a href="/" className="logo font-bold">Acme</a><a href="/about">About</a></nav>;\n}\n` }], "data:x", "Acme");
-has(inline && inline.files[0].content.includes('<a href="/" className="logo font-bold"><img src="data:x" alt="Acme logo"') && inline.files[0].content.includes("style={{ height: 36"), "no Logo component: the inline mark in the navbar is swapped, written as JSX");
+has(inline && inline.files[0].content.includes('<a href="/" className="logo font-bold"><img src="data:x" alt="Acme logo"') && inline.files[0].content.includes("style={{ height: 44"), "no Logo component: the inline mark in the navbar is swapped, written as JSX");
 
 has(swapLogoInTree([{ path: "app/page.tsx", content: "<main/>" }], "data:x") === null, "a project with no logo anywhere: null");
+
+/* ── Resizing ─────────────────────────────────────────────────────────────
+ *
+ * "Make the logo bigger" kept coming back at the same size: the swap sets the
+ * height inline and the model's classes could never beat it. */
+const reads = [
+  ["make the logo bigger", "scale", 1.4],
+  ["logo a lot bigger", "scale", 1.75],
+  ["make the logo much larger", "scale", 1.75],
+  ["logo slightly bigger", "scale", 1.2],
+  ["increase the logo size", "scale", 1.4],
+  ["the logo is too small", "scale", 1.5],
+  ["logo looks tiny", "scale", 1.5],
+  ["make the logo smaller", "scale", 0.72],
+  ["logo a bit smaller", "scale", 0.85],
+  ["logo is too big", "scale", 0.7],
+  ["double the logo", "scale", 2],
+  ["logo 1.5x", "scale", 1.5],
+  ["make the logo 50% bigger", "scale", 1.5],
+  ["logo 30% smaller", "scale", 0.7],
+  ["make the logo 64px", "absolute", 64],
+  ["logo height 80", "absolute", 80],
+  ["make the logo large", "absolute", 64],
+  ["set the logo size to extra large", "absolute", 88],
+  ["logo size medium", "absolute", 48],
+];
+for (const [message, kind, value] of reads) {
+  const got = asksForLogoResize(message);
+  const actual = got ? (got.kind === "absolute" ? got.px : Math.round(got.factor * 100) / 100) : null;
+  has(got && got.kind === kind && actual === value, `"${message}" → ${kind} ${value}`, `got ${JSON.stringify(got)}`);
+}
+has(asksForLogoResize("make the heading bigger") === null, "bigger, without the logo named, is not about the logo");
+has(asksForLogoResize("update the logo") === null, "a logo message with no size in it is not a resize");
+has(resizeScope("make the footer logo bigger") === "footer" && resizeScope("bigger logo in the header") === "header" && resizeScope("logo bigger") === null, "footer only, header only, or both");
+
+if (swap) {
+  const placed = swap.source.split("attachment:1").join("data:image/png;base64,AAAA");
+  const bigger = resizeLogo(placed, asksForLogoResize("make the logo bigger"));
+  has(bigger !== null, "a swapped logo can be resized");
+  if (bigger) {
+    const header = bigger.sizes.find((size) => size.where === "header");
+    has(header && header.from === 44 && header.to === 62, `header 44px → 62px (${describeResize(bigger.sizes)})`);
+    has(bigger.source.includes("height:62px") && !bigger.source.includes("height:44px"), "the inline height — the one that wins — is what changes");
+    has(bigger.source.includes("max-width:372px"), "and the width cap grows with it, so a wide logo is not squeezed");
+    const again = resizeLogo(bigger.source, asksForLogoResize("logo a lot bigger"));
+    const header2 = again && again.sizes.find((size) => size.where === "header");
+    has(header2 && header2.from === 62 && header2.to === 109, `asked again, it grows again: ${header2 && header2.from}px → ${header2 && header2.to}px`);
+    const exact = resizeLogo(placed, asksForLogoResize("make the logo 72px"));
+    has(exact && exact.sizes.every((size) => size.to === 72), "an exact size is exact, everywhere");
+    const footerOnly = resizeLogo(placed, asksForLogoResize("make the footer logo smaller"), { only: "footer" });
+    has(footerOnly && footerOnly.sizes.length === 1 && footerOnly.sizes[0].where === "footer" && footerOnly.sizes[0].to === 26, "the footer alone, when the footer is named");
+    has(placed.includes('src="acme.png"') && bigger.source.includes('src="acme.png"'), "partner logos are never resized");
+  }
+}
+
+const classed = resizeLogo(`<html><body><header><a href="/" class="logo"><img class="h-8 w-auto" src="l.png" alt="L"></a></header></body></html>`, asksForLogoResize("logo bigger"));
+has(classed && classed.sizes[0].from === 32 && classed.sizes[0].to === 45 && classed.source.includes("height:45px"), "a Tailwind h-8 logo is read as 32px and set inline, where it wins");
+const wordmark = resizeLogo(`<html><body><header><a href="/" class="brand text-xl font-bold">ACME</a></header></body></html>`, asksForLogoResize("make the logo bigger"));
+has(wordmark && wordmark.source.includes("font-size:28px"), "a logo that is only words gets bigger words");
+
+const comp = swapLogoInTree(tree, "data:image/png;base64,AAAA", "Aurelia Estates");
+const compTree = tree.map((file) => comp.files.find((f) => f.path === file.path) ?? file);
+const treeBigger = resizeLogoInTree(compTree, asksForLogoResize("make the logo much bigger"));
+has(treeBigger && treeBigger.paths[0] === "components/Logo.tsx" && /height = 77,/.test(treeBigger.files[0].content), "on a project, the Logo component's own height goes 44 → 77");
+const svgTree = resizeLogoInTree(tree, asksForLogoResize("logo 2x"));
+has(svgTree && svgTree.files[0].content.includes("style={{ height: 88"), "an SVG Logo component never swapped is resized too");
 
 console.log(`\n${failed === 0 ? "All logo swap checks passed." : `${failed} failed.`}`);
 process.exit(failed === 0 ? 0 : 1);
