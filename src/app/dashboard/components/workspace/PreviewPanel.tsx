@@ -7,7 +7,9 @@ import {
   Blocks,
   Check,
   Code2,
+  Copy,
   Eye,
+  Info,
   ChevronLeft,
   CreditCard,
   Database,
@@ -44,6 +46,7 @@ import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import BackendPanel from "./BackendPanel";
 import { ManageMark } from "./panelMarks";
+import PageThumbnail from "../PageThumbnail";
 import Popover from "./Popover";
 
 type ManageSection = "settings" | "database" | "integrations" | "payments";
@@ -65,6 +68,34 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
+/* The three places a link gets posted, drawn as their own marks (Simple Icons,
+   CC0) in currentColor so they take the panel's tone. */
+function SocialMark({ d, className }: { d: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>
+      <path d={d} />
+    </svg>
+  );
+}
+const XLogo = ({ className }: { className?: string }) => (
+  <SocialMark
+    className={className}
+    d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"
+  />
+);
+const FacebookLogo = ({ className }: { className?: string }) => (
+  <SocialMark
+    className={className}
+    d="M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z"
+  />
+);
+const LinkedInLogo = ({ className }: { className?: string }) => (
+  <SocialMark
+    className={className}
+    d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.71 1.637-2.452 3.37-2.452 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+  />
+);
 
 export default function PreviewPanel({
   project,
@@ -106,6 +137,7 @@ export default function PreviewPanel({
   const [integrationsCategory, setIntegrationsCategory] = useState<IntegrationCategory>("All");
   const [shared, setShared] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   /* Running the app, for a build that is a project rather than a page.
    *
    * A project build's preview is a written summary of its files — honest, and
@@ -637,9 +669,15 @@ export default function PreviewPanel({
     };
   }, [isDesktop, view]);
 
+  /* What Share hands out: the public address once the app is published, and
+     until then the preview's address — which opens only for its owner, so the
+     panel says so rather than offering a link that would show a stranger a
+     sign-in page. */
+  const shareLink = publishedLive ?? previewUrl ?? (project ? `${SITE_URL}/dashboard/project/${project.id}` : null);
+
   async function share() {
     if (!project) return;
-    const url = `${SITE_URL}/dashboard/project/${project.id}`;
+    const url = shareLink ?? `${SITE_URL}/dashboard/project/${project.id}`;
     try {
       await navigator.clipboard.writeText(url);
       setShared(true);
@@ -649,6 +687,120 @@ export default function PreviewPanel({
       // claiming a copy that did not happen.
     }
   }
+
+  const shareTargets = shareLink
+    ? [
+        { label: "Share on X", icon: XLogo, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareLink)}` },
+        { label: "Share on Facebook", icon: FacebookLogo, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareLink)}` },
+        { label: "Share on LinkedIn", icon: LinkedInLogo, href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareLink)}` },
+      ]
+    : [];
+
+  /* The Share panel: a picture of the app, its link with a copy button, the
+     three places people post links, and the way to a permanent public address.
+     Social sharing only once the app is published — before that the link opens
+     for nobody but its owner, so posting it would be posting a sign-in page. */
+  const shareBody = (
+    <div className="space-y-3">
+      {isDesktop && (
+        <div className="flex items-center justify-between">
+          <p className="text-[15px] font-semibold tracking-tight text-ink">
+            {publishedLive ? "Share app" : "Share Preview"}
+          </p>
+          <button
+            onClick={() => setShareOpen(false)}
+            aria-label="Close"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {project && (
+        <PageThumbnail
+          projectId={project.id}
+          hasPage={Boolean(previewUrl)}
+          name={project.name}
+          stamp={project.last_build_at}
+          className="h-[156px] w-full rounded-xl ring-1 ring-line/[0.08]"
+        />
+      )}
+
+      <div className="flex items-center gap-2 rounded-xl border border-line/[0.10] bg-sunken/60 p-1.5 pl-3">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-soft">{shareLink ?? "No link yet"}</span>
+        <button
+          onClick={share}
+          disabled={!shareLink}
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-solid/[0.92] px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-solid disabled:opacity-40"
+        >
+          {shared ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {shared ? "Copied" : "Copy link"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        {(shareTargets.length ? shareTargets : [
+          { label: "Share on X", icon: XLogo, href: "" },
+          { label: "Share on Facebook", icon: FacebookLogo, href: "" },
+          { label: "Share on LinkedIn", icon: LinkedInLogo, href: "" },
+        ]).map(({ label, icon: Icon, href }) =>
+          publishedLive && href ? (
+            <a
+              key={label}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={label}
+              title={label}
+              className="flex h-9 items-center justify-center rounded-lg bg-layer/[0.06] text-soft transition-colors hover:bg-layer/[0.10] hover:text-ink"
+            >
+              <Icon className="h-4 w-4" />
+            </a>
+          ) : (
+            <button
+              key={label}
+              disabled
+              aria-label={label}
+              title="Publish first so anyone can open the link"
+              className="flex h-9 items-center justify-center rounded-lg bg-layer/[0.06] text-soft opacity-50"
+            >
+              <Icon className="h-4 w-4" />
+            </button>
+          ),
+        )}
+      </div>
+
+      <button
+        onClick={() => {
+          setShareOpen(false);
+          setPublishOpen(true);
+        }}
+        className="flex h-10 w-full items-center justify-center rounded-lg bg-layer/[0.06] text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.10]"
+      >
+        {publishedLive ? "Publish an update" : "Publish your app"}
+      </button>
+
+      {!publishedLive && (
+        <div className="flex gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-[12.5px] leading-relaxed text-amber-200/90">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+          <p>
+            This preview link only opens for you while you're signed in.{" "}
+            <button
+              onClick={() => {
+                setShareOpen(false);
+                setPublishOpen(true);
+              }}
+              className="underline underline-offset-2 hover:text-amber-100"
+            >
+              Publish your app
+            </button>{" "}
+            to get a link anyone can open.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 
   /* The desktop bar's tiles: 32px, a hairline outline, no fill until hovered.
      `tab` is the same tile that fills in when it is the view on screen. */
@@ -1436,8 +1588,8 @@ export default function PreviewPanel({
             {project?.name ?? "Loading…"}
           </p>
 
-          <button onClick={share} aria-label="Copy link" className={glass}>
-            {shared ? <Check className="h-4 w-4 text-accent" /> : <Link2 className="h-4 w-4" />}
+          <button onClick={() => setShareOpen(true)} aria-label="Share this app" className={glass}>
+            <Upload className="h-4 w-4" />
           </button>
           <button
             onClick={() => setView("manage")}
@@ -1516,6 +1668,14 @@ export default function PreviewPanel({
               title="Publish this app"
             >
               {publishBody}
+            </Popover>
+            <Popover
+              open={shareOpen}
+              onClose={() => setShareOpen(false)}
+              title={publishedLive ? "Share app" : "Share Preview"}
+              width="w-[340px]"
+            >
+              {shareBody}
             </Popover>
           </div>
         </header>
@@ -1700,13 +1860,17 @@ export default function PreviewPanel({
             <MousePointerClick className="h-4 w-4" />
           </button>
 
-          <button onClick={share} title="Copy a link to this app" className={labelled}>
-            {shared ? (
-              <Check className="h-4 w-4 shrink-0 text-accent" />
-            ) : (
-              <Upload className="h-4 w-4 shrink-0" />
-            )}
-            <span className="hidden lg:inline">{shared ? "Copied" : "Share"}</span>
+          <button
+            onClick={() => {
+              setShareOpen((open) => !open);
+              setPublishOpen(false);
+            }}
+            aria-expanded={shareOpen}
+            title="Share this app"
+            className={`${labelled} ${shareOpen ? "bg-layer/[0.08] text-ink" : ""}`}
+          >
+            <Upload className="h-4 w-4 shrink-0" />
+            <span className="hidden lg:inline">Share</span>
           </button>
 
           <button
@@ -1735,6 +1899,14 @@ export default function PreviewPanel({
 
           <Popover open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish this app">
             {publishBody}
+          </Popover>
+          <Popover
+            open={shareOpen}
+            onClose={() => setShareOpen(false)}
+            title={publishedLive ? "Share app" : "Share Preview"}
+            width="w-[340px]"
+          >
+            {shareBody}
           </Popover>
         </div>
       </header>
