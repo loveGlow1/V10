@@ -99,7 +99,10 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       return NextResponse.json({ error: `The repository has no ${SINGLE_PAGE}, which is all this project is.` }, { status: 422 });
     }
     html = page.content;
-    for (const file of read.value.files) if (file.path !== SINGLE_PAGE) skipped.push(file.path);
+    for (const file of read.value.files) {
+      /* The dev container is added again on every push; not worth a mention. */
+      if (file.path !== SINGLE_PAGE && !file.path.startsWith(".devcontainer/")) skipped.push(file.path);
+    }
   } else {
     try {
       tree = readTree(read.value.files);

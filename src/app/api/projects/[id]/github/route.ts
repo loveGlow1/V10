@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 
 import { currentTree } from "@/lib/builder/store-tree";
 import { UPGRADE_FOR_GITHUB, canPushToGitHub } from "@/lib/github/entitlement";
+import { withDevcontainer } from "@/lib/github/devcontainer";
 import { connectionFor, githubConfigured } from "@/lib/github/oauth";
 import { createRepo, findRepo, pushTree, repoNameFor, validRepoName, type RepoRef } from "@/lib/github/push";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -148,10 +149,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     repo = made.value;
   }
 
+  /* With a dev container, so the repository runs itself when it is opened
+     in a Codespace — see devcontainer.ts. */
   const pushed = await pushTree(
     connection.token,
     repo,
-    tree,
+    withDevcontainer(tree),
     `Update from QuickStark${project?.name ? `: ${project.name}` : ""}`,
   );
   if (!pushed.ok) return failure(pushed.status, pushed.reason);
