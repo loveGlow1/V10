@@ -15,6 +15,7 @@ import {
   Database,
   Download,
   ExternalLink,
+  AlertTriangle,
   Loader2,
   Link2,
   MousePointerClick,
@@ -42,7 +43,8 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { SITE_URL } from "@/lib/site";
 import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
 import type { Diagnosis } from "@/lib/publish/diagnosis";
-import PublishPanel from "./PublishPanel";
+import PublishPanel, { type PublishRun } from "./PublishPanel";
+import { askChat } from "./visual-ask";
 import ServerKeys from "./ServerKeys";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
@@ -53,6 +55,14 @@ import PageThumbnail from "../PageThumbnail";
 import Popover from "./Popover";
 
 type ManageSection = "settings" | "database" | "integrations" | "payments";
+
+const PUBLISH_LABEL = {
+  never: "Publish",
+  live: "Live",
+  pending: "Publish changes",
+  deploying: "Deploying…",
+  failed: "Deploy failed",
+} as const;
 
 /* A request from the other half of the workspace to show a particular drawer.
    The counter is what makes a second, identical request register: pressing the
@@ -212,6 +222,17 @@ export default function PreviewPanel({
   const [redeploying, setRedeploying] = useState(false);
   const [redeployError, setRedeployError] = useState<string | null>(null);
   const [deployNonce, setDeployNonce] = useState(0);
+  /* The publish in flight or just finished, held here so it outlives the
+     panel: closing the panel does not stop it, and the header button keeps
+     saying where it is. See PublishPanel. */
+  const [publishRun, setPublishRun] = useState<PublishRun | null>(null);
+  /* The last deployment attempt failed (the build row's own failure, not this
+     deployment's configuration). */
+  const [deployFailed, setDeployFailed] = useState(false);
+  /* The status request failed while a deploy was building; asking again. */
+  const [deployReconnecting, setDeployReconnecting] = useState(false);
+  const buildingRef = useRef(false);
+  buildingRef.current = building;
   /* Whether the technical panel is open. Closed by default and per failure: a
      log that unfurls itself has taken the place of the summary again. */
   const [showLog, setShowLog] = useState(false);
@@ -227,6 +248,9 @@ export default function PreviewPanel({
     setLiveBlockedReason(null);
     setBuilding(false);
     setDeployError(null);
+    setDeployFailed(false);
+    setDeployReconnecting(false);
+    setPublishRun(null);
     setDiagnosis(null);
     setShowLog(false);
   }, [project?.id]);
@@ -290,6 +314,8 @@ export default function PreviewPanel({
           reason?: string | null;
         }) => {
           if (!current) return;
+          setDeployReconnecting(false);
+          setDeployFailed(Boolean(body.failure));
           /* Straight into the pane. This runs when the workspace opens, so a
              project that was deployed an hour ago is showing its app before
              anybody presses anything. */
@@ -335,7 +361,14 @@ export default function PreviewPanel({
         })
         .catch(() => {
           /* The workspace works without this answer: it only decides what is
-             said about a live address, and there is not one. */
+             said about a live address, and there is not one. While a deploy
+             is building, though, the publish button is following it — so it
+             says it is reconnecting and asks again rather than going blank. */
+          if (!current || polls >= MAX_POLLS) return;
+          if (!buildingRef.current) return;
+          setDeployReconnecting(true);
+          polls += 1;
+          timer = setTimeout(check, POLL_MS);
         });
     };
 
@@ -896,12 +929,71 @@ export default function PreviewPanel({
    * while its site is still up — see lib/project-status.ts. */
   const liveSlug = project && isPublished(project) ? project.slug : null;
 
+  /* ── What the Publish button says ──────────────────────────────────────
+   *
+   * Five states, from what is already known here: never published, live and
+   * up to date, live with changes the site does not have, deploying, and a
+   * last deploy that failed. A Web App (one with a deployment) is behind when
+   * its deployment is not serving the newest build; a Website when it was
+   * built again after it was published. */
+  const changesPending = Boolean(liveSlug) &&
+    (deployed
+      ? !liveIsCurrent
+      : Boolean(project?.last_build_at && project?.published_at && new Date(project.last_build_at) > new Date(project.published_at)));
+  const publishState: "never" | "live" | "pending" | "deploying" | "failed" =
+    publishRun?.phase === "running" || building || redeploying
+      ? "deploying"
+      : publishRun?.phase === "failed" || deployFailed || behind
+        ? "failed"
+        : liveSlug
+          ? changesPending
+            ? "pending"
+            : "live"
+          : "never";
+
+  /* A finished run has been seen once the panel closes: next time it opens on
+     its normal view. One still running carries on. */
+  const closePublish = () => {
+    setPublishOpen(false);
+    if (publishRun && publishRun.phase !== "running") setPublishRun(null);
+  };
+
   const publishBody = (
     <PublishPanel
       projectId={project?.id ?? null}
       hasBuild={Boolean(project?.last_build_at)}
       slug={project?.slug ?? null}
       publishedAt={project?.published_at ?? null}
+      pending={changesPending}
+      run={publishRun}
+      setRun={setPublishRun}
+      deploy={{
+        building,
+        reconnecting: deployReconnecting,
+        failure: deployFailed ? diagnosis : null,
+        failureText: deployFailed ? deployError : null,
+        behind,
+      }}
+      onPublished={() => {
+        if (project?.id) void refresh(project.id).catch(() => undefined);
+        setDeployNonce((n) => n + 1);
+      }}
+      onRetry={() => void redeploy()}
+      retrying={redeploying}
+      retryError={redeployError}
+      onUnpublished={() => {
+        if (project?.id) void refresh(project.id).catch(() => undefined);
+      }}
+      onOpenDatabase={() => {
+        setPublishOpen(false);
+        setView("manage");
+        setSection("database");
+      }}
+      onAsk={(text) => {
+        if (!project?.id) return;
+        setPublishOpen(false);
+        askChat({ projectId: project.id, texts: [text] });
+      }}
       priceNote={
         project && isPublished(project)
           ? `Redeploying costs ${formatCredits(creditCostOf("publish", { alreadyPublished: true }))} credit.`
@@ -1166,6 +1258,18 @@ export default function PreviewPanel({
               {redeployError ? (
                 <p className="mt-1.5 text-[12px] leading-relaxed text-amber-200">{redeployError}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* Edits stay here until they are published; said for as long as
+              the live site differs from this preview. */}
+          {changesPending && publishState !== "deploying" ? (
+            <div className="flex shrink-0 items-center gap-2 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-1.5 text-[11.5px] text-muted">
+              <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+              <span className="min-w-0 flex-1">Preview: changes not live yet</span>
+              <button onClick={() => setPublishOpen(true)} className="shrink-0 font-medium text-ink underline underline-offset-2">
+                Publish changes
+              </button>
             </div>
           ) : null}
 
@@ -1660,7 +1764,31 @@ export default function PreviewPanel({
              *
              * One shell rather than two pills: they are one object about one
              * thing, and the rounded ends belong to the pair. */}
-            {liveSlug ? (
+            {publishState === "deploying" || publishState === "failed" ? (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                aria-busy={publishState === "deploying"}
+                className={`flex h-[30px] shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] font-semibold transition-all active:scale-[0.98] ${
+                  publishState === "failed"
+                    ? "border-rose-500/30 bg-rose-500/[0.10] text-rose-300"
+                    : "border-line/[0.14] bg-layer/[0.10] text-ink"
+                }`}
+              >
+                {publishState === "deploying" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                {publishState === "deploying" ? "Deploying…" : "Deploy failed"}
+              </button>
+            ) : publishState === "pending" ? (
+              <button
+                onClick={() => setPublishOpen(true)}
+                aria-expanded={publishOpen}
+                className="relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#FFE998] to-[#FFE07A] px-3 text-[12px] font-semibold text-[#3a2e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_18px_rgba(255,224,122,0.14)] transition-all active:scale-[0.98]"
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                Publish changes
+                <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#2F6BFF] ring-2 ring-canvas" />
+              </button>
+            ) : liveSlug ? (
               <div className="flex h-[30px] shrink-0 items-stretch overflow-hidden rounded-full border border-line/[0.14] bg-layer/[0.10]">
                 <a
                   href={publishedUrl(liveSlug)}
@@ -1707,7 +1835,7 @@ export default function PreviewPanel({
             )}
             <Popover
               open={publishOpen}
-              onClose={() => setPublishOpen(false)}
+              onClose={closePublish}
               title="Publish this app"
             >
               {publishBody}
@@ -1904,13 +2032,31 @@ export default function PreviewPanel({
           </button>
 
           <button
-            onClick={() => setPublishOpen((open) => !open)}
+            onClick={() => (publishOpen ? closePublish() : setPublishOpen(true))}
             aria-expanded={publishOpen}
-            title="Publish this app"
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-solid/[0.88] px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-solid active:scale-[0.98]"
+            aria-busy={publishState === "deploying"}
+            title={PUBLISH_LABEL[publishState]}
+            className={`relative flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors active:scale-[0.98] ${
+              publishState === "failed"
+                ? "border border-rose-500/30 bg-rose-500/[0.10] text-rose-300"
+                : publishState === "live" || publishState === "deploying"
+                  ? "bg-layer/[0.08] text-ink hover:bg-layer/[0.14]"
+                  : "bg-solid/[0.88] text-onSolid hover:bg-solid"
+            }`}
           >
-            <UploadCloud className="h-4 w-4 shrink-0" />
-            <span className="hidden lg:inline">Publish</span>
+            {publishState === "deploying" ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            ) : publishState === "failed" ? (
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+            ) : publishState === "live" ? (
+              <span aria-hidden className="mx-1 h-2 w-2 shrink-0 rounded-full bg-[#4ADE80]" />
+            ) : (
+              <UploadCloud className="h-4 w-4 shrink-0" />
+            )}
+            <span className="hidden lg:inline">{PUBLISH_LABEL[publishState]}</span>
+            {publishState === "pending" ? (
+              <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#2F6BFF] ring-2 ring-canvas" />
+            ) : null}
           </button>
 
           {/* The way out of this half. The conversation takes the whole
@@ -1927,7 +2073,7 @@ export default function PreviewPanel({
             </button>
           )}
 
-          <Popover open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish this app">
+          <Popover open={publishOpen} onClose={closePublish} title="Publish this app">
             {publishBody}
           </Popover>
           <Popover
