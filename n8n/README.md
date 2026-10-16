@@ -2,8 +2,11 @@
 
 The workflow behind the QuickStark.Ai chat "build my app" flow.
 
-- **Workflow**: `QuickStark.Ai — Build Orchestrator` (`v9nipTDZsSkMlg8Z`)
-- **Editor**: https://neauralist3.app.n8n.cloud/workflow/v9nipTDZsSkMlg8Z
+- **Workflow**: `QuickStark.Ai — Build Orchestrator` (`2obVS8eIsSZsoxMf`)
+- **Editor**: https://neuralist3.app.n8n.cloud/workflow/2obVS8eIsSZsoxMf
+- **Instance**: `neuralist3` (no "a" after "ne"). The previous instance,
+  `neauralist3`, expired in October 2026; links to it in the history below
+  are historical.
 - **Reference**: [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) — n8n Workflow SDK code.
 
   **Regenerated from the live workflow on 2026-09-03**, and a mirror of it:
@@ -175,7 +178,7 @@ save is never billed, which is the right answer for a build nobody got.
 
 ## Request
 
-`POST https://neauralist3.app.n8n.cloud/webhook/api/v1/build`
+`POST https://neuralist3.app.n8n.cloud/webhook/api/v1/build`
 
 ```json
 {
@@ -256,6 +259,40 @@ save route. `Flag Build Failure` is generation or saving having failed after the
 chat was answered.
 
 ## Before this can run for real
+
+> ## Migrated again — rebuilt from this repo (2026-10-16)
+>
+> `neauralist3` expired and the data was moved to **`neuralist3.app.n8n.cloud`**.
+> This time the import was worse than the last: it kept every node and most
+> connections but **dropped every parameter** — Set nodes with no fields, Code
+> nodes with no code, HTTP nodes with no URL, and the webhook reset to a random
+> GET path with no auth. That copy is still on the instance as
+> `Q Build Orchestrator` (`NeOcnuvh2kpetbqZ`); it does nothing and can be
+> archived.
+>
+> The working workflow was rebuilt from
+> [`build-orchestrator.workflow.ts`](./build-orchestrator.workflow.ts) as
+> **`2obVS8eIsSZsoxMf`**. Two differences from the mirror:
+>
+> - The three Supabase nodes use the instance's **`Supabase account`
+>   (`supabaseOAuth2Api`, OAuth2)** credential with `projectRef`
+>   `esuatccbicekcohzgcvd`, not a `supabaseApi` service-role key — OAuth2 is
+>   the only Supabase credential on `neuralist3`.
+> - The sticky notes were not recreated.
+>
+> **Not publishable until two credentials exist** (Credentials → Add in n8n),
+> then are attached:
+>
+> | Node | Credential | Value |
+> | --- | --- | --- |
+> | `Build Request Webhook` | Header Auth, named `QuickStark.Ai Build Webhook` | Name `X-QuickStark-Token`, Value = the app's `N8N_WEBHOOK_TOKEN` |
+> | `Generate With Claude` | Anthropic | an Anthropic API key |
+>
+> Do not publish before the Header Auth credential is attached: without it the
+> webhook accepts anyone, and `Sync Project Row` writes to whatever projectId
+> the body names. Then point the app at it:
+> `N8N_WEBHOOK_URL=https://neuralist3.app.n8n.cloud/webhook/api/v1/build`.
+
 
 > ## Migrated instance — credentials must be recreated (2026-09-21)
 >
