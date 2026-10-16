@@ -122,120 +122,118 @@ export default function MessageRow({
        could not be applied, a build still running, a file too large. Colouring
        the sentence itself made every one of them read as a crash, and made the
        three that matter indistinguishable from the ones that do not. */
-    <div className={`min-w-0 max-w-full py-1 ${message.tone === "error" ? "border-l-2 border-l-warn/50 pl-3" : ""}`}>
-      <div className="flex items-center gap-2">
-        {/* The assistant signs with the mark. Not decoration: a logo boxed inside a coloured square reads as an app
-            icon, and this is a signature. Still rather than turning, and in the
-            quiet colour rather than the brand green — it repeats down the whole
-            thread, and twenty spinning green marks is a fairground. The green
-            lives in the wordmark instead, once per row, exactly as the header
-            above does it. */}
-        <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
-        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-          {/* The lockup the landing page uses — silver and emerald, both
-              halves, without the shimmer: twenty rows each catching the light
-              on their own schedule is a thread that will not sit still. */}
-          <span className="wordmark-quickstart">QuickStark</span>
-          <span className="wordmark-ai">.Ai</span>
-        </p>
+    <div className="group flex min-w-0 max-w-full gap-3 py-5 sm:gap-4">
+      {/* The assistant signs with the mark, in a quiet tile down the left so
+          the reply itself reads as a document beside it. */}
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line/[0.1] bg-layer/[0.06] sm:h-8 sm:w-8">
+        <QMark scale={1.85} className="h-[18px] w-[18px]" />
+      </div>
+
+      <div
+        className={`min-w-0 max-w-[720px] flex-1 ${
+          message.tone === "error" ? "border-l-2 border-l-warn/50 pl-3" : ""
+        }`}
+      >
         {typeof message.at === "number" && (
           <time
             dateTime={new Date(message.at).toISOString()}
-            className="shrink-0 text-[12px] tabular-nums text-muted"
+            className="block h-0 -translate-y-5 text-xs tabular-nums text-muted opacity-0 transition-opacity group-hover:opacity-100"
           >
             {timeOf(message.at)}
           </time>
         )}
+
+        {/* The reading type is set on the reply itself, not the column, so the
+            chips, card and tracker below keep exactly the type they had. */}
+        <ChatMarkdown text={message.text} className="text-[15px] leading-7 text-soft" />
+
+        {/* Said only where it is true: work that actually landed. "Applied" over
+            a refusal or a failure would be the panel disagreeing with the
+            sentence directly above it. */}
+        {message.applied && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-accent">
+            <Check className="h-3.5 w-3.5 stroke-[3]" />
+            Applied
+          </p>
+        )}
+
+        {/* Hidden per chip rather than as a row, because the two kinds are not
+         * the same thing.
+         *
+         * A DOWNLOAD chip is a duplicate on desktop: the pane beside the
+         * conversation has its own, permanently. Two buttons for one file only
+         * makes a reader decide which is the real one.
+         *
+         * An OPEN chip is not a duplicate. The pane shows the page in a framed
+         * panel; this opens it in a real browser tab, at full width, where links
+         * and scrolling and the address bar behave normally. That is a different
+         * thing to want, and it is worth a chip of its own at every size.
+         *
+         * Below `md` nothing hides at all: there is no pane on screen — chat and
+         * preview are one at a time behind a toggle — so every chip here is the
+         * only route from the thread to the page. */}
+        {connectLink && (
+          <button
+            type="button"
+            onClick={onConnectDatabase}
+            className="mt-2.5 inline-flex h-8 items-center gap-2 rounded-lg bg-accent px-3 text-[13px] font-semibold text-black transition-opacity hover:opacity-90"
+          >
+            <Database className="h-3.5 w-3.5" />
+            {connectLink.label}
+          </button>
+        )}
+
+        {chips && chips.length > 0 && !actionsLive && (
+          <div className={`mt-2 flex flex-wrap gap-1.5 ${chips.every(inThePane) ? "md:hidden" : ""}`}>
+            {chips.map((link) => {
+              /* A chip that saves a file rather than opening a place.
+                 Both the arrow and the new tab would be wrong for it: the route
+                 answers with a Content-Disposition, so the browser saves it and
+                 the tab it opened would sit there empty. */
+              const saves = link.href.includes("download=1");
+              const opensApp = isAppLink(link);
+              return (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  {...(saves ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18] ${
+                    saves || opensApp ? "md:hidden" : ""
+                  }`}
+                >
+                  {link.label}
+                  {saves ? <Download className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Same rule, same reason: the card's thumbnail, Download and Publish
+            are all in the pane on desktop. The thumbnail is the most redundant
+            thing on the screen there — a small picture of the page, directly
+            beside the actual page, at size and live. */}
+        {message.result && (
+          <div className="md:hidden">
+            <BuildResultCard result={message.result} live={actionsLive} onPublish={onPublish} />
+          </div>
+        )}
+
+        {message.activity && (
+          <div className="mt-2.5">
+            <BuildActivity
+              steps={message.activity.steps}
+              running={false}
+              startedAt={message.activity.startedAt}
+              finishedAt={message.activity.finishedAt}
+              failed={message.activity.failed}
+              note={message.activity.note}
+              previewHref={message.activity.previewHref}
+              onOpenPreview={onOpenPreview}
+            />
+          </div>
+        )}
       </div>
-
-      <ChatMarkdown text={message.text} className="mt-2" />
-
-      {/* Said only where it is true: work that actually landed. "Applied" over
-          a refusal or a failure would be the panel disagreeing with the
-          sentence directly above it. */}
-      {message.applied && (
-        <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-medium text-accent">
-          <Check className="h-3.5 w-3.5 stroke-[3]" />
-          Applied
-        </p>
-      )}
-
-      {/* Hidden per chip rather than as a row, because the two kinds are not
-       * the same thing.
-       *
-       * A DOWNLOAD chip is a duplicate on desktop: the pane beside the
-       * conversation has its own, permanently. Two buttons for one file only
-       * makes a reader decide which is the real one.
-       *
-       * An OPEN chip is not a duplicate. The pane shows the page in a framed
-       * panel; this opens it in a real browser tab, at full width, where links
-       * and scrolling and the address bar behave normally. That is a different
-       * thing to want, and it is worth a chip of its own at every size.
-       *
-       * Below `md` nothing hides at all: there is no pane on screen — chat and
-       * preview are one at a time behind a toggle — so every chip here is the
-       * only route from the thread to the page. */}
-      {connectLink && (
-        <button
-          type="button"
-          onClick={onConnectDatabase}
-          className="mt-2.5 inline-flex h-8 items-center gap-2 rounded-lg bg-accent px-3 text-[13px] font-semibold text-black transition-opacity hover:opacity-90"
-        >
-          <Database className="h-3.5 w-3.5" />
-          {connectLink.label}
-        </button>
-      )}
-
-      {chips && chips.length > 0 && !actionsLive && (
-        <div className={`mt-2 flex flex-wrap gap-1.5 ${chips.every(inThePane) ? "md:hidden" : ""}`}>
-          {chips.map((link) => {
-            /* A chip that saves a file rather than opening a place.
-               Both the arrow and the new tab would be wrong for it: the route
-               answers with a Content-Disposition, so the browser saves it and
-               the tab it opened would sit there empty. */
-            const saves = link.href.includes("download=1");
-            const opensApp = isAppLink(link);
-            return (
-              <a
-                key={link.href}
-                href={link.href}
-                {...(saves ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-full border border-line/[0.1] bg-layer/[0.05] px-2.5 text-[12px] font-medium text-ink transition-colors hover:border-line/[0.18] ${
-                  saves || opensApp ? "md:hidden" : ""
-                }`}
-              >
-                {link.label}
-                {saves ? <Download className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
-              </a>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Same rule, same reason: the card's thumbnail, Download and Publish
-          are all in the pane on desktop. The thumbnail is the most redundant
-          thing on the screen there — a small picture of the page, directly
-          beside the actual page, at size and live. */}
-      {message.result && (
-        <div className="md:hidden">
-          <BuildResultCard result={message.result} live={actionsLive} onPublish={onPublish} />
-        </div>
-      )}
-
-      {message.activity && (
-        <div className="mt-2.5">
-          <BuildActivity
-            steps={message.activity.steps}
-            running={false}
-            startedAt={message.activity.startedAt}
-            finishedAt={message.activity.finishedAt}
-            failed={message.activity.failed}
-            note={message.activity.note}
-            previewHref={message.activity.previewHref}
-            onOpenPreview={onOpenPreview}
-          />
-        </div>
-      )}
     </div>
   );
 }
