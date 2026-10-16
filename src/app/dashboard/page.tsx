@@ -89,40 +89,47 @@ function TuneMark({ className }: { className?: string }) {
    whole of it — read from the credit economy rather than written out here, so
    this figure and the one signup actually grants cannot differ. */
 
-/* The row under the composer. Each chip is a way into a build rather than a
-   label: tapping one drops its prompt into the bar and puts the caret at the
-   end, so the next thing a visitor does is edit a real sentence instead of
-   facing an empty box.
-
-   A fixed three. Two of them carry a prompt and fill the composer; AI Agent
-   carries none and is a dead label holding its place in the row. The fourth was
-   Mobile App, which could only answer a tap with an apology, and a chip that
-   apologises is worth less than the room it takes. */
-const STARTERS = [
-  {
-    label: "Storefront",
+/* The row under the composer, one per tab. Each chip is a way into a build
+   rather than a label: tapping one drops its prompt into the bar and puts the
+   caret at the end, so the next thing a visitor does is edit a real sentence
+   instead of facing an empty box. Every chip is the tab's own kind of project,
+   so a website idea never sits under Web App or the other way round. */
+type Starter = { label: string; icon: LucideIcon; prompt: string; beta?: boolean };
+const STARTERS: Record<Category, Starter[]> = {
+  website: [
+    { label: "Landing page", icon: AppWindow, prompt: "Build a landing page for my bakery with a hero, our best sellers, opening hours and a contact form." },
+    { label: "Portfolio", icon: ImageIcon, prompt: "Build a portfolio website showing my work, a short bio and a way to get in touch." },
+    { label: "Blog", icon: FileText, prompt: "Build a blog website with an article list, article pages and an about page." },
+    { label: "Restaurant menu", icon: Newspaper, prompt: "Build a restaurant website with our menu, prices, opening hours and location." },
+    { label: "Event page", icon: Sparkles, prompt: "Build an event website with the date, schedule, speakers and a sign-up form." },
+  ],
+  web_app: [
     /* The blue pill says what beta says: you can use this, and it may break.
        It belongs on the one starter that builds the most of an app for you. */
-    beta: true,
-    icon: Layers,
-    prompt: "Build an online store with a product catalogue, cart and Stripe checkout.",
-  },
-  {
-    label: "Client Dashboard",
-    icon: AppWindow,
-    prompt: "Build a dashboard with sign-in, a customer table and charts for revenue and usage.",
-  },
-  {
-    /* A placeholder, and deliberately a dead one: it names the third thing this
-       row will offer without pretending to offer it yet. No prompt is what makes
-       it inert — the chip carries nothing to put in the composer, so pressing it
-       cannot. It is drawn as a label rather than a control for the same reason:
-       a chip that lights under the finger and then does nothing reads as broken
-       rather than as not-yet. */
-    label: "AI Agent",
-    icon: Bot,
-  },
-] as const;
+    { label: "Online store", icon: ShoppingBag, beta: true, prompt: "Build an online store with a product catalogue, cart and Stripe checkout." },
+    { label: "Client dashboard", icon: Layers, prompt: "Build a dashboard with sign-in, a customer table and charts for revenue and usage." },
+    { label: "Booking system", icon: Clock, prompt: "Build a booking app where customers log in, pick a time slot and get a confirmation." },
+    { label: "AI agent", icon: Bot, prompt: "Build an AI assistant app that answers questions about my business from a chat window." },
+    { label: "Internal tool", icon: Settings, prompt: "Build an internal tool where my team signs in and tracks requests in a shared table." },
+  ],
+  mobile_app: [
+    { label: "Fitness tracker", icon: Smartphone, prompt: "Build a fitness tracker mobile app for iOS and Android that logs workouts and shows weekly progress." },
+    { label: "Delivery app", icon: ShoppingBag, prompt: "Build a delivery mobile app where customers order, pay and track their delivery." },
+    { label: "Social feed", icon: ImageIcon, prompt: "Build a social mobile app with a photo feed, likes, comments and profiles." },
+    { label: "Habit tracker", icon: Check, prompt: "Build a habit tracker mobile app with daily check-ins, streaks and reminders." },
+  ],
+  fliers: [
+    { label: "Sale promo", icon: Sparkles, prompt: "Design a flier for a summer sale, 30% off everything this weekend." },
+    { label: "Event", icon: Clock, prompt: "Design a flier for our community event with the date, time and place." },
+    { label: "Grand opening", icon: Sparkles, prompt: "Design a flier announcing the grand opening of our new shop." },
+    { label: "Menu", icon: FileText, prompt: "Design a flier with our cafe menu and prices." },
+  ],
+  video: [
+    { label: "Product promo", icon: Clapperboard, prompt: "Create a 30-second promo video for my product." },
+    { label: "Explainer", icon: Video, prompt: "Create a short explainer video showing how my service works." },
+    { label: "Social ad", icon: Video, prompt: "Create a 15-second social ad video for my brand." },
+  ],
+};
 
 /* The five tabs above the composer. Each is a CATEGORY; what used to be the
  * tabs — Landing Page, Store, Blog, News — are Website's sub-types now, and
@@ -137,21 +144,21 @@ const STARTERS = [
    for every tab but the selected one, so it has to say the tab by itself:
    a globe for a web app, a browser window for a website, a video camera. */
 const categoryTabs = [
-  { id: "web_app", icon: Layers, phone: Globe },
   { id: "website", icon: AppWindow, phone: AppWindow },
+  { id: "web_app", icon: Layers, phone: Globe },
+  { id: "mobile_app", icon: Smartphone, phone: Smartphone },
   { id: "fliers", icon: ImageIcon, phone: ImageIcon },
   { id: "video", icon: Clapperboard, phone: Video },
-  { id: "mobile_app", icon: Smartphone, phone: Smartphone },
 ] satisfies { id: Category; icon: LucideIcon; phone: LucideIcon }[];
 
-/* The bar suggests what to ask for by cycling its placeholder rather than
-   sitting on one example — examples for the tab that is selected. */
-const PROMPTS: Record<Category, string[]> = {
-  web_app: ["Build me a SaaS app for...", "Build me a CRM system with...", "Build me a dashboard for...", "Build me an internal tool that..."],
-  website: ["Build me a landing page for...", "Build me an online store for...", "Build me a blog about...", "Build me a news site for..."],
-  fliers: ["Design a flyer for...", "Design an Instagram post announcing...", "Design a sale banner for..."],
-  video: ["Make a 30-second launch video for...", "Make a TikTok reel about...", "Make an explainer video on..."],
-  mobile_app: ["Build me a mobile app for...", "Build me a habit tracker app with...", "Build me a booking app for..."],
+/* The bar's placeholder: one example per tab, of the tab's own kind of
+   project, so the hint never suggests what the tab does not build. */
+const PLACEHOLDER: Record<Category, string> = {
+  website: "Build a landing page for my bakery…",
+  web_app: "Build a booking app where customers log in…",
+  mobile_app: "Build a fitness tracker app for iOS and Android…",
+  fliers: "Design a flier for a summer sale, 30% off…",
+  video: "Create a 30-second promo video for…",
 };
 
 /* Every category has a tab: the mapped type is exhaustive over Category, so a
@@ -186,7 +193,6 @@ export default function DashboardPage() {
     inferSubtype(activeCategory, transcript);
   const activeType: BuildKind = subtype.kind;
   const [composerFocused, setComposerFocused] = useState(false);
-  const [promptIndex, setPromptIndex] = useState(0);
   const [projectName, setProjectName] = useState<string | null>(null);
 
   // The phone header opens this; from md up the drawer never mounts.
@@ -224,6 +230,7 @@ export default function DashboardPage() {
      other and neither survived a reload — see useModel. */
   const { model, setModel, chosen: chosenModel, reach } = useModel();
   const [isModelPopoverOpen, setIsModelPopoverOpen] = useState(false);
+  const chosenAgent = agentForModel(model);
 
   // Privacy Settings Modal State & Data
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -333,14 +340,6 @@ export default function DashboardPage() {
     if (!box) return;
     box.style.height = "";
     if (transcript && box.scrollHeight > box.clientHeight) box.style.height = `${Math.min(box.scrollHeight, 300)}px`;
-  }, [transcript]);
-
-  /* Stop once there is something in the box: the placeholder is hidden then,
-     and a timer nobody can see is just work. */
-  useEffect(() => {
-    if (transcript) return;
-    const id = window.setInterval(() => setPromptIndex((current) => current + 1), 3200);
-    return () => window.clearInterval(id);
   }, [transcript]);
 
   /* The tab follows the prompt until somebody clicks one. Only a confident
@@ -558,9 +557,8 @@ export default function DashboardPage() {
 
             {/* Inner Graphite Glass Box matching #26252A */}
             <div className="qs-composer relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
-              {/* A real placeholder attribute cannot animate, so the prompt is drawn
-                  over the box instead and the whole line fades out and back in.
-                  It sits behind the caret and ignores the pointer, so typing and
+              {/* The prompt is drawn over the box rather than as a placeholder
+                  attribute, so it keeps the box's own type. It sits behind the caret and ignores the pointer, so typing and
                   clicking still land in the textarea. */}
               <div className="relative">
                 <textarea
@@ -587,21 +585,14 @@ export default function DashboardPage() {
                   onChange={(e) => setTranscript(e.target.value)}
                   className="relative z-10 h-[70px] w-full resize-none bg-transparent text-base text-ink outline-none md:h-auto"
                 />
-                <AnimatePresence mode="wait">
-                  {!transcript && (
-                    <motion.span
-                      key={promptIndex}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.45, ease: "easeInOut" }}
-                      aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 select-none text-base text-faint md:text-faint"
-                    >
-                      {PROMPTS[activeCategory][promptIndex % PROMPTS[activeCategory].length]}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
+                {!transcript && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute left-0 top-0 select-none text-base text-faint md:text-faint"
+                  >
+                    {PLACEHOLDER[activeCategory]}
+                  </span>
+                )}
               </div>
 
               {files.length > 0 && (
@@ -692,7 +683,7 @@ export default function DashboardPage() {
                         anyway is better than naming nothing or naming the
                         wrong thing. */}
                     <span className="font-medium tracking-tight">
-                      {agentForModel(model)?.title ?? shortModelName(chosenModel)}
+                      {chosenAgent ? `${chosenAgent.title} · ${chosenAgent.subtitle}` : shortModelName(chosenModel)}
                     </span>
                     <ChevronDown
                       className={`h-3.5 w-3.5 text-ink transition-transform ${
@@ -705,6 +696,7 @@ export default function DashboardPage() {
                 <div className="flex shrink-0 items-center gap-[3px] sm:gap-2">
                   <button
                     onClick={() => setIsPrivacyModalOpen(true)}
+                    title={selectedPrivacy === "public" ? "Anyone with the link can view" : "Only you can view"}
                     className="qs-control flex h-8 w-8 shrink-0 items-center justify-center gap-2 rounded-full border border-line/[0.08] bg-layer/[0.06] text-sm text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] md:bg-layer/[0.03] active:scale-[0.98] sm:h-10 sm:w-auto sm:px-3.5"
                   >
                     <Globe className="h-4 w-4 shrink-0" />
@@ -905,96 +897,25 @@ export default function DashboardPage() {
             </Popover>
           </div>
 
-          {/* The tab's sub-types. The lit chip is what the sentence reads as,
-              so the guess is visible; pressing a chip fixes it, and pressing
-              it again hands the choice back to the sentence. */}
-          {videoMode && (
-            <VideoTypeGrid
-              selected={videoPipeline}
-              onSelect={pickVideoType}
-              answers={videoAnswers}
-              onAnswer={(question, value) => setVideoAnswers((current) => ({ ...current, [question]: value }))}
-              consent={videoConsent}
-              onConsent={setVideoConsent}
-            />
-          )}
-          {!videoMode && (
-          /* Desktop only, like the starters below: a phone goes straight from
-             the composer to the list of projects, as Emergent's does. */
-          <div className="relative z-10 mt-3 hidden flex-col items-center gap-2 md:flex">
-            <div className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {SUBTYPES[activeCategory].map((option) => {
-                /* No Auto chip: until one is picked, the chip the sentence
-                   reads as is the lit one, and it moves as they type. */
-                const chosen = (activeSubtype ?? subtype.id) === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    title={option.blurb}
-                    aria-pressed={chosen}
-                    onClick={() => setActiveSubtype((current) => (current === option.id ? null : option.id))}
-                    className={`h-8 shrink-0 whitespace-nowrap rounded-full border px-3 text-[12.5px] transition-colors ${
-                      chosen
-                        ? "border-[#3a3a40] bg-[#1c1c20] text-white"
-                        : "border-[#26262b] bg-[#121214] text-[#8b8b93] hover:border-[#303035] hover:text-[#c9c9cf]"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-            {CATEGORY_NOTE[activeCategory] && (
-              <p className="px-2 text-center text-[12px] text-[#6e6e76]">{CATEGORY_NOTE[activeCategory]}</p>
-            )}
-          </div>
-          )}
-
-          {/* Starters, centred under the composer. The row scrolls sideways
-              rather than wrapping, so it stays one line on a phone and the chips keep
-              the size they have on a desktop. Not under Video: those starters
-              build apps, and the video row above is that tab's starting point. */}
-          {!videoMode && (
+          {/* Starters, centred under the composer: one row, the selected tab's
+              own. The row scrolls sideways rather than wrapping, so the chips
+              keep the size they have on a desktop. Desktop only: a phone goes
+              straight from the composer to the list of projects. */}
           <div className="mt-3 hidden overflow-x-auto pb-1 [scrollbar-width:none] md:block [&::-webkit-scrollbar]:hidden">
             {/* w-max + mx-auto centres the row under the composer while it fits, and lets
                 it start at the left edge once it is wider than the column — centring the
                 flex line itself would push the first chip out of reach when it scrolls. */}
             <div className="mx-auto flex w-max gap-2">
-            {STARTERS.map((starter) => {
+            {STARTERS[activeCategory].map((starter) => {
               const Icon = starter.icon;
-              /* Shared by both, so the dead chip keeps the size, the rim and the
-                 spacing of the ones beside it — it is the same object in the row,
-                 minus everything that reacts. */
-              const shape =
-                "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line/[0.06] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft";
-              const body = (
-                <>
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
-                  {starter.label}
-                  {"beta" in starter && starter.beta ? (
-                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
-                      Beta
-                    </span>
-                  ) : null}
-                </>
-              );
-
-              /* No prompt, no control: it is a span rather than a disabled button
-                 so nothing tabs to it and nothing lights under the cursor. */
-              if (!("prompt" in starter)) {
-                return (
-                  <span key={starter.label} className={shape}>
-                    {body}
-                  </span>
-                );
-              }
-
               return (
                 <button
                   key={starter.label}
                   type="button"
                   onClick={() => {
+                    /* The chip is the tab's own, so it keeps the tab: the
+                       prompt it drops in should not move the tabs about. */
+                    pickedType.current = true;
                     setTranscript(starter.prompt);
                     const composer = composerRef.current;
                     if (!composer) return;
@@ -1005,14 +926,33 @@ export default function DashboardPage() {
                       composer.setSelectionRange(starter.prompt.length, starter.prompt.length);
                     });
                   }}
-                  className={`${shape} transition-colors hover:border-line/[0.12] hover:bg-layer/[0.06] hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30`}
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line/[0.06] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft transition-colors hover:border-line/[0.12] hover:bg-layer/[0.06] hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30"
                 >
-                  {body}
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  {starter.label}
+                  {starter.beta ? (
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[#2F6BFF] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-white">
+                      Beta
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
             </div>
           </div>
+          {CATEGORY_NOTE[activeCategory] && (
+            <p className="mt-2 hidden px-2 text-center text-[12px] text-[#6e6e76] md:block">{CATEGORY_NOTE[activeCategory]}</p>
+          )}
+
+          {videoMode && (
+            <VideoTypeGrid
+              selected={videoPipeline}
+              onSelect={pickVideoType}
+              answers={videoAnswers}
+              onAnswer={(question, value) => setVideoAnswers((current) => ({ ...current, [question]: value }))}
+              consent={videoConsent}
+              onConsent={setVideoConsent}
+            />
           )}
         </div>
 
