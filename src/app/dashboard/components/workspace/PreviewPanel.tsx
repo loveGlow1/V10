@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Blocks,
   Check,
+  Code2,
+  Eye,
   ChevronLeft,
   CreditCard,
   Database,
@@ -14,9 +16,13 @@ import {
   Loader2,
   Link2,
   MousePointerClick,
+  PanelLeft,
   RotateCw,
   Rocket,
+  Settings,
   SlidersHorizontal,
+  Upload,
+  UploadCloud,
   X,
 } from "lucide-react";
 
@@ -28,7 +34,6 @@ import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
 import type { IntegrationCategory } from "../../integrations";
-import { requestSupportChat } from "../../supportChat";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { SITE_URL } from "@/lib/site";
 import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
@@ -38,7 +43,7 @@ import ServerKeys from "./ServerKeys";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import BackendPanel from "./BackendPanel";
-import { ManageMark, PreviewMark, SupportMark } from "./panelMarks";
+import { ManageMark } from "./panelMarks";
 import Popover from "./Popover";
 
 type ManageSection = "settings" | "database" | "integrations" | "payments";
@@ -68,6 +73,8 @@ export default function PreviewPanel({
   publishRequest,
   onBackToChat,
   onClose,
+  chatOpen = true,
+  onToggleChat,
 }: {
   project: Project | null;
   onUpgradeClick: () => void;
@@ -79,6 +86,10 @@ export default function PreviewPanel({
   /* Puts this half away and gives the whole workspace to the conversation.
      Desktop only — a phone shows one at a time already. */
   onClose?: () => void;
+  /* Whether the conversation column is showing beside this pane, and the way
+     to put it away or bring it back. Desktop only, like onClose. */
+  chatOpen?: boolean;
+  onToggleChat?: () => void;
   /* The way out of this pane on a phone. The bar above no longer carries the
      preview/chat pair — an open app names itself there instead — so without
      this, arriving here from the composer's GitHub button would be a one-way
@@ -639,38 +650,18 @@ export default function PreviewPanel({
     }
   }
 
-  /* The view switch, as a track with a chip riding in it rather than two pills
-     in a row. The track is sunk into the header and the chosen half is lifted
-     out of it — a hairline of light along its top, a soft shadow beneath — so
-     which view you are in is legible from the shape alone, before the labels
-     are read. The unchosen half carries no fill at all; two filled halves is
-     the arrangement that makes a segmented control read as two buttons.
-
-     28px inside a 36px track, which is what puts the switch on the same line as
-     every control across the header: one height, one baseline, one row. */
-  const segment = (active: boolean) =>
-    `relative flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-all lg:px-3 ${
+  /* The desktop bar's tiles: 32px, a hairline outline, no fill until hovered.
+     `tab` is the same tile that fills in when it is the view on screen. */
+  const tile =
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line/[0.10] text-soft transition-colors hover:bg-layer/[0.06] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
+  const labelled =
+    "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line/[0.10] px-2.5 text-[13px] font-medium text-soft transition-colors hover:bg-layer/[0.06] hover:text-ink active:scale-[0.98]";
+  const tab = (active: boolean) =>
+    `flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors active:scale-[0.98] ${
       active
-        ? "bg-layer/[0.12] text-ink shadow-[0_1px_2px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12)]"
-        : "text-muted hover:text-ink"
+        ? "border border-transparent bg-layer/[0.10] text-ink"
+        : "border border-line/[0.10] text-soft hover:bg-layer/[0.06] hover:text-ink"
     }`;
-
-  /* Every control to the right of the switch is cut from this: 36 tall, a
-     hairline rim, a translucent fill that firms up under the cursor. The ones
-     that are only an icon are square, so the row reads as a set of equal tiles
-     rather than as pills of assorted widths.
-
-     Widths are why the labels come and go with the viewport. This pane is
-     whatever is left after the conversation's fixed 420, so at 1024 it is about
-     600px and at 768 about 350 — the labels appear as that room arrives, and
-     below it every control keeps its icon, its title and its aria-label. */
-  const action =
-    "flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.04] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
-
-  /* A rule between groups of controls: what the app is, what you do to it, and
-     the way out of the pane. Without them the eight controls read as one queue
-     and the eye has to count. */
-  const divider = <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-line/[0.09]" />;
 
   /* The material of the four controls in the phone Manage screen's header.
      Squarer and quieter than `glass` above: that one sits over the workspace's
@@ -1594,58 +1585,95 @@ export default function PreviewPanel({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {/* One row, one height. The switch, the four things you do to an app, the
-          publish button and the way out of the pane all stand 36px tall on the
-          same centre line, in the order they are reached for: what you are
-          looking at, help with it, the app itself, sharing it, shipping it, and
-          then closing the pane. */}
+      {/* The workspace's own bar, drawn after the builder people already know:
+          on the left, what you are looking at — the conversation toggle, Preview
+          and Manage, and the code; on the right, what you do to the app — open
+          it, reload it, point at it, share it, ship it — and then the way out
+          of the pane. Every control is the same 32px outlined tile, so the row
+          reads as one set with Publish the only filled one. */}
       <header className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-line/[0.06] px-3">
-        <div
-          role="group"
-          aria-label="Workspace view"
-          className="flex h-9 shrink-0 items-center gap-1 rounded-xl border border-line/[0.07] bg-sunken/70 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]"
-        >
+        <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+          {onToggleChat && (
+            <button
+              onClick={onToggleChat}
+              aria-pressed={!chatOpen}
+              title={chatOpen ? "Hide the conversation" : "Show the conversation"}
+              aria-label={chatOpen ? "Hide the conversation" : "Show the conversation"}
+              className={tile}
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
+
           <button
             onClick={() => setView("preview")}
             aria-pressed={view === "preview"}
             title="Preview"
-            className={segment(view === "preview")}
+            className={tab(view === "preview")}
           >
-            <PreviewMark className="h-[15px] w-[15px] shrink-0" />
+            <Eye className="h-4 w-4 shrink-0" />
             <span className="hidden lg:inline">Preview</span>
           </button>
           <button
             onClick={() => setView("manage")}
             aria-pressed={view === "manage"}
             title="Manage"
-            className={segment(view === "manage")}
+            className={tab(view === "manage")}
           >
-            <ManageMark className="h-[15px] w-[15px] shrink-0" />
+            <Settings className="h-4 w-4 shrink-0" />
             <span className="hidden lg:inline">Manage</span>
           </button>
+
+          {/* The code: its repository once it has one, the files to download
+              until then. A project with nothing built has no code to show, so
+              it is a dead control rather than a link to a 404. */}
+          {repoUrl ? (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the code on GitHub"
+              aria-label="Open the code on GitHub"
+              className={tile}
+            >
+              <Code2 className="h-4 w-4" />
+            </a>
+          ) : previewUrl ? (
+            <a
+              href={`/preview/${project?.id}?download=1`}
+              download
+              title="Download the code"
+              aria-label="Download the code"
+              className={tile}
+            >
+              <Code2 className="h-4 w-4" />
+            </a>
+          ) : (
+            <button disabled title="No code yet" aria-label="No code yet" className={tile}>
+              <Code2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
-        {/* gap-2 rather than gap-1.5, and px-3 rather than px-2.5 inside each
-            control above. Six pixels between four labelled pills reads as one
-            crowded block — the eye cannot find the edges, so the row looks
-            cramped however well each button is drawn. Eight, with a little more
-            room inside, is what separates them into a set of tiles. */}
-        <div className="relative flex min-w-0 shrink-0 items-center gap-2">
-          {/* Quinn, the assistant already floating in the corner of this screen.
-              The button asks it to open rather than starting a second thread:
-              there is one conversation with support, wherever it is opened
-              from. Hidden below lg, where the corner launcher is the only one
-              the row has room for. */}
-          <button
-            onClick={requestSupportChat}
-            title="Need help?"
-            className={`hidden ${action} lg:flex`}
-          >
-            <SupportMark className="h-4 w-4 shrink-0" />
-            <span className="hidden 2xl:inline">Need help?</span>
-          </button>
-
-          {divider}
+        <div className="relative flex min-w-0 shrink-0 items-center gap-1.5">
+          {/* Open it in a tab of its own: the live site once it is published,
+              the private preview before that. */}
+          {publishedLive || previewUrl ? (
+            <a
+              href={publishedLive ?? `/preview/${project?.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={publishedLive ? `Open ${publishedLive}` : "Open the preview in a new tab"}
+              aria-label={publishedLive ? "Open the published app" : "Open the preview in a new tab"}
+              className={tile}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : (
+            <button disabled title="Nothing to open yet" aria-label="Nothing to open yet" className={tile}>
+              <ExternalLink className="h-4 w-4" />
+            </button>
+          )}
 
           {/* A build writes to the same address, so the frame has to be told to
               look again. Disabled until there is something to look at, so it
@@ -1655,7 +1683,7 @@ export default function PreviewPanel({
             disabled={!previewUrl}
             title="Reload the preview"
             aria-label="Reload the preview"
-            className={`${action} w-9 px-0`}
+            className={tile}
           >
             <RotateCw className="h-4 w-4" />
           </button>
@@ -1667,94 +1695,27 @@ export default function PreviewPanel({
             title={editMode ? "Close visual edit" : "Visual edit — click anything in the preview to change it"}
             aria-label={editMode ? "Close visual edit" : "Visual edit"}
             aria-pressed={editMode}
-            className={`${action} ${editMode ? "bg-layer/[0.1] text-ink" : ""}`}
+            className={`${tile} ${editMode ? "bg-layer/[0.10] text-ink" : ""}`}
           >
-            <MousePointerClick className="h-4 w-4 shrink-0" />
-            <span className="hidden lg:inline">Visual edit</span>
+            <MousePointerClick className="h-4 w-4" />
           </button>
 
-          {divider}
-
-          <button
-            onClick={share}
-            title="Copy a link to this app"
-            className={action}
-          >
+          <button onClick={share} title="Copy a link to this app" className={labelled}>
             {shared ? (
               <Check className="h-4 w-4 shrink-0 text-accent" />
             ) : (
-              <Link2 className="h-4 w-4 shrink-0" />
+              <Upload className="h-4 w-4 shrink-0" />
             )}
-            <span className="hidden xl:inline">{shared ? "Link copied" : "Share"}</span>
+            <span className="hidden lg:inline">{shared ? "Copied" : "Share"}</span>
           </button>
-
-          {/* ── "Open app", and nothing that deploys ─────────────────────────
-              This was a Run app button that created a Vercel deployment of its
-              own. It is gone, because deploying is what Publish does and
-              nothing else should: a second control that put a project online
-              meant a public address could exist for a project nobody had
-              agreed to publish, and it made Publish look like it did nothing
-              because the address was already there.
-
-              What is left is the link, and only once there is genuinely
-              something to open — a project that has been published. Before
-              that the pane itself is the preview, which is the whole point of
-              rendering it in the builder. */}
-          {publishedLive ? (
-            <a
-              href={publishedLive}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Open ${publishedLive}`}
-              className={action}
-            >
-              <ExternalLink className="h-4 w-4 shrink-0" />
-              <span className="hidden xl:inline">Open app</span>
-            </a>
-          ) : null}
-
-          {/* Download's permanent home, beside Publish. The copy in the chat
-              card is the shortcut and it expires; this one does not, which is
-              why it sits with the other thing you do to a finished app rather
-              than somewhere of its own.
-
-              An anchor, not a button: the route answers with a
-              Content-Disposition, so the browser saves the file and this page
-              stays where it is. A project with nothing built has nothing to
-              take, so it is a dead control rather than a link to a 404. */}
-          {previewUrl ? (
-            <a
-              href={`/preview/${project?.id}?download=1`}
-              download
-              title="Download this page"
-              aria-label="Download this page"
-              className={action}
-            >
-              <Download className="h-4 w-4 shrink-0" />
-              <span className="hidden xl:inline">Download</span>
-            </a>
-          ) : (
-            <button
-              disabled
-              title="Nothing to download yet"
-              aria-label="Download this page"
-              className={action}
-            >
-              <Download className="h-4 w-4 shrink-0" />
-              <span className="hidden xl:inline">Download</span>
-            </button>
-          )}
 
           <button
             onClick={() => setPublishOpen((open) => !open)}
             aria-expanded={publishOpen}
             title="Publish this app"
-            /* The same rhythm as the controls beside it — gap-2, px-3, h-9 —
-               so the row is one set of tiles with the primary filled, rather
-               than three of one size and a fourth of another. */
-            className="flex h-9 shrink-0 items-center gap-2 rounded-xl bg-solid px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.98]"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-solid/[0.88] px-3 text-[13px] font-medium text-onSolid transition-colors hover:bg-solid active:scale-[0.98]"
           >
-            <Rocket className="h-4 w-4 shrink-0" />
+            <UploadCloud className="h-4 w-4 shrink-0" />
             <span className="hidden lg:inline">Publish</span>
           </button>
 
@@ -1762,17 +1723,14 @@ export default function PreviewPanel({
               workspace and a button on the edge brings the pane back — see
               Workspace. Only where there is a second half to fall back on. */}
           {onClose && (
-            <>
-              {divider}
-              <button
-                onClick={onClose}
-                title="Close the preview"
-                aria-label="Close the preview"
-                className={`${action} w-9 px-0`}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </>
+            <button
+              onClick={onClose}
+              title="Close the preview"
+              aria-label="Close the preview"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-layer/[0.08] text-soft transition-colors hover:bg-layer/[0.14] hover:text-ink active:scale-[0.98]"
+            >
+              <X className="h-4 w-4" />
+            </button>
           )}
 
           <Popover open={publishOpen} onClose={() => setPublishOpen(false)} title="Publish this app">
