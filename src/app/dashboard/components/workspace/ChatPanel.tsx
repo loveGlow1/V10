@@ -59,7 +59,7 @@ import {
 } from "./database-connect";
 import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
-import { VISUAL_ASK_EVENT, type VisualAsk } from "./visual-ask";
+import { ASK_CHANNEL, VISUAL_ASK_EVENT, askChat, type VisualAsk } from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
@@ -1080,7 +1080,20 @@ export default function ChatPanel({
     }
     const listener = (event: Event) => void onAsk(event);
     window.addEventListener(VISUAL_ASK_EVENT, listener);
-    return () => window.removeEventListener(VISUAL_ASK_EVENT, listener);
+    /* And from the code editor's tab (its terminal's "Ask AI to fix"). */
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(ASK_CHANNEL);
+      channel.onmessage = (event: MessageEvent<VisualAsk>) => {
+        if (event.data?.projectId === id) askChat(event.data);
+      };
+    } catch {
+      channel = null;
+    }
+    return () => {
+      window.removeEventListener(VISUAL_ASK_EVENT, listener);
+      channel?.close();
+    };
   }, [project?.id]);
 
   async function send(
