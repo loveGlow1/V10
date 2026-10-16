@@ -24,6 +24,7 @@ import PreviewPanel, { type ManageRequest } from "./PreviewPanel";
 import { PreviewMark } from "./panelMarks";
 import PreviewSheet from "./PreviewSheet";
 import QuickActionsSheet from "./QuickActionsSheet";
+import VSCodeDialog from "./VSCodeDialog";
 
 /* An opened app. The header and drawer are the ones Home carries, so moving
    between the two is a change of the area below the tabs and nothing else.
@@ -120,6 +121,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
   const chatShown = chatOpen || !previewPaneOpen;
   /* The phone header's ⋯: Deploy, Preview, Manage, Code, Info. */
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+  /* Where to open the code, from Quick Actions on a phone — see VSCodeDialog. */
+  const [codeOpen, setCodeOpen] = useState(false);
   const requests = useRef(0);
 
   /* Publishing lives in the preview half — one flow that says what it costs —
@@ -256,7 +259,17 @@ export default function Workspace({ projectId }: { projectId: string }) {
         onDeploy={requestPublish}
         onPreview={() => setPreviewSheetOpen(true)}
         onManage={() => openManage("settings")}
+        onOpenCode={() => setCodeOpen(true)}
       />
+      {project?.id ? (
+        <VSCodeDialog
+          projectId={project.id}
+          lastBuildAt={project.last_build_at ?? null}
+          open={codeOpen}
+          onClose={() => setCodeOpen(false)}
+          onUpgrade={() => setBillingOpen(true)}
+        />
+      ) : null}
 
       {/* Over everything, and only on a phone — the sheet hides itself from md
           up, where the preview already has a column of its own. */}
