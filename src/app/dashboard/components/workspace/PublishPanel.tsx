@@ -229,8 +229,8 @@ export default function PublishPanel({
   retryError: string | null;
   onUnpublished: () => void;
   onOpenDatabase: () => void;
-  /** Send a request to the builder chat. */
-  onAsk: (text: string) => void;
+  /** Send requests to the builder chat, one per file, in order. */
+  onAsk: (texts: string[]) => void;
 }) {
   const [published, setPublished] = useState<Published>(
     slug && publishedAt
@@ -603,11 +603,11 @@ export default function PublishPanel({
             {!quota && !credits ? (
               <button
                 onClick={() => {
-                  onAsk(
+                  onAsk([
                     `Publishing failed: ${message}${diagnosis?.file ? ` (in ${diagnosis.file})` : ""}.` +
                       (detail ? `\n\nLog:\n${detail.slice(-2000)}` : "") +
                       "\n\nFix the cause so it publishes.",
-                  );
+                  ]);
                   setRun(null);
                   setFailureSeen(true);
                 }}
@@ -894,7 +894,7 @@ export default function PublishPanel({
                     <button
                       onClick={() => {
                         if (check.fix === "database") onOpenDatabase();
-                        else if (check.ask) onAsk(check.ask);
+                        else if (check.asks?.length) onAsk(check.asks);
                       }}
                       className="shrink-0 rounded-md border border-line/[0.12] px-2 py-0.5 text-[11px] text-ink transition-colors hover:bg-layer/[0.06]"
                     >
@@ -955,7 +955,7 @@ export default function PublishPanel({
           and says what it costs there); this only asks for it. */}
       {webApp === false ? (
         <button
-          onClick={() => onAsk("Upgrade this website to a web app with logins and a database.")}
+          onClick={() => onAsk(["Upgrade this website to a web app with logins and a database."])}
           className="mt-3 block text-left text-[11.5px] text-muted underline underline-offset-2 hover:text-ink"
         >
           Need logins or a database? Upgrade to Web App
