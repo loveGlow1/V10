@@ -262,3 +262,38 @@ export async function readRepoFiles(
   }
   return { ok: true, value: { files, skipped } };
 }
+
+/** "owner/name" from what somebody pasted: a github.com URL, a .git URL or the pair itself. */
+export function parseRepoInput(input: string): { owner: string; name: string } | null {
+  const text = input.trim().replace(/\.git$/, "").replace(/\/+$/, "");
+  const match =
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)(?:\/.*)?$/.exec(text) ??
+    /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/.exec(text);
+  return match ? { owner: match[1], name: match[2] } : null;
+}
+
+/**
+ * A fork of `owner/name` in the signed-in account, or the repository itself
+ * when it is already theirs. GitHub makes a fork in the background, so this
+ * waits — briefly — until its branch can be read.
+ */
+export async function forkRepo(token: string, owner: string, name: string): Promise<Result<{ repo: RepoRef; forked: boolean }>> {
+  const source = await gh<RepoBody>(token, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  if (!source.ok) return source.status === 404 ? { ok: false, status: 404, reason: "that repository doesn't exist or isn't visible to your GitHub account" } : source;
+  const login = await viewerLogin(token);
+  if (login && login.toLowerCase() === source.value.owner.login.toLowerCase()) {
+    return { ok: true, value: { repo: toRef(source.value), forked: false } };
+  }
+  const fork = await gh<RepoBody>(token, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/forks`, {
+    method: "POST",
+    body: { default_branch_only: true },
+  });
+  if (!fork.ok) return fork;
+  const repo = toRef(fork.value);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const head = await branchHead(token, repo);
+    if (head.ok) return { ok: true, value: { repo, forked: true } };
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return { ok: false, status: 504, reason: "GitHub is still making the fork — try again in a moment" };
+}

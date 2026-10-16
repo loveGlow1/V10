@@ -16,8 +16,10 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Code2, ExternalLink, Github, Loader2, RefreshCw, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Code2, ExternalLink, GitFork, Github, Loader2, RefreshCw, UploadCloud, X } from "lucide-react";
 
+import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import { CODE_CHANNEL } from "./CodeEditor";
 
 type Status = {
@@ -45,7 +47,10 @@ export default function VSCodeDialog({
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [ahead, setAhead] = useState(false);
-  const [busy, setBusy] = useState<"open" | "sync" | null>(null);
+  const [busy, setBusy] = useState<"open" | "sync" | "save" | "fork" | null>(null);
+  const [forkFrom, setForkFrom] = useState("");
+  const router = useRouter();
+  const { open: openTab } = useWorkspaceTabs();
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [upgrade, setUpgrade] = useState(false);
 
@@ -140,6 +145,67 @@ export default function VSCodeDialog({
     }
   }
 
+  /* Save to GitHub without opening anything — the same push as the
+     Integrations drawer. Held back when GitHub has newer work, which a push
+     would bury under the project's older files. */
+  async function saveToGitHub() {
+    if (busy) return;
+    if (ahead) {
+      setMessage({ tone: "error", text: "GitHub has newer changes from VS Code. Sync them first, then save." });
+      return;
+    }
+    setBusy("save");
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/github`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const body = (await response.json().catch(() => ({}))) as { repo?: Status["repo"]; error?: string; upgrade?: boolean };
+      if (!response.ok || !body.repo) {
+        setUpgrade(Boolean(body.upgrade));
+        setMessage({ tone: "error", text: body.error ?? "The project could not be saved to GitHub." });
+        return;
+      }
+      setStatus((current) => (current ? { ...current, repo: body.repo ?? null } : current));
+      setMessage({ tone: "ok", text: `Saved to ${body.repo.owner}/${body.repo.name} on GitHub.` });
+    } catch {
+      setMessage({ tone: "error", text: "GitHub couldn't be reached. Check your connection and try again." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /* Any repository the person can see becomes a new project: forked into
+     their account, its files the first build, linked so it opens in a
+     Codespace and syncs like any other. */
+  async function fork() {
+    if (busy || !forkFrom.trim()) return;
+    setBusy("fork");
+    setMessage(null);
+    try {
+      const response = await fetch("/api/integrations/github/fork", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: forkFrom.trim() }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { projectId?: string; name?: string; error?: string; upgrade?: boolean };
+      if (!response.ok || !body.projectId) {
+        setUpgrade(Boolean(body.upgrade));
+        setMessage({ tone: "error", text: body.error ?? "That repository could not be forked." });
+        return;
+      }
+      openTab({ id: body.projectId, name: body.name ?? "Project" });
+      onClose();
+      router.push(`/dashboard/project/${body.projectId}`);
+    } catch {
+      setMessage({ tone: "error", text: "GitHub couldn't be reached. Check your connection and try again." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function sync() {
     if (busy) return;
     setBusy("sync");
@@ -213,13 +279,17 @@ export default function VSCodeDialog({
             Sync from GitHub
           </button>
         ) : null}
+        <button onClick={() => void saveToGitHub()} disabled={busy !== null} className={secondary}>
+          {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+          Save to GitHub
+        </button>
       </div>
     );
   }
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-[80] flex items-end justify-center overflow-y-auto bg-black/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
@@ -279,6 +349,39 @@ export default function VSCodeDialog({
               </div>
             </div>
           </div>
+
+          {status?.connected ? (
+            <div className={card}>
+              <div className="flex items-start gap-3">
+                <GitFork className="mt-0.5 h-5 w-5 shrink-0 text-soft" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-medium text-ink">Fork from GitHub</p>
+                  <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
+                    Start a new project from any repository. It&apos;s forked into your GitHub account first.
+                  </p>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void fork();
+                    }}
+                    className="mt-3 flex gap-2"
+                  >
+                    <input
+                      value={forkFrom}
+                      onChange={(event) => setForkFrom(event.target.value)}
+                      placeholder="owner/repo or github.com link"
+                      aria-label="Repository to fork"
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
+                    />
+                    <button type="submit" disabled={busy !== null || !forkFrom.trim()} className={secondary}>
+                      {busy === "fork" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
+                      Fork
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {message ? (
             <p className={`text-[12.5px] leading-relaxed ${message.tone === "ok" ? "text-soft" : "text-warn"}`}>
