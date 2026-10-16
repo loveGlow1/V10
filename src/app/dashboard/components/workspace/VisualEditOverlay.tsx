@@ -1,8 +1,8 @@
 "use client";
 
 /* The visual editor, the way people already know it from other builders: turn
- * Edit on, click anything in the preview, and a small "Describe a change…" box
- * opens beside it. What is typed goes to the chat as one request naming the
+ * Edit on, click anything in the preview — or several things, like clipping
+ * them — and a small "Describe a change…" box opens beside the last one. What is typed goes to the chat as one request naming the
  * element's file and line — charged, stepped and threaded like any edit (see
  * visual-ask.ts) — and the preview reloads when the build lands.
  *
@@ -29,12 +29,25 @@ function where(src: string): string {
   return at ? `${at.path} line ${at.line}` : src;
 }
 
-/* The message the chat sends. Same opening the build route and the intent
-   classifier already recognise (VISUAL_PICK), so it is treated as an edit of
-   exactly this element rather than a fresh request. */
-export function visualRequest(picked: Picked, ask: string): string {
-  const label = picked.text ? ` ("${picked.text.trim().slice(0, 50)}")` : "";
-  return `Change these exact elements (picked in the visual editor):\n1. <${picked.tag}> in ${where(picked.src)}${label}: ${ask.trim()}`;
+/* The messages the chat sends, one per file — an edit changes one file — in
+   the opening the build route and the intent classifier already recognise
+   (VISUAL_PICK), so each is treated as an edit of exactly these elements
+   rather than a fresh request. The same words go with every element. */
+export function visualRequests(picks: Picked[], ask: string): string[] {
+  const seen = new Set<string>();
+  const byFile = new Map<string, string[]>();
+  for (const picked of picks) {
+    const label = picked.text ? ` ("${picked.text.trim().slice(0, 50)}")` : "";
+    const line = `<${picked.tag}> in ${where(picked.src)}${label}: ${ask.trim()}`;
+    if (seen.has(line)) continue;
+    seen.add(line);
+    const file = parseSrc(picked.src)?.path ?? "";
+    byFile.set(file, [...(byFile.get(file) ?? []), line]);
+  }
+  return [...byFile.values()].map(
+    (lines) =>
+      `Change these exact elements (picked in the visual editor):\n${lines.map((line, i) => `${i + 1}. ${line}`).join("\n")}`,
+  );
 }
 
 const PROMPT_WIDTH = 340;
@@ -44,12 +57,16 @@ const GAP = 8;
 export function VisualEditPrompt({
   projectId,
   picked,
+  picks,
   docked = false,
   onSent,
   onCancel,
 }: {
   projectId: string;
+  /* The newest pick, which the box sits beside. */
   picked: Picked;
+  /* Everything picked, the newest included; the request covers them all. */
+  picks: Picked[];
   /* On a phone the box sits at the foot of the frame rather than beside the
      element, where a finger and a keyboard would cover it. */
   docked?: boolean;
@@ -61,11 +78,11 @@ export function VisualEditPrompt({
   const inputRef = useRef<HTMLInputElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  /* A new element is a new request. */
+  /* Each new click puts the cursor back in the box; what was typed stays, so
+     clipping one more element does not lose the request. */
   useEffect(() => {
-    setText("");
     inputRef.current?.focus();
-  }, [picked.src]);
+  }, [picked.pickId]);
 
   /* Beside the element: over its top-right corner when it is tall enough to
      hold the box without hiding what it says, otherwise just under it — and
@@ -97,7 +114,7 @@ export function VisualEditPrompt({
     event?.preventDefault();
     const ask = text.trim();
     if (!ask) return;
-    askChat({ projectId, texts: [visualRequest(picked, ask)] });
+    askChat({ projectId, texts: visualRequests(picks.length ? picks : [picked], ask) });
     setText("");
     onSent();
   }
@@ -125,8 +142,8 @@ export function VisualEditPrompt({
             onCancel();
           }
         }}
-        placeholder="Describe a change…"
-        aria-label={`Describe a change to this ${picked.tag}`}
+        placeholder={picks.length > 1 ? `Describe a change to these ${picks.length}…` : "Describe a change…"}
+        aria-label={picks.length > 1 ? `Describe a change to these ${picks.length} elements` : `Describe a change to this ${picked.tag}`}
         className="min-w-0 flex-1 bg-transparent text-[14px] text-white placeholder:text-white/45 outline-none"
       />
       <button

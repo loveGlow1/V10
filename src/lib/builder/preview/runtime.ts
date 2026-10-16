@@ -181,7 +181,7 @@ export const PREVIEW_RUNTIME = `
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
     if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
-    if (data.deselect === true) { selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
+    if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
     if (typeof data.navigate !== 'string') return;
@@ -202,6 +202,29 @@ export const PREVIEW_RUNTIME = `
      "button" — so it is clear which element a request will be about. */
   var selectLabel = null;
   var lastRect = '';
+  /* Everything clicked so far, like clipping: each keeps its own outline until
+     it is clicked again, the request is sent, or Escape lets go of them all.
+     \`selected\` is the newest, which the badge and the prompt follow. */
+  var picks = [];
+  var pickBoxes = [];
+  var pickSeq = 0;
+
+  function addPick(element) {
+    if (!element.__qsPick) { pickSeq += 1; element.__qsPick = pickSeq; }
+    picks.push(element);
+    pickBoxes.push(overlay('#2563eb', 2));
+  }
+
+  function removePick(index) {
+    var box = pickBoxes[index];
+    if (box && box.parentNode) box.parentNode.removeChild(box);
+    picks.splice(index, 1);
+    pickBoxes.splice(index, 1);
+  }
+
+  function clearPicks() {
+    while (picks.length) removePick(0);
+  }
   var selected = null;
   var hovered = null;
   var following = 0;
@@ -302,7 +325,8 @@ export const PREVIEW_RUNTIME = `
       color: style.color,
       background: style.backgroundColor,
       fontSize: style.fontSize,
-      rect: rectOf(element)
+      rect: rectOf(element),
+      pickId: element.__qsPick || 0
     };
   }
 
@@ -321,6 +345,7 @@ export const PREVIEW_RUNTIME = `
     if (!editing) { following = 0; return; }
     place(selectBox, selected);
     placeLabel(selected);
+    for (var p = 0; p < picks.length; p += 1) place(pickBoxes[p], picks[p]);
     reportRect();
     if (hovered) place(hoverBox, hovered);
     following = window.requestAnimationFrame(tick);
@@ -349,7 +374,11 @@ export const PREVIEW_RUNTIME = `
   function selectParentOf() {
     if (!editing || !selected) return;
     var parent = taggedFrom(selected.parentElement);
-    if (parent) selectElement(parent);
+    if (!parent) return;
+    var at = picks.indexOf(selected);
+    if (at >= 0) { report('unpick', { pickId: selected.__qsPick || 0 }); removePick(at); }
+    if (picks.indexOf(parent) < 0) addPick(parent);
+    selectElement(parent);
   }
 
   function onPick(event) {
@@ -359,12 +388,27 @@ export const PREVIEW_RUNTIME = `
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     if (!element) return;
+    var at = picks.indexOf(element);
+    if (at >= 0) {
+      /* Clicked again: let go of that one, and the newest left is the one the
+         prompt sits beside. */
+      removePick(at);
+      report('unpick', { pickId: element.__qsPick || 0 });
+      selected = picks.length ? picks[picks.length - 1] : null;
+      lastRect = '';
+      place(selectBox, selected);
+      placeLabel(selected);
+      if (selected) report('select', describeElement(selected));
+      return;
+    }
+    addPick(element);
     selectElement(element);
   }
 
   /* Escape lets go of the selection, in the frame as in the workspace. */
   function onKey(event) {
     if (!editing || event.key !== 'Escape' || !selected) return;
+    clearPicks();
     selected = null;
     lastRect = '';
     place(selectBox, null);
@@ -410,6 +454,7 @@ export const PREVIEW_RUNTIME = `
       place(hoverBox, null);
       place(selectBox, null);
       placeLabel(null);
+      clearPicks();
       lastRect = '';
     }
   }
