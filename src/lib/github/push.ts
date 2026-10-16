@@ -232,7 +232,10 @@ export async function readRepoFiles(
   for (const entry of listing.value.tree) {
     if (entry.type !== "blob") continue;
     if (NOT_SOURCE.test(entry.path)) continue;
-    if (LOCKFILES.test(entry.path) || BINARY.test(entry.path) || (entry.size ?? 0) > maxFileBytes) {
+    /* .env files hold secrets and are supplied by the platform; a project
+       may not carry one. */
+    const envFile = /(^|\/)\.env($|\.)/.test(entry.path);
+    if (envFile || LOCKFILES.test(entry.path) || BINARY.test(entry.path) || (entry.size ?? 0) > maxFileBytes) {
       skipped.push(entry.path);
       continue;
     }
