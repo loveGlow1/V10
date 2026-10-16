@@ -40,154 +40,11 @@
  * renderer that can now show the real thing nearly all of the time.
  */
 
-export const PREVIEW_RUNTIME = `
-(function () {
-  'use strict';
-
-  var FILES = window.__QS_FILES || {};
-  var ROUTES = window.__QS_ROUTES || [];
-  var ENTRY = window.__QS_ENTRY || '/';
-
-  /* 'process', because generated code reads it.
-   *
-   * lib/supabase.ts in every backend project reads
-   * process.env.NEXT_PUBLIC_SUPABASE_URL and its two siblings - see
-   * builder/scaffold.ts, which writes that file. Under next build those reads
-   * are inlined at build time and 'process' never survives into the browser.
-   * Nothing inlines anything here, so the identifier was still there at
-   * evaluation, and a browser has no 'process'.
-   *
-   * So every screen that imported the Supabase client threw
-   * 'ReferenceError: process is not defined' the moment the module was
-   * required, and the pane reported a screen that could not be rendered -
-   * true, and silent about why. Pages that did not touch the client rendered
-   * normally, which made it look like one bad page rather than one missing
-   * global.
-   *
-   * Passed as a module parameter rather than set on window: the project's
-   * modules get it, nothing else on this document does, and it cannot be
-   * reassigned from inside a generated file.
-   *
-   * env carries only the NEXT_PUBLIC_ values, which any real build compiles
-   * into the bundle and serves to every visitor - so there is nothing here a
-   * deployed copy of this project would not already hand out. When the host
-   * sends none, env is empty and the generated client reports itself
-   * unconfigured on first use, which is exactly what scaffold.ts wrote it to
-   * do. Either way the screen renders. */
-  var PROCESS = { env: window.__QS_ENV || {} };
-
-  var React = window.React;
-  var ReactDOM = window.ReactDOM;
-  var h = React.createElement;
-
-  /* ── Telling the workspace what happened ───────────────────────────────
-   *
-   * The pane around this document needs to know whether the app came up, so it
-   * can show the product or a readable failure rather than a white rectangle
-   * either way. postMessage because this document is in an opaque origin and
-   * has nothing else it is allowed to touch. */
-  function report(state, detail) {
-    try {
-      parent.postMessage({ source: 'quickstark-preview', state: state, detail: detail || null }, '*');
-    } catch (ignored) {}
-  }
-
-  /* ── The router's state ────────────────────────────────────────────────
-   *
-   * One store, read by the navigation shims through useSyncExternalStore. It
-   * lives outside React because next/navigation's hooks are callable from
-   * anywhere in the tree and there is no provider in a generated project to
-   * hang a context off. */
-  var listeners = [];
-  var current = { pathname: ENTRY, search: '', params: {} };
-
-  function snapshot() { return current; }
-
-  function subscribe(fn) {
-    listeners.push(fn);
-    return function () {
-      var at = listeners.indexOf(fn);
-      if (at >= 0) listeners.splice(at, 1);
-    };
-  }
-
-  function navigate(href) {
-    if (typeof href !== 'string' || href.length === 0) return;
-    /* An address that leaves the project is not ours to route. Opening it in
-       the pane would replace the app with somebody else's site inside a
-       sandbox that cannot show it properly. */
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href) && href.indexOf('/') !== 0) {
-      try { window.open(href, '_blank', 'noopener'); } catch (ignored) {}
-      return;
-    }
-    var hash = href.indexOf('#');
-    if (hash === 0) return;
-    var clean = hash > 0 ? href.slice(0, hash) : href;
-    var query = '';
-    var mark = clean.indexOf('?');
-    if (mark >= 0) { query = clean.slice(mark + 1); clean = clean.slice(0, mark); }
-    if (clean.charAt(0) !== '/') clean = '/' + clean;
-    current = { pathname: clean, search: query, params: current.params };
-    for (var i = 0; i < listeners.length; i += 1) listeners[i]();
-    report('navigate', clean);
-  }
-
-  window.__qsNavigate = navigate;
-
-  /* A plain <a href="/somewhere">, which is not next/link and so never reached
-     navigate(): in this document it resolved against the WORKSPACE's address
-     and loaded QuickStark's own home page inside the pane. Internal links are
-     routed here instead; anything leaving the project is left alone. */
-  document.addEventListener('click', function (event) {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    var node = event.target;
-    while (node && node.nodeName !== 'A') node = node.parentNode;
-    if (!node || node.target === '_blank' || node.hasAttribute('download')) return;
-    var href = node.getAttribute('href');
-    if (!href || href.charAt(0) !== '/' || href.charAt(1) === '/') return;
-    event.preventDefault();
-    navigate(href);
-  });
-
-  /* What the pane is offered. A dynamic segment is given something concrete to
-     stand in for it, because /products/[slug] is not an address a browser can
-     open and the point is to SEE the screen. */
-  function routePatterns() {
-    var out = [];
-    for (var i = 0; i < ROUTES.length; i += 1) {
-      var route = ROUTES[i];
-      var segments = route.segments || [];
-      var path = '';
-      for (var j = 0; j < segments.length; j += 1) {
-        var segment = segments[j];
-        var value = segment.kind === 'static'
-          ? segment.value
-          : String(segment.param || 'item').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'item';
-        path += '/' + value;
-      }
-      out.push({ pattern: route.pattern, href: path || '/' });
-    }
-    return out;
-  }
-
-  /* And a way in, so the pane's control can move this document.
-   *
-   * Accepted only from the parent frame and only in our own shape. This
-   * document is sandboxed into an opaque origin precisely because it runs code
-   * a prompt produced, and a listener that took navigation from anywhere would
-   * be a way for that code to drive the pane around it. */
-  window.addEventListener('message', function (event) {
-    if (event.source !== parent) return;
-    var data = event.data;
-    if (!data || data.source !== 'quickstark-workspace') return;
-    if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
-    if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
-    if (data.selectParent === true) { selectParentOf(); return; }
-    if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
-    if (typeof data.navigate !== 'string') return;
-    navigate(data.navigate);
-  });
-
+/* Edit mode: hovering outlines, a click picks, and the picks travel to the
+ * workspace. A fragment rather than a script — it expects report() in scope —
+ * shared by PREVIEW_RUNTIME below and the single-page document, which has no
+ * runtime of its own (see single-page-edit.ts). */
+export const EDIT_MODE = `
   /* ── Edit mode ─────────────────────────────────────────────────────────
    *
    * Switched on by the workspace. Hovering outlines the element under the
@@ -492,6 +349,157 @@ export const PREVIEW_RUNTIME = `
     } catch (ignored) {}
     return out;
   }
+`;
+
+export const PREVIEW_RUNTIME = `
+(function () {
+  'use strict';
+
+  var FILES = window.__QS_FILES || {};
+  var ROUTES = window.__QS_ROUTES || [];
+  var ENTRY = window.__QS_ENTRY || '/';
+
+  /* 'process', because generated code reads it.
+   *
+   * lib/supabase.ts in every backend project reads
+   * process.env.NEXT_PUBLIC_SUPABASE_URL and its two siblings - see
+   * builder/scaffold.ts, which writes that file. Under next build those reads
+   * are inlined at build time and 'process' never survives into the browser.
+   * Nothing inlines anything here, so the identifier was still there at
+   * evaluation, and a browser has no 'process'.
+   *
+   * So every screen that imported the Supabase client threw
+   * 'ReferenceError: process is not defined' the moment the module was
+   * required, and the pane reported a screen that could not be rendered -
+   * true, and silent about why. Pages that did not touch the client rendered
+   * normally, which made it look like one bad page rather than one missing
+   * global.
+   *
+   * Passed as a module parameter rather than set on window: the project's
+   * modules get it, nothing else on this document does, and it cannot be
+   * reassigned from inside a generated file.
+   *
+   * env carries only the NEXT_PUBLIC_ values, which any real build compiles
+   * into the bundle and serves to every visitor - so there is nothing here a
+   * deployed copy of this project would not already hand out. When the host
+   * sends none, env is empty and the generated client reports itself
+   * unconfigured on first use, which is exactly what scaffold.ts wrote it to
+   * do. Either way the screen renders. */
+  var PROCESS = { env: window.__QS_ENV || {} };
+
+  var React = window.React;
+  var ReactDOM = window.ReactDOM;
+  var h = React.createElement;
+
+  /* ── Telling the workspace what happened ───────────────────────────────
+   *
+   * The pane around this document needs to know whether the app came up, so it
+   * can show the product or a readable failure rather than a white rectangle
+   * either way. postMessage because this document is in an opaque origin and
+   * has nothing else it is allowed to touch. */
+  function report(state, detail) {
+    try {
+      parent.postMessage({ source: 'quickstark-preview', state: state, detail: detail || null }, '*');
+    } catch (ignored) {}
+  }
+
+  /* ── The router's state ────────────────────────────────────────────────
+   *
+   * One store, read by the navigation shims through useSyncExternalStore. It
+   * lives outside React because next/navigation's hooks are callable from
+   * anywhere in the tree and there is no provider in a generated project to
+   * hang a context off. */
+  var listeners = [];
+  var current = { pathname: ENTRY, search: '', params: {} };
+
+  function snapshot() { return current; }
+
+  function subscribe(fn) {
+    listeners.push(fn);
+    return function () {
+      var at = listeners.indexOf(fn);
+      if (at >= 0) listeners.splice(at, 1);
+    };
+  }
+
+  function navigate(href) {
+    if (typeof href !== 'string' || href.length === 0) return;
+    /* An address that leaves the project is not ours to route. Opening it in
+       the pane would replace the app with somebody else's site inside a
+       sandbox that cannot show it properly. */
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href) && href.indexOf('/') !== 0) {
+      try { window.open(href, '_blank', 'noopener'); } catch (ignored) {}
+      return;
+    }
+    var hash = href.indexOf('#');
+    if (hash === 0) return;
+    var clean = hash > 0 ? href.slice(0, hash) : href;
+    var query = '';
+    var mark = clean.indexOf('?');
+    if (mark >= 0) { query = clean.slice(mark + 1); clean = clean.slice(0, mark); }
+    if (clean.charAt(0) !== '/') clean = '/' + clean;
+    current = { pathname: clean, search: query, params: current.params };
+    for (var i = 0; i < listeners.length; i += 1) listeners[i]();
+    report('navigate', clean);
+  }
+
+  window.__qsNavigate = navigate;
+
+  /* A plain <a href="/somewhere">, which is not next/link and so never reached
+     navigate(): in this document it resolved against the WORKSPACE's address
+     and loaded QuickStark's own home page inside the pane. Internal links are
+     routed here instead; anything leaving the project is left alone. */
+  document.addEventListener('click', function (event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    var node = event.target;
+    while (node && node.nodeName !== 'A') node = node.parentNode;
+    if (!node || node.target === '_blank' || node.hasAttribute('download')) return;
+    var href = node.getAttribute('href');
+    if (!href || href.charAt(0) !== '/' || href.charAt(1) === '/') return;
+    event.preventDefault();
+    navigate(href);
+  });
+
+  /* What the pane is offered. A dynamic segment is given something concrete to
+     stand in for it, because /products/[slug] is not an address a browser can
+     open and the point is to SEE the screen. */
+  function routePatterns() {
+    var out = [];
+    for (var i = 0; i < ROUTES.length; i += 1) {
+      var route = ROUTES[i];
+      var segments = route.segments || [];
+      var path = '';
+      for (var j = 0; j < segments.length; j += 1) {
+        var segment = segments[j];
+        var value = segment.kind === 'static'
+          ? segment.value
+          : String(segment.param || 'item').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'item';
+        path += '/' + value;
+      }
+      out.push({ pattern: route.pattern, href: path || '/' });
+    }
+    return out;
+  }
+
+  /* And a way in, so the pane's control can move this document.
+   *
+   * Accepted only from the parent frame and only in our own shape. This
+   * document is sandboxed into an opaque origin precisely because it runs code
+   * a prompt produced, and a listener that took navigation from anywhere would
+   * be a way for that code to drive the pane around it. */
+  window.addEventListener('message', function (event) {
+    if (event.source !== parent) return;
+    var data = event.data;
+    if (!data || data.source !== 'quickstark-workspace') return;
+    if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
+    if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
+    if (data.selectParent === true) { selectParentOf(); return; }
+    if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
+    if (typeof data.navigate !== 'string') return;
+    navigate(data.navigate);
+  });
+
+${EDIT_MODE}
 
   /* ── Module resolution ─────────────────────────────────────────────────
    *
