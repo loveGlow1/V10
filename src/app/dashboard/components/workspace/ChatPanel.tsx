@@ -14,12 +14,13 @@ import {
   GitFork,
   Github,
   Cable,
+  Code2,
   MicOff,
   Paperclip,
   Plus,
   Repeat2,
   Shuffle,
-  SlidersHorizontal,
+  ListChecks,
   Undo2,
   Wand2,
   X,
@@ -40,12 +41,11 @@ import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
 import { greetingFor, useAccountName } from "../../useAccountName";
-import { MicMark, SendArrow } from "../marks";
+import { MicMark } from "../marks";
 import ScrollToEnds from "../ScrollToEnds";
 import BuildActivity from "./BuildActivity";
 import { usePacedSteps } from "./usePacedSteps";
 import MessageRow, { type Activity } from "./MessageRow";
-import ComposerSettingsSheet from "./ComposerSettingsSheet";
 import ChatMarkdown from "./ChatMarkdown";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
@@ -303,8 +303,22 @@ export default function ChatPanel({
   const [forkError, setForkError] = useState<string | null>(null);
   /* The sliders button's sheet, and the one setting in it that changes what
      sending does: plan mode answers with a plan and touches nothing. */
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+
+  /* Alt+P switches Build and Plan from anywhere in the workspace, the way the
+     mode menu says. `code` rather than `key`: on a Mac, Option+P types "π". */
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === "KeyP") {
+        event.preventDefault();
+        setPlanMode((on) => !on);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [building, setBuilding] = useState(false);
   /* The run in flight, so the send button can end it.
    *
@@ -1539,7 +1553,6 @@ export default function ChatPanel({
       }
       await adopt(body.id);
       setForkOpen(false);
-      setSettingsOpen(false);
       router.push(`/dashboard/project/${body.id}`);
     } catch {
       setForkError("The fork could not be made. Check your connection and try again.");
@@ -1591,10 +1604,14 @@ export default function ChatPanel({
   }
 
 
-  const control =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
-  const chip =
-    "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.06] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] active:scale-[0.98]";
+  /* The composer row's own controls: no border and no fill until hovered, so
+     the row reads as one quiet line under the text rather than a shelf of pills. */
+  const ghost =
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink/80 transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.97]";
+  const ghostChip =
+    "flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[13px] text-ink/85 transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98]";
+  const menuItem =
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.06]";
 
   /* The action row's pill.
    *
@@ -2397,8 +2414,12 @@ export default function ChatPanel({
               </AnimatePresence>
             </div>
 
-            <div className="relative mt-3 flex items-center justify-between gap-2">
-              <div className="flex shrink-0 items-center gap-[3px]">
+            <div className="relative mt-3 flex min-w-0 items-center justify-between gap-2">
+              {/* Left: one "+" for everything that adds to or leaves the
+                  conversation, then the connectors. Everything else that used to
+                  sit here lives in the "+" menu, which is what keeps the row
+                  inside the box on a narrow panel. */}
+              <div className="flex shrink-0 items-center gap-1">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -2415,26 +2436,18 @@ export default function ChatPanel({
                   }}
                 />
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Attach a screenshot"
-                  className={control}
-                >
-                  <Paperclip className="h-4 w-4 -rotate-45" />
-                </button>
-
-                {/* Settings: the model, plan mode, Save to GitHub and Fork. */}
-                <button
                   onClick={() => {
-                    setSettingsOpen(true);
+                    setAddOpen((open) => !open);
                     setModelOpen(false);
+                    setModeOpen(false);
                     setForkOpen(false);
                   }}
-                  title="Settings"
-                  aria-label="Settings"
-                  aria-haspopup="dialog"
-                  className={control}
+                  aria-expanded={addOpen}
+                  aria-label="Add"
+                  title="Add"
+                  className={addOpen ? `${ghost} bg-layer/[0.08]` : ghost}
                 >
-                  <SlidersHorizontal className="h-4 w-4" />
+                  {addOpen ? <X className="h-[18px] w-[18px]" /> : <Plus className="h-[18px] w-[18px]" />}
                 </button>
 
                 {/* Every integration, unfiltered — the connectors. */}
@@ -2442,75 +2455,67 @@ export default function ChatPanel({
                   onClick={onOpenConnectors ?? onOpenIntegrations}
                   title="Integrations"
                   aria-label="Integrations"
-                  className={control}
+                  className={ghost}
                 >
                   <Cable className="h-4 w-4" />
                 </button>
-
-                {/* On, it says so where the message is written, and one press
-                    turns it off. */}
-                {planMode && (
-                  <button
-                    onClick={() => setPlanMode(false)}
-                    title="Plan mode is on. Press to turn it off."
-                    className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[12.5px] font-medium text-ink"
-                  >
-                    Plan
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-
-                {/* The repository this app pushes to — from md up only; a phone
-                    reaches it as Save to GitHub in Settings. */}
-                <button
-                  onClick={onOpenIntegrations}
-                  title="Connect a repository"
-                  aria-label="Connect a repository"
-                  className={`${control} hidden md:flex`}
-                >
-                  <Github className="h-4 w-4" />
-                </button>
-
-                <button
-                  onClick={() => {
-                    setForkOpen((open) => !open);
-                    setModelOpen(false);
-                  }}
-                  aria-expanded={forkOpen}
-                  className={`${chip} hidden md:flex`}
-                >
-                  <GitFork className="h-4 w-4" />
-                  <span className="font-medium tracking-tight">Fork</span>
-                </button>
               </div>
 
-              <div className="flex shrink-0 items-center gap-[3px]">
+              <div className="flex min-w-0 items-center justify-end gap-1">
                 <button
                   onClick={() => {
                     setModelOpen((open) => !open);
+                    setModeOpen(false);
+                    setAddOpen(false);
                     setForkOpen(false);
                   }}
                   aria-expanded={modelOpen}
                   aria-label="Choose a model"
-                  /* A phone picks the model in Settings. The list it opens is
-                     anchored to this row, so it opens in the same place. */
-                  className={`${chip} hidden md:flex`}
+                  title={chosen.name}
+                  className={`${ghostChip} shrink`}
                 >
-                  <ProviderMark provider={chosen.provider} />
-                  <span className="font-medium tracking-tight">{shortModelName(chosen)}</span>
+                  <span className="flex shrink-0">
+                    <ProviderMark provider={chosen.provider} />
+                  </span>
+                  {/* Named from sm up; a phone shows the mark and the chevron. */}
+                  <span className="hidden min-w-0 max-w-[9rem] truncate font-medium tracking-tight sm:block">
+                    {shortModelName(chosen)}
+                  </span>
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${modelOpen ? "rotate-180" : ""}`}
+                    className={`h-3.5 w-3.5 shrink-0 opacity-70 transition-transform ${modelOpen ? "rotate-180" : ""}`}
                   />
+                </button>
+
+                {/* Build or Plan. Plan used to be a switch in Settings with a
+                    chip that appeared once it was on; it is one choice with two
+                    answers, so it is one control that always says which. */}
+                <button
+                  onClick={() => {
+                    setModeOpen((open) => !open);
+                    setModelOpen(false);
+                    setAddOpen(false);
+                    setForkOpen(false);
+                  }}
+                  aria-expanded={modeOpen}
+                  aria-label={planMode ? "Mode: Plan" : "Mode: Build"}
+                  title="Switch modes with Alt+P"
+                  className={`${ghostChip} shrink-0 ${planMode ? "text-accent" : ""}`}
+                >
+                  {planMode ? <ListChecks className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
+                  <span className="hidden font-medium tracking-tight sm:inline">
+                    {planMode ? "Plan" : "Build"}
+                  </span>
                 </button>
 
                 <button
                   onClick={toggleRecording}
                   title={isRecording ? "Stop Recording" : "Start Recording"}
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] ${
+                  aria-label={isRecording ? "Stop Recording" : "Start Recording"}
+                  className={
                     isRecording
-                      ? "animate-pulse border-red-500 bg-red-500/20 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                      : "border-line/[0.08] bg-layer/[0.06] text-white hover:border-line/[0.12]"
-                  }`}
+                      ? "flex h-8 w-8 shrink-0 animate-pulse items-center justify-center rounded-full bg-red-500/20 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                      : ghost
+                  }
                 >
                   {isRecording ? <MicOff className="h-4 w-4" /> : <MicMark className="h-4 w-4" />}
                 </button>
@@ -2532,12 +2537,12 @@ export default function ChatPanel({
                   onClick={() => (building ? running.current?.abort() : void send())}
                   disabled={building ? false : (!draft.trim() && attached.length === 0) || paused !== null}
                   aria-label={building ? "Stop waiting" : "Send"}
-                  className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[15px] border transition-all active:scale-[0.98] disabled:cursor-not-allowed ${
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-[0.96] disabled:cursor-not-allowed ${
                     building
-                      ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
+                      ? "bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
                       : (draft.trim() || attached.length > 0) && !paused
-                        ? "border-transparent bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
-                        : "border-transparent bg-layer/[0.07] text-ink/30"
+                        ? "bg-solid text-onSolid hover:opacity-90"
+                        : "bg-layer/[0.08] text-ink/30"
                   }`}
                 >
                   {building ? (
@@ -2546,14 +2551,100 @@ export default function ChatPanel({
                        it sits on the same optical centre as the arrows. */
                     <span className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
                   ) : (
-                    <>
-                      <SendArrow className="h-4 w-4 md:hidden" />
-                      <ArrowUp className="hidden h-4 w-4 stroke-[2.5] md:block" />
-                    </>
+                    <ArrowUp className="h-4 w-4 stroke-[2.5]" />
                   )}
                 </button>
               </div>
 
+              <Popover
+                open={addOpen}
+                onClose={() => setAddOpen(false)}
+                title="Add"
+                align="left"
+                side="top"
+                width="w-[min(240px,100%)]"
+                sheetOnMobile={false}
+              >
+                <div className="-m-1.5 flex flex-col" role="menu">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setAddOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className={menuItem}
+                  >
+                    <Paperclip className="h-4 w-4 -rotate-45 text-muted" />
+                    Upload file or assets
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setAddOpen(false);
+                      onOpenIntegrations();
+                    }}
+                    className={menuItem}
+                  >
+                    <Github className="h-4 w-4 text-muted" />
+                    Save to GitHub
+                  </button>
+                  <button
+                    role="menuitem"
+                    disabled={!project}
+                    onClick={() => {
+                      setAddOpen(false);
+                      setForkOpen(true);
+                    }}
+                    className={`${menuItem} disabled:cursor-not-allowed disabled:opacity-45`}
+                  >
+                    <GitFork className="h-4 w-4 text-muted" />
+                    Fork this chat
+                  </button>
+                </div>
+              </Popover>
+
+              <Popover
+                open={modeOpen}
+                onClose={() => setModeOpen(false)}
+                title="Mode"
+                align="right"
+                side="top"
+                width="w-[min(240px,100%)]"
+                sheetOnMobile={false}
+              >
+                <div className="-m-1.5 flex flex-col" role="menu">
+                  {(
+                    [
+                      { plan: false, label: "Build", blurb: "Start making changes now" },
+                      { plan: true, label: "Plan", blurb: "Review before building" },
+                    ] as const
+                  ).map((option) => (
+                    <button
+                      key={option.label}
+                      role="menuitemradio"
+                      aria-checked={planMode === option.plan}
+                      onClick={() => {
+                        setPlanMode(option.plan);
+                        setModeOpen(false);
+                      }}
+                      className="flex w-full items-start justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-layer/[0.05]"
+                    >
+                      <span>
+                        <span className="block text-[13.5px] font-medium text-ink">{option.label}</span>
+                        <span className="block text-[12px] text-muted">{option.blurb}</span>
+                      </span>
+                      {planMode === option.plan && (
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+                      )}
+                    </button>
+                  ))}
+                  <p className="mt-1 border-t border-line/[0.06] px-2.5 pb-0.5 pt-2 text-[11.5px] text-muted">
+                    Switch modes with{" "}
+                    <kbd className="rounded border border-line/[0.12] px-1 font-sans">Alt</kbd>{" "}
+                    <kbd className="rounded border border-line/[0.12] px-1 font-sans">P</kbd>
+                  </p>
+                </div>
+              </Popover>
               {/* Anchored to the row rather than to the chip that opens it: a
                   panel hung off a control near the right edge has only the
                   width between that control and the edge, which on a phone is
@@ -2706,21 +2797,6 @@ export default function ChatPanel({
         </div>
       </div>
 
-      <ComposerSettingsSheet
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        modelName={chosen.name}
-        modelMark={<ProviderMark provider={chosen.provider} />}
-        onChooseModel={() => setModelOpen(true)}
-        planMode={planMode}
-        onPlanMode={setPlanMode}
-        onSaveToGitHub={onOpenIntegrations}
-        projectName={project?.name ?? "this app"}
-        canFork={Boolean(project)}
-        forking={forking}
-        forkError={forkError}
-        onFork={() => void fork()}
-      />
     </section>
   );
 }
