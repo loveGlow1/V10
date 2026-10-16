@@ -88,7 +88,7 @@ function heading(level: number) {
     <p
       role="heading"
       aria-level={Math.min(level + 2, 6)}
-      className="mb-3 mt-6 text-[17px] font-semibold text-ink first:mt-0"
+      className="mb-2 mt-6 text-[18px] font-semibold leading-7 text-ink first:mt-0"
     >
       {children}
     </p>
@@ -96,6 +96,10 @@ function heading(level: number) {
   Heading.displayName = `ChatHeading${level}`;
   return Heading;
 }
+
+/* Code is set in the system's own monospace (SF Mono, Menlo, Consolas):
+   the theme's font-mono names Fira Code, which nothing loads, so it fell back
+   to Courier. Set here rather than in the theme so nothing else changes. */
 
 /* The caret travels by context so the components below are made once: new
    component functions on every render would remount the whole reply on every
@@ -107,7 +111,7 @@ function CaretSlot() {
 }
 
 const COMPONENTS = {
-  p: ({ children }) => <p className="mb-4 whitespace-pre-wrap last:mb-0">{children}</p>,
+  p: ({ children }) => <p className="mb-3 whitespace-pre-wrap last:mb-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
   h1: heading(1),
@@ -117,11 +121,11 @@ const COMPONENTS = {
   h5: heading(5),
   h6: heading(6),
   ol: ({ children, start }) => (
-    <ol start={start} className="mb-4 list-decimal space-y-1.5 pl-6 marker:text-muted">
+    <ol start={start} className="mb-3 list-decimal pl-6 marker:text-muted">
       {children}
     </ol>
   ),
-  ul: ({ children }) => <ul className="mb-4 list-disc space-y-1.5 pl-6 marker:text-muted">{children}</ul>,
+  ul: ({ children }) => <ul className="mb-3 list-disc pl-6 marker:text-muted">{children}</ul>,
   /* An item's own paragraph (a list spaced out with blank lines) keeps the
      list tight rather than opening a gap under every item. */
   li: ({ children }) => <li className="pl-1 [&>p]:mb-0">{children}</li>,
@@ -139,12 +143,12 @@ const COMPONENTS = {
     className?.startsWith("language-") ? (
       <code className={className}>{children}</code>
     ) : (
-      <code className="rounded-md border border-line/[0.1] bg-layer/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-ink">
+      <code className="rounded-md border border-line/[0.1] bg-layer/[0.06] px-1.5 py-0.5 font-[ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] text-[12.5px] text-ink">
         {children}
       </code>
     ),
   pre: ({ children }) => (
-    <pre className="my-4 overflow-x-auto rounded-xl border border-line/[0.1] bg-layer/[0.06] p-4 font-mono text-[13px] leading-6 text-ink [overflow-wrap:normal] [&>code]:rounded-none [&>code]:border-0 [&>code]:bg-transparent [&>code]:p-0">
+    <pre className="my-4 overflow-x-auto rounded-xl border border-line/[0.1] bg-layer/[0.06] p-4 font-[ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] text-[12.5px] leading-6 text-ink [overflow-wrap:normal] [&>code]:rounded-none [&>code]:border-0 [&>code]:bg-transparent [&>code]:p-0">
       {children}
     </pre>
   ),
