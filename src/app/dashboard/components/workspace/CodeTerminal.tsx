@@ -55,6 +55,14 @@ function bootContainer(): Promise<any> {
   return booting;
 }
 
+/* Up to this long to boot; past it the panel says so and offers Retry rather
+   than sitting on "Starting…". */
+const BOOT_TIMEOUT_MS = 15_000;
+
+function log(stage: string, detail?: unknown) {
+  console.info(`[terminal] ${stage}`, detail ?? "");
+}
+
 /* The flat file list as the nested tree mount() takes. */
 function treeOf(files: { path: string; content: string }[]) {
   const root: Record<string, any> = {};
@@ -85,8 +93,11 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
   const pending = useRef<Map<string, string>>(new Map());
   /* Commands asked for before the shell was up, typed in when it is. */
   const queued = useRef<string[]>([]);
-  const [state, setState] = useState<"starting" | "ready" | "unsupported" | "failed">("starting");
+  const [state, setState] = useState<"starting" | "ready" | "unsupported" | "failed" | "exited">("starting");
   const [reason, setReason] = useState("");
+  /* Bumped by Retry / Restart: starts the shell (and, if need be, the boot)
+     over without reloading the page. */
+  const [attempt, setAttempt] = useState(0);
 
   /* Written now when the container is up, otherwise when it is. */
   const write = (path: string, content: string) => {
@@ -109,7 +120,7 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
   useImperativeHandle(ref, () => ({
     writeFile: write,
     run: (command: string) => {
-      if (inputRef.current) void inputRef.current.write(`${command}\n`);
+      if (inputRef.current) inputRef.current.write(`${command}\n`).catch((error) => log("input write failed", error));
       else queued.current.push(command);
       termRef.current?.focus();
     },
@@ -148,23 +159,30 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
       }
 
       term.writeln("\x1b[2mStarting Node.js in this tab…\x1b[0m");
+      log("booting");
       let container: any;
+      let timer = 0;
       try {
         /* Booting fetches the engine from stackblitz.com. A network, firewall
            or extension that blocks it would otherwise leave this on
            "Starting…" for ever, so it gives up after a while and says why. */
         container = await Promise.race([
           bootContainer(),
-          new Promise((_, reject) =>
-            window.setTimeout(
-              () => reject(new Error("it took too long to start. Something may be blocking stackblitz.com (a firewall, VPN or ad blocker); allow it and reload this tab")),
-              45_000,
-            ),
-          ),
+          new Promise((_, reject) => {
+            timer = window.setTimeout(
+              () => reject(new Error("it took too long to start. Something may be blocking stackblitz.com (a firewall, VPN or ad blocker)")),
+              BOOT_TIMEOUT_MS,
+            );
+          }),
         ]);
+        window.clearTimeout(timer);
+        log("booted");
         await container.mount(treeOf(files));
+        log("mounted", `${files.length} files`);
       } catch (error) {
+        window.clearTimeout(timer);
         if (disposed) return;
+        log("boot failed", error);
         setState("failed");
         setReason(error instanceof Error ? error.message : String(error));
         term.writeln(`\x1b[31mThe terminal could not start: ${error instanceof Error ? error.message : String(error)}\x1b[0m`);
@@ -180,20 +198,60 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
         if (type === "close") onPortClosed?.(port);
       }));
 
-      const shell = await container.spawn("jsh", { terminal: { cols: term.cols, rows: term.rows } });
-      void shell.output.pipeTo(
-        new WritableStream({
-          write(data: string) {
-            term.write(data);
-          },
-        }),
-      );
+      let shell: any;
+      try {
+        shell = await container.spawn("jsh", { terminal: { cols: term.cols, rows: term.rows } });
+      } catch (error) {
+        if (disposed) return;
+        log("spawn failed", error);
+        setState("failed");
+        setReason(error instanceof Error ? error.message : String(error));
+        term.writeln(`\x1b[31mThe shell could not start: ${error instanceof Error ? error.message : String(error)}\x1b[0m`);
+        return;
+      }
+      if (disposed) {
+        shell.kill();
+        return;
+      }
+      log("shell spawned");
+      cleanups.push(() => shell.kill());
+      shell.output
+        .pipeTo(
+          new WritableStream({
+            write(data: string) {
+              term.write(data);
+            },
+          }),
+        )
+        .catch((error: unknown) => log("output stream ended", error));
       const input = shell.input.getWriter();
       inputRef.current = input;
-      const typing = term.onData((data: string) => void input.write(data));
+      const send = (data: string) => input.write(data).catch((error: unknown) => log("input write failed", error));
+      const typing = term.onData((data: string) => void send(data));
       cleanups.push(() => typing.dispose());
+      cleanups.push(() => {
+        inputRef.current = null;
+      });
+      /* A shell that ends would otherwise leave a prompt that takes nothing. */
+      void shell.exit.then((code: number) => {
+        if (disposed) return;
+        log("shell exited", code);
+        inputRef.current = null;
+        typing.dispose();
+        setState("exited");
+        setReason(`The shell exited (code ${code}).`);
+        term.writeln(`\r\n\x1b[33mThe shell exited (code ${code}). Press Restart to start a new one.\x1b[0m`);
+      });
+      /* Sized to the panel as it is now, not as it was when the spawn began. */
+      try {
+        fit.fit();
+        shell.resize({ cols: term.cols, rows: term.rows });
+      } catch {
+        /* A hidden panel has no size; the observer below fits it when shown. */
+      }
       setState("ready");
-      for (const command of queued.current.splice(0)) void input.write(`${command}\n`);
+      term.focus();
+      for (const command of queued.current.splice(0)) void send(`${command}\n`);
 
       const observer = new ResizeObserver(() => {
         try {
@@ -211,9 +269,9 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
       disposed = true;
       for (const cleanup of cleanups) cleanup();
     };
-    // Booted once per mount; files after that arrive through writeFile.
+    // Booted once per mount (and per Retry); files after that arrive through writeFile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   useEffect(() => {
     if (termRef.current) termRef.current.options.theme = THEMES[theme];
@@ -224,6 +282,19 @@ const CodeTerminal = forwardRef<TerminalHandle, Props>(function CodeTerminal({ f
       {/* Why it could not start is written in the terminal itself; the
           attribute says it for anything reading the page. */}
       <div ref={hostRef} className="absolute inset-0 px-3 pt-1" data-terminal-state={state} title={reason || undefined} />
+      {state === "failed" || state === "exited" ? (
+        <button
+          type="button"
+          onClick={() => {
+            setState("starting");
+            setReason("");
+            setAttempt((n) => n + 1);
+          }}
+          className="absolute bottom-3 right-4 rounded border border-[#0078d4] bg-[#0078d4] px-3 py-1 text-[12px] text-white hover:bg-[#026ec1]"
+        >
+          {state === "exited" ? "Restart" : "Retry"}
+        </button>
+      ) : null}
     </div>
   );
 });
