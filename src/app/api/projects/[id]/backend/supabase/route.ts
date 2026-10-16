@@ -13,6 +13,7 @@ import {
 } from "@/lib/builder/backend/supabase-api";
 import { accessTokenFor, forgetTokens, oauthConfigured } from "@/lib/builder/backend/supabase-oauth";
 import { verifyBackend } from "@/lib/builder/backend/verify";
+import { analysisMessage, scanDatabase } from "@/lib/builder/backend/agent/service";
 import { AUTH_REDIRECT_GLOB, publishedUrl } from "@/lib/publish/naming";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -219,8 +220,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   /* ── Sign-in on the deployed app ─────────────────────────────────────────
      Added to their allow-list, never replacing it — their Supabase may serve
      other apps. Not fatal: the database is linked either way. */
+  const { data: domains } = await service.from("project_domains").select("domain").eq("project_id", owned.projectId);
+  const custom = (domains ?? [])
+    .map((row: { domain?: unknown }) => (typeof row.domain === "string" ? row.domain.trim().toLowerCase() : ""))
+    .filter((domain) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain))
+    .map((domain) => `https://${domain}/**`);
   const auth = await allowRedirects(token, ref, {
-    redirects: [AUTH_REDIRECT_GLOB, `${SITE_URL}/**`, "http://localhost:3000/**"],
+    redirects: [AUTH_REDIRECT_GLOB, `${SITE_URL}/**`, "http://localhost:3000/**", ...custom],
     siteUrl: projectRow?.slug ? publishedUrl(projectRow.slug) : null,
   });
 
@@ -253,9 +259,15 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     }
   }
 
+  /* ── Phase 1, automatically: the database read and explained ─────────────
+     Read-only. Saved as the project's Database Map for the panel and the
+     next build; never fatal to the link. */
+  const scan = await scanDatabase(service, owned.projectId, "user").catch(() => null);
+
   return NextResponse.json({
     connected: true,
     ref,
+    analysis: scan && scan.ok ? analysisMessage(scan) : null,
     url,
     name: project.value.name,
     authConfigured: auth.ok,

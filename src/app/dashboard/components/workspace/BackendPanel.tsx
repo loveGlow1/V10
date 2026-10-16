@@ -7,6 +7,7 @@ import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "l
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
 
 import ConnectSupabase from "./ConnectSupabase";
+import DatabaseAgent from "./DatabaseAgent";
 import { CONNECT_EVENT, announceConnected, takeConnectIntent } from "./database-connect";
 import FormNotifications from "./FormNotifications";
 
@@ -787,7 +788,7 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 <Check className="h-4 w-4" />
                 Connected to {connected.name}
               </p>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+              <p className="mt-1 whitespace-pre-line text-[12px] leading-relaxed text-muted">
                 {connected.preview ?? "The next build creates this app's tables there and checks them."}
                 {connected.authNote
                   ? ` Sign-in settings could not be set automatically (${connected.authNote}) — add ${AUTH_REDIRECT_GLOB} under Authentication → URL Configuration.`
@@ -906,6 +907,12 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
                 here, and nothing is created until that build runs.
               </p>
             </form>
+          )}
+
+          {/* The database agent, for a database it can scope: one linked by
+              signing in, or one QuickStark made. */}
+          {projectId && (backend.mode === "quickstark_managed" || (backend.mode === "own" && backend.supabaseRef)) && (
+            <DatabaseAgent projectId={projectId} />
           )}
 
           {problem && !open && (

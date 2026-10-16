@@ -75,6 +75,9 @@ export type BuildReply = {
   /* SQL that changes or removes existing data, shown and held for a yes. */
   needsSqlConfirm?: boolean;
   sql?: string;
+  /* A database change the agent planned and dry-ran, waiting for Approve.
+     Approving goes to /api/projects/[id]/backend/agent, never back through chat. */
+  surgery?: { id: string; level: number; confirmation: string | null; summary: string; kind: string };
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -116,6 +119,9 @@ type BuildPayload = {
   /* SQL that changes or removes existing data, shown and held for a yes. */
   needsSqlConfirm?: boolean;
   sql?: string;
+  /* A database change the agent planned and dry-ran, waiting for Approve.
+     Approving goes to /api/projects/[id]/backend/agent, never back through chat. */
+  surgery?: { id: string; level: number; confirmation: string | null; summary: string; kind: string };
   architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
@@ -623,6 +629,7 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
         needsUpgrade: payload.needsUpgrade === true,
         needsSqlConfirm: payload.needsSqlConfirm === true,
         sql: typeof payload.sql === "string" ? payload.sql : undefined,
+        surgery: payload.surgery && typeof payload.surgery === "object" && typeof payload.surgery.id === "string" ? payload.surgery : undefined,
         architectureOptions: payload.architectureOptions,
         stack: payload.stack,
         buildKind: payload.buildKind,

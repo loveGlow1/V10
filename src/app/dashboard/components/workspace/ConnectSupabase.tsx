@@ -147,7 +147,9 @@ export default function ConnectSupabase({
 
       setBusy(null);
       setNote(null);
-      onConnected({ preview: body.preview ?? null, authNote: body.authNote ?? null, name: body.name ?? ref });
+      /* The read-only analysis the link ran, after the build preview. */
+      const preview = [body.preview, body.analysis].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n") || null;
+      onConnected({ preview, authNote: body.authNote ?? null, name: body.name ?? ref });
     } catch {
       if (alive.current) {
         setProblem("That didn't get through. Try again.");
