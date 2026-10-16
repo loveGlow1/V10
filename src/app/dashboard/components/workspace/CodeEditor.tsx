@@ -14,9 +14,15 @@
  * every workspace tab open on the same project is told to reload
  * (BroadcastChannel) — edit here, watch it there.
  *
+ * The panel underneath has VS Code's Problems, Terminal and Ports: the
+ * terminal is a real shell running Node.js in this tab (see CodeTerminal), so
+ * npm install and npm run dev work, and a server started there shows up under
+ * Ports. The command palette (Ctrl+Shift+P / F1), Go to File (Ctrl+P) and the
+ * usual shortcuts work as they do there.
+ *
  * Nothing in the chrome is decoration: every icon here does what it does in VS
- * Code, and what VS Code has that this does not (a terminal, extensions, git
- * history) is left out rather than drawn as a button that does nothing. */
+ * Code, and what VS Code has that this does not (extensions, git history) is
+ * left out rather than drawn as a button that does nothing. */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -25,17 +31,26 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  ExternalLink,
   FilePlus2,
   Files,
   GitBranch,
   Loader2,
   Moon,
+  PanelBottom,
   PanelLeft,
+  Play,
+  Radio,
   Search,
   Sun,
+  TerminalSquare,
+  Trash2,
   X,
   XCircle,
 } from "lucide-react";
+
+import CodeTerminal, { type TerminalHandle } from "./CodeTerminal";
+import CommandPalette, { type PaletteItem } from "./CommandPalette";
 
 export const CODE_CHANNEL = "quickstark-code";
 
@@ -273,6 +288,21 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
   const [cursor, setCursor] = useState<{ line: number; column: number }>({ line: 1, column: 1 });
   const [problems, setProblems] = useState({ errors: 0, warnings: 0 });
 
+  /* The panel under the editor, and what is in it. */
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<"problems" | "terminal" | "ports">("terminal");
+  const [panelHeight, setPanelHeight] = useState(260);
+  /* The terminal boots the first time it is shown, then stays — closing the
+     panel hides it rather than ending the shell. */
+  const [terminalStarted, setTerminalStarted] = useState(false);
+  const [ports, setPorts] = useState<{ port: number; url: string }[]>([]);
+  const [allProblems, setAllProblems] = useState<{ path: string; line: number; message: string; error: boolean }[]>([]);
+  const [palette, setPalette] = useState<"commands" | "files" | null>(null);
+  const [minimap, setMinimap] = useState(true);
+  const [wordWrap, setWordWrap] = useState(false);
+  const [fontSize, setFontSize] = useState(13);
+  const terminalRef = useRef<TerminalHandle>(null);
+
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
@@ -416,6 +446,17 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
       return;
     }
     const count = () => {
+      setAllProblems(
+        monaco.editor
+          .getModelMarkers({})
+          .filter((m: any) => m.resource?.scheme === "file" && m.severity >= monaco.MarkerSeverity.Warning)
+          .map((m: any) => ({
+            path: String(m.resource.path).replace(/^\//, ""),
+            line: m.startLineNumber,
+            message: m.message,
+            error: m.severity === monaco.MarkerSeverity.Error,
+          })),
+      );
       const model = modelsRef.current.get(active);
       if (!model) return;
       const markers = monaco.editor.getModelMarkers({ resource: model.uri });
@@ -439,6 +480,9 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
       model = monaco.editor.createModel(contentOf(active), undefined, monaco.Uri.parse(`file:///${active}`));
       model.onDidChangeContent(() => {
         const value = model.getValue();
+        /* The terminal's copy follows every keystroke, so a dev server
+           running there reloads as you type. */
+        terminalRef.current?.writeFile(active, value);
         setDrafts((current) => {
           const next = new Map(current);
           next.set(active, value);
@@ -460,6 +504,10 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
     // contentOf is read only when a model is first made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, ready]);
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ minimap: { enabled: minimap }, wordWrap: wordWrap ? "on" : "off", fontSize, lineHeight: Math.round(fontSize * 1.55) });
+  }, [minimap, wordWrap, fontSize, ready]);
 
   const dirty = useMemo(
     () => [...drafts.entries()].filter(([path, value]) => saved.get(path) !== value).map(([path]) => path),
@@ -506,17 +554,35 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
     }
   }, [saving, dirty, projectId, contentOf]);
 
-  /* Ctrl/Cmd+S, the way every editor saves. */
+  /* VS Code's shortcuts. Captured before Monaco sees them, so the editor's
+     own F1 palette gives way to this one. */
+  const keymap = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  keymap.current = (event: KeyboardEvent) => {
+    const mod = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    const hit = (fn: () => void) => {
+      event.preventDefault();
+      event.stopPropagation();
+      fn();
+    };
+    if (mod && !event.shiftKey && key === "s") return hit(() => void save());
+    if (event.key === "F1" || (mod && event.shiftKey && key === "p")) return hit(() => setPalette("commands"));
+    if (mod && !event.shiftKey && key === "p") return hit(() => setPalette("files"));
+    if (mod && event.code === "Backquote") return hit(togglePanel);
+    if (mod && !event.shiftKey && key === "b") return hit(() => setSideOpen((on) => !on));
+    if (mod && event.shiftKey && key === "e") return hit(() => pick("explorer"));
+    if (mod && event.shiftKey && key === "f") return hit(() => pick("search"));
+    if (mod && event.shiftKey && key === "g") return hit(() => pick("scm"));
+    if (mod && event.shiftKey && key === "m") return hit(() => showPanel("problems"));
+    if (event.altKey && !mod && key === "z") return hit(() => setWordWrap((on) => !on));
+    if (mod && (key === "=" || key === "+")) return hit(() => setFontSize((size) => Math.min(size + 1, 28)));
+    if (mod && key === "-") return hit(() => setFontSize((size) => Math.max(size - 1, 9)));
+  };
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void save();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [save]);
+    const onKey = (event: KeyboardEvent) => keymap.current(event);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   /* Leaving with unsaved work asks first. */
   useEffect(() => {
@@ -567,7 +633,70 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
     }
     setDrafts((current) => new Map(current).set(name, ""));
     setSaved((current) => new Map(current).set(name, "\u0000"));
+    terminalRef.current?.writeFile(name, "");
     openFile(name);
+  }
+
+  /* ── Panel, terminal, palette ───────────────────────────────────────── */
+  function showPanel(tab: "problems" | "terminal" | "ports") {
+    setPanelTab(tab);
+    setPanelOpen(true);
+    if (tab === "terminal") setTerminalStarted(true);
+  }
+
+  function togglePanel() {
+    if (panelOpen) setPanelOpen(false);
+    else showPanel(panelTab);
+  }
+
+  /* What starts this project: its dev script, its start script, or a static
+     server for a page with no package.json. */
+  const runCommand = useMemo(() => {
+    const pkg = contentOf("package.json");
+    if (!pkg) return "npx --yes serve -l 3000 .";
+    try {
+      const scripts = (JSON.parse(pkg) as { scripts?: Record<string, string> }).scripts ?? {};
+      if (scripts.dev) return "npm install && npm run dev";
+      if (scripts.start) return "npm install && npm start";
+    } catch {
+      /* Fall through. */
+    }
+    return "npm install";
+  }, [contentOf]);
+
+  /* Asked to run before the terminal has mounted: sent as soon as it has.
+     The terminal itself holds it until its shell is up. */
+  const [queuedRun, setQueuedRun] = useState<string | null>(null);
+  function runProject() {
+    showPanel("terminal");
+    if (terminalRef.current) terminalRef.current.run(runCommand);
+    else setQueuedRun(runCommand);
+  }
+  useEffect(() => {
+    if (!queuedRun || !terminalRef.current) return;
+    terminalRef.current.run(queuedRun);
+    setQueuedRun(null);
+  });
+
+  function editorAction(id: string) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    void editor.getAction(id)?.run();
+  }
+
+  /* Dragging the panel's top edge resizes it. */
+  function startResize(event: React.MouseEvent) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = panelHeight;
+    const move = (e: MouseEvent) => setPanelHeight(Math.max(120, Math.min(window.innerHeight - 160, startHeight + startY - e.clientY)));
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   }
 
   /* The activity bar: a second click on the open view puts the side bar
@@ -643,6 +772,45 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
     });
   }
 
+  const commands: PaletteItem[] = [
+    { id: "save", label: "File: Save All", keys: "Ctrl+S", run: () => void save() },
+    { id: "new", label: "File: New File…", run: newFile },
+    { id: "goto", label: "Go to File…", keys: "Ctrl+P", run: () => setPalette("files") },
+    { id: "run", label: "Run: Start the App", detail: runCommand, run: runProject },
+    { id: "term", label: "View: Toggle Terminal", keys: "Ctrl+`", run: togglePanel },
+    { id: "term-new", label: "Terminal: Focus Terminal", run: () => showPanel("terminal") },
+    { id: "term-clear", label: "Terminal: Clear", run: () => terminalRef.current?.clear() },
+    { id: "problems", label: "View: Show Problems", keys: "Ctrl+Shift+M", run: () => showPanel("problems") },
+    { id: "ports", label: "View: Show Ports", run: () => showPanel("ports") },
+    { id: "side", label: "View: Toggle Side Bar", keys: "Ctrl+B", run: () => setSideOpen((on) => !on) },
+    { id: "explorer", label: "View: Show Explorer", keys: "Ctrl+Shift+E", run: () => pick("explorer") },
+    { id: "search", label: "View: Show Search", keys: "Ctrl+Shift+F", run: () => pick("search") },
+    { id: "scm", label: "View: Show Source Control", keys: "Ctrl+Shift+G", run: () => pick("scm") },
+    { id: "minimap", label: "View: Toggle Minimap", run: () => setMinimap((on) => !on) },
+    { id: "wrap", label: "View: Toggle Word Wrap", keys: "Alt+Z", run: () => setWordWrap((on) => !on) },
+    { id: "zoom-in", label: "View: Zoom In", keys: "Ctrl+=", run: () => setFontSize((size) => Math.min(size + 1, 28)) },
+    { id: "zoom-out", label: "View: Zoom Out", keys: "Ctrl+-", run: () => setFontSize((size) => Math.max(size - 1, 9)) },
+    { id: "zoom-reset", label: "View: Reset Zoom", run: () => setFontSize(13) },
+    { id: "theme", label: theme === "dark" ? "Preferences: Color Theme → Light Modern" : "Preferences: Color Theme → Dark Modern", run: toggleTheme },
+    { id: "format", label: "Format Document", keys: "Shift+Alt+F", run: () => editorAction("editor.action.formatDocument") },
+    { id: "find", label: "Find", keys: "Ctrl+F", run: () => editorAction("actions.find") },
+    { id: "replace", label: "Replace", keys: "Ctrl+H", run: () => editorAction("editor.action.startFindReplaceAction") },
+    { id: "line", label: "Go to Line…", keys: "Ctrl+G", run: () => editorAction("editor.action.gotoLine") },
+    { id: "symbol", label: "Go to Symbol in Editor…", keys: "Ctrl+Shift+O", run: () => editorAction("editor.action.quickOutline") },
+    { id: "comment", label: "Toggle Line Comment", keys: "Ctrl+/", run: () => editorAction("editor.action.commentLine") },
+    { id: "fold", label: "Fold All", run: () => editorAction("editor.foldAll") },
+    { id: "unfold", label: "Unfold All", run: () => editorAction("editor.unfoldAll") },
+    { id: "multi", label: "Add Cursors to Line Ends", keys: "Shift+Alt+I", run: () => editorAction("editor.action.insertCursorAtEndOfEachLineSelected") },
+    { id: "close", label: "View: Close Editor", run: () => active && closeTab(active) },
+  ];
+  const fileItems: PaletteItem[] = paths.map((path) => ({
+    id: path,
+    label: path.split("/").pop() ?? path,
+    detail: path.split("/").slice(0, -1).join("/"),
+    icon: <FileMark path={path} />,
+    run: () => openFile(path),
+  }));
+
   if (loadError) {
     return (
       <div style={THEMES[theme]} className="flex h-[100dvh] items-center justify-center bg-[var(--vs-editor)] px-6 text-center text-[var(--vs-text)]">
@@ -698,12 +866,22 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
           <PanelLeft className="h-4 w-4" strokeWidth={1.5} />
         </button>
         <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <div className="pointer-events-auto flex h-[22px] w-[min(38vw,520px)] items-center justify-center gap-1.5 rounded-[6px] border border-[var(--vs-border)] bg-[var(--vs-input)] px-2 text-[12px] text-[var(--vs-muted)]">
+          <button
+            onClick={() => setPalette("files")}
+            title="Go to File (Ctrl+P) · Commands (Ctrl+Shift+P)"
+            className="pointer-events-auto flex h-[22px] w-[min(38vw,520px)] items-center justify-center gap-1.5 rounded-[6px] border border-[var(--vs-border)] bg-[var(--vs-input)] px-2 text-[12px] text-[var(--vs-muted)] hover:border-[var(--vs-faint)]"
+          >
             <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
             <span className="truncate">{loaded?.name ?? "Loading…"}</span>
-          </div>
+          </button>
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <button onClick={runProject} title={`Run: ${runCommand}`} aria-label="Run the app" className={iconButton}>
+            <Play className="h-4 w-4 text-[#3fb950]" strokeWidth={1.75} />
+          </button>
+          <button onClick={togglePanel} title="Toggle Panel (Ctrl+`)" aria-label="Toggle the panel" className={iconButton}>
+            <PanelBottom className="h-4 w-4" strokeWidth={1.5} />
+          </button>
           <button
             onClick={() => void save()}
             disabled={saving || dirty.length === 0}
@@ -916,6 +1094,105 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
               </div>
             ) : null}
           </div>
+
+          {/* The panel: Problems, Terminal, Ports. */}
+          <section
+            style={{ height: panelHeight }}
+            className={`${panelOpen ? "flex" : "hidden"} shrink-0 flex-col border-t border-[var(--vs-border)] bg-[var(--vs-bar)]`}
+          >
+            <div onMouseDown={startResize} className="-mt-[3px] h-[5px] shrink-0 cursor-row-resize" aria-hidden />
+            <div className="flex h-[30px] shrink-0 items-center gap-4 px-3 text-[11px] uppercase tracking-[0.04em]">
+              {(
+                [
+                  ["problems", `Problems${allProblems.length ? ` ${allProblems.length}` : ""}`],
+                  ["terminal", "Terminal"],
+                  ["ports", `Ports${ports.length ? ` ${ports.length}` : ""}`],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => showPanel(id)}
+                  className={`relative h-full ${panelTab === id ? "text-[var(--vs-text)]" : "text-[var(--vs-muted)] hover:text-[var(--vs-text)]"}`}
+                >
+                  {label}
+                  {panelTab === id ? <span className="absolute inset-x-0 bottom-1 h-px bg-[var(--vs-accent)]" /> : null}
+                </button>
+              ))}
+              <span className="ml-auto flex items-center gap-1 normal-case">
+                {panelTab === "terminal" ? (
+                  <>
+                    <button onClick={runProject} title={`Run: ${runCommand}`} className={iconButton}>
+                      <Play className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => terminalRef.current?.clear()} title="Clear Terminal" className={iconButton}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : null}
+                <button onClick={() => setPanelOpen(false)} title="Close Panel" aria-label="Close the panel" className={iconButton}>
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </div>
+            <div className="relative min-h-0 flex-1">
+              <div className={`absolute inset-0 ${panelTab === "terminal" ? "" : "invisible"}`}>
+                {terminalStarted && loaded ? (
+                  <CodeTerminal
+                    ref={terminalRef}
+                    files={paths.map((path) => ({ path, content: contentOf(path) }))}
+                    theme={theme}
+                    onServerReady={(port, url) => {
+                      setPorts((current) => [...current.filter((entry) => entry.port !== port), { port, url }]);
+                      setNotice({ tone: "ok", text: `Your app is running on port ${port}. Open it from Ports.` });
+                    }}
+                    onPortClosed={(port) => setPorts((current) => current.filter((entry) => entry.port !== port))}
+                  />
+                ) : null}
+              </div>
+              {panelTab === "problems" ? (
+                <div className="absolute inset-0 overflow-y-auto pb-2 text-[13px]">
+                  {allProblems.length === 0 ? (
+                    <p className="px-3 py-1 text-[var(--vs-muted)]">No problems have been detected in the workspace.</p>
+                  ) : (
+                    allProblems.map((problem, i) => (
+                      <button
+                        key={i}
+                        onClick={() => openFile(problem.path, problem.line)}
+                        className="flex h-[22px] w-full items-center gap-2 px-3 text-left hover:bg-[var(--vs-hover)]"
+                      >
+                        {problem.error ? <XCircle className="h-3.5 w-3.5 shrink-0 text-red-500" /> : <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+                        <span className="truncate">{problem.message}</span>
+                        <span className="shrink-0 text-[12px] text-[var(--vs-faint)]">
+                          {problem.path} [Ln {problem.line}]
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+              {panelTab === "ports" ? (
+                <div className="absolute inset-0 overflow-y-auto px-3 py-1 text-[13px]">
+                  {ports.length === 0 ? (
+                    <p className="text-[var(--vs-muted)]">
+                      No running servers. Press <Play className="inline h-3 w-3" /> Run (or type <code className="font-mono">{runCommand}</code> in the terminal) and the address appears here.
+                    </p>
+                  ) : (
+                    ports.map((entry) => (
+                      <div key={entry.port} className="flex h-[26px] items-center gap-3">
+                        <Radio className="h-3.5 w-3.5 text-[#3fb950]" />
+                        <span className="w-16 shrink-0 font-mono">{entry.port}</span>
+                        <span className="min-w-0 flex-1 truncate text-[var(--vs-muted)]">{entry.url}</span>
+                        <a href={entry.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--vs-accent)] hover:underline">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open in Browser
+                        </a>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </section>
         </main>
       </div>
 
@@ -935,6 +1212,16 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
             {problems.warnings}
           </span>
         </span>
+        <button onClick={() => showPanel("terminal")} className="flex items-center gap-1 hover:text-[var(--vs-text)]" title="Terminal (Ctrl+`)">
+          <TerminalSquare className="h-3.5 w-3.5" strokeWidth={1.5} />
+          Terminal
+        </button>
+        {ports.length ? (
+          <button onClick={() => showPanel("ports")} className="flex items-center gap-1 text-[#3fb950]" title="Running servers">
+            <Radio className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {ports.map((entry) => entry.port).join(", ")}
+          </button>
+        ) : null}
         <span className="ml-auto hidden items-center gap-3 sm:flex">
           {active ? (
             <>
@@ -950,6 +1237,20 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
           <span>{loaded?.singlePage ? "Single page" : `${paths.length} files`}</span>
         </span>
       </footer>
+
+      <CommandPalette
+        open={palette === "commands"}
+        prefix=">"
+        placeholder="Type a command"
+        items={commands}
+        onClose={() => setPalette(null)}
+      />
+      <CommandPalette
+        open={palette === "files"}
+        placeholder="Search files by name"
+        items={fileItems}
+        onClose={() => setPalette(null)}
+      />
     </div>
   );
 }

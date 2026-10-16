@@ -17,6 +17,22 @@ if (missingSupabasePublicEnvVars.length > 0) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /* The code editor runs a real terminal — Node.js in the tab, through the
+     WebContainer API — which needs the page to be cross-origin isolated. Only
+     that page: isolation would stop the rest of the app framing previews and
+     loading third-party pictures. Monaco comes from jsDelivr, which sends
+     Cross-Origin-Resource-Policy: cross-origin, so it still loads. */
+  async headers() {
+    return [
+      {
+        source: "/dashboard/project/:projectId/code",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        ],
+      },
+    ];
+  },
   /* Tailwind is deliberately NOT listed in serverExternalPackages.
      
      It was, for one deploy, because its preflight plugin readFileSync's a path
