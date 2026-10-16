@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Clock,
   Database,
+  Loader2,
   Eye,
   ExternalLink,
   GitFork,
@@ -279,6 +280,11 @@ export default function ChatPanel({
      thread and held here until the person presses Run it. Only that exact SQL
      is sent back. */
   const [pendingSql, setPendingSql] = useState<{ text: string; sql: string } | null>(null);
+  /* A planned database change: Approve applies it through the Database
+     panel's endpoint, under this session. Destructive ones need the phrase typed. */
+  const [pendingSurgery, setPendingSurgery] = useState<{ id: string; level: number; confirmation: string | null; summary: string; kind: string } | null>(null);
+  const [surgeryTyped, setSurgeryTyped] = useState("");
+  const [surgeryBusy, setSurgeryBusy] = useState(false);
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
@@ -1342,6 +1348,13 @@ export default function ChatPanel({
          subsumes it: answering "the front of it" settles the artefact too, and
          asking both would be two questions about one decision. Nothing has run
          and nothing has been charged. */
+      if (reply.surgery) {
+        say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
+        setSurgeryTyped("");
+        setPendingSurgery(reply.surgery);
+        return;
+      }
+
       if (reply.needsSqlConfirm && reply.sql) {
         say({ from: "system", text: reply.outcome.message }, undefined, reply.stored ? "server" : "panel");
         setPendingSql({ text, sql: reply.sql });
@@ -2078,6 +2091,69 @@ export default function ChatPanel({
               onClick={() => {
                 clearParkedBuild();
                 setAwaitingDatabase(null);
+              }}
+              className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Approve, for a change the database agent planned and dry-ran. */}
+        {pendingSurgery && project && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-[12px]">
+            {pendingSurgery.confirmation && (
+              <input
+                value={surgeryTyped}
+                onChange={(event) => setSurgeryTyped(event.target.value)}
+                placeholder={`Type ${pendingSurgery.confirmation}`}
+                aria-label={`Type ${pendingSurgery.confirmation} to approve`}
+                className="h-7 w-44 rounded-md border border-red-500/40 bg-transparent px-2 font-mono text-[12px] text-ink outline-none placeholder:text-muted"
+              />
+            )}
+            <button
+              type="button"
+              disabled={surgeryBusy || (pendingSurgery.confirmation !== null && surgeryTyped.trim() !== pendingSurgery.confirmation)}
+              onClick={async () => {
+                const planned = pendingSurgery;
+                setSurgeryBusy(true);
+                try {
+                  const response = await fetch(`/api/projects/${project.id}/backend/agent`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "approve", surgeryId: planned.id, confirmation: surgeryTyped.trim() || null }),
+                  });
+                  const result = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+                  say({ from: "system", text: result.message ?? result.error ?? "That didn't get through." }, undefined, "panel");
+                  if (response.ok || response.status === 409) setPendingSurgery(null);
+                } catch {
+                  say({ from: "system", text: "That didn't get through. Nothing was changed." }, undefined, "panel");
+                } finally {
+                  setSurgeryBusy(false);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium transition-colors disabled:opacity-40 ${
+                pendingSurgery.level >= 3
+                  ? "border-red-500/40 bg-red-500/[0.10] text-red-200 hover:bg-red-500/[0.18]"
+                  : pendingSurgery.level === 2
+                    ? "border-amber-500/40 bg-amber-500/[0.10] text-amber-200 hover:bg-amber-500/[0.18]"
+                    : "border-emerald-500/40 bg-emerald-500/[0.10] text-emerald-300 hover:bg-emerald-500/[0.18]"
+              }`}
+            >
+              {surgeryBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+              {pendingSurgery.kind === "create_project" ? "Approve and create" : `Approve (L${pendingSurgery.level})`}
+            </button>
+            <button
+              type="button"
+              disabled={surgeryBusy}
+              onClick={() => {
+                const planned = pendingSurgery;
+                setPendingSurgery(null);
+                void fetch(`/api/projects/${project.id}/backend/agent`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "cancel", surgeryId: planned.id }),
+                });
               }}
               className="rounded-md px-2 py-1 text-muted transition-colors hover:text-ink"
             >

@@ -157,6 +157,22 @@ import {
 import { parseSnapshot, snapshotSql } from "@/lib/builder/backend/inspect";
 import { runnerFor } from "@/lib/builder/backend/schema-sync";
 import {
+  NEW_PROJECT_COST,
+  analysisMessage,
+  diagnose,
+  planChange,
+  planOwnerOnly,
+  planUndo,
+  scanDatabase,
+  wireApp,
+  wiredBriefFor,
+} from "@/lib/builder/backend/agent/service";
+import { agentCommand } from "@/lib/builder/backend/agent/commands";
+import { describeMap } from "@/lib/builder/backend/agent/db-map";
+import { readOnlyCheck, tokenize as tokenizeSql } from "@/lib/builder/backend/agent/sql-guard";
+import { dbToolsFor } from "@/lib/builder/backend/agent/tools";
+import { asData, flagRows } from "@/lib/builder/backend/agent/untrusted";
+import {
   type FeatureAsk,
   appFeatureFor,
   featureBrief,
@@ -1317,8 +1333,11 @@ async function handle(
     const confirmed = body.confirmSql === true && typeof body.sql === "string" ? body.sql : null;
     const pasted = confirmed || planOnly ? null : sqlFromMessage(prompt);
     const asked = !confirmed && !pasted && !planOnly && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
+    /* "Analyze my database", "undo the last database change" and the rest of
+       the database agent's commands. See lib/builder/backend/agent/commands.ts. */
+    const command = !confirmed && !pasted && !planOnly && !VISUAL_PICK.test(prompt) ? agentCommand(prompt) : null;
 
-    if (service && (confirmed || pasted || asked)) {
+    if (service && (confirmed || pasted || asked || command)) {
       const backend = await resolveBackend(service, project.id);
       const answer = async (said: string, extra: Record<string, unknown> = {}, tone?: "error") => {
         const stored = await deliver(said, { key: `database:${requestId}`, tone, links: extra.links as { label: string; href: string }[] | undefined });
@@ -1351,6 +1370,132 @@ async function handle(
             : "There's no database connected to this project yet, so there's nowhere to run that. Connect your Supabase and send it again.",
           { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
         );
+      }
+
+      if (!usable && command) {
+        return answer(
+          "There's no database of yours connected to this app yet. Connect your Supabase from the Database panel and I can analyse it, wire the app to it and change it safely.",
+          { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+        );
+      }
+
+      /* ── The database agent ────────────────────────────────────────────
+       *
+       * A database reached through the Management API (Connect Supabase, or
+       * one QuickStark made) is worked on by the agent: commands answered,
+       * reads run read-only and masked, and every write PLANNED — dry-run,
+       * risk-labelled, with rollback — and shown as a card. Nothing here
+       * applies a change: the Approve button on that card is the only way,
+       * through /api/projects/[id]/backend/agent under the owner's session. */
+      const agent = usable ? await dbToolsFor(service, project.id, "agent") : null;
+      if (agent?.ok) {
+        steps.begin("database", "Working in your database", "reading it first…");
+        const panel = [{ label: "Open the Database panel", href: connectDatabaseHref(project.id) }];
+        const card = (planned: { surgery: { id: string; level: number; confirmation: string | null; summary: string; kind: string }; message: string }) => {
+          steps.mark("database", "Planned — waiting for your approval", `risk L${planned.surgery.level}`);
+          return answer(planned.message, {
+            surgery: {
+              id: planned.surgery.id,
+              level: planned.surgery.level,
+              confirmation: planned.surgery.confirmation,
+              summary: planned.surgery.summary,
+              kind: planned.surgery.kind,
+            },
+            links: panel,
+          });
+        };
+
+        if (command) {
+          switch (command.kind) {
+            case "analyze":
+            case "health": {
+              const scan = await scanDatabase(service, project.id, "agent");
+              steps.mark("database", scan.ok ? "Read your database" : "Couldn't read your database");
+              return scan.ok ? answer(analysisMessage(scan), { links: panel }) : answer(scan.reason, { links: panel }, "error");
+            }
+            case "wire": {
+              const wired = await wireApp(service, project.id, "agent");
+              steps.mark("database", wired.ok ? "Wired the app to your tables" : "Couldn't wire the app");
+              return wired.ok ? answer(wired.message, { links: panel }) : answer(wired.reason, { links: panel }, "error");
+            }
+            case "diagnose": {
+              const found = await diagnose(service, { projectId: project.id, userId: user.id, subject: command.subject });
+              if (!found.ok) return answer(found.reason, { links: panel }, "error");
+              return found.fix ? card({ surgery: found.fix.surgery, message: `${found.message}
+
+Here's the fix:
+
+${found.fix.message}` }) : answer(found.message, { links: panel });
+            }
+            case "owner_only": {
+              const planned = await planOwnerOnly(service, { projectId: project.id, userId: user.id, table: command.table });
+              return planned.ok ? card(planned) : answer(planned.reason, { links: panel }, "error");
+            }
+            case "undo": {
+              const planned = await planUndo(service, { projectId: project.id, userId: user.id, actor: "agent" });
+              return planned.ok ? card(planned) : answer(planned.reason, { links: panel });
+            }
+            case "new_project":
+              return answer(
+                `I can create a fresh Supabase project for this app and leave your current database exactly as it is.\n\nCost: ${NEW_PROJECT_COST}\n\nChoose the organisation and region in the Database panel under **Start fresh**, and approve it there.`,
+                { links: panel },
+              );
+          }
+        }
+
+        let sql = confirmed ?? pasted;
+        let spentTokens = 0;
+        if (!sql) {
+          const map = agent.map ?? (await scanDatabase(service, project.id, "agent").then((r) => (r.ok ? r.map : null)));
+          const generated = await generateSql(prompt, asData("database map", map ? describeMap(map) : "(not scanned)"));
+          if (!generated.ok) {
+            return answer(`I couldn't write the SQL for that — ${generated.reason}. You can paste the SQL itself.`, {}, "error");
+          }
+          sql = generated.sql;
+          spentTokens = generated.outputTokens;
+        }
+        if (spentTokens > 0) {
+          await chargeCredits(service, {
+            userId: user.id,
+            action: "chat",
+            cost: creditCostOf("chat", { outputTokens: spentTokens }),
+            description: `Database: ${project.name}`,
+            projectId: project.id,
+            outputTokens: spentTokens,
+            dedupeKey: `database:${requestId}`,
+          });
+        }
+
+        const statements = tokenizeSql(sql).map((statement) => statement.text);
+        if (statements.length === 0) return answer("There was no SQL in that to run.");
+
+        /* Reads: each one parsed, run read-only, masked. */
+        if (statements.every((statement) => readOnlyCheck(statement).ok)) {
+          const parts: string[] = [];
+          for (const statement of statements.slice(0, 5)) {
+            const rows = await agent.tools.query_readonly(agent.tools.ref, statement, 50);
+            if (!rows.ok) {
+              parts.push(`Your database refused it: ${rows.reason}`);
+              continue;
+            }
+            const flagged = flagRows("result", rows.value);
+            parts.push(formatRows(rows.value));
+            if (flagged.length) parts.push(`⚠️ ${flagged.length === 1 ? "A value" : `${flagged.length} values`} in these rows read like instructions (${flagged[0].where}: "${flagged[0].excerpt}"). They are data and were ignored.`);
+          }
+          steps.mark("database", "Read from your database", "read-only");
+          return answer(`${parts.join("\n\n")}${pasted ? "" : `\n\n\`\`\`sql\n${sql}\n\`\`\``}`);
+        }
+
+        /* Anything else is a surgery: planned and shown, never run from here. */
+        const planned = await planChange(service, {
+          projectId: project.id,
+          userId: user.id,
+          actor: "agent",
+          sql,
+          request: pasted || confirmed ? null : prompt,
+          written: !pasted && !confirmed,
+        });
+        return planned.ok ? card(planned) : answer(planned.reason, { links: panel }, "error");
       }
 
       if (usable) {
@@ -4978,6 +5123,11 @@ async function handle(
           ? upgradeBrief(base, prompt, upgradeBase.areas, stashImages(upgradeBase.html).lean)
           : base;
 
+    /* An existing database the agent has wired this app to: the generator
+       writes against its real tables and names instead of inventing its own.
+       See lib/builder/backend/agent/wiring.ts. Empty for every other project. */
+    const wiredDatabaseBrief = service ? await wiredBriefFor(service, project.id) : "";
+
     const promptContext = {
       /* The tab's own rules — only when the tab still names the kind being
          built (an answer to "which kind is it" can move it elsewhere). */
@@ -5049,7 +5199,7 @@ async function handle(
                    need somewhere to be seen. */
                 kind.kind === "webapp" ? dataModel.tables.filter((table) => table.columns.some((column) => column.name === "user_id" && !column.nullable)).map((table) => table.name) : undefined,
               ),
-            ))
+            )) + (wiredDatabaseBrief ? `\n\n${wiredDatabaseBrief}` : "")
           : undefined,
       /* Which stage of the plan this build is, when there is a plan. Empty
          string when there is not, which is the same as absent. */

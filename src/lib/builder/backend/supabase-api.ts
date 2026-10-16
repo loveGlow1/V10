@@ -289,3 +289,106 @@ export async function allowRedirects(
   if (!patched.ok) return patched;
   return { ok: true, value: { added, siteUrlSet } };
 }
+
+/* ── The database agent's reads and writes ─────────────────────────────────
+ *
+ * Paths checked against Supabase's Management API reference on 2026-10-16.
+ * Several are marked experimental or beta there (advisors, the SQL endpoints),
+ * which is why every caller treats a refusal as "unavailable" rather than as
+ * a broken database. See lib/builder/backend/agent/tools.ts. */
+
+/** Runs one read as supabase_read_only_user. Entities must be schema-qualified. */
+export function runReadOnlyQuery(token: string, ref: string, sql: string): Promise<ApiResult<unknown[]>> {
+  return request(
+    token,
+    `/v1/projects/${encodeURIComponent(ref)}/database/query/read-only`,
+    (body) => (Array.isArray(body) ? body : body === null ? [] : null),
+    { method: "POST", body: JSON.stringify({ query: sql }) },
+    30_000,
+  );
+}
+
+/** Applies a migration and records it in the project's migration history. */
+export function applyMigration(token: string, ref: string, name: string, sql: string, idempotencyKey: string): Promise<ApiResult<true>> {
+  return request(
+    token,
+    `/v1/projects/${encodeURIComponent(ref)}/database/migrations`,
+    () => true,
+    { method: "POST", body: JSON.stringify({ query: sql, name }), headers: { "Idempotency-Key": idempotencyKey } },
+    120_000,
+  );
+}
+
+export function listMigrations(token: string, ref: string): Promise<ApiResult<{ version: string; name: string }[]>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/database/migrations`, (body) =>
+    list(body).map((m) => ({ version: text(m.version), name: text(m.name) })),
+  );
+}
+
+export function advisors(token: string, ref: string, type: "security" | "performance"): Promise<ApiResult<unknown>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/advisors/${type}`, (body) => body ?? null);
+}
+
+export function typescriptTypes(token: string, ref: string, schemas: string[]): Promise<ApiResult<string>> {
+  const query = schemas.length ? `?included_schemas=${encodeURIComponent(schemas.join(","))}` : "";
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/types/typescript${query}`, (body) =>
+    body && typeof body === "object" && typeof (body as { types?: unknown }).types === "string" ? (body as { types: string }).types : null,
+  );
+}
+
+export type AuthConfig = { providers: string[]; siteUrl: string | null; redirectUrls: string[]; raw: Record<string, unknown> };
+
+export function authConfig(token: string, ref: string): Promise<ApiResult<AuthConfig>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/config/auth`, (body) => {
+    if (!body || typeof body !== "object") return null;
+    const raw = body as Record<string, unknown>;
+    const providers = Object.keys(raw)
+      .map((k) => k.match(/^external_([a-z0-9_]+)_enabled$/)?.[1])
+      .filter((p): p is string => Boolean(p) && raw[`external_${p}_enabled`] === true);
+    return {
+      providers,
+      siteUrl: text(raw.site_url) || null,
+      redirectUrls: text(raw.uri_allow_list).split(",").map((e) => e.trim()).filter(Boolean),
+      raw,
+    };
+  });
+}
+
+/** Changes auth settings. Only ever called with an approval, or for this app's own redirect URLs (allowRedirects). */
+export function patchAuthConfig(token: string, ref: string, patch: Record<string, unknown>): Promise<ApiResult<true>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/config/auth`, () => true, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function storageBuckets(token: string, ref: string): Promise<ApiResult<{ name: string; public: boolean }[]>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/storage/buckets`, (body) =>
+    list(body).map((b) => ({ name: text(b.name) || text(b.id), public: b.public === true })),
+  );
+}
+
+/** Recent log lines. The logs endpoint takes ClickHouse SQL over a unified stream. */
+export function logs(token: string, ref: string, sql: string, minutes: number): Promise<ApiResult<Record<string, unknown>[]>> {
+  const end = new Date();
+  const start = new Date(end.getTime() - Math.min(24 * 60, Math.max(1, minutes)) * 60_000);
+  const params = new URLSearchParams({ sql, iso_timestamp_start: start.toISOString(), iso_timestamp_end: end.toISOString() });
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/analytics/endpoints/logs?${params.toString()}`, (body) => {
+    const result = body && typeof body === "object" ? (body as { result?: unknown }).result : null;
+    return Array.isArray(result) ? list(result) : [];
+  });
+}
+
+/**
+ * The project's secret key — service_role or sb_secret_. Returned ONLY to
+ * tools.ts, which seals it into server storage in the same call and never
+ * hands it on.
+ */
+export function secretKey(token: string, ref: string): Promise<ApiResult<string>> {
+  return request(token, `/v1/projects/${encodeURIComponent(ref)}/api-keys?reveal=true`, (body) => {
+    const keys = list(body);
+    const secret = keys.find((k) => text(k.type) === "secret" && text(k.api_key).startsWith("sb_secret_"));
+    const legacy = keys.find((k) => text(k.name) === "service_role" && text(k.api_key));
+    return text(secret?.api_key) || text(legacy?.api_key) || null;
+  });
+}
