@@ -989,10 +989,10 @@ export default function PreviewPanel({
         setView("manage");
         setSection("database");
       }}
-      onAsk={(text) => {
+      onAsk={(texts) => {
         if (!project?.id) return;
         setPublishOpen(false);
-        askChat({ projectId: project.id, texts: [text] });
+        askChat({ projectId: project.id, texts });
       }}
       priceNote={
         project && isPublished(project)
