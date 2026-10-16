@@ -184,3 +184,116 @@ export async function pushTree(
 
   return { ok: true, value: { sha: commit.value.sha, url: commit.value.html_url } };
 }
+
+/* ── Reading a repository back ──────────────────────────────────────────────
+ *
+ * The other half of "open it in VS Code": a project edited in a Codespace is
+ * brought back by reading the branch as it stands. */
+
+/** The sha the branch points at now. */
+export async function branchHead(token: string, repo: RepoRef): Promise<Result<string>> {
+  const base = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+  const head = await gh<{ object: { sha: string } }>(token, `${base}/git/ref/heads/${encodeURIComponent(repo.branch)}`);
+  return head.ok ? { ok: true, value: head.value.object.sha } : head;
+}
+
+/* What a working copy grows that is not the project: installs, build output,
+   editor state. Never brought back. */
+const NOT_SOURCE = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.turbo|\.vercel|\.cache)(\/|$)/;
+const LOCKFILES = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb)$/;
+const BINARY = /\.(png|jpe?g|gif|webp|ico|bmp|avif|mp4|mov|webm|mp3|wav|woff2?|ttf|otf|eot|zip|gz|pdf)$/i;
+const MOST_FILES_READ = 200;
+
+/**
+ * The text files of the repository at `sha`, as a project tree. Anything that
+ * is not source — installs, build output, lockfiles, binaries, files too large
+ * for a project — is listed in `skipped` rather than failing the read.
+ */
+export async function readRepoFiles(
+  token: string,
+  repo: RepoRef,
+  sha: string,
+  maxFileBytes: number,
+): Promise<Result<{ files: FileTree; skipped: string[] }>> {
+  const base = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+  const commit = await gh<{ tree: { sha: string } }>(token, `${base}/git/commits/${sha}`);
+  if (!commit.ok) return commit;
+  const listing = await gh<{ truncated: boolean; tree: { path: string; type: string; sha: string; size?: number }[] }>(
+    token,
+    `${base}/git/trees/${commit.value.tree.sha}?recursive=1`,
+  );
+  if (!listing.ok) return listing;
+  if (listing.value.truncated) {
+    return { ok: false, status: 413, reason: "the repository is too large to bring back" };
+  }
+
+  const skipped: string[] = [];
+  const wanted: { path: string; sha: string }[] = [];
+  for (const entry of listing.value.tree) {
+    if (entry.type !== "blob") continue;
+    if (NOT_SOURCE.test(entry.path)) continue;
+    if (LOCKFILES.test(entry.path) || BINARY.test(entry.path) || (entry.size ?? 0) > maxFileBytes) {
+      skipped.push(entry.path);
+      continue;
+    }
+    wanted.push({ path: entry.path, sha: entry.sha });
+  }
+  if (wanted.length > MOST_FILES_READ) {
+    return { ok: false, status: 413, reason: `the repository has ${wanted.length} source files, more than a project holds` };
+  }
+
+  /* Eight at a time: quick for a project's worth of files, and well inside
+     GitHub's limits. */
+  const files: FileTree = [];
+  for (let i = 0; i < wanted.length; i += 8) {
+    const batch = await Promise.all(
+      wanted.slice(i, i + 8).map((file) => gh<{ content: string; encoding: string }>(token, `${base}/git/blobs/${file.sha}`)),
+    );
+    for (let j = 0; j < batch.length; j += 1) {
+      const blob = batch[j];
+      if (!blob.ok) return blob;
+      const text = Buffer.from(blob.value.content, blob.value.encoding === "base64" ? "base64" : "utf8").toString("utf8");
+      if (text.includes("\u0000")) {
+        skipped.push(wanted[i + j].path);
+        continue;
+      }
+      files.push({ path: wanted[i + j].path, content: text });
+    }
+  }
+  return { ok: true, value: { files, skipped } };
+}
+
+/** "owner/name" from what somebody pasted: a github.com URL, a .git URL or the pair itself. */
+export function parseRepoInput(input: string): { owner: string; name: string } | null {
+  const text = input.trim().replace(/\.git$/, "").replace(/\/+$/, "");
+  const match =
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)(?:\/.*)?$/.exec(text) ??
+    /^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)$/.exec(text);
+  return match ? { owner: match[1], name: match[2] } : null;
+}
+
+/**
+ * A fork of `owner/name` in the signed-in account, or the repository itself
+ * when it is already theirs. GitHub makes a fork in the background, so this
+ * waits — briefly — until its branch can be read.
+ */
+export async function forkRepo(token: string, owner: string, name: string): Promise<Result<{ repo: RepoRef; forked: boolean }>> {
+  const source = await gh<RepoBody>(token, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  if (!source.ok) return source.status === 404 ? { ok: false, status: 404, reason: "that repository doesn't exist or isn't visible to your GitHub account" } : source;
+  const login = await viewerLogin(token);
+  if (login && login.toLowerCase() === source.value.owner.login.toLowerCase()) {
+    return { ok: true, value: { repo: toRef(source.value), forked: false } };
+  }
+  const fork = await gh<RepoBody>(token, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/forks`, {
+    method: "POST",
+    body: { default_branch_only: true },
+  });
+  if (!fork.ok) return fork;
+  const repo = toRef(fork.value);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const head = await branchHead(token, repo);
+    if (head.ok) return { ok: true, value: { repo, forked: true } };
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return { ok: false, status: 504, reason: "GitHub is still making the fork — try again in a moment" };
+}

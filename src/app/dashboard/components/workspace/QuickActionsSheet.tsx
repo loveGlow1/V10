@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Eye, Info, Plus, TerminalSquare, UploadCloud, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Code2, Eye, Info, Plus, TerminalSquare, UploadCloud, X } from "lucide-react";
 
 import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -26,6 +26,7 @@ export default function QuickActionsSheet({
   onDeploy,
   onPreview,
   onManage,
+  onOpenCode,
 }: {
   open: boolean;
   project: Project | null;
@@ -33,6 +34,8 @@ export default function QuickActionsSheet({
   onDeploy: () => void;
   onPreview: () => void;
   onManage: () => void;
+  /** The in-browser editor or VS Code in a Codespace — see VSCodeDialog. */
+  onOpenCode?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   const [info, setInfo] = useState(false);
@@ -159,6 +162,13 @@ export default function QuickActionsSheet({
                   Manage your App
                   <ChevronRight className="h-5 w-5 text-soft" />
                 </button>
+
+                {onOpenCode && project?.last_build_at ? (
+                  <button onClick={run(onOpenCode)} className={row}>
+                    Open in VS Code
+                    <Code2 className="h-5 w-5 text-soft" />
+                  </button>
+                ) : null}
 
                 {codeHref && (
                   <a

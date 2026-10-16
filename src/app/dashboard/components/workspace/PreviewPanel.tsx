@@ -32,6 +32,7 @@ import { isProjectSummary } from "@/lib/builder/project-summary";
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { PreviewToolbar, VisualEditPrompt } from "./VisualEditOverlay";
 import { CODE_CHANNEL } from "./CodeEditor";
+import VSCodeDialog from "./VSCodeDialog";
 import { usePreviewBridge } from "./preview-bridge";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
@@ -459,6 +460,8 @@ export default function PreviewPanel({
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const frameBoxRef = useRef<HTMLDivElement | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  /* The "where to open the code" choice — see VSCodeDialog. */
+  const [codeOpen, setCodeOpen] = useState(false);
   useEffect(() => {
     const onChange = () => setFullscreen(document.fullscreenElement === frameBoxRef.current && frameBoxRef.current !== null);
     document.addEventListener("fullscreenchange", onChange);
@@ -1824,26 +1827,33 @@ export default function PreviewPanel({
             <span className="hidden lg:inline">Manage</span>
           </button>
 
-          {/* The code, in a VS Code–style editor in a tab of its own — real
-              edits to the real source, saved as a new build that this preview
-              picks up (see CodeEditor and the listener below). A project with
-              nothing built has no code to open, so it is a dead control. */}
+          {/* The code: a choice of the built-in editor in a tab of its own or
+              the real VS Code in a GitHub Codespace — see VSCodeDialog. A
+              project with nothing built has no code to open, so it is a dead
+              control. */}
           {previewUrl && project?.id ? (
-            <a
-              href={`/dashboard/project/${project.id}/code`}
-              target="_blank"
-              rel="noopener"
-              title="Edit the code (opens a new tab)"
-              aria-label="Edit the code in a new tab"
+            <button
+              onClick={() => setCodeOpen(true)}
+              title="Open the code in VS Code"
+              aria-label="Open the code in VS Code"
               className={tile}
             >
               <Code2 className="h-4 w-4" />
-            </a>
+            </button>
           ) : (
             <button disabled title="No code yet" aria-label="No code yet" className={tile}>
               <Code2 className="h-4 w-4" />
             </button>
           )}
+          {project?.id ? (
+            <VSCodeDialog
+              projectId={project.id}
+              lastBuildAt={project.last_build_at ?? null}
+              open={codeOpen}
+              onClose={() => setCodeOpen(false)}
+              onUpgrade={onUpgradeClick}
+            />
+          ) : null}
         </div>
 
         <div className="relative flex min-w-0 shrink-0 items-center gap-1.5">
