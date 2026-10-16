@@ -525,6 +525,8 @@ export default function PreviewPanel({
         | { source?: string; state?: string; detail?: { routes?: { pattern: string; href: string }[] } }
         | null;
       if (!data || data.source !== "quickstark-preview") return;
+      /* The visible frame's routes, not the hidden one loading the next version. */
+      if (event.source !== frameRef.current?.contentWindow) return;
       if (data.state !== "ready") return;
       const offered = Array.isArray(data.detail?.routes) ? data.detail.routes : [];
       setRoutes(
@@ -609,6 +611,8 @@ export default function PreviewPanel({
      itself, which is the same string for every build this project ever has. */
   const lastBuiltAt = project?.last_build_at ?? null;
   const [pageHtml, setPageHtml] = useState<string | null>(null);
+  const pageHtmlRef = useRef<string | null>(null);
+  pageHtmlRef.current = pageHtml;
 
   /* A route list belongs to the document that reported it. */
   useEffect(() => {
@@ -633,6 +637,61 @@ export default function PreviewPanel({
   }, [pageHtml, reloads]);
 
 
+
+  /* ── The previous version stays until the next one is ready ──────────
+   *
+   * A build writes files one after another, and a version caught halfway —
+   * a component declared twice, an import not written yet — fails to render.
+   * Framing it replaced a working preview with "This screen could not be
+   * rendered" for the length of the build. So a new version is loaded in a
+   * hidden frame first, and swapped in only when it reports 'ready'. One that
+   * reports 'error' is held back and the working one stays, with a quiet line
+   * saying so. A document that reports nothing is swapped in after a while
+   * rather than never. */
+  const [shownHtml, setShownHtml] = useState<string | null>(null);
+  const [heldBack, setHeldBack] = useState<string | null>(null);
+  const [showHeldBack, setShowHeldBack] = useState(false);
+  const stagingRef = useRef<HTMLIFrameElement | null>(null);
+  const framedRef = useRef<string | null>(null);
+  framedRef.current = framedHtml;
+  const staging = framedHtml !== null && shownHtml !== null && framedHtml !== shownHtml;
+
+  useEffect(() => {
+    setShownHtml(null);
+    setHeldBack(null);
+  }, [project?.id]);
+
+  useEffect(() => {
+    /* Nothing shown yet: the first version goes straight in, whatever it is. */
+    if (framedHtml !== null && shownHtml === null) setShownHtml(framedHtml);
+  }, [framedHtml, shownHtml]);
+
+  useEffect(() => {
+    if (!staging) return;
+    const target = framedHtml;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== stagingRef.current?.contentWindow) return;
+      const data = event.data as { source?: string; state?: string; detail?: unknown } | null;
+      if (!data || data.source !== "quickstark-preview") return;
+      if (data.state === "ready" && framedRef.current === target) {
+        setShownHtml(target);
+        setHeldBack(null);
+      } else if (data.state === "error") {
+        setHeldBack(String(data.detail ?? "It failed to render."));
+      }
+    };
+    window.addEventListener("message", onMessage);
+    /* Silence is not an error: swap it in. */
+    const timer = window.setTimeout(() => {
+      if (framedRef.current === target) setShownHtml((shown) => (heldBackRef.current ? shown : target));
+    }, 12_000);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.clearTimeout(timer);
+    };
+  }, [staging, framedHtml]);
+  const heldBackRef = useRef<string | null>(null);
+  heldBackRef.current = heldBack;
 
   const [pageFailed, setPageFailed] = useState(false);
   /* Whether what came back is a receipt rather than a page.
@@ -668,20 +727,25 @@ export default function PreviewPanel({
     }
 
     let cancelled = false;
-    setPageHtml(null);
+    /* The page on screen stays while the next one is fetched: blanking it
+       here flashed "Loading the page…" on every build. A failed fetch keeps
+       it too — a page that could not be re-read is not a page that is gone. */
     setPageFailed(false);
-    setIsReceipt(false);
 
     void fetch(previewPath, { cache: "no-store" })
       .then((response) => (response.ok ? response.text() : null))
       .then((html) => {
         if (cancelled) return;
+        if (html === null) {
+          if (pageHtmlRef.current === null) setPageFailed(true);
+          return;
+        }
         setPageHtml(html);
-        setPageFailed(html === null);
+        setPageFailed(false);
         setIsReceipt(isProjectSummary(html));
       })
       .catch(() => {
-        if (!cancelled) setPageFailed(true);
+        if (!cancelled && pageHtmlRef.current === null) setPageFailed(true);
       });
 
     return () => {
@@ -1430,10 +1494,39 @@ export default function PreviewPanel({
                 device === "mobile" ? "w-[390px] max-w-full self-center border-x border-line/[0.08]" : "w-full"
               }`}
             >
+              {heldBack && staging ? (
+                <div className="shrink-0 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-1.5 text-[11.5px] text-muted">
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                    <span className="min-w-0 flex-1">The latest change isn&apos;t showing yet, so this is the previous version.</span>
+                    <button
+                      onClick={() => setShowHeldBack((open) => !open)}
+                      className="shrink-0 font-medium text-ink underline underline-offset-2"
+                    >
+                      {showHeldBack ? "Hide why" : "Why?"}
+                    </button>
+                  </div>
+                  {showHeldBack ? (
+                    <pre className="mt-1.5 max-h-28 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-relaxed">{heldBack}</pre>
+                  ) : null}
+                </div>
+              ) : null}
+              {staging ? (
+                <iframe
+                  key={`staging#${reloads}`}
+                  ref={stagingRef}
+                  srcDoc={framedHtml ?? ""}
+                  title="Next version, loading"
+                  aria-hidden
+                  tabIndex={-1}
+                  sandbox="allow-scripts allow-forms allow-popups"
+                  className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-0"
+                />
+              ) : null}
               <iframe
                 key={`${previewUrl}#${reloads}`}
                 ref={frameRef}
-                srcDoc={framedHtml ?? ""}
+                srcDoc={(shownHtml ?? framedHtml) ?? ""}
                 title={`${project?.name ?? "App"} preview`}
                 /* No allow-same-origin, deliberately: this document was written by
                    a model from someone's prompt, and it runs its own scripts. An
