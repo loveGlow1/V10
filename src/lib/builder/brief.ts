@@ -438,9 +438,19 @@ export function priorTurns(
      Placed first, as a user turn, which is also the only role the API will
      accept in that position. */
   const summary = oldest > 0 ? summarizeTurns(said.slice(0, oldest)) : "";
-  const shaped: { from: string; text: string }[] = summary
-    ? [{ from: "you", text: summary }, ...carried.map((entry) => ({ from: entry.turn.from, text: entry.text }))]
-    : carried.map((entry) => ({ from: entry.turn.from, text: entry.text }));
+  /* A forked chat opens with a handoff: where the app stood when it was forked.
+     It is the context this fresh chat continues from, so it goes first, as the
+     user turn that opens the thread — a reply in that position would be
+     dropped below, and this one must not be. */
+  const handoff = [...history].reverse().find((turn) => turn.kind === "handoff" && turn.text.trim());
+  const opening = [
+    ...(handoff ? [{ from: "you", text: `Context carried over from before this chat was forked:\n${handoff.text.trim()}` }] : []),
+    ...(summary ? [{ from: "you", text: summary }] : []),
+  ];
+  const shaped: { from: string; text: string }[] = [
+    ...opening,
+    ...carried.map((entry) => ({ from: entry.turn.from, text: entry.text })),
+  ];
 
   for (const turn of shaped) {
     const text = turn.text;

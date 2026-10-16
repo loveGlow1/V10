@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { storeAsset } from "@/lib/builder/assets/asset-storage";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Files someone attached, turned into something a model can look at.
@@ -244,7 +245,35 @@ export function attachmentToken(index: number): string {
    MAX_HTML_BYTES in lib/page-html.ts, which is the backstop under this. */
 const MAX_EMBED_BYTES = 2_600_000;
 
+/* `dataUri` is what the token is replaced with. For a new placement it is the
+   picture's public address in the project-assets bucket; it is a data URI only
+   when storing failed — see imagePlacements. The name is kept so the callers
+   that read it stay as they are. */
 export type Placement = { token: string; dataUri: string; name: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const EXTENSION: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+
+/* The picture, stored where a page can point at it: the public project-assets
+   bucket, at <project>/<attachment id>.<ext>, served with getPublicUrl. The
+   project comes from the attachment's own path (<user>/<project>/<file>), which
+   loadAttachments has already checked belongs to this project. The attachments
+   bucket itself stays private: only a picture placed in a page — which is
+   public the moment the page is — is copied out of it. Null when it could not
+   be stored; the caller embeds it instead. */
+async function publicAddressFor(row: AttachmentRow, buffer: Buffer, mime: string): Promise<string | null> {
+  const projectId = row.path.split("/")[1] ?? "";
+  if (!UUID.test(projectId)) return null;
+  const stored = await storeAsset({
+    projectId,
+    assetId: row.id,
+    bytes: buffer,
+    contentType: mime,
+    format: EXTENSION[mime] ?? "png",
+  });
+  return stored?.url ?? null;
+}
 
 /**
  * The attached images as `token → data URI`, in the order the tokens are given.
@@ -287,6 +316,18 @@ export async function imagePlacements(rows: AttachmentRow[]): Promise<Placement[
     const token = attachmentToken(images);
     images += 1;
 
+    /* An address, not the bytes: a page that points at its pictures stays
+       small, and the same picture is fetched once rather than carried by every
+       copy of the page. */
+    const address = await publicAddressFor(row, buffer, actual);
+    if (address) {
+      placements.push({ token, dataUri: address, name: row.name });
+      continue;
+    }
+
+    /* Embedded only as the fallback, and said so: a page carrying base64 is
+       the thing this replaced, and it should be visible when it still happens. */
+    console.warn(`attachments: ${row.id} could not be stored in project-assets; embedding it as base64 instead`);
     const encoded = buffer.toString("base64");
     if (spent + encoded.length > MAX_EMBED_BYTES) continue;
     spent += encoded.length;

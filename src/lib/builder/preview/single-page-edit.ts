@@ -135,9 +135,9 @@ ${EDIT_MODE}
 })();
 `;
 
-/** The stored page, tagged and carrying the edit-mode script, for the preview. */
-export function withSinglePageEdit(html: string): string {
-  const tagged = tagSourceLines(html);
+/** The stored page (or one page of a static site, named by `path`), tagged and carrying the edit-mode script, for the preview. */
+export function withSinglePageEdit(html: string, path: string = SINGLE_PAGE): string {
+  const tagged = tagSourceLines(html, path);
   const script = `<script data-qs-edit>${SINGLE_PAGE_EDIT}</script>`;
   const close = tagged.toLowerCase().lastIndexOf("</body>");
   return close < 0 ? tagged + script : tagged.slice(0, close) + script + tagged.slice(close);

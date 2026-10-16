@@ -4,6 +4,7 @@ import { newestStoredTree, storeTree } from "@/lib/builder/store-tree";
 import { previewUrl } from "@/lib/publish/naming";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { recordMessage } from "@/lib/thread-server";
 
 import { ownedProject } from "../backend/owned";
 
@@ -22,6 +23,27 @@ import { ownedProject } from "../backend/owned";
  * the service role, because builds and files are written server-side only. Any
  * failure after the new project exists removes it, so a half-made fork is
  * never left in the list. */
+
+/* What the fork's first message says: where it came from, and what was asked
+   for there — the first couple of asks (what the app is) and the latest ones
+   (where it was going). Built from the thread rather than by a model, so it
+   costs nothing and says only what was actually said. */
+function handoffNote(name: string, rows: { role: string; body: string; tone: string | null; kind: string | null }[]): string {
+  const asks = rows
+    .filter((row) => row.role === "you")
+    .map((row) => row.body.replace(/\s+/g, " ").trim())
+    .filter((text) => text.length >= 8);
+  const picked = asks.length > 10 ? [...asks.slice(0, 2), "…", ...asks.slice(-8)] : asks;
+  const lines = picked.map((text, index) =>
+    text === "…" ? "- …" : `- ${text.length > 160 ? `${text.slice(0, 157)}…` : text}`,
+  );
+  return [
+    `Forked from **${name}**: a fresh chat with the same code.`,
+    ...(lines.length ? ["", "### What was asked for so far", ...lines] : []),
+    "",
+    "Tell me what to build next.",
+  ].join("\n");
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,6 +140,31 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     }
   } catch (error) {
     return await undo(error instanceof Error ? error.message : String(error));
+  }
+
+  /* A fresh chat that still knows where things stand: the fork opens with a
+     handoff — what was asked for so far — which the builder reads as the
+     context it continues from (priorTurns). Without it a fresh chat would be
+     a builder that had forgotten the app. Best effort: a fork without it is
+     still a fork. */
+  try {
+    const { data: said } = await service
+      .from("project_messages")
+      .select("role, body, tone, kind")
+      .eq("project_id", source.id)
+      .order("created_at", { ascending: true })
+      .limit(400);
+    await recordMessage(service, {
+      projectId: created.id,
+      userId: owned.userId,
+      role: "system",
+      body: handoffNote(source.name, (said ?? []) as { role: string; body: string; tone: string | null; kind: string | null }[]),
+      kind: "handoff",
+      dedupeKey: `handoff:${created.id}`,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`fork: the handoff for ${created.id} could not be written:`, error);
   }
 
   return NextResponse.json({ id: created.id, name: created.name, copiedBuild: Boolean(build) });

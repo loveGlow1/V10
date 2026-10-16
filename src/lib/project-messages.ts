@@ -25,7 +25,9 @@ export type ThreadMessage = {
    that finishes announces itself from the server — so a thread read back can
    tell the sentence that means "your page is ready" from one that happens to
    be worded like it. See lib/thread-server.ts. */
-export type MessageKind = "chat" | "build_started" | "build_ready" | "build_failed";
+/* "handoff" opens a forked chat: where the app stood when it was forked, which
+   the builder reads as the context the fresh chat continues from (priorTurns). */
+export type MessageKind = "chat" | "build_started" | "build_ready" | "build_failed" | "handoff";
 
 /* A message as it comes back out of the table: what was said, plus the two
    things only the row knows — when, and what kind of thing it was. Both are
@@ -45,7 +47,7 @@ type Row = {
   created_at: string;
 };
 
-const KINDS: MessageKind[] = ["chat", "build_started", "build_ready", "build_failed"];
+const KINDS: MessageKind[] = ["chat", "build_started", "build_ready", "build_failed", "handoff"];
 
 /* An unknown kind is an ordinary message. The column is written by this app,
    but a thread outlives any one version of it, and a row from before the column

@@ -28,7 +28,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
    its own rather than a plain chat message so the thread can find it later and
    so it is never mistaken for the "build_ready" the panel scrolls to — see
    threadView.ts, which treats every other kind as ordinary prose. */
-export type MessageKind = "chat" | "build_started" | "build_ready" | "build_failed" | "build_qa";
+export type MessageKind = "chat" | "build_started" | "build_ready" | "build_failed" | "build_qa" | "handoff";
 
 export type ThreadWrite = {
   projectId: string;

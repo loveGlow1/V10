@@ -23,6 +23,7 @@ import DashboardFooter from "./components/DashboardFooter";
 import ScrollToEnds from "./components/ScrollToEnds";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
+import ImportFromGitHub from "./components/ImportFromGitHub";
 import PhoneField from "./components/PhoneField";
 import { ComingSoonModal } from "./components/ComingSoon";
 import Popover from "./components/workspace/Popover";
@@ -69,7 +70,7 @@ import {
   Image as ImageIcon,
   Video,
 } from "lucide-react";
-import { GITHUB_RETURNED, connectGitHubHref } from "@/lib/github/connect-link";
+import { GITHUB_RETURNED } from "@/lib/github/connect-link";
 
 /* The advanced-controls mark, Google's way: two rails, a ring on the left
    of the top one and on the right of the bottom one. */
@@ -195,12 +196,19 @@ export default function DashboardPage() {
      back from github.com. Read once and cleared from the address bar, so a
      reload does not announce it again. */
   const [githubNotice, setGithubNotice] = useState<string | null>(null);
+  /* Import from GitHub — see ImportFromGitHub. Reopened on the way back from
+     a Connect GitHub it started (?import=github), so connecting is one step of
+     importing rather than a detour out of it. */
+  const [importOpen, setImportOpen] = useState(false);
   useEffect(() => {
     const url = new URL(window.location.href);
     const returned = url.searchParams.get("github");
-    if (!returned) return;
-    setGithubNotice(GITHUB_RETURNED[returned] ?? null);
+    const importing = url.searchParams.get("import") === "github";
+    if (!returned && !importing) return;
+    if (importing && (!returned || returned === "connected")) setImportOpen(true);
+    else setGithubNotice(GITHUB_RETURNED[returned ?? ""] ?? null);
     url.searchParams.delete("github");
+    url.searchParams.delete("import");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
@@ -470,6 +478,7 @@ export default function DashboardPage() {
         initialSection={settingsSection}
       />
       <SupportChat />
+      <ImportFromGitHub open={importOpen} onClose={() => setImportOpen(false)} onUpgrade={() => setBillingOpen(true)} />
 
       {/* Centred on the viewport: this screen has no sidebar to offset against. */}
       {/* pt-7 on a phone, not pt-10: the phone bar stands 12px taller than the
@@ -642,11 +651,12 @@ export default function DashboardPage() {
                     <Paperclip className="h-4 w-4" />
                   </button>
 
-                  {/* Source control: starts Connect GitHub and comes back here. */}
+                  {/* Import from GitHub: a new project from a repository —
+                      connecting GitHub first when it is not. */}
                   <button
-                    onClick={() => window.location.assign(connectGitHubHref())}
-                    title="Connect a repository"
-                    aria-label="Connect a repository"
+                    onClick={() => setImportOpen(true)}
+                    title="Import from GitHub"
+                    aria-label="Import from GitHub"
                     className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:flex md:h-10 md:w-10"
                   >
                     <Github className="h-4 w-4" />
@@ -1195,12 +1205,15 @@ export default function DashboardPage() {
                     GitHub
                   </span>
                   <div
-                    onClick={() => window.location.assign(connectGitHubHref())}
+                    onClick={() => {
+                      setIsAdvancedModalOpen(false);
+                      setImportOpen(true);
+                    }}
                     className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all"
                   >
                     <div className="flex items-center gap-3">
                       <Github className="w-4 h-4 text-muted" />
-                      <span className="text-sm font-semibold text-ink">Connect to GitHub</span>
+                      <span className="text-sm font-semibold text-ink">Import from GitHub</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-muted" />
                   </div>

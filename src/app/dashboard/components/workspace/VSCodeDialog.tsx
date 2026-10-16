@@ -16,10 +16,9 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { Code2, ExternalLink, GitFork, Github, Loader2, RefreshCw, UploadCloud, X } from "lucide-react";
 
-import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
+import { useGitHubImport } from "../../useGitHubImport";
 import { CODE_CHANNEL } from "./CodeEditor";
 
 type Status = {
@@ -47,10 +46,9 @@ export default function VSCodeDialog({
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [ahead, setAhead] = useState(false);
-  const [busy, setBusy] = useState<"open" | "sync" | "save" | "fork" | null>(null);
-  const [forkFrom, setForkFrom] = useState("");
-  const router = useRouter();
-  const { open: openTab } = useWorkspaceTabs();
+  const [busy, setBusy] = useState<"open" | "sync" | "save" | null>(null);
+  /* Fork from GitHub: the same import Home offers — see useGitHubImport. */
+  const forking = useGitHubImport(onClose);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [upgrade, setUpgrade] = useState(false);
 
@@ -170,35 +168,6 @@ export default function VSCodeDialog({
       }
       setStatus((current) => (current ? { ...current, repo: body.repo ?? null } : current));
       setMessage({ tone: "ok", text: `Saved to ${body.repo.owner}/${body.repo.name} on GitHub.` });
-    } catch {
-      setMessage({ tone: "error", text: "GitHub couldn't be reached. Check your connection and try again." });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /* Any repository the person can see becomes a new project: forked into
-     their account, its files the first build, linked so it opens in a
-     Codespace and syncs like any other. */
-  async function fork() {
-    if (busy || !forkFrom.trim()) return;
-    setBusy("fork");
-    setMessage(null);
-    try {
-      const response = await fetch("/api/integrations/github/fork", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: forkFrom.trim() }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { projectId?: string; name?: string; error?: string; upgrade?: boolean };
-      if (!response.ok || !body.projectId) {
-        setUpgrade(Boolean(body.upgrade));
-        setMessage({ tone: "error", text: body.error ?? "That repository could not be forked." });
-        return;
-      }
-      openTab({ id: body.projectId, name: body.name ?? "Project" });
-      onClose();
-      router.push(`/dashboard/project/${body.projectId}`);
     } catch {
       setMessage({ tone: "error", text: "GitHub couldn't be reached. Check your connection and try again." });
     } finally {
@@ -362,22 +331,41 @@ export default function VSCodeDialog({
                   <form
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void fork();
+                      void forking.importRepo();
                     }}
                     className="mt-3 flex gap-2"
                   >
                     <input
-                      value={forkFrom}
-                      onChange={(event) => setForkFrom(event.target.value)}
+                      value={forking.repo}
+                      onChange={(event) => forking.setRepo(event.target.value)}
                       placeholder="owner/repo or github.com link"
                       aria-label="Repository to fork"
                       className="h-9 min-w-0 flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
                     />
-                    <button type="submit" disabled={busy !== null || !forkFrom.trim()} className={secondary}>
-                      {busy === "fork" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
+                    <button type="submit" disabled={busy !== null || forking.importing || !forking.repo.trim()} className={secondary}>
+                      {forking.importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
                       Fork
                     </button>
                   </form>
+                  {forking.error ? (
+                    <p className="mt-2 text-[12.5px] leading-relaxed text-warn">
+                      {forking.error}
+                      {forking.upgrade && onUpgrade ? (
+                        <>
+                          {" "}
+                          <button
+                            onClick={() => {
+                              onClose();
+                              onUpgrade();
+                            }}
+                            className="underline underline-offset-2"
+                          >
+                            See plans
+                          </button>
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>

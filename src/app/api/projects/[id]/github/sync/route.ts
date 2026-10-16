@@ -17,7 +17,8 @@ import { NextResponse } from "next/server";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import { MAX_FILE_BYTES, SINGLE_PAGE, TreeError, isSinglePage, readTree } from "@/lib/builder/tree";
 import { connectionFor, githubConfigured } from "@/lib/github/oauth";
-import { branchHead, findRepo, readRepoFiles } from "@/lib/github/push";
+import { branchHead, findRepo, readRepoFiles, readRepoPictures } from "@/lib/github/push";
+import { storeRepoPictures } from "@/lib/github/repo-assets";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
@@ -146,6 +147,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     .from("project_github_repos")
     .update({ last_commit_sha: head.value, pushed_at: now })
     .eq("project_id", owned.projectId);
+
+  /* Pictures added or changed in the Codespace, for the preview — see
+     repo-assets.ts. */
+  const pictures = await readRepoPictures(token, repo, head.value);
+  if (pictures.ok) await storeRepoPictures(service, owned.projectId, pictures.value);
 
   await recordMessage(service, {
     projectId: owned.projectId,

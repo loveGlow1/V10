@@ -147,6 +147,10 @@ function continuationOf(original: string): string {
   return `Continue the change below. Part of it is already in the page from the previous step — finish only what is still missing, and don't redo or undo anything that's already there.\n\n${original}`;
 }
 
+/* How many messages make a chat long enough to suggest forking. The builder
+   reads the last twenty; past that the older ones survive only as a summary. */
+const LONG_CHAT = 30;
+
 export default function ChatPanel({
   project,
   onOpenIntegrations,
@@ -296,6 +300,8 @@ export default function ChatPanel({
   const [streamed, setStreamed] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
+  /* The "this chat is getting long" suggestion, put away for this visit. */
+  const [longChatDismissed, setLongChatDismissed] = useState(false);
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   /* The sliders button's sheet, and the one setting in it that changes what
@@ -1906,6 +1912,32 @@ export default function ChatPanel({
             is talking about. This sits where the answer would have appeared,
             stays there, and greys the send button beside it so the state and
             its consequence are one thing rather than two. */}
+        {/* A long chat is one the builder remembers less of: past twenty
+            messages the older ones are only a summary. So, as Emergent does,
+            it suggests forking — a fresh chat with the same code, opened with
+            a handoff of what was built. */}
+        {!paused && !building && !longChatDismissed && project && messages.length >= LONG_CHAT && (
+          <div className="mb-3 flex items-center gap-2.5 rounded-[10px] border border-line/[0.1] bg-layer/[0.04] px-3 py-2">
+            <GitFork className="h-3.5 w-3.5 shrink-0 text-muted" />
+            <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-soft">
+              This chat is getting long. Fork it to keep building in a fresh chat. Your code comes with you.
+            </p>
+            <button
+              onClick={() => setForkOpen(true)}
+              className="shrink-0 rounded-md bg-layer/[0.08] px-2.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.14]"
+            >
+              Fork
+            </button>
+            <button
+              onClick={() => setLongChatDismissed(true)}
+              aria-label="Not now"
+              className="shrink-0 rounded-md p-1 text-muted transition-colors hover:text-ink"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         {paused && (
           <div className="mb-4 flex items-start gap-2.5 rounded-[10px] border border-warn/[0.22] bg-warn/[0.07] px-3 py-2.5">
             <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
@@ -2427,7 +2459,7 @@ export default function ChatPanel({
                     className={`${menuItem} disabled:cursor-not-allowed disabled:opacity-45`}
                   >
                     <GitFork className="h-4 w-4 text-muted" />
-                    Fork this chat
+                    Fork (fresh chat, same code)
                   </button>
                 </div>
               </Popover>
@@ -2481,17 +2513,18 @@ export default function ChatPanel({
                   <Popover
                     open={forkOpen}
                     onClose={() => setForkOpen(false)}
-                    title="Fork this app"
+                    title="Fork"
                     align="left"
                     side="top"
                     width="w-[min(300px,100%)]"
                     sheetOnMobile={false}
                   >
-                    <p className="text-[13px] font-medium text-ink">Fork this app</p>
+                    <p className="text-[13px] font-medium text-ink">Fork</p>
                     <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
-                      Makes a copy of {project?.name ?? "this app"} — its latest version and its
-                      files — that you can change without touching the original. The chat,
-                      the live address and connected services stay with this one.
+                      A fresh chat with the same code. It opens in a new tab with a short note of
+                      what was built here, so the AI picks up where this left off. Use it when a
+                      chat gets long. This one stays as it is, with its live address and
+                      connected services.
                     </p>
                     {forkError && <p className="mt-2 text-[12px] text-warn">{forkError}</p>}
                     <button
