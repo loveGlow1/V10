@@ -44,11 +44,17 @@ export async function GET(
   const supabase = await createSupabaseServerClient();
   if (!supabase) redirect("/dashboard");
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("projects")
     .select("id")
     .eq("slug", wanted)
     .maybeSingle();
+
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[slug-preview] project lookup failed:", error.message);
+    return new Response("Temporarily unavailable, please retry.", { status: 503 });
+  }
 
   if (!data) redirect("/dashboard");
 

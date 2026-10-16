@@ -225,13 +225,22 @@ async function evidenceForProject(
   projectId: string,
   prompt: string,
 ) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("project_messages")
     .select("body")
     .eq("project_id", projectId)
     .eq("role", "you")
     .order("created_at", { ascending: false })
     .limit(50);
+
+  /* Thrown rather than read as "no messages": an empty thread would judge the
+     page against no evidence at all, which is a different answer, not a
+     degraded one. */
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[save] message history lookup failed:", error.message);
+    throw new Error(`save: message history lookup failed: ${error.message}`);
+  }
 
   return evidenceFrom(prompt, ...(data ?? []).map((row) => String(row.body ?? "")));
 }
@@ -373,7 +382,7 @@ export async function POST(request: Request) {
   if (lookupError) {
     // eslint-disable-next-line no-console
     console.error("save: could not read the project:", lookupError);
-    return NextResponse.json({ message: "Could not read that project." }, { status: 500 });
+    return NextResponse.json({ message: "Could not read that project." }, { status: 503 });
   }
   if (!project) {
     return NextResponse.json({ message: "No such project." }, { status: 404 });
@@ -432,11 +441,16 @@ export async function POST(request: Request) {
          same page, so the app opens with the photographs the page had. */
       const upgrade = landing.upgrade;
       if (upgrade && claim.requestId && upgrade.requestId === claim.requestId) {
-        const { data: pageBuild } = await supabase
+        const { data: pageBuild, error: pageBuildError } = await supabase
           .from("project_builds")
           .select("html")
           .eq("id", upgrade.baseBuildId)
           .maybeSingle();
+        if (pageBuildError) {
+          // eslint-disable-next-line no-console
+          console.error("[save] base build lookup failed:", pageBuildError.message);
+          return NextResponse.json({ message: "Temporarily unavailable, please retry." }, { status: 503 });
+        }
         const pictures = stashImages(String(pageBuild?.html ?? "")).images;
         returned = returned.map((file) =>
           file.content.includes("stashed-image-")

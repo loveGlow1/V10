@@ -61,6 +61,9 @@ export const maxDuration = 60;
 
 type Body = { projectId?: unknown };
 
+/* A read that failed, said as one — not as "that project could not be found". */
+const UNAVAILABLE = "Temporarily unavailable, please retry.";
+
 function fail(message: string, status: number, stage: string) {
   return NextResponse.json({ error: message, stage, published: false }, { status });
 }
@@ -80,22 +83,34 @@ export async function POST(request: Request) {
   /* ── Validate the project ────────────────────────────────────────────────
      Read under the caller's session, so RLS answers "is this yours" and a
      project id belonging to somebody else simply is not found. */
-  const { data: project } = await supabase
+  const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("id, name, slug, status, deleted_at, published_version_id")
     .eq("id", projectId)
     .maybeSingle();
 
+  if (projectError) {
+    // eslint-disable-next-line no-console
+    console.error("[publish] project lookup failed:", projectError.message);
+    return fail(UNAVAILABLE, 503, "validate");
+  }
+
   if (!project) return fail("That project could not be found.", 404, "validate");
   if (project.deleted_at) return fail("That project has been deleted.", 410, "validate");
 
-  const { data: build } = await supabase
+  const { data: build, error: buildError } = await supabase
     .from("project_builds")
     .select("id, html")
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (buildError) {
+    // eslint-disable-next-line no-console
+    console.error("[publish] latest build lookup failed:", buildError.message);
+    return fail(UNAVAILABLE, 503, "validate");
+  }
 
   if (!build?.html) {
     return fail("There's nothing to publish yet — build the page first.", 422, "validate");
@@ -337,13 +352,19 @@ export async function POST(request: Request) {
   /* ── The snapshot ────────────────────────────────────────────────────────
      Written before the project is marked published, so the pointer can never
      name a row that does not exist. */
-  const { data: previous } = await service
+  const { data: previous, error: previousError } = await service
     .from("project_publications")
     .select("version")
     .eq("project_id", projectId)
     .order("version", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (previousError) {
+    // eslint-disable-next-line no-console
+    console.error("[publish] previous version lookup failed:", previousError.message);
+    return fail(UNAVAILABLE, 503, "snapshot");
+  }
 
   const version = ((previous?.version as number | undefined) ?? 0) + 1;
 
@@ -586,11 +607,17 @@ export async function PUT(request: Request) {
 
   /* Read under the caller's own session, so RLS answers whether this project is
      theirs before the service key is used to move anything. */
-  const { data: project } = await supabase
+  const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("id, name, published_version_id")
     .eq("id", projectId)
     .maybeSingle();
+
+  if (projectError) {
+    // eslint-disable-next-line no-console
+    console.error("[publish] rollback project lookup failed:", projectError.message);
+    return fail(UNAVAILABLE, 503, "validate");
+  }
 
   if (!project) return fail("That project could not be found.", 404, "validate");
   if (!project.published_version_id) {
@@ -602,12 +629,18 @@ export async function PUT(request: Request) {
      a number first is asking them to do the system's job. */
   const wanted = typeof body.version === "number" ? body.version : null;
 
-  const { data: versions } = await service
+  const { data: versions, error: versionsError } = await service
     .from("project_publications")
     .select("id, version, published_at")
     .eq("project_id", projectId)
     .order("version", { ascending: false })
     .limit(50);
+
+  if (versionsError) {
+    // eslint-disable-next-line no-console
+    console.error("[publish] version history lookup failed:", versionsError.message);
+    return fail(UNAVAILABLE, 503, "validate");
+  }
 
   const history = (versions ?? []) as { id: string; version: number; published_at: string }[];
   const liveAt = history.findIndex((entry) => entry.id === project.published_version_id);

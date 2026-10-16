@@ -41,6 +41,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
    against at every call site. */
 export type Asked = { slug: string } | { domain: string } | null;
 
+/* A database that did not answer is not an address with nothing on it. Said
+   as such, with a 503, so an outage is not reported to visitors — or cached —
+   as "there is no site here". */
+const UNAVAILABLE = "Temporarily unavailable, please retry.";
+
 function notFound(message: string, status = 404): Response {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not published</title></head><body style="margin:0;min-height:100dvh;display:grid;place-items:center;background:#0b0b0f;color:#8b8b93;font:15px/1.6 system-ui,sans-serif"><p style="max-width:36ch;text-align:center;padding:24px">${message}</p></body></html>`,
@@ -101,11 +106,17 @@ export async function servePublished(asked: Asked): Promise<Response> {
   let found = false;
 
   if ("slug" in asked) {
-    const { data } = await service
+    const { data, error } = await service
       .from("projects")
       .select("id, published_version_id, deleted_at")
       .eq("slug", asked.slug)
       .maybeSingle();
+
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("[serve] project lookup failed:", error.message);
+      return notFound(UNAVAILABLE, 503);
+    }
 
     if (data && !data.deleted_at) {
       found = true;
@@ -117,18 +128,30 @@ export async function servePublished(asked: Asked): Promise<Response> {
        it points at is published. Both are required: a domain left connected to
        a project that was later unpublished must stop serving, not keep serving
        the last version it saw. */
-    const { data: connected } = await service
+    const { data: connected, error: domainError } = await service
       .from("project_domains")
       .select("project_id, status")
       .eq("domain", asked.domain)
       .maybeSingle();
 
+    if (domainError) {
+      // eslint-disable-next-line no-console
+      console.error("[serve] domain lookup failed:", domainError.message);
+      return notFound(UNAVAILABLE, 503);
+    }
+
     if (connected?.status === "live") {
-      const { data } = await service
+      const { data, error } = await service
         .from("projects")
         .select("published_version_id, deleted_at")
         .eq("id", connected.project_id)
         .maybeSingle();
+
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("[serve] project lookup for domain failed:", error.message);
+        return notFound(UNAVAILABLE, 503);
+      }
 
       if (data && !data.deleted_at) {
         found = true;
@@ -181,11 +204,17 @@ export async function servePublished(asked: Asked): Promise<Response> {
     if (running) return Response.redirect(running, 302);
   }
 
-  const { data: publication } = await service
+  const { data: publication, error: publicationError } = await service
     .from("project_publications")
     .select("html, version")
     .eq("id", publicationId)
     .maybeSingle();
+
+  if (publicationError) {
+    // eslint-disable-next-line no-console
+    console.error("[serve] publication lookup failed:", publicationError.message);
+    return notFound(UNAVAILABLE, 503);
+  }
 
   if (!publication?.html) return notFound("This site hasn't been published yet.");
 
