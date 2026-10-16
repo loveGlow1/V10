@@ -8,6 +8,7 @@ import {
   secretKeyProblem,
   setProjectSecret,
   vercelCredentials,
+  QUOTA_REACHED,
 } from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -115,7 +116,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!name) return unavailable();
 
   const set = await setProjectSecret(name, key, value, creds);
-  if (!set.ok) return NextResponse.json({ error: set.reason }, { status: 502 });
+  if (!set.ok) {
+    if (set.code === QUOTA_REACHED) return NextResponse.json({ error: set.reason, code: QUOTA_REACHED }, { status: 409 });
+    return NextResponse.json({ error: set.reason }, { status: 502 });
+  }
 
   return NextResponse.json({
     keys: await projectSecretNames(name, creds),

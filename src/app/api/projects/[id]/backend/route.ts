@@ -42,6 +42,7 @@ import {
 } from "@/lib/builder/backend/modes";
 import { schemaIsServable, schemaProblem, verifyBackend } from "@/lib/builder/backend/verify";
 import { offered as managedOffered, provisionProject } from "@/lib/builder/backend/managed";
+import { QUOTA_REACHED } from "@/lib/publish/vercel-deploy";
 import { oauthConfigured } from "@/lib/builder/backend/supabase-oauth";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -444,6 +445,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     projectName: project?.name ?? "app",
     projectId: owned.projectId,
   });
+
+  if (!provisioned.ok && provisioned.code === QUOTA_REACHED) {
+    /* The organisation cannot hold another project. Nothing was created, and
+       the project's backend row is left exactly as it was rather than
+       rewritten to a shared database with this as its error. */
+    return NextResponse.json({ error: provisioned.reason, code: QUOTA_REACHED }, { status: 409 });
+  }
 
   if (!provisioned.ok) {
     /* Recorded against the project rather than only returned, so the reason
