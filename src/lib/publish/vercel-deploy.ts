@@ -244,6 +244,37 @@ export function deploymentFiles(tree: FileTree, target: DeployTarget) {
 
 type Called = { ok: true; status: number; body: unknown } | { ok: false; reason: string };
 
+/* ── The hosting account is full ────────────────────────────────────────
+ *
+ * Creating a project is the one call that fails because of the account rather
+ * than the request: a plan's project limit, a rate limit, a team without the
+ * seat. That is not something the person can fix by trying a different app,
+ * so it gets one plain sentence and one code the routes can map, instead of
+ * whatever Vercel's message happened to say. */
+export const QUOTA_REACHED = "QUOTA_REACHED" as const;
+export const QUOTA_MESSAGE = "Project limit reached on the hosting account. Please try again later or contact support.";
+
+export class QuotaReachedError extends Error {
+  readonly code = QUOTA_REACHED;
+  constructor() {
+    super(QUOTA_MESSAGE);
+    this.name = "QuotaReachedError";
+  }
+}
+
+/** Whether a refused create was refused for the account's limits: 402, 403 or 429, or a body that says limit, quota or plan. */
+export function isQuotaRefusal(status: number, body: unknown): boolean {
+  if (status === 402 || status === 403 || status === 429) return true;
+  if (status < 400) return false;
+  let text = "";
+  try {
+    text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  } catch {
+    text = "";
+  }
+  return /\b(limits?|quotas?|plans?)\b/i.test(text);
+}
+
 async function call(path: string, init: RequestInit, token: string): Promise<Called> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -637,7 +668,7 @@ export function secretKeyProblem(key: string): string | null {
   return null;
 }
 
-export type SecretResult = { ok: true } | { ok: false; reason: string };
+export type SecretResult = { ok: true } | { ok: false; reason: string; code?: typeof QUOTA_REACHED };
 
 /**
  * Puts one secret on the Vercel project, creating the project if it is new.
@@ -660,7 +691,12 @@ export async function setProjectSecret(
   if (problem) return { ok: false, reason: problem };
   if (value.trim().length === 0) return { ok: false, reason: "Paste the value for that key." };
 
-  await clearProtection(name, creds);
+  try {
+    await clearProtection(name, creds);
+  } catch (error) {
+    if (error instanceof QuotaReachedError) return { ok: false, reason: QUOTA_MESSAGE, code: QUOTA_REACHED };
+    throw error;
+  }
 
   const query = creds.teamQuery ? `${creds.teamQuery}&upsert=true` : "?upsert=true";
   const written = await call(
@@ -749,7 +785,7 @@ export async function clearProtection(
      201 (just created) are both fine, and the PATCH below is what actually
      decides. It is awaited rather than fired and forgotten so that a project
      created here exists before the deployment that names it. */
-  await call(
+  const created = await call(
     `/v10/projects${creds.teamQuery}`,
     {
       method: "POST",
@@ -764,6 +800,11 @@ export async function clearProtection(
     },
     creds.token,
   );
+  /* Read for one answer only: the account cannot hold another project. A 409
+     (it exists already) is the ordinary case and is not that. */
+  if (created.ok && created.status !== 409 && isQuotaRefusal(created.status, created.body)) {
+    throw new QuotaReachedError();
+  }
 
   /* And cleared again on the project that already existed. Runs whatever the
      create said, including when it said 409: that is precisely the path where
@@ -941,7 +982,7 @@ export type Started =
          who needs to read it is the customer whose site it is. */
       protectionNote?: string | null;
     }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code?: typeof QUOTA_REACHED };
 
 /**
  * Uploads a generated project and returns as soon as Vercel has accepted it.
@@ -971,7 +1012,14 @@ export async function startDeployment(tree: FileTree, target: DeployTarget): Pro
      its build is about to need. Never fatal — see clearProtection and
      setProjectEnvironment. */
   const variables = projectEnvironment(target) ?? {};
-  const protection = await clearProtection(target.name, creds, variables);
+  let protection: ProtectionResult;
+  try {
+    protection = await clearProtection(target.name, creds, variables);
+  } catch (error) {
+    /* Nothing was uploaded and nothing recorded, so there is nothing to undo. */
+    if (error instanceof QuotaReachedError) return { ok: false, reason: QUOTA_MESSAGE, code: QUOTA_REACHED };
+    throw error;
+  }
 
   /* And on the project that already existed, which the create above left
      untouched. Best effort: the upload below carries .env.production either
@@ -1158,7 +1206,10 @@ export async function deploymentState(
          must never do is alter the access settings of a project nobody asked
          about. Without a name, the state is reported and nothing is touched. */
       const retry = projectName
-        ? await clearProtection(projectName, creds)
+        ? await clearProtection(projectName, creds).catch((error: unknown) => {
+            if (error instanceof QuotaReachedError) return { cleared: false, note: QUOTA_MESSAGE };
+            throw error;
+          })
         : {
             cleared: false,
             note: "this deployment's Vercel project is not recorded here, so its protection setting was left alone.",

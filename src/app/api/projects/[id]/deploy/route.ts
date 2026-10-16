@@ -41,6 +41,7 @@ import {
   publicAddress,
   startDeployment,
   vercelCredentials,
+  QUOTA_REACHED,
 } from "@/lib/publish/vercel-deploy";
 import {
   existingVercelProject,
@@ -528,6 +529,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       .from("project_builds")
       .update({ deployment_url: null, deployment_error: started.reason })
       .eq("id", build.id);
+    /* The hosting account cannot hold another project: a conflict with the
+       account's state, not a fault in this app. */
+    if (started.code === QUOTA_REACHED) {
+      return NextResponse.json({ error: started.reason, code: QUOTA_REACHED, url: null }, { status: 409 });
+    }
     return NextResponse.json(
       { error: started.reason, diagnosis: diagnose(started.reason), url: null },
       { status: 502 },

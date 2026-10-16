@@ -336,12 +336,23 @@ await managed.provisionProject({ projectName: "Store", projectId: "abc123de-f456
 const second = JSON.parse(sent.find((call) => call.method === "POST")?.body ?? "{}");
 has(body.db_pass !== second.db_pass, "and it is a different password every time");
 
+/* An ordinary refusal still carries Supabase's own words. One for the
+   organisation's limits does not: it is QUOTA_REACHED with one plain sentence
+   (Task 5), checked just below. */
+stubFetch({ status: 400, body: { message: "region eu-nowhere-1 is not supported" } });
+made = await managed.provisionProject({ projectName: "Store", projectId: "abc" });
+has(
+  made.ok === false && /eu-nowhere-1 is not supported/.test(made.reason),
+  "a refusal carries Supabase's own reason, because a status alone is not actionable",
+  made.reason,
+);
+
 stubFetch({ status: 402, body: { message: "organization is over its project limit" } });
 made = await managed.provisionProject({ projectName: "Store", projectId: "abc" });
 has(
-  made.ok === false && /over its project limit/.test(made.reason),
-  "a refusal carries Supabase's own reason, because a status alone is not actionable",
-  made.reason,
+  made.ok === false && made.code === "QUOTA_REACHED" &&
+    made.reason === "Project limit reached on the hosting account. Please try again later or contact support.",
+  "an organisation at its project limit is QUOTA_REACHED, said in one plain sentence",
 );
 
 /* The dangerous case. Supabase may well have created a project and we cannot

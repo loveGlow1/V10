@@ -70,13 +70,32 @@ export type ManagedProject = {
   schema: "public";
 };
 
+/* The organisation cannot hold another project. The same code and sentence as
+   vercel-deploy.ts uses for the hosting account, kept here rather than
+   imported so this file does not pull the whole deploy pipeline in with it. */
+export const QUOTA_REACHED = "QUOTA_REACHED" as const;
+export const QUOTA_MESSAGE = "Project limit reached on the hosting account. Please try again later or contact support.";
+
+/** 402, 403 or 429, or a refusal whose body says limit, quota or plan. */
+function isQuotaRefusal(status: number, body: unknown): boolean {
+  if (status === 402 || status === 403 || status === 429) return true;
+  if (status < 400) return false;
+  let text = "";
+  try {
+    text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  } catch {
+    text = "";
+  }
+  return /\b(limits?|quotas?|plans?)\b/i.test(text);
+}
+
 export type Provisioned =
   | { ok: true; project: ManagedProject }
   /* Every failure is a reason rather than an exception, for the same reason
      deployment failures are: a build whose database could not be provisioned is
      still a build worth having, and the reason belongs in front of the person
      rather than in a stack trace. */
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code?: typeof QUOTA_REACHED };
 
 function credentials(): { token: string; org: string; region: string } | null {
   const token = process.env.SUPABASE_MANAGEMENT_TOKEN;
@@ -236,6 +255,10 @@ export async function provisionProject(input: {
   );
 
   if (!created.ok) return { ok: false, reason: created.reason };
+  /* The organisation cannot hold another project — its plan's limit, or a
+     rate limit. Nothing was created, so there is nothing to clean up; the
+     caller is told in one sentence it can show as it is. */
+  if (isQuotaRefusal(created.status, created.body)) return { ok: false, reason: QUOTA_MESSAGE, code: QUOTA_REACHED };
   if (created.status >= 400) return { ok: false, reason: refusal(created.body, created.status) };
 
   const ref =

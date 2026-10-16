@@ -15,6 +15,7 @@ import {
   publicAddress,
   startDeployment,
   vercelCredentials,
+  QUOTA_REACHED,
 } from "@/lib/publish/vercel-deploy";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { previewUrl, publishedUrl, slugIsUsable } from "@/lib/publish/naming";
@@ -287,6 +288,8 @@ export async function POST(request: Request) {
     });
 
     if (!started.ok) {
+      /* The hosting account cannot hold another project — said as it is. */
+      if (started.code === QUOTA_REACHED) return fail(started.reason, 409, "deploy");
       return fail(
         `That couldn't be put online just now — ${started.reason}. Nothing has changed.`,
         502,
