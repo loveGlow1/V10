@@ -112,6 +112,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
      long prompt wants, and the control on the edge brings it back. Unrelated to
      the sheet above, which is the phone's arrangement. */
   const [previewPaneOpen, setPreviewPaneOpen] = useState(true);
+  /* The conversation column beside the preview, from md up. Put away from the
+     preview bar's panel button so the preview can take the whole width; it
+     always comes back when the preview is closed, since one of the two halves
+     has to be on screen. */
+  const [chatOpen, setChatOpen] = useState(true);
+  const chatShown = chatOpen || !previewPaneOpen;
   /* The phone header's ⋯: Deploy, Preview, Manage, Code, Info. */
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const requests = useRef(0);
@@ -301,9 +307,9 @@ export default function Workspace({ projectId }: { projectId: string }) {
               flex behaviour would silently push it back against the left edge.
               This says the thing directly. */}
           <div
-            className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 md:flex ${
-              previewPaneOpen ? "md:w-[420px] md:flex-none" : "md:flex-1 md:justify-center"
-            }`}
+            className={`${view === "chat" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 ${
+              chatShown ? "md:flex" : "md:hidden"
+            } ${previewPaneOpen ? "md:w-[420px] md:flex-none" : "md:flex-1 md:justify-center"}`}
           >
             <ChatPanel
               alone={!previewPaneOpen}
@@ -334,7 +340,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
               request={manageRequest}
               publishRequest={publishRequest}
               onBackToChat={() => setView("chat")}
-              onClose={() => setPreviewPaneOpen(false)}
+              onClose={() => {
+                setChatOpen(true);
+                setPreviewPaneOpen(false);
+              }}
+              chatOpen={chatShown}
+              onToggleChat={() => setChatOpen((open) => !open)}
             />
           </div>
 
