@@ -16,3 +16,16 @@ export function askChat(ask: VisualAsk) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<VisualAsk>(VISUAL_ASK_EVENT, { detail: ask }));
 }
+
+/* The same request from another tab — the code editor's terminal, whose
+   "Ask AI to fix" belongs in this project's chat, which is open elsewhere.
+   ChatPanel relays what arrives here into askChat. */
+export const ASK_CHANNEL = "quickstark-ask";
+
+export function askChatFromAnotherTab(ask: VisualAsk) {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return false;
+  const channel = new BroadcastChannel(ASK_CHANNEL);
+  channel.postMessage(ask);
+  channel.close();
+  return true;
+}

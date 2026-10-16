@@ -15,9 +15,9 @@
  * (BroadcastChannel) — edit here, watch it there.
  *
  * The panel underneath has VS Code's Problems, Terminal and Ports: the
- * terminal is a real shell running Node.js in this tab (see CodeTerminal), so
- * npm install and npm run dev work, and a server started there shows up under
- * Ports. The command palette (Ctrl+Shift+P / F1), Go to File (Ctrl+P) and the
+ * terminal is real bash in the project's own sandbox (see terminal/), so
+ * npm install and npm run dev work, survive a refresh, and a server started
+ * there shows up under Ports. The command palette (Ctrl+Shift+P / F1), Go to File (Ctrl+P) and the
  * usual shortcuts work as they do there.
  *
  * Nothing in the chrome is decoration: every icon here does what it does in VS
@@ -44,11 +44,13 @@ import {
   Search,
   Sun,
   TerminalSquare,
-  Trash2,
+  Maximize2,
+  Minimize2,
   X,
   XCircle,
 } from "lucide-react";
 
+import TerminalPanel, { type TerminalPanelHandle } from "./terminal/TerminalPanel";
 import CodeTerminal, { type TerminalHandle } from "./CodeTerminal";
 import CommandPalette, { type PaletteItem } from "./CommandPalette";
 
@@ -301,7 +303,48 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
   const [minimap, setMinimap] = useState(true);
   const [wordWrap, setWordWrap] = useState(false);
   const [fontSize, setFontSize] = useState(13);
-  const terminalRef = useRef<TerminalHandle>(null);
+  const terminalRef = useRef<TerminalPanelHandle>(null);
+  /* Hosted sandboxes when the deployment has them (E2B_API_KEY); otherwise
+     the shell runs in this tab on WebContainers. */
+  const [browserTerminal, setBrowserTerminal] = useState(false);
+  const fallBackToBrowser = useCallback(() => setBrowserTerminal(true), []);
+  const [panelMax, setPanelMax] = useState(false);
+  const [terminalRunning, setTerminalRunning] = useState(false);
+  /* The panel as it was left, per project. */
+  const panelKey = `qs-code-panel:${projectId}`;
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(panelKey) ?? "null") as
+        | { open?: boolean; tab?: "problems" | "terminal" | "ports"; height?: number; max?: boolean }
+        | null;
+      if (!saved) return;
+      if (saved.tab) setPanelTab(saved.tab);
+      if (typeof saved.height === "number") setPanelHeight(Math.max(120, saved.height));
+      if (saved.max) setPanelMax(true);
+      if (saved.open) {
+        setPanelOpen(true);
+        if ((saved.tab ?? "terminal") === "terminal") setTerminalStarted(true);
+      }
+    } catch {
+      /* Defaults. */
+    }
+  }, [panelKey]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(panelKey, JSON.stringify({ open: panelOpen, tab: panelTab, height: panelHeight, max: panelMax }));
+    } catch {
+      /* Not remembered. */
+    }
+  }, [panelKey, panelOpen, panelTab, panelHeight, panelMax]);
+  const announcedPorts = useRef<Set<number>>(new Set());
+  const onPorts = useCallback((next: { port: number; url: string }[]) => {
+    setPorts(next);
+    for (const entry of next) {
+      if (announcedPorts.current.has(entry.port)) continue;
+      announcedPorts.current.add(entry.port);
+      setNotice({ tone: "ok", text: `Your app is running on port ${entry.port}. Open it from Ports.` });
+    }
+  }, []);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
@@ -779,7 +822,8 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
     { id: "run", label: "Run: Start the App", detail: runCommand, run: runProject },
     { id: "term", label: "View: Toggle Terminal", keys: "Ctrl+`", run: togglePanel },
     { id: "term-new", label: "Terminal: Focus Terminal", run: () => showPanel("terminal") },
-    { id: "term-clear", label: "Terminal: Clear", run: () => terminalRef.current?.clear() },
+    { id: "term-clear", label: "Terminal: Clear", run: () => terminalRef.current?.run("clear") },
+    { id: "term-max", label: "View: Toggle Maximized Panel", run: () => { showPanel(panelTab); setPanelMax((on) => !on); } },
     { id: "problems", label: "View: Show Problems", keys: "Ctrl+Shift+M", run: () => showPanel("problems") },
     { id: "ports", label: "View: Show Ports", run: () => showPanel("ports") },
     { id: "side", label: "View: Toggle Side Bar", keys: "Ctrl+B", run: () => setSideOpen((on) => !on) },
@@ -1045,7 +1089,7 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
         ) : null}
 
         {/* Tabs, breadcrumbs and the editor */}
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-w-0 flex-1 flex-col">
           <div className="flex h-[35px] shrink-0 items-stretch overflow-x-auto border-b border-[var(--vs-border)] bg-[var(--vs-tab)] [scrollbar-width:none]">
             {tabs.map((path) => {
               const changed = dirty.includes(path);
@@ -1118,8 +1162,10 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
 
           {/* The panel: Problems, Terminal, Ports. */}
           <section
-            style={{ height: panelHeight }}
-            className={`${panelOpen ? "flex" : "hidden"} shrink-0 flex-col border-t border-[var(--vs-border)] bg-[var(--vs-bar)]`}
+            style={panelMax ? undefined : { height: panelHeight }}
+            className={`${panelOpen ? "flex" : "hidden"} ${
+              panelMax ? "absolute inset-0 z-20" : "shrink-0"
+            } flex-col border-t border-[var(--vs-border)] bg-[var(--vs-bar)]`}
           >
             <div onMouseDown={startResize} className="-mt-[3px] h-[5px] shrink-0 cursor-row-resize" aria-hidden />
             <div className="flex h-[30px] shrink-0 items-center gap-4 px-3 text-[11px] uppercase tracking-[0.04em]">
@@ -1145,11 +1191,16 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
                     <button onClick={runProject} title={`Run: ${runCommand}`} className={iconButton}>
                       <Play className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => terminalRef.current?.clear()} title="Clear Terminal" className={iconButton}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
                   </>
                 ) : null}
+                <button
+                  onClick={() => setPanelMax((on) => !on)}
+                  title={panelMax ? "Restore Panel Size" : "Maximize Panel Size"}
+                  aria-label={panelMax ? "Restore the panel" : "Maximize the panel"}
+                  className={iconButton}
+                >
+                  {panelMax ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
                 <button onClick={() => setPanelOpen(false)} title="Close Panel" aria-label="Close the panel" className={iconButton}>
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -1157,9 +1208,9 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
             </div>
             <div className="relative min-h-0 flex-1">
               <div className={`absolute inset-0 ${panelTab === "terminal" ? "" : "invisible"}`}>
-                {terminalStarted && loaded ? (
+                {terminalStarted && loaded && browserTerminal ? (
                   <CodeTerminal
-                    ref={terminalRef}
+                    ref={terminalRef as React.Ref<TerminalHandle>}
                     files={paths.map((path) => ({ path, content: contentOf(path) }))}
                     theme={theme}
                     onServerReady={(port, url) => {
@@ -1167,6 +1218,20 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
                       setNotice({ tone: "ok", text: `Your app is running on port ${port}. Open it from Ports.` });
                     }}
                     onPortClosed={(port) => setPorts((current) => current.filter((entry) => entry.port !== port))}
+                  />
+                ) : terminalStarted && loaded ? (
+                  <TerminalPanel
+                    ref={terminalRef}
+                    projectId={projectId}
+                    theme={theme}
+                    visible={panelOpen && panelTab === "terminal"}
+                    onPorts={onPorts}
+                    onRunning={setTerminalRunning}
+                    onUnconfigured={fallBackToBrowser}
+                    onOpenFile={(path, line) => {
+                      if (paths.includes(path)) openFile(path, line);
+                      else setNotice({ tone: "error", text: `${path} isn't one of this project's files.` });
+                    }}
                   />
                 ) : null}
               </div>
@@ -1236,6 +1301,7 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
         <button onClick={() => showPanel("terminal")} className="flex items-center gap-1 hover:text-[var(--vs-text)]" title="Terminal (Ctrl+`)">
           <TerminalSquare className="h-3.5 w-3.5" strokeWidth={1.5} />
           Terminal
+          {terminalRunning ? <span className="h-1.5 w-1.5 rounded-full bg-[#3fb950] motion-safe:animate-pulse" aria-label="a command is running" /> : null}
         </button>
         {ports.length ? (
           <button onClick={() => showPanel("ports")} className="flex items-center gap-1 text-[#3fb950]" title="Running servers">
