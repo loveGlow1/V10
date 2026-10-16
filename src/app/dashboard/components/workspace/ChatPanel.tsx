@@ -1815,43 +1815,41 @@ export default function ChatPanel({
             that is generated after the reply — so the list grows as they land
             rather than on a timer. The clock is the real one. */}
         {building && runStartedAt !== null && (
-          <div className="py-1">
-            <div className="flex items-center gap-2">
-              <QMark scale={1.85} className="h-[22px] w-[22px] shrink-0" />
-              {/* Both halves of the lockup, as everywhere else the name is
-                  set. An emerald .Ai after plain text is half a logo. */}
-              <p className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                <span className="wordmark-quickstart">QuickStark</span>
-                <span className="wordmark-ai">.Ai</span>
-              </p>
+          /* Laid out exactly as a saved reply (MessageRow), so nothing moves
+             when the stored message takes this one's place. */
+          <div className="flex min-w-0 max-w-full gap-3 py-5 sm:gap-4">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line/[0.1] bg-layer/[0.06] sm:h-8 sm:w-8">
+              <QMark scale={1.85} className="h-[18px] w-[18px]" />
             </div>
-            {/* The answer, as it is written.
-             *
-             * Above the tracker rather than below it: this is the thing that
-             * was asked for, and the operations that produced it are the
-             * footnote. Once it is finished the stored message takes its place
-             * in the thread and this disappears — they never both show, so
-             * nothing is read twice.
-             *
-             * The caret is a real cursor rather than a decoration: it marks
-             * where the next character goes, so a pause in the stream reads as
-             * a pause in the writing instead of as the connection dying. */}
-            {streamed && (
-              <ChatMarkdown text={streamed} className="mt-2">
-                <span
-                  aria-hidden
-                  className="ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.18em] bg-accent/70 motion-safe:animate-[qs-caret_1.1s_steps(1)_infinite]"
-                />
-              </ChatMarkdown>
-            )}
+            <div className="min-w-0 max-w-[720px] flex-1">
+              {/* The answer, as it is written.
+               *
+               * Above the tracker rather than below it: this is the thing that
+               * was asked for, and the operations that produced it are the
+               * footnote. Once it is finished the stored message takes its place
+               * in the thread and this disappears — they never both show, so
+               * nothing is read twice.
+               *
+               * The caret is a real cursor rather than a decoration: it marks
+               * where the next character goes, so a pause in the stream reads as
+               * a pause in the writing instead of as the connection dying. */}
+              {streamed && (
+                <ChatMarkdown text={streamed} className="text-[15px] leading-7 text-soft">
+                  <span
+                    aria-hidden
+                    className="ml-px inline-block h-[1.05em] w-[2px] translate-y-[0.18em] bg-accent/70 motion-safe:animate-[qs-caret_1.1s_steps(1)_infinite]"
+                  />
+                </ChatMarkdown>
+              )}
 
-            <div className="mt-2.5">
-              <BuildActivity
-                running
-                startedAt={runStartedAt}
-                steps={phases.steps}
-                provider={providerOf(model)}
-              />
+              <div className="mt-2.5">
+                <BuildActivity
+                  running
+                  startedAt={runStartedAt}
+                  steps={phases.steps}
+                  provider={providerOf(model)}
+                />
+              </div>
             </div>
           </div>
         )}

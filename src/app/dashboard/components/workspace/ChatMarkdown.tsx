@@ -1,178 +1,187 @@
 "use client";
 
 import React from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-/* The assistant's replies, set as a conversation rather than as a log line.
+/* The assistant's replies, set as a document rather than as a log line.
  *
- * Answers come back in a small Markdown dialect — a heading, numbered steps,
- * bullets, bold, inline code, the odd fenced block — and printed raw they read
- * as a machine talking: hashes and asterisks around every second word. This
- * draws that dialect and nothing more. No HTML is ever interpreted: every piece
- * of text ends up as a React text node, so a reply cannot inject markup however
- * it is worded. Anything this does not recognise stays as the words it was. */
+ * Answers come back in Markdown — headings, numbered steps, bullets, bold,
+ * inline code, the odd fenced block or table — and printed raw they read as a
+ * machine talking: hashes and asterisks around every second word. This draws
+ * them with react-markdown and GitHub-flavoured Markdown.
+ *
+ * No HTML is ever interpreted. There is no rehype-raw, and raw HTML in a reply
+ * is turned back into the plain text it was written as (htmlAsText), so a
+ * reply cannot inject markup however it is worded — and the words still show.
+ *
+ * Carried over from the hand-written renderer this replaced:
+ *   - links only for http(s) and site paths; anything else stays as its words
+ *   - "•" accepted as a bullet, as models write it
+ *   - a single line break inside a paragraph is kept as a line break
+ *   - headings sit below the page's own in the outline (level + 2)
+ *   - whatever is passed as children (the streaming caret) sits at the end of
+ *     the last line of text, not on a line of its own
+ *   - an unfinished fence while streaming reads as code to the end, which
+ *     CommonMark does by itself. */
 
-type Block =
-  | { kind: "heading"; level: number; text: string }
-  | { kind: "paragraph"; text: string }
-  | { kind: "list"; ordered: boolean; start: number; items: string[] }
-  | { kind: "code"; text: string };
+type Node = {
+  type: string;
+  value?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: Node[];
+};
 
-const HEADING = /^(#{1,4})\s+(.*)$/;
-const BULLET = /^\s*[-*•]\s+(.*)$/;
-const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/;
-const FENCE = /^\s*```/;
-
-function parse(source: string): Block[] {
-  const lines = source.replace(/\r\n/g, "\n").split("\n");
-  const blocks: Block[] = [];
-  let paragraph: string[] = [];
-
-  const flush = () => {
-    if (paragraph.length) blocks.push({ kind: "paragraph", text: paragraph.join("\n") });
-    paragraph = [];
+/* Raw HTML as the text it was typed as. */
+function htmlAsText() {
+  return (tree: Node) => {
+    const walk = (node: Node) => {
+      if (!node.children) return;
+      for (const child of node.children) {
+        if (child.type === "html") child.type = "text";
+        else walk(child);
+      }
+    };
+    walk(tree);
   };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (FENCE.test(line)) {
-      flush();
-      const body: string[] = [];
-      i++;
-      while (i < lines.length && !FENCE.test(lines[i])) body.push(lines[i++]);
-      blocks.push({ kind: "code", text: body.join("\n") });
-      continue;
-    }
-
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-
-    const heading = HEADING.exec(line);
-    if (heading) {
-      flush();
-      blocks.push({ kind: "heading", level: heading[1].length, text: heading[2] });
-      continue;
-    }
-
-    const bullet = BULLET.exec(line);
-    const numbered = NUMBERED.exec(line);
-    if (bullet || numbered) {
-      flush();
-      const ordered = !bullet;
-      const last = blocks[blocks.length - 1];
-      const text = bullet ? bullet[1] : numbered![2];
-      /* A blank line between items is still one list: models space them out. */
-      if (last && last.kind === "list" && last.ordered === ordered) last.items.push(text);
-      else blocks.push({ kind: "list", ordered, start: numbered ? Number(numbered[1]) : 1, items: [text] });
-      continue;
-    }
-
-    /* An indented line straight after an item continues it. */
-    const last = blocks[blocks.length - 1];
-    if (!paragraph.length && last && last.kind === "list" && /^\s{2,}\S/.test(line)) {
-      last.items[last.items.length - 1] += ` ${line.trim()}`;
-      continue;
-    }
-
-    paragraph.push(line);
-  }
-  flush();
-  return blocks;
 }
 
-/* Bold, italic, inline code and links inside one run of text. */
-const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|\[[^\]]+\]\((?:https?:\/\/|\/)[^)\s]+\))/g;
-
-function inline(text: string, keyBase: string): React.ReactNode[] {
-  const out: React.ReactNode[] = [];
-  let at = 0;
-  let n = 0;
-  for (const match of text.matchAll(INLINE)) {
-    const token = match[0];
-    const index = match.index ?? 0;
-    if (index > at) out.push(text.slice(at, index));
-    const key = `${keyBase}-${n++}`;
-    if (token.startsWith("`")) {
-      out.push(
-        <code key={key} className="rounded-md border border-line/[0.1] bg-layer/[0.06] px-1.5 py-[1px] font-mono text-[0.88em] text-ink">
-          {token.slice(1, -1)}
-        </code>,
-      );
-    } else if (token.startsWith("**") || token.startsWith("__")) {
-      out.push(
-        <strong key={key} className="font-semibold text-ink">
-          {token.slice(2, -2)}
-        </strong>,
-      );
-    } else if (token.startsWith("[")) {
-      const close = token.indexOf("](");
-      const href = token.slice(close + 2, -1);
-      out.push(
-        <a key={key} href={href} target="_blank" rel="noreferrer" className="text-accent underline-offset-2 hover:underline">
-          {token.slice(1, close)}
-        </a>,
-      );
-    } else {
-      out.push(<em key={key}>{token.slice(1, -1)}</em>);
-    }
-    at = index + token.length;
-  }
-  if (at < text.length) out.push(text.slice(at));
-  return out;
+/* Models write "•" for a bullet; Markdown does not know it. Outside fences
+   only, so code keeps its own characters. */
+function withBullets(source: string): string {
+  let fenced = false;
+  return source
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/.test(line)) fenced = !fenced;
+      return fenced ? line : line.replace(/^(\s*)•\s+/, "$1- ");
+    })
+    .join("\n");
 }
+
+/* Where the caret goes: the deepest last element that holds text — the last
+   paragraph, the last item of a closing list, the last cell. */
+const CARET = "qs-caret";
+const HOLDS_TEXT = new Set(["p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "code", "td", "th", "blockquote"]);
+
+function caretAtEnd() {
+  return (tree: Node) => {
+    let target: Node | null = null;
+    let node: Node | undefined = tree;
+    while (node?.children) {
+      const elements: Node[] = node.children.filter((child) => child.type === "element");
+      const last: Node | undefined = elements[elements.length - 1];
+      if (!last) break;
+      if (last.tagName && HOLDS_TEXT.has(last.tagName)) target = last;
+      node = last;
+    }
+    (target ?? tree).children?.push({ type: "element", tagName: CARET, properties: {}, children: [] });
+  };
+}
+
+const SAFE_HREF = /^(?:https?:\/\/|\/)/i;
+
+function heading(level: number) {
+  const Heading = ({ children }: { children?: React.ReactNode }) => (
+    <p
+      role="heading"
+      aria-level={Math.min(level + 2, 6)}
+      className="mb-3 mt-6 text-[17px] font-semibold text-ink first:mt-0"
+    >
+      {children}
+    </p>
+  );
+  Heading.displayName = `ChatHeading${level}`;
+  return Heading;
+}
+
+/* The caret travels by context so the components below are made once: new
+   component functions on every render would remount the whole reply on every
+   streamed token, which is the flicker this must not have. */
+const Caret = React.createContext<React.ReactNode>(null);
+
+function CaretSlot() {
+  return <>{React.useContext(Caret)}</>;
+}
+
+const COMPONENTS = {
+  p: ({ children }) => <p className="mb-4 whitespace-pre-wrap last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  h1: heading(1),
+  h2: heading(2),
+  h3: heading(3),
+  h4: heading(4),
+  h5: heading(5),
+  h6: heading(6),
+  ol: ({ children, start }) => (
+    <ol start={start} className="mb-4 list-decimal space-y-1.5 pl-6 marker:text-muted">
+      {children}
+    </ol>
+  ),
+  ul: ({ children }) => <ul className="mb-4 list-disc space-y-1.5 pl-6 marker:text-muted">{children}</ul>,
+  /* An item's own paragraph (a list spaced out with blank lines) keeps the
+     list tight rather than opening a gap under every item. */
+  li: ({ children }) => <li className="pl-1 [&>p]:mb-0">{children}</li>,
+  a: ({ children, href }) =>
+    href && SAFE_HREF.test(href) ? (
+      <a href={href} target="_blank" rel="noopener noreferrer" className="text-sky-500 underline underline-offset-4 hover:text-sky-400">
+        {children}
+      </a>
+    ) : (
+      <>{children}</>
+    ),
+  code: ({ children, className }) =>
+    /* Inside a fence, react-markdown marks the language on the class (or the
+       parent pre styles it); bare inline code is a pill. */
+    className?.startsWith("language-") ? (
+      <code className={className}>{children}</code>
+    ) : (
+      <code className="rounded-md border border-line/[0.1] bg-layer/[0.06] px-1.5 py-0.5 font-mono text-[13px] text-ink">
+        {children}
+      </code>
+    ),
+  pre: ({ children }) => (
+    <pre className="my-4 overflow-x-auto rounded-xl border border-line/[0.1] bg-layer/[0.06] p-4 font-mono text-[13px] leading-6 text-ink [overflow-wrap:normal] [&>code]:rounded-none [&>code]:border-0 [&>code]:bg-transparent [&>code]:p-0">
+      {children}
+    </pre>
+  ),
+  blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-line/[0.15] pl-4 text-muted">{children}</blockquote>,
+  hr: () => <hr className="my-6 border-line/[0.1]" />,
+  table: ({ children }) => (
+    <div className="my-4 overflow-x-auto">
+      <table className="w-full text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children, style }) => (
+    <th style={style} className="border-b border-line/[0.1] py-2 pr-4 text-left font-semibold text-ink">
+      {children}
+    </th>
+  ),
+  td: ({ children, style }) => (
+    <td style={style} className="border-b border-line/[0.05] py-2 pr-4">
+      {children}
+    </td>
+  ),
+  [CARET]: CaretSlot,
+} as Components;
+
+const REMARK = [remarkGfm, htmlAsText];
+const WITH_CARET = [caretAtEnd];
+const NO_CARET: typeof WITH_CARET = [];
 
 export default function ChatMarkdown({ text, className = "", children }: { text: string; className?: string; children?: React.ReactNode }) {
-  const blocks = parse(text);
+  const source = withBullets(text);
+  const hasCaret = children !== undefined && children !== null;
   return (
-    <div className={`min-w-0 max-w-full space-y-3 [overflow-wrap:anywhere] text-[15px] leading-[1.65] text-soft md:text-[13.5px] ${className}`}>
-      {blocks.map((block, b) => {
-        const key = `b${b}`;
-        /* Whatever follows the text (the streaming caret) sits on its last line. */
-        const tail = b === blocks.length - 1 ? children : null;
-        if (block.kind === "heading") {
-          const size = block.level <= 1 ? "text-[21px] md:text-[17px]" : block.level === 2 ? "text-[19px] md:text-[15.5px]" : "text-[16.5px] md:text-[14px]";
-          return (
-            <p key={key} role="heading" aria-level={Math.min(block.level + 2, 6)} className={`pt-1 font-semibold leading-snug tracking-tight text-ink ${size}`}>
-              {inline(block.text, key)}
-              {tail}
-            </p>
-          );
-        }
-        if (block.kind === "code") {
-          return (
-            <pre key={key} className="max-w-full overflow-x-auto [overflow-wrap:normal] rounded-xl border border-line/[0.08] bg-layer/[0.05] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink md:text-[12px]">
-              {block.text}
-              {tail}
-            </pre>
-          );
-        }
-        if (block.kind === "list") {
-          const List = block.ordered ? "ol" : "ul";
-          return (
-            <List
-              key={key}
-              start={block.ordered && block.start !== 1 ? block.start : undefined}
-              className={`space-y-1.5 pl-6 ${block.ordered ? "list-decimal marker:text-muted" : "list-disc marker:text-muted"}`}
-            >
-              {block.items.map((item, i) => (
-                <li key={`${key}-${i}`} className="pl-1">
-                  {inline(item, `${key}-${i}`)}
-                  {i === block.items.length - 1 ? tail : null}
-                </li>
-              ))}
-            </List>
-          );
-        }
-        return (
-          <p key={key} className="whitespace-pre-wrap">
-            {inline(block.text, key)}
-            {tail}
-          </p>
-        );
-      })}
-      {blocks.length === 0 && children}
-    </div>
+    <Caret.Provider value={children ?? null}>
+      <div className={`min-w-0 max-w-full [overflow-wrap:anywhere] ${className}`}>
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={hasCaret ? WITH_CARET : NO_CARET} components={COMPONENTS}>
+          {source}
+        </ReactMarkdown>
+      </div>
+    </Caret.Provider>
   );
 }
