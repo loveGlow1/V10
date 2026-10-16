@@ -11,6 +11,7 @@ import { isSinglePage, type FileTree } from "@/lib/builder/tree";
 import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
+import { isSafeExternalOrigin } from "@/lib/preview/safe-frame";
 
 /* Serves the page a build produced.
  *
@@ -238,8 +239,15 @@ function needsServer(reason: string | null): string {
  * session, which is the one thing a server-mode preview exists to show. It
  * cannot reach this page: a cross-origin frame has no more access to its
  * parent for carrying that flag. */
-function runningCopy(address: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title><style>html,body{margin:0;height:100%;background:#f8fafc}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe src="${escapeHtml(address)}" sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-modals allow-downloads" referrerpolicy="no-referrer"></iframe></body></html>`;
+function runningCopy(address: string, appOrigin: string): string {
+  /* Only an address that is provably another origin keeps allow-same-origin;
+     see lib/preview/safe-frame. */
+  const safe = isSafeExternalOrigin(address, appOrigin);
+  if (!safe) console.warn("[preview] framed address is not a separate origin; dropping allow-same-origin:", address);
+  const sandbox = safe
+    ? "allow-scripts allow-forms allow-popups allow-same-origin allow-modals allow-downloads"
+    : "allow-scripts allow-forms allow-popups allow-modals allow-downloads";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title><style>html,body{margin:0;height:100%;background:#f8fafc}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><iframe src="${escapeHtml(address)}" sandbox="${sandbox}" referrerpolicy="no-referrer"></iframe></body></html>`;
 }
 
 function escapeHtml(value: string): string {
@@ -474,7 +482,7 @@ export async function GET(
     if (build_mode.mode === "server") {
       const live = await liveAddress(projectId);
       if (live) {
-        return new Response(runningCopy(live), {
+        return new Response(runningCopy(live, new URL(request.url).origin), {
           status: 200,
           headers: {
             "Content-Type": "text/html; charset=utf-8",

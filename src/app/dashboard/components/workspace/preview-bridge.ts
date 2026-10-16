@@ -9,14 +9,51 @@
  *   auth-storage   the app's Supabase session, kept for this tab (auth-seed.ts)
  *   ready          the design tokens, and edit mode put back after a reload
  *   select         what was clicked in edit mode
- * and the other way: edit mode on/off, a change to show, deselect, select the
- * parent of what is selected. */
+ *   rect           where the selected element is now, as the page scrolls
+ *   deselect       the selection let go of in the frame (Escape)
+ * and the other way: edit mode on/off, deselect, select the parent of what is
+ * selected. */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 import { rememberAuthWrite } from "@/lib/builder/preview/auth-seed";
 
-import type { Picked, PreviewChange } from "./VisualEditPanel";
+/* Where the selected element sits in the frame's viewport, in CSS pixels,
+   with the viewport's own size so the workspace can place a prompt beside it. */
+export type PickedRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+};
+
+/* What was clicked in edit mode, as the frame describes it. */
+export type Picked = {
+  src: string;
+  tag: string;
+  className: string;
+  text: string | null;
+  imageSrc: string | null;
+  repeated: number;
+  rect: PickedRect | null;
+};
+
+function rectFrom(value: unknown): PickedRect | null {
+  if (!value || typeof value !== "object") return null;
+  const r = value as Record<string, unknown>;
+  const keys = ["top", "left", "width", "height", "viewportWidth", "viewportHeight"] as const;
+  if (!keys.every((key) => typeof r[key] === "number" && Number.isFinite(r[key]))) return null;
+  return {
+    top: r.top as number,
+    left: r.left as number,
+    width: r.width as number,
+    height: r.height as number,
+    viewportWidth: r.viewportWidth as number,
+    viewportHeight: r.viewportHeight as number,
+  };
+}
 
 export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, projectId: string | null | undefined, touch = false) {
   const [editMode, setEditMode] = useState(false);
@@ -62,8 +99,22 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
             text: typeof detail.text === "string" ? detail.text : null,
             imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
             repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
+            rect: rectFrom((detail as { rect?: unknown }).rect),
           });
         }
+        return;
+      }
+
+      /* The selected element moved — a scroll, a picture loading above it. */
+      if (data.state === "rect") {
+        const rect = rectFrom(data.detail);
+        if (rect) setPicked((current) => (current ? { ...current, rect } : current));
+        return;
+      }
+
+      /* Let go of in the frame itself (Escape). */
+      if (data.state === "deselect") {
+        setPicked(null);
         return;
       }
 
@@ -87,12 +138,11 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     return () => window.removeEventListener("message", onMessage);
   }, [frameRef, projectId, touch]);
 
-  const previewVisual = useCallback((change: PreviewChange) => tellFrame({ preview: change }), [tellFrame]);
   const deselect = useCallback(() => {
     setPicked(null);
     tellFrame({ deselect: true });
   }, [tellFrame]);
   const selectParent = useCallback(() => tellFrame({ selectParent: true }), [tellFrame]);
 
-  return { editMode, setEditMode, picked, setPicked, tokens, previewVisual, deselect, selectParent };
+  return { editMode, setEditMode, picked, setPicked, tokens, deselect, selectParent };
 }
