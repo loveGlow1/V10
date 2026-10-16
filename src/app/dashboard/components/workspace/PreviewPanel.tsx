@@ -31,6 +31,7 @@ import {
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { PreviewToolbar, VisualEditPrompt } from "./VisualEditOverlay";
+import { CODE_CHANNEL } from "./CodeEditor";
 import { usePreviewBridge } from "./preview-bridge";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
@@ -437,7 +438,21 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, deselect } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+
+  /* A save in the code editor (another tab) lands as a new build; pick it up
+     at once rather than on the next refresh. */
+  useEffect(() => {
+    const id = project?.id;
+    if (!id || typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(CODE_CHANNEL);
+    channel.onmessage = (event: MessageEvent) => {
+      if ((event.data as { projectId?: unknown } | null)?.projectId !== id) return;
+      void refresh(id).catch(() => undefined);
+      setReloads((count) => count + 1);
+    };
+    return () => channel.close();
+  }, [project?.id, refresh]);
 
   /* The floating toolbar's other two controls: the width the preview is shown
      at, and full screen for the frame's own box. */
@@ -1320,10 +1335,11 @@ export default function PreviewPanel({
                 sandbox="allow-scripts allow-forms allow-popups"
                 className="min-h-0 flex-1 border-0 bg-white"
               />
-              {editMode && picked && project?.id ? (
+              {editMode && picked && picks.length > 0 && project?.id ? (
                 <VisualEditPrompt
                   projectId={project.id}
                   picked={picked}
+                  picks={picks}
                   docked={!isDesktop}
                   onSent={() => {
                     setPicked(null);
@@ -1804,26 +1820,17 @@ export default function PreviewPanel({
             <span className="hidden lg:inline">Manage</span>
           </button>
 
-          {/* The code: its repository once it has one, the files to download
-              until then. A project with nothing built has no code to show, so
-              it is a dead control rather than a link to a 404. */}
-          {repoUrl ? (
+          {/* The code, in a VS Code–style editor in a tab of its own — real
+              edits to the real source, saved as a new build that this preview
+              picks up (see CodeEditor and the listener below). A project with
+              nothing built has no code to open, so it is a dead control. */}
+          {previewUrl && project?.id ? (
             <a
-              href={repoUrl}
+              href={`/dashboard/project/${project.id}/code`}
               target="_blank"
-              rel="noopener noreferrer"
-              title="Open the code on GitHub"
-              aria-label="Open the code on GitHub"
-              className={tile}
-            >
-              <Code2 className="h-4 w-4" />
-            </a>
-          ) : previewUrl ? (
-            <a
-              href={`/preview/${project?.id}?download=1`}
-              download
-              title="Download the code"
-              aria-label="Download the code"
+              rel="noopener"
+              title="Edit the code (opens a new tab)"
+              aria-label="Edit the code in a new tab"
               className={tile}
             >
               <Code2 className="h-4 w-4" />

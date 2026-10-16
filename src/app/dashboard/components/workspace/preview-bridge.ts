@@ -38,6 +38,9 @@ export type Picked = {
   imageSrc: string | null;
   repeated: number;
   rect: PickedRect | null;
+  /* Which click this was, so two elements written at the same place (a card
+     in a list) are still two picks. */
+  pickId: number;
 };
 
 function rectFrom(value: unknown): PickedRect | null {
@@ -58,6 +61,9 @@ function rectFrom(value: unknown): PickedRect | null {
 export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, projectId: string | null | undefined, touch = false) {
   const [editMode, setEditMode] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
+  /* Every element clicked so far, oldest first — the newest is `picked`. One
+     request covers them all. */
+  const [picks, setPicks] = useState<Picked[]>([]);
   const [tokens, setTokens] = useState<Record<string, string>>({});
   const editModeRef = useRef(false);
   editModeRef.current = editMode;
@@ -71,7 +77,10 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
 
   useEffect(() => {
     tellFrame({ editMode, touch });
-    if (!editMode) setPicked(null);
+    if (!editMode) {
+      setPicked(null);
+      setPicks([]);
+    }
   }, [editMode, touch, tellFrame]);
 
   useEffect(() => {
@@ -92,7 +101,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       if (data.state === "select") {
         const detail = data.detail as Partial<Picked> | null;
         if (detail && typeof detail.src === "string" && typeof detail.tag === "string") {
-          setPicked({
+          const next: Picked = {
             src: detail.src,
             tag: detail.tag,
             className: typeof detail.className === "string" ? detail.className : "",
@@ -100,8 +109,22 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
             imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
             repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
             rect: rectFrom((detail as { rect?: unknown }).rect),
-          });
+            pickId: typeof detail.pickId === "number" ? detail.pickId : 0,
+          };
+          setPicked(next);
+          setPicks((current) =>
+            current.some((one) => one.pickId === next.pickId && next.pickId !== 0)
+              ? current.map((one) => (one.pickId === next.pickId ? next : one))
+              : [...current, next],
+          );
         }
+        return;
+      }
+
+      /* Clicked a second time in the frame: let go of that one. */
+      if (data.state === "unpick") {
+        const id = (data.detail as { pickId?: unknown } | null)?.pickId;
+        if (typeof id === "number") setPicks((current) => current.filter((one) => one.pickId !== id));
         return;
       }
 
@@ -115,6 +138,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       /* Let go of in the frame itself (Escape). */
       if (data.state === "deselect") {
         setPicked(null);
+        setPicks([]);
         return;
       }
 
@@ -130,6 +154,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
         /* A reloaded frame starts outside edit mode; put it back. */
         if (editModeRef.current) {
           setPicked(null);
+          setPicks([]);
           frameRef.current.contentWindow?.postMessage({ source: "quickstark-workspace", editMode: true, touch }, "*");
         }
       }
@@ -140,9 +165,10 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
 
   const deselect = useCallback(() => {
     setPicked(null);
+    setPicks([]);
     tellFrame({ deselect: true });
   }, [tellFrame]);
   const selectParent = useCallback(() => tellFrame({ selectParent: true }), [tellFrame]);
 
-  return { editMode, setEditMode, picked, setPicked, tokens, deselect, selectParent };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent };
 }

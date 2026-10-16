@@ -62,7 +62,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, deselect } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -236,10 +236,11 @@ export default function PreviewSheet({
                 />
                 {/* Over the frame rather than instead of it, so the frame is
                     already loading while this is on screen. */}
-                {editMode && projectId && picked ? (
+                {editMode && projectId && picked && picks.length > 0 ? (
                   <VisualEditPrompt
                     projectId={projectId}
                     picked={picked}
+                  picks={picks}
                     docked
                     onSent={() => {
                       setPicked(null);
