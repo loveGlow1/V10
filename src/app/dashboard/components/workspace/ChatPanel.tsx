@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -150,6 +150,10 @@ function continuationOf(original: string): string {
 /* How many messages make a chat long enough to suggest forking. The builder
    reads the last twenty; past that the older ones survive only as a summary. */
 const LONG_CHAT = 30;
+/* How much longer a chat must grow before the suggestion is made again. */
+const LONG_CHAT_AGAIN = 50;
+/* How long it stays up when nobody touches it. */
+const LONG_CHAT_SHOWN_MS = 15_000;
 
 export default function ChatPanel({
   project,
@@ -300,8 +304,21 @@ export default function ChatPanel({
   const [streamed, setStreamed] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
   const [forkOpen, setForkOpen] = useState(false);
-  /* The "this chat is getting long" suggestion, put away for this visit. */
-  const [longChatDismissed, setLongChatDismissed] = useState(false);
+  /* The "this chat is getting long" suggestion. Said once, not left standing:
+     it goes by itself after a few seconds, or with × or Fork, and the length
+     it was put away at is remembered for this project — it comes back only
+     if the chat grows by another LONG_CHAT_AGAIN messages. */
+  const [longChatSeenAt, setLongChatSeenAt] = useState<number | null>(null);
+  const longChatKey = project?.id ? `qs-long-chat:${project.id}` : null;
+  useEffect(() => {
+    if (!longChatKey) return;
+    try {
+      const stored = Number(window.localStorage.getItem(longChatKey));
+      setLongChatSeenAt(Number.isFinite(stored) && stored > 0 ? stored : null);
+    } catch {
+      setLongChatSeenAt(null);
+    }
+  }, [longChatKey]);
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   /* The sliders button's sheet, and the one setting in it that changes what
@@ -1622,6 +1639,27 @@ export default function ChatPanel({
   const menuItem =
     "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.06]";
 
+  const putLongChatAway = useCallback(() => {
+    const at = messages.length;
+    setLongChatSeenAt(at);
+    try {
+      if (longChatKey) window.localStorage.setItem(longChatKey, String(at));
+    } catch {
+      /* Remembered for this visit only. */
+    }
+  }, [messages.length, longChatKey]);
+  const showLongChat =
+    !paused &&
+    !building &&
+    Boolean(project) &&
+    messages.length >= LONG_CHAT &&
+    (longChatSeenAt === null || messages.length >= longChatSeenAt + LONG_CHAT_AGAIN);
+  useEffect(() => {
+    if (!showLongChat) return;
+    const timer = window.setTimeout(putLongChatAway, LONG_CHAT_SHOWN_MS);
+    return () => window.clearTimeout(timer);
+  }, [showLongChat, putLongChatAway]);
+
   return (
     /* ── Beside the preview, or on its own ──────────────────────────────
        
@@ -1916,20 +1954,23 @@ export default function ChatPanel({
             messages the older ones are only a summary. So, as Emergent does,
             it suggests forking — a fresh chat with the same code, opened with
             a handoff of what was built. */}
-        {!paused && !building && !longChatDismissed && project && messages.length >= LONG_CHAT && (
+        {showLongChat && (
           <div className="mb-3 flex items-center gap-2.5 rounded-[10px] border border-line/[0.1] bg-layer/[0.04] px-3 py-2">
             <GitFork className="h-3.5 w-3.5 shrink-0 text-muted" />
             <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-soft">
               This chat is getting long. Fork it to keep building in a fresh chat. Your code comes with you.
             </p>
             <button
-              onClick={() => setForkOpen(true)}
+              onClick={() => {
+                putLongChatAway();
+                setForkOpen(true);
+              }}
               className="shrink-0 rounded-md bg-layer/[0.08] px-2.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-layer/[0.14]"
             >
               Fork
             </button>
             <button
-              onClick={() => setLongChatDismissed(true)}
+              onClick={putLongChatAway}
               aria-label="Not now"
               className="shrink-0 rounded-md p-1 text-muted transition-colors hover:text-ink"
             >
