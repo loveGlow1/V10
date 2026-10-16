@@ -103,6 +103,9 @@ export default function PreviewSheet({
     return withAuthSeed(page, store, projectId);
   }, [page, projectId]);
   const usingDocument = Boolean(projectId) && !byAddress;
+  /* Never built (a project just opened from New project): there is nothing to
+     load, so say so rather than framing the address's not-found page. */
+  const unbuilt = byAddress && !lastBuildAt;
 
   /* Closing the sheet closes the editor with it. */
   useEffect(() => {
@@ -218,7 +221,7 @@ export default function PreviewSheet({
           </header>
 
           <div className="relative min-h-0 flex-1">
-            {usingDocument || url ? (
+            {(usingDocument || url) && !unbuilt ? (
               <>
                 <iframe
                   key={`${url}:${nonce}:${usingDocument ? "doc" : "addr"}:${lastBuildAt ?? ""}`}

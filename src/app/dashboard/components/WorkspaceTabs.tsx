@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutGrid, Plus, X } from "lucide-react";
 
 import { avatarFor } from "../projectColours";
-import { NEW_PROJECT_NAME } from "../projectName";
-import { useProjects } from "../ProjectsContext";
+import { useNewProject } from "../useNewProject";
 import { useWorkspaceTabs } from "../WorkspaceTabsContext";
 
 /* The row of open workspaces, drawn the way a browser draws tabs: Home on the
@@ -23,9 +22,9 @@ import { useWorkspaceTabs } from "../WorkspaceTabsContext";
 export default function WorkspaceTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { tabs, busyIds, open: openTab, close } = useWorkspaceTabs();
-  const { create } = useProjects();
-  const [starting, setStarting] = useState(false);
+  const { tabs, busyIds, close } = useWorkspaceTabs();
+  /* The + is a new project on its own tab — see useNewProject. */
+  const { startNew, starting } = useNewProject();
 
   /* Which workspace is on screen is read from the address rather than passed
      down, so a link, a back button and a click in this row all agree. */
@@ -48,26 +47,6 @@ export default function WorkspaceTabs() {
     const index = tabs.findIndex((tab) => tab.id === id);
     const next = remaining[Math.min(index, remaining.length - 1)];
     router.push(next ? `/dashboard/project/${next.id}` : "/dashboard");
-  }
-
-  /* A new tab is a new project, the way a browser's + is a new page: an empty
-     workspace opens on its own tab, ready for the first message, which also
-     names it. If the project cannot be made, Home's composer is the way to
-     start one instead. */
-  async function startNew() {
-    if (starting) return;
-    setStarting(true);
-    try {
-      const created = await create(NEW_PROJECT_NAME);
-      if (!created) {
-        router.push("/dashboard");
-        return;
-      }
-      openTab({ id: created.id, name: created.name });
-      router.push(`/dashboard/project/${created.id}`);
-    } finally {
-      setStarting(false);
-    }
   }
 
   /* Both tabs are cut from the same shape so the row has one silhouette: square
