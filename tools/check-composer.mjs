@@ -70,10 +70,13 @@ has(
   "it is not at risk — this opens a separate workspace and leaves this one in the tab strip",
 );
 
+/* The "New project" chip and its hint are gone: a new project is the tab
+   strip's +, which makes one and opens it on its own tab. */
+const tabStrip = readFileSync(join(process.cwd(), "src/app/dashboard/components/WorkspaceTabs.tsx"), "utf8");
 has(
-  /starts a new app, in its own workspace/.test(panel),
-  "the hint says what actually happens",
-  "one mode is armed and the line under the row is what explains it",
+  /create\(NEW_PROJECT_NAME\)/.test(tabStrip) && /openTab\(/.test(tabStrip),
+  "the tab strip's + starts a new project in its own tab",
+  "a new project is started from the + beside the tabs, like a browser's new tab",
 );
 
 console.log("\nReplacing a page is still possible, and still asks first:");

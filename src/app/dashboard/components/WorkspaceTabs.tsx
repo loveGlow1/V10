@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutGrid, Plus, X } from "lucide-react";
 
 import { avatarFor } from "../projectColours";
+import { NEW_PROJECT_NAME } from "../projectName";
+import { useProjects } from "../ProjectsContext";
 import { useWorkspaceTabs } from "../WorkspaceTabsContext";
 
 /* The row of open workspaces, drawn the way a browser draws tabs: Home on the
@@ -21,7 +23,9 @@ import { useWorkspaceTabs } from "../WorkspaceTabsContext";
 export default function WorkspaceTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { tabs, busyIds, close } = useWorkspaceTabs();
+  const { tabs, busyIds, open: openTab, close } = useWorkspaceTabs();
+  const { create } = useProjects();
+  const [starting, setStarting] = useState(false);
 
   /* Which workspace is on screen is read from the address rather than passed
      down, so a link, a back button and a click in this row all agree. */
@@ -44,6 +48,26 @@ export default function WorkspaceTabs() {
     const index = tabs.findIndex((tab) => tab.id === id);
     const next = remaining[Math.min(index, remaining.length - 1)];
     router.push(next ? `/dashboard/project/${next.id}` : "/dashboard");
+  }
+
+  /* A new tab is a new project, the way a browser's + is a new page: an empty
+     workspace opens on its own tab, ready for the first message, which also
+     names it. If the project cannot be made, Home's composer is the way to
+     start one instead. */
+  async function startNew() {
+    if (starting) return;
+    setStarting(true);
+    try {
+      const created = await create(NEW_PROJECT_NAME);
+      if (!created) {
+        router.push("/dashboard");
+        return;
+      }
+      openTab({ id: created.id, name: created.name });
+      router.push(`/dashboard/project/${created.id}`);
+    } finally {
+      setStarting(false);
+    }
   }
 
   /* Both tabs are cut from the same shape so the row has one silhouette: square
@@ -154,14 +178,12 @@ export default function WorkspaceTabs() {
         );
       })}
 
-      {/* A tab is added by starting something new, which happens on Home — so
-          this is the way to that composer rather than an empty tab of its own.
-          An app already open comes back to its existing tab instead. */}
       <button
-        onClick={() => router.push("/dashboard")}
-        aria-label="Start a new app"
-        title="Start a new app"
-        className="mb-1 ml-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
+        onClick={() => void startNew()}
+        disabled={starting}
+        aria-label="New project"
+        title="New project"
+        className="mb-1 ml-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink disabled:opacity-50"
       >
         <Plus className="h-4 w-4" />
       </button>

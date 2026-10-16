@@ -65,6 +65,10 @@ function titleCase(text: string): string {
 const MAX_NAME = 32;
 
 /** A name from the first thing someone typed. */
+/* What a project opened from the tab strip's + is called until its first
+   message names it — see WorkspaceTabs and ChatPanel's send. */
+export const NEW_PROJECT_NAME = "New project";
+
 export function nameFromPrompt(prompt: string): string {
   let text = prompt.trim().replace(/\s+/g, " ");
   if (!text) return "Untitled app";
