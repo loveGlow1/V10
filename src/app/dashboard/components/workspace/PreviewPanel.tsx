@@ -46,6 +46,7 @@ import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
 import BackendPanel from "./BackendPanel";
 import { ManageMark } from "./panelMarks";
+import { isSafeExternalOrigin } from "@/lib/preview/safe-frame";
 import PageThumbnail from "../PageThumbnail";
 import Popover from "./Popover";
 
@@ -515,6 +516,17 @@ export default function PreviewPanel({
    * viewable — are about that. This is the narrower question of what address is
    * put in front of a person. */
   const publishedLive = project && isPublished(project) ? deployed : null;
+
+  /* The live frame keeps allow-same-origin only for an address that is
+     provably another origin — see lib/preview/safe-frame. */
+  const liveSandbox = useMemo(() => {
+    if (!publishedLive || typeof window === "undefined") return "allow-scripts allow-forms allow-popups";
+    if (isSafeExternalOrigin(publishedLive, window.location.origin)) {
+      return "allow-scripts allow-forms allow-popups allow-same-origin";
+    }
+    console.warn("[preview] live address is not a separate origin; dropping allow-same-origin:", publishedLive);
+    return "allow-scripts allow-forms allow-popups";
+  }, [publishedLive]);
 
   const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
   const repoUrl = safeHttpUrl(project?.repo_url);
@@ -1229,7 +1241,7 @@ export default function PreviewPanel({
               key={`${publishedLive}#${reloads}#${project?.last_build_at ?? ""}`}
               src={publishedLive}
               title={`${project?.name ?? "App"} — live`}
-              sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+              sandbox={liveSandbox}
               className="min-h-0 flex-1 border-0 bg-white"
             />
           ) : isReceipt ? (
