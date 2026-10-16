@@ -358,6 +358,15 @@ export const PREVIEW_RUNTIME = `
   var FILES = window.__QS_FILES || {};
   var ROUTES = window.__QS_ROUTES || [];
   var ENTRY = window.__QS_ENTRY || '/';
+  /* Paths as the project writes them, for a tree previewed under another
+     layout (a src/ project is read as if src/ were the root): what the visual
+     editor names must be the file the edit path will open. */
+  var ORIGIN = window.__QS_ORIGIN || {};
+  /* Repository pictures and svgs, as path -> address. See assetUrl. */
+  var ASSETS = window.__QS_ASSETS || {};
+  /* A Vite or Create React App project: no routes, one entry that mounts
+     itself. See start(). */
+  var SPA_ENTRY = window.__QS_SPA_ENTRY || null;
 
   /* 'process', because generated code reads it.
    *
@@ -385,7 +394,23 @@ export const PREVIEW_RUNTIME = `
    * sends none, env is empty and the generated client reports itself
    * unconfigured on first use, which is exactly what scaffold.ts wrote it to
    * do. Either way the screen renders. */
-  var PROCESS = { env: window.__QS_ENV || {} };
+  var PROCESS = { env: Object.assign({ NODE_ENV: 'development', MODE: 'development', DEV: true, PROD: false, BASE_URL: '/' }, window.__QS_ENV || {}) };
+
+  /* A picture the project refers to by path - "/logo.png" from public/, "./hero.jpg"
+     beside a page - as the address it was stored at. Null for anything that is
+     not one of them, which is then left exactly as written. */
+  function assetUrl(value) {
+    if (typeof value !== 'string' || !value) return null;
+    if (value.indexOf('//') >= 0 || value.indexOf('data:') === 0 || value.charAt(0) === '#') return null;
+    var clean = value.split('?')[0].split('#')[0];
+    while (clean.indexOf('./') === 0) clean = clean.slice(2);
+    if (clean.charAt(0) === '/') clean = clean.slice(1);
+    var tries = [clean, 'public/' + clean, 'src/' + clean, 'static/' + clean, 'src/assets/' + clean];
+    for (var i = 0; i < tries.length; i += 1) {
+      if (Object.prototype.hasOwnProperty.call(ASSETS, tries[i])) return ASSETS[tries[i]];
+    }
+    return null;
+  }
 
   var React = window.React;
   var ReactDOM = window.ReactDOM;
@@ -579,7 +604,7 @@ ${EDIT_MODE}
             }
             node.attributes.push(t.jsxAttribute(
               t.jsxIdentifier('data-qs-src'),
-              t.stringLiteral(path + ':' + node.loc.start.line + ':' + node.loc.start.column)
+              t.stringLiteral((ORIGIN[path] || path) + ':' + node.loc.start.line + ':' + node.loc.start.column)
             ));
           }
         }
@@ -591,6 +616,11 @@ ${EDIT_MODE}
     if (Object.prototype.hasOwnProperty.call(compiled, path)) return compiled[path];
     var source = FILES[path];
     if (path.slice(-5) !== '.json') source = rewriteNavigation(source);
+    /* Vite's import.meta.env, which the CommonJS output below cannot carry:
+       the same values a module reads as process.env. */
+    if (path.slice(-5) !== '.json' && source.indexOf('import.meta') >= 0) {
+      source = source.split('import.meta.env').join('process.env').split('import.meta').join('({ env: process.env, url: location.href })');
+    }
     if (path.slice(-5) === '.json') {
       compiled[path] = 'module.exports = ' + source + ';';
       return compiled[path];
@@ -633,6 +663,9 @@ ${EDIT_MODE}
   function requireFrom(specifier, from) {
     var external = externals(specifier);
     if (external) return external;
+    /* import logo from './logo.png' - the stored picture's address. */
+    var pictured = assetModule(specifier, from);
+    if (pictured) return { __esModule: true, default: pictured };
     var path = resolve(specifier, from);
     if (path) return requireModule(path);
     /* A package this preview has no shim for. An empty module rather than a
@@ -644,6 +677,17 @@ ${EDIT_MODE}
   }
 
   var missing = {};
+
+  function assetModule(specifier, from) {
+    var base = null;
+    if (specifier.indexOf('@/') === 0) base = specifier.slice(2);
+    else if (specifier.charAt(0) === '.') base = joinPath(ORIGIN[from] || from, specifier);
+    else if (specifier.charAt(0) === '/') base = specifier.slice(1);
+    if (!base) return null;
+    if (Object.prototype.hasOwnProperty.call(ASSETS, base)) return ASSETS[base];
+    if (Object.prototype.hasOwnProperty.call(ASSETS, 'src/' + base)) return ASSETS['src/' + base];
+    return assetUrl(base);
+  }
 
   function emptyModule(name) {
     var blank = function () { return null; };
@@ -668,6 +712,13 @@ ${EDIT_MODE}
   function jsxFactory(type, config, maybeKey) {
     var props = Object.assign({}, config);
     if (maybeKey !== undefined) props.key = maybeKey;
+    if (typeof type === 'string') {
+      var keys = ['src', 'href', 'poster'];
+      for (var k = 0; k < keys.length; k += 1) {
+        var stored = assetUrl(props[keys[k]]);
+        if (stored) props[keys[k]] = stored;
+      }
+    }
     return React.createElement(type, props);
   }
 
@@ -975,6 +1026,9 @@ ${EDIT_MODE}
             };
           }
         };
+      case 'react-router-dom':
+      case 'react-router':
+        return routerShim();
       case 'lucide-react':
         return lucideShim;
       case 'framer-motion':
@@ -1213,6 +1267,26 @@ ${EDIT_MODE}
    * its nav and footer come through, so the app looks like itself. */
   function start() {
     var root = document.getElementById('qs-root');
+    /* A single-page React app mounts itself: its entry calls createRoot on
+       #root, as it does in the browser it was written for. */
+    if (SPA_ENTRY) {
+      try {
+        if (!document.getElementById('root')) {
+          var mount = document.createElement('div');
+          mount.id = 'root';
+          document.body.insertBefore(mount, root);
+        }
+        root.style.display = 'none';
+        requireModule(SPA_ENTRY);
+        report('ready', { routes: [], tokens: designTokens() });
+      } catch (error) {
+        report('error', String((error && error.message) || error));
+        root.style.display = '';
+        root.innerHTML = '';
+        root.appendChild(failureNode(String((error && error.message) || error)));
+      }
+      return;
+    }
     try {
       ReactDOM.createRoot(root).render(h(App, null));
       /* The routes travel out with the boot report.
@@ -1231,6 +1305,170 @@ ${EDIT_MODE}
       root.innerHTML = '';
       root.appendChild(failureNode(String((error && error.message) || error)));
     }
+  }
+
+  /* react-router, enough of it for the apps people actually write: routes
+     declared as <Routes>/<Route> or as objects for RouterProvider, nested
+     routes with <Outlet>, :params and *, Link and NavLink, Navigate and the
+     hooks - all driven by the same address store the Next.js shims use. */
+  var routerCache = null;
+  function routerShim() {
+    if (routerCache) return routerCache;
+    var RouteContext = React.createContext({ params: {}, outlet: null });
+
+    function segs(value) { return String(value || '').split('/').filter(Boolean); }
+    function matchSegs(pattern, pathname, prefix) {
+      var ps = segs(pattern);
+      var xs = segs(pathname);
+      var params = {};
+      for (var i = 0; i < ps.length; i += 1) {
+        var s = ps[i];
+        if (s === '*') { params['*'] = xs.slice(i).join('/'); return params; }
+        var optional = s.charAt(s.length - 1) === '?';
+        if (optional) s = s.slice(0, -1);
+        if (i >= xs.length) { if (optional) continue; return null; }
+        if (s.charAt(0) === ':') { params[s.slice(1)] = decodeURIComponent(xs[i]); continue; }
+        if (s.toLowerCase() !== xs[i].toLowerCase()) return null;
+      }
+      if (!prefix && xs.length > ps.length) return null;
+      return params;
+    }
+    function joinRoute(base, path) {
+      if (!path) return base;
+      if (path.charAt(0) === '/') return path;
+      var b = base.charAt(base.length - 1) === '/' ? base.slice(0, -1) : base;
+      return b + '/' + path;
+    }
+    function fromChildren(children) {
+      var out = [];
+      React.Children.forEach(children, function (child) {
+        if (!child || !child.props) return;
+        if (child.type === React.Fragment) { out = out.concat(fromChildren(child.props.children)); return; }
+        out.push({
+          path: child.props.path,
+          index: child.props.index,
+          element: child.props.element !== undefined ? child.props.element : child.props.Component ? h(child.props.Component) : null,
+          children: child.props.children ? fromChildren(child.props.children) : null
+        });
+      });
+      return out;
+    }
+    function fromObjects(routes) {
+      return (routes || []).map(function (route) {
+        return {
+          path: route.path,
+          index: route.index,
+          element: route.element !== undefined ? route.element : route.Component ? h(route.Component) : null,
+          children: route.children ? fromObjects(route.children) : null
+        };
+      });
+    }
+    function matchAll(routes, pathname, base) {
+      for (var i = 0; i < routes.length; i += 1) {
+        var route = routes[i];
+        var full = route.index ? base : joinRoute(base, route.path);
+        if (route.children && route.children.length) {
+          var at = matchSegs(full, pathname, true);
+          if (at) {
+            var below = matchAll(route.children, pathname, full);
+            if (below) return [{ route: route, params: at }].concat(below);
+            if (matchSegs(full, pathname, false)) return [{ route: route, params: at }];
+          }
+        } else {
+          var exact = matchSegs(full, pathname, false);
+          if (exact) return [{ route: route, params: exact }];
+        }
+      }
+      return null;
+    }
+    function renderChain(chain, i, params) {
+      if (!chain || i >= chain.length) return null;
+      var outlet = renderChain(chain, i + 1, params);
+      var element = chain[i].route.element;
+      return h(RouteContext.Provider, { value: { params: params, outlet: outlet } }, element !== undefined && element !== null ? element : outlet);
+    }
+    function renderRoutes(routes, pathname) {
+      var chain = matchAll(routes, pathname, '/');
+      if (!chain) return null;
+      var params = {};
+      for (var i = 0; i < chain.length; i += 1) Object.assign(params, chain[i].params);
+      return renderChain(chain, 0, params);
+    }
+    function useLocationShim() {
+      var pathname = usePathname();
+      var search = React.useSyncExternalStore(subscribe, function () { return snapshot().search; }, function () { return ''; });
+      return { pathname: pathname, search: search ? '?' + search : '', hash: '', state: null, key: 'default' };
+    }
+    function target(to) { return typeof to === 'string' ? to : (to && to.pathname) || '/'; }
+    var LinkShim = React.forwardRef(function (props, ref) {
+      var to = target(props.to);
+      var rest = Object.assign({}, props);
+      ['to', 'replace', 'state', 'end', 'caseSensitive', 'reloadDocument', 'relative', 'preventScrollReset', 'viewTransition'].forEach(function (key) { delete rest[key]; });
+      rest.ref = ref;
+      rest.href = to;
+      var onClick = props.onClick;
+      rest.onClick = function (event) {
+        if (onClick) onClick(event);
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        navigate(to);
+      };
+      return h('a', rest);
+    });
+    function NavLinkShim(props) {
+      var pathname = usePathname();
+      var to = target(props.to);
+      var active = props.end ? pathname === to : pathname === to || (to !== '/' && pathname.indexOf(to + '/') === 0);
+      var state = { isActive: active, isPending: false, isTransitioning: false };
+      return h(LinkShim, Object.assign({}, props, {
+        className: typeof props.className === 'function' ? props.className(state) : props.className,
+        style: typeof props.style === 'function' ? props.style(state) : props.style,
+        children: typeof props.children === 'function' ? props.children(state) : props.children,
+        'aria-current': active ? 'page' : undefined
+      }));
+    }
+    function useNavigateShim() {
+      return function (to) {
+        if (typeof to === 'number') { try { history.go(to); } catch (ignored) {} return; }
+        navigate(target(to));
+      };
+    }
+    function Passthrough(props) { return props.children || null; }
+    routerCache = {
+      __esModule: true,
+      BrowserRouter: Passthrough,
+      HashRouter: Passthrough,
+      MemoryRouter: Passthrough,
+      Router: Passthrough,
+      Routes: function (props) { return renderRoutes(fromChildren(props.children), usePathname()); },
+      Route: function () { return null; },
+      Outlet: function () { return React.useContext(RouteContext).outlet; },
+      Link: LinkShim,
+      NavLink: NavLinkShim,
+      Navigate: function (props) {
+        React.useEffect(function () { navigate(target(props.to)); }, [target(props.to)]);
+        return null;
+      },
+      useNavigate: useNavigateShim,
+      useParams: function () { return React.useContext(RouteContext).params; },
+      useLocation: useLocationShim,
+      useSearchParams: function () {
+        var location = useLocationShim();
+        var params = new URLSearchParams(location.search);
+        return [params, function (next) {
+          var value = typeof next === 'function' ? next(params) : next;
+          var query = new URLSearchParams(value).toString();
+          navigate(location.pathname + (query ? '?' + query : ''));
+        }];
+      },
+      useMatch: function (pattern) { return matchSegs(target(pattern), usePathname(), false) ? { params: {} } : null; },
+      createBrowserRouter: function (routes) { return { routes: routes }; },
+      createHashRouter: function (routes) { return { routes: routes }; },
+      createMemoryRouter: function (routes) { return { routes: routes }; },
+      RouterProvider: function (props) { return renderRoutes(fromObjects(props.router && props.router.routes), usePathname()); },
+      ScrollRestoration: function () { return null; }
+    };
+    return routerCache;
   }
 
   function failureNode(message) {

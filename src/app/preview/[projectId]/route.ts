@@ -13,6 +13,8 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { isSafeExternalOrigin } from "@/lib/preview/safe-frame";
 import { withSinglePageEdit } from "@/lib/builder/preview/single-page-edit";
+import { staticEntryOf, staticSiteDocument } from "@/lib/builder/preview/static-preview";
+import { repoAssetMap } from "@/lib/github/repo-assets";
 
 /* Serves the page a build produced.
  *
@@ -510,6 +512,11 @@ export async function GET(
       });
     }
 
+    /* Pictures from the project's GitHub repository, by path — see
+       lib/github/repo-assets.ts. Empty for every project that never came from
+       or went through GitHub. */
+    const repoAssets = await repoAssetMap(supabase, projectId).catch(() => ({}) as Record<string, string>);
+
     try {
       if (canRenderApp(tree)) {
         const { data: project } = await supabase
@@ -555,6 +562,7 @@ export async function GET(
           tree,
           projectName: project?.name as string | null,
           env: previewEnv,
+          assets: repoAssets,
         });
         if (document) {
           return new Response(document, {
@@ -570,6 +578,20 @@ export async function GET(
             },
           });
         }
+      }
+      /* A static site of several files (imported from GitHub, mostly): its
+         pages with their stylesheets and scripts inlined — see
+         static-preview.ts. */
+      const staticEntry = staticEntryOf(tree);
+      if (staticEntry) {
+        return new Response(staticSiteDocument(tree, repoAssets, staticEntry), {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+          },
+        });
       }
     } catch (error) {
       /* Reported, then handled below. A failure to render must never be a

@@ -15,7 +15,8 @@ import { storeTree } from "@/lib/builder/store-tree";
 import { MAX_FILE_BYTES, SINGLE_PAGE, TreeError, readTree } from "@/lib/builder/tree";
 import { UPGRADE_FOR_GITHUB, canPushToGitHub } from "@/lib/github/entitlement";
 import { connectionFor, githubConfigured } from "@/lib/github/oauth";
-import { branchHead, forkRepo, parseRepoInput, readRepoFiles } from "@/lib/github/push";
+import { branchHead, forkRepo, parseRepoInput, readRepoFiles, readRepoPictures } from "@/lib/github/push";
+import { storeRepoPictures } from "@/lib/github/repo-assets";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
@@ -65,10 +66,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "That repository has no source files to bring in." }, { status: 422 });
   }
 
-  /* One index.html and nothing else that matters is a single page; anything
-     else is a project of files. */
+  /* One index.html and nothing else a page is made of (no stylesheet, script,
+     second page or package.json beside it) is a single page; anything else is
+     a project of files, so its stylesheets and scripts come with it. */
   const page = read.value.files.find((file) => file.path === SINGLE_PAGE);
-  const single = Boolean(page) && read.value.files.every((file) => file.path === SINGLE_PAGE || !/\.(tsx?|jsx?|mjs)$/.test(file.path));
+  const single =
+    Boolean(page) &&
+    read.value.files.every((file) => file.path === SINGLE_PAGE || !/\.(html?|css|m?jsx?|tsx?|json|svg)$/i.test(file.path));
   let tree: { path: string; content: string }[] = [];
   if (!single) {
     try {
@@ -131,6 +135,11 @@ export async function POST(request: Request) {
     },
     { onConflict: "project_id" },
   );
+  /* The repository's pictures, so the preview shows its logo and photos —
+     see repo-assets.ts. Best effort: a page without them is still the page. */
+  const pictures = await readRepoPictures(connection.token, repo, head.value);
+  if (pictures.ok) await storeRepoPictures(service, projectId, pictures.value);
+
   await recordMessage(service, {
     projectId,
     userId: user.id,

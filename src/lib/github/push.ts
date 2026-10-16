@@ -6,9 +6,11 @@
  * a project of any size, and the push either lands whole or not at all — a
  * repository is never left holding half an app.
  *
- * The tree is written WITHOUT a base tree, so the commit is exactly the
- * project: a file deleted in QuickStark is deleted in the repository too. The
- * history is kept, so nothing pushed earlier is ever lost.
+ * The tree is written ON TOP of the branch's own: the project's files are
+ * written, a project file deleted in QuickStark is deleted there too, and
+ * everything a project does not carry — pictures, lockfiles, config added in a
+ * Codespace — is left as it is (see isProjectSource). The history is kept, so
+ * nothing pushed earlier is ever lost.
  */
 
 import type { FileTree } from "@/lib/builder/tree";
@@ -162,10 +164,37 @@ export async function pushTree(
   if (!head.ok) return head;
   const parent = head.value.object.sha;
 
+  /* On top of what the branch already holds, not instead of it. Everything a
+     project does not carry — pictures, fonts, lockfiles, .env.example, build
+     config somebody added in a Codespace — stays exactly as it is. Only files
+     a project DOES carry (source, by the same rule a sync reads with) and no
+     longer has are deleted, so a file removed here is removed there too. When
+     the listing cannot be read whole, nothing is deleted: losing a deletion is
+     a stray file, losing a picture is damage. */
+  const deletions: { path: string; mode: string; type: string; sha: null }[] = [];
+  const parentCommit = await gh<{ tree: { sha: string } }>(token, `${base}/git/commits/${parent}`);
+  if (!parentCommit.ok) return parentCommit;
+  const listing = await gh<{ truncated: boolean; tree: { path: string; type: string; size?: number }[] }>(
+    token,
+    `${base}/git/trees/${parentCommit.value.tree.sha}?recursive=1`,
+  );
+  if (listing.ok && !listing.value.truncated) {
+    const keeping = new Set(files.map((file) => file.path));
+    for (const entry of listing.value.tree) {
+      if (entry.type !== "blob" || keeping.has(entry.path)) continue;
+      if (!isProjectSource(entry.path, entry.size ?? 0)) continue;
+      deletions.push({ path: entry.path, mode: "100644", type: "blob", sha: null });
+    }
+  }
+
   const madeTree = await gh<{ sha: string }>(token, `${base}/git/trees`, {
     method: "POST",
     body: {
-      tree: files.map((file) => ({ path: file.path, mode: "100644", type: "blob", content: file.content })),
+      base_tree: parentCommit.value.tree.sha,
+      tree: [
+        ...files.map((file) => ({ path: file.path, mode: "100644", type: "blob", content: file.content })),
+        ...deletions,
+      ],
     },
   });
   if (!madeTree.ok) return madeTree;
@@ -203,6 +232,21 @@ const NOT_SOURCE = /(^|\/)(node_modules|\.next|\.git|dist|build|out|coverage|\.t
 const LOCKFILES = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb)$/;
 const BINARY = /\.(png|jpe?g|gif|webp|ico|bmp|avif|mp4|mov|webm|mp3|wav|woff2?|ttf|otf|eot|zip|gz|pdf)$/i;
 const MOST_FILES_READ = 200;
+const ENV_FILE = /(^|\/)\.env($|\.)/;
+/* The repository's own copy of its pictures — see readRepoAssets. */
+const PICTURE = /\.(png|jpe?g|gif|webp|avif|ico)$/i;
+/* Kept to what a page shows: the asset bucket's ceiling, and a cap on how many
+   one import stores. */
+const MOST_PICTURES = 60;
+const MAX_PICTURE_BYTES = 5 * 1024 * 1024;
+
+/** Whether a repository file is one a project carries — read on a sync, and
+    deleted on a push when the project no longer has it. Anything else (installs,
+    build output, lockfiles, binaries, .env files, files too large) is left to
+    the repository. */
+export function isProjectSource(path: string, size: number, maxFileBytes = 256_000): boolean {
+  return !NOT_SOURCE.test(path) && !LOCKFILES.test(path) && !BINARY.test(path) && !ENV_FILE.test(path) && size <= maxFileBytes;
+}
 
 /**
  * The text files of the repository at `sha`, as a project tree. Anything that
@@ -233,9 +277,9 @@ export async function readRepoFiles(
     if (entry.type !== "blob") continue;
     if (NOT_SOURCE.test(entry.path)) continue;
     /* .env files hold secrets and are supplied by the platform; a project
-       may not carry one. */
-    const envFile = /(^|\/)\.env($|\.)/.test(entry.path);
-    if (envFile || LOCKFILES.test(entry.path) || BINARY.test(entry.path) || (entry.size ?? 0) > maxFileBytes) {
+       may not carry one. Nor installs, lockfiles, binaries or anything too
+       large — see isProjectSource. */
+    if (!isProjectSource(entry.path, entry.size ?? 0, maxFileBytes)) {
       skipped.push(entry.path);
       continue;
     }
@@ -299,4 +343,54 @@ export async function forkRepo(token: string, owner: string, name: string): Prom
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
   return { ok: false, status: 504, reason: "GitHub is still making the fork — try again in a moment" };
+}
+
+const PICTURE_TYPE: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  ico: "image/x-icon",
+};
+
+/**
+ * The repository's pictures at `sha` — what a sync and an import leave out of
+ * the project as binaries, read so they can be stored where a preview can
+ * show them (see repo-assets.ts). The first MOST_PICTURES under the size cap;
+ * the rest are simply not shown in the preview.
+ */
+export async function readRepoPictures(
+  token: string,
+  repo: RepoRef,
+  sha: string,
+): Promise<Result<{ path: string; bytes: Buffer; mime: string }[]>> {
+  const base = `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`;
+  const commit = await gh<{ tree: { sha: string } }>(token, `${base}/git/commits/${sha}`);
+  if (!commit.ok) return commit;
+  const listing = await gh<{ tree: { path: string; type: string; sha: string; size?: number }[] }>(
+    token,
+    `${base}/git/trees/${commit.value.tree.sha}?recursive=1`,
+  );
+  if (!listing.ok) return listing;
+
+  const wanted = listing.value.tree
+    .filter((entry) => entry.type === "blob" && PICTURE.test(entry.path) && !NOT_SOURCE.test(entry.path))
+    .filter((entry) => (entry.size ?? 0) > 0 && (entry.size ?? 0) <= MAX_PICTURE_BYTES)
+    .slice(0, MOST_PICTURES);
+
+  const out: { path: string; bytes: Buffer; mime: string }[] = [];
+  for (let i = 0; i < wanted.length; i += 6) {
+    const batch = await Promise.all(
+      wanted.slice(i, i + 6).map((entry) => gh<{ content: string; encoding: string }>(token, `${base}/git/blobs/${entry.sha}`)),
+    );
+    batch.forEach((blob, j) => {
+      if (!blob.ok) return;
+      const entry = wanted[i + j];
+      const ext = entry.path.split(".").pop()!.toLowerCase();
+      out.push({ path: entry.path, bytes: Buffer.from(blob.value.content, "base64"), mime: PICTURE_TYPE[ext] ?? "application/octet-stream" });
+    });
+  }
+  return { ok: true, value: out };
 }

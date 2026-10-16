@@ -221,8 +221,20 @@ has(
    Tailwind's defaults still style the page, and a syntax error in this tag
    would take the whole document down with it. */
 has(
-  tailwindConfigScript([...minimal, file("tailwind.config.ts", "module.exports = { theme: {} };")]) === null,
+  tailwindConfigScript([...minimal, file("tailwind.config.js", "module.exports = require('./base.config');")]) === null,
   "an unrecognised config shape is dropped rather than half-translated",
+);
+
+/* The CommonJS shape most imported projects use is read, with its plugins
+   (required packages there is nothing to load for in a browser) left out. */
+has(
+  /window\.__qsTailwind =/.test(
+    tailwindConfigScript([...minimal, file("tailwind.config.js", "module.exports = { theme: { extend: {} }, plugins: [require('@tailwindcss/forms')] };")]) ?? "",
+  ) &&
+    !/require/.test(
+      tailwindConfigScript([...minimal, file("tailwind.config.js", "module.exports = { theme: { extend: {} }, plugins: [require('@tailwindcss/forms')] };")]) ?? "require",
+    ),
+  "a module.exports config is read, without its plugins",
 );
 
 /* ── And the route has to REACH this renderer ─────────────────────────────
