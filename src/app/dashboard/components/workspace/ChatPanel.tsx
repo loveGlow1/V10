@@ -2474,8 +2474,11 @@ export default function ChatPanel({
                   title={chosen.name}
                   className={`${ghostChip} shrink`}
                 >
+                  {/* The maker actually answering. On Auto that is the model
+                      Auto runs, not the router's target symbol — the same rule
+                      the thinking indicator follows (providerOf). */}
                   <span className="flex shrink-0">
-                    <ProviderMark provider={chosen.provider} />
+                    <ProviderMark provider={providerOf(model)} />
                   </span>
                   {/* Named from sm up; a phone shows the mark and the chevron. */}
                   <span className="hidden min-w-0 max-w-[9rem] truncate font-medium tracking-tight sm:block">
@@ -2537,12 +2540,16 @@ export default function ChatPanel({
                   onClick={() => (building ? running.current?.abort() : void send())}
                   disabled={building ? false : (!draft.trim() && attached.length === 0) || paused !== null}
                   aria-label={building ? "Stop waiting" : "Send"}
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-[0.96] disabled:cursor-not-allowed ${
+                  /* Muted grey at rest. It lifts to a softened white — never
+                     full white — once there is something to send, or as soon
+                     as the composer is clicked into, so it is ready under the
+                     finger before the first word. */
+                  className={`flex h-[34px] w-[38px] shrink-0 items-center justify-center rounded-[13px] transition-colors duration-200 active:scale-[0.97] disabled:cursor-not-allowed ${
                     building
                       ? "bg-layer/[0.16] text-ink hover:bg-layer/[0.22]"
                       : (draft.trim() || attached.length > 0) && !paused
-                        ? "bg-solid text-onSolid hover:opacity-90"
-                        : "bg-layer/[0.08] text-ink/30"
+                        ? "bg-solid/[0.82] text-onSolid hover:bg-solid/90"
+                        : "bg-layer/[0.10] text-ink/40 group-focus-within:bg-solid/[0.82] group-focus-within:text-onSolid"
                   }`}
                 >
                   {building ? (
