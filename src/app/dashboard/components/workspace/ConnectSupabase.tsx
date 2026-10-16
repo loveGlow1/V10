@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, Plus, ShieldCheck } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ExternalLink, Loader2, Plus, ShieldCheck, X } from "lucide-react";
 
 /* Connect Supabase — one button instead of three pasted values.
  *
@@ -32,6 +32,10 @@ const RETURNED: Record<string, string> = {
   unavailable: "Connect Supabase isn't set up on this deployment yet.",
 };
 
+const HIDDEN_KEY = "qs-supabase-hidden";
+
+const isPaused = (project: SupabaseProject) => project.status === "INACTIVE" || project.status === "PAUSED";
+
 export default function ConnectSupabase({
   projectId,
   currentRef,
@@ -58,6 +62,30 @@ export default function ConnectSupabase({
   const [org, setOrg] = useState("");
   const [region, setRegion] = useState("eu-central-1");
   const alive = useRef(true);
+  /* Paused projects somebody put out of the way, kept for this browser. Only
+     hidden here — nothing in their Supabase account is touched. */
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [showPaused, setShowPaused] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(HIDDEN_KEY) ?? "[]") as unknown;
+      if (Array.isArray(stored)) setHidden(new Set(stored.filter((ref): ref is string => typeof ref === "string")));
+    } catch {
+      /* Nothing remembered; every project shows. */
+    }
+  }, []);
+  function hide(ref: string) {
+    setHidden((current) => {
+      const next = new Set(current).add(ref);
+      try {
+        window.localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+      } catch {
+        /* Hidden for this visit only. */
+      }
+      return next;
+    });
+    setPicked((current) => (current === ref ? null : current));
+  }
 
   useEffect(() => {
     alive.current = true;
@@ -214,7 +242,16 @@ export default function ConnectSupabase({
     );
   }
 
-  const projects = status.projects ?? [];
+  /* Only a project that can take a connection is offered as a choice. A
+     paused one cannot until it is restored in Supabase, so it is folded away
+     below rather than sitting in the list as a dead option — and when nothing
+     usable is left, the new-project form is what opens. */
+  const all = status.projects ?? [];
+  const projects = all.filter((project) => !isPaused(project));
+  const paused = all.filter((project) => isPaused(project) && !hidden.has(project.ref));
+  /* A pick only counts while it is still a choice — the current project may
+     have been paused since it was connected. */
+  const chosen = picked && projects.some((project) => project.ref === picked) ? picked : null;
 
   return (
     <div className={card}>
@@ -230,8 +267,7 @@ export default function ConnectSupabase({
       {projects.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
           {projects.map((project) => {
-            const paused = project.status === "INACTIVE" || project.status === "PAUSED";
-            const selected = picked === project.ref;
+            const selected = chosen === project.ref;
             return (
               <button
                 key={project.ref}
@@ -249,7 +285,7 @@ export default function ConnectSupabase({
                 </span>
                 <span className="mt-0.5 block text-[12px] text-muted">
                   {project.region}
-                  {paused ? " · paused — restore it in Supabase first" : project.status !== "ACTIVE_HEALTHY" ? " · starting up" : ""}
+                  {project.status !== "ACTIVE_HEALTHY" ? " · starting up" : ""}
                 </span>
               </button>
             );
@@ -259,7 +295,9 @@ export default function ConnectSupabase({
 
       {projects.length === 0 && !creating && (
         <p className="mt-3 text-[12px] leading-relaxed text-muted">
-          You don&apos;t have any Supabase projects yet. Create a free one below.
+          {all.length === 0
+            ? "You don't have any Supabase projects yet. Create a free one below."
+            : "None of your Supabase projects can be connected right now. Create a fresh one below."}
         </p>
       )}
 
@@ -314,7 +352,7 @@ export default function ConnectSupabase({
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button onClick={() => picked && void link(picked)} disabled={!picked || busy !== null} className={primary}>
+          <button onClick={() => chosen && void link(chosen)} disabled={!chosen || busy !== null} className={primary}>
             {busy !== null && busy !== "new" && <Loader2 className="h-3 w-3 animate-spin" />}
             {busy !== null && busy !== "new" ? "Connecting…" : "Connect this project"}
           </button>
@@ -326,6 +364,48 @@ export default function ConnectSupabase({
             <button onClick={onCancel} disabled={busy !== null} className={button}>
               Cancel
             </button>
+          )}
+        </div>
+      )}
+
+      {paused.length > 0 && (
+        <div className="mt-3 rounded-xl border border-line/[0.07] md:rounded-lg">
+          <button
+            onClick={() => setShowPaused((on) => !on)}
+            className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[12px] text-muted hover:text-ink"
+          >
+            {showPaused ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {paused.length} paused {paused.length === 1 ? "project" : "projects"}
+          </button>
+          {showPaused && (
+            <div className="flex flex-col gap-1 px-2 pb-2">
+              {paused.map((project) => (
+                <div key={project.ref} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px]">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-soft">{project.name || project.ref}</span>
+                    <span className="block text-[11px] text-muted">{project.region} · paused</span>
+                  </span>
+                  <a
+                    href={`https://supabase.com/dashboard/project/${encodeURIComponent(project.ref)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Restore it in Supabase, then come back and connect it"
+                    className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-muted hover:bg-layer/[0.06] hover:text-ink"
+                  >
+                    Restore
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  <button
+                    onClick={() => hide(project.ref)}
+                    aria-label={`Remove ${project.name || project.ref} from this list`}
+                    title="Remove from this list (it stays in your Supabase account)"
+                    className="shrink-0 rounded-md p-1 text-muted hover:bg-layer/[0.06] hover:text-ink"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
