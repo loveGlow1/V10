@@ -73,9 +73,14 @@ has(
 /* The "New project" chip and its hint are gone: a new project is the tab
    strip's +, which makes one and opens it on its own tab. */
 const tabStrip = readFileSync(join(process.cwd(), "src/app/dashboard/components/WorkspaceTabs.tsx"), "utf8");
+const quickActions = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/QuickActionsSheet.tsx"), "utf8");
+const newProject = readFileSync(join(process.cwd(), "src/app/dashboard/useNewProject.ts"), "utf8");
 has(
-  /create\(NEW_PROJECT_NAME\)/.test(tabStrip) && /openTab\(/.test(tabStrip),
-  "the tab strip's + starts a new project in its own tab",
+  /create\(NEW_PROJECT_NAME\)/.test(newProject) &&
+    /open\(\{ id: created\.id/.test(newProject) &&
+    /useNewProject\(\)/.test(tabStrip) &&
+    /useNewProject\(\)/.test(quickActions),
+  "the tab strip's + (and Quick Actions on a phone) starts a new project in its own tab",
   "a new project is started from the + beside the tabs, like a browser's new tab",
 );
 

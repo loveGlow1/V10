@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Eye, Info, TerminalSquare, UploadCloud, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Info, Plus, TerminalSquare, UploadCloud, X } from "lucide-react";
 
 import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
 import { safeHttpUrl } from "@/lib/safe-url";
 
 import { isPublished, type Project } from "../../ProjectsContext";
+import { useNewProject } from "../../useNewProject";
 
 /* What the ⋯ in a phone's app header opens: the handful of things you do to
    an app rather than say to it, in one sheet up from the bottom.
@@ -35,6 +36,8 @@ export default function QuickActionsSheet({
 }) {
   const [mounted, setMounted] = useState(false);
   const [info, setInfo] = useState(false);
+  /* Phones have no tab strip, so its + lives here as a row. */
+  const { startNew, starting } = useNewProject();
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     if (!open) setInfo(false);
@@ -172,6 +175,11 @@ export default function QuickActionsSheet({
                 <button onClick={() => setInfo(true)} className={row}>
                   View Info
                   <Info className="h-5 w-5 text-soft" />
+                </button>
+
+                <button onClick={run(() => void startNew())} disabled={starting} className={`${row} disabled:opacity-50`}>
+                  New project
+                  <Plus className="h-5 w-5 text-soft" />
                 </button>
               </div>
             )}
