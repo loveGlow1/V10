@@ -900,6 +900,27 @@ export default function CodeEditor({ projectId }: { projectId: string }) {
           {activityButton("explorer", "Explorer", Files)}
           {activityButton("search", "Search", Search)}
           {activityButton("scm", "Source Control", GitBranch, dirty.length || undefined)}
+          {/* The terminal, one click away: opens the panel on it, or puts the
+              panel away when it is already showing. A green dot while an app
+              is running in it. */}
+          {(() => {
+            const on = panelOpen && panelTab === "terminal";
+            return (
+              <button
+                onClick={() => (on ? setPanelOpen(false) : showPanel("terminal"))}
+                aria-label="Terminal"
+                aria-pressed={on}
+                title="Terminal (Ctrl+`)"
+                className={`relative flex h-12 w-12 items-center justify-center transition-colors ${
+                  on ? "text-[var(--vs-text)]" : "text-[var(--vs-faint)] hover:text-[var(--vs-text)]"
+                }`}
+              >
+                {on ? <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--vs-accent)]" /> : null}
+                <TerminalSquare className="h-6 w-6" strokeWidth={1.5} />
+                {ports.length ? <span className="absolute bottom-2.5 right-2.5 h-2 w-2 rounded-full bg-[#3fb950]" /> : null}
+              </button>
+            );
+          })()}
           <button
             onClick={toggleTheme}
             aria-label={theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
