@@ -18,11 +18,8 @@ import {
   MicOff,
   Paperclip,
   Plus,
-  Repeat2,
   Shuffle,
   ListChecks,
-  Undo2,
-  Wand2,
   X,
 } from "lucide-react";
 
@@ -36,7 +33,7 @@ import { avatarFor } from "../../projectColours";
 import { useProjects, type BuildIntent, type Project } from "../../ProjectsContext";
 /* The same naming Home uses when a sentence becomes an app, so an app started
    from in here is named the way an app started out there is. */
-import { nameFromPrompt } from "../../projectName";
+import { NEW_PROJECT_NAME, nameFromPrompt } from "../../projectName";
 import { useWorkspaceTabs } from "../../WorkspaceTabsContext";
 import Q3DCanvas from "../../../Q3DCanvas";
 import QMark from "../../../QMark";
@@ -197,7 +194,7 @@ export default function ChatPanel({
   alone?: boolean;
 }) {
   const router = useRouter();
-  const { create, build, watchBuild, adopt } = useProjects();
+  const { create, build, watchBuild, adopt, rename } = useProjects();
   /* A build running is what makes a session active. The tab strip shows it, so
      a workspace left for another one still says it is working. */
   const { setBusy } = useWorkspaceTabs();
@@ -1132,6 +1129,12 @@ export default function ChatPanel({
 
     sentHere.current = true;
 
+    /* A project opened blank from the tab strip's + is named by the first
+       thing asked of it, as one started from Home is. */
+    if (!hasPage && text && project.name === NEW_PROJECT_NAME) {
+      void rename(project.id, nameFromPrompt(text));
+    }
+
     /* One controller for the whole run — the request and the wait that follows
        it are the same press of the button as far as anybody is concerned. */
     const run = new AbortController();
@@ -1613,40 +1616,6 @@ export default function ChatPanel({
   const menuItem =
     "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.06]";
 
-  /* The action row's pill.
-   *
-   * Built to sit under the composer rather than beside the toolbar chips, so it
-   * borrows the composer's language instead of the chip's: a soft-cornered
-   * surface, a hairline that is barely a line until you touch it, and the same
-   * unhurried 200ms everything else in this panel moves at. 14px against the
-   * composer's 26px — the same family of corner, a size down, which is what
-   * makes the two read as one object stacked rather than two components that
-   * happened to land together.
-   *
-   * 40px tall. 36 was a control; 40 is somewhere to put a thumb, and the four
-   * pills carry the whole of what can be done from here.
-   *
-   * The states are carried by fill and border rather than by brightness. An
-   * off chip is a surface at 3.5%, hover lifts it to 7% and adds the only
-   * shadow in the row, and a chosen one goes to the accent — which is the one
-   * moment in this panel worth spending the brand colour on, because "the next
-   * message will be read as an edit" is a mode somebody needs to see they are
-   * in from across the room.
-   *
-   * Each fills its half of the row, because the row is a two-column grid — see
-   * the block itself for why. min-w-0 and the truncate on the label are what
-   * keep that safe: a grid column can be narrower than the words in it, and
-   * without these the longest label would run out of its own pill in a narrow
-   * panel rather than shortening inside it. */
-  const action_chip =
-    "group flex h-10 min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[14px] border px-3 text-[13px] font-medium transition-all duration-200 active:scale-[0.97] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/30";
-
-  /* Untouched, and the state everything else is measured against: present
-     enough to read as a button, quiet enough that four of them are not the
-     loudest thing above the box you are meant to be typing in. */
-  const action_chip_rest =
-    "border-line/[0.06] bg-layer/[0.035] text-soft hover:-translate-y-px hover:border-line/[0.12] hover:bg-layer/[0.07] hover:text-ink hover:shadow-[0_4px_14px_rgba(0,0,0,0.28)]";
-
   return (
     /* ── Beside the preview, or on its own ──────────────────────────────
        
@@ -1929,51 +1898,6 @@ export default function ChatPanel({
           </div>
         )}
 
-        {/* What can be done from here, rather than one chip naming what is
-            already happening.
-
-            Four actions in two groups. The first two set what the next
-            message means — they are a choice between each other, so pressing
-            one lights it and pressing it again hands the reading back to the
-            classifier. The last two happen on the press: they are not about the
-            message in the box at all.
-
-            Asking a question used to be a third override and is gone: the
-            classifier already reads a question as a question, so the chip only
-            ever restated what typing one said. The intent itself is untouched —
-            src/lib/builder/intent.ts still returns it, and the tracker still
-            names it.
-
-            Downloading used to be a sixth, and was removed as a duplicate: the
-            preview header carries the permanent one and the finished-build card
-            carries the shortcut, both pointing at the same
-            /preview/[projectId]?download=1. A third copy sitting here for the
-            life of the project bought nothing.
-
-            Only once a page exists. Before that every message is the first
-            build, there is nothing to undo or replace, and a row of actions
-            that mostly do not apply is worse than no row. It also
-            stands down entirely while the replace-or-edit question is up: that
-            question is the one thing on this bar worth reading.
-
-            Two columns, and they are the two groups. Wrapping put them there
-            anyway at every width this panel is ever given — the four labels
-            come to 570px and the chat column is nowhere near that — but it put
-            them there by accident, and an accident is not a layout: the two
-            lines ended 111px and 51px short of the edge, at different points,
-            which is a block of four buttons with a torn right side and a
-            hundred pixels of nothing beside it.
-
-            So it is stated instead. Each pill fills its half, the pairs line
-            up, and the break falls where the meaning already breaks: the two
-            that set what the next message means on top, the two that happen on
-            the press underneath. The columns are what carry that grouping —
-            the same reason the labels are centred, since a centred label is
-            read as filling its cell and a left-aligned one as having run
-            short.
-
-            One column below 360px, where two would be narrower than the
-            longest label. */}
         {/* Said once, above the composer, before anybody writes anything.
             
             Not a toast and not a modal: a toast is gone by the time somebody
@@ -1981,112 +1905,12 @@ export default function ChatPanel({
             demands to be dismissed before it will let them read the thing it
             is talking about. This sits where the answer would have appeared,
             stays there, and greys the send button beside it so the state and
-            its consequence are one thing rather than two.
-            
-            It replaces the action row rather than stacking above it: while
-            nothing can be built, "Edit this app" and "Undo last change" are
-            two more buttons that do not work, and offering them is the same
-            lie in a smaller font. */}
+            its consequence are one thing rather than two. */}
         {paused && (
           <div className="mb-4 flex items-start gap-2.5 rounded-[10px] border border-warn/[0.22] bg-warn/[0.07] px-3 py-2.5">
             <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
             <p className="text-[12.5px] leading-relaxed text-soft">{paused.message}</p>
           </div>
-        )}
-
-        {hasPage && !pendingConfirm && !paused && (
-        /* The gap to the composer. The row used to sit 8px off it, close enough
-           that the last chip read as part of the box rather than as something
-           above it, and on a phone close enough to catch with the thumb on the
-           way to typing. */
-        <div className="mb-4">
-          <div className="grid grid-cols-1 gap-2 px-1 min-[360px]:grid-cols-2">
-            {[
-              {
-                id: "edit" as const,
-                label: "Edit this app",
-                icon: Wand2,
-                title: "Change this page. The next message is read as an edit.",
-              },
-              {
-                id: "new_project" as const,
-                label: "New project",
-                icon: Plus,
-                /* No "you are asked before this page goes", because it does
-                   not go. This opens a new workspace and leaves this one alone. */
-                title: "Build something new. It opens in its own workspace and leaves this app alone.",
-              },
-            ].map((action) => {
-              const Icon = action.icon;
-              const on = mode === action.id;
-              return (
-                <button
-                  key={action.id}
-                  type="button"
-                  title={action.title}
-                  aria-pressed={on}
-                  onClick={() => setMode(on ? "auto" : action.id)}
-                  className={`${action_chip} ${
-                    on
-                      ? "border-accent/[0.38] bg-accent/[0.10] text-ink shadow-[0_4px_16px_rgba(0,0,0,0.30)]"
-                      : action_chip_rest
-                  }`}
-                >
-                  <Icon
-                    className={`h-4 w-4 shrink-0 transition-colors ${
-                      on ? "text-accent" : "text-muted group-hover:text-soft"
-                    }`}
-                  />
-                  <span className="truncate">{action.label}</span>
-                </button>
-              );
-            })}
-
-            {/* Another app in this session — the list of them is a page now, so
-                this goes there rather than growing a second switcher in here. */}
-            <button
-              type="button"
-              title="Open another one of your apps."
-              onClick={() => router.push("/dashboard/projects")}
-              className={`${action_chip} ${action_chip_rest}`}
-            >
-              <Repeat2 className="h-4 w-4 shrink-0 text-muted transition-colors group-hover:text-soft" />
-              <span className="truncate">Replace this app</span>
-            </button>
-
-            {/* Sent as a message rather than done behind the scenes, so the
-                revert lands in the conversation next to the change it undoes.
-                Disabled while a build is running: two builds racing over one
-                page is how a page ends up as neither. */}
-            <button
-              type="button"
-              title="Undo the last change to this page."
-              disabled={building}
-              onClick={() => void send("Undo the last change.", { intentOverride: "revert" })}
-              className={`${action_chip} ${action_chip_rest} disabled:pointer-events-none disabled:opacity-40`}
-            >
-              <Undo2 className="h-4 w-4 shrink-0 text-muted transition-colors group-hover:text-soft" />
-              <span className="truncate">Undo last change</span>
-            </button>
-          </div>
-
-        {/* Said once, under the row, rather than on the chip that caused it —
-            the chip has room for a name and nothing else. Closer to the row
-            than the row is to the composer, because it belongs to the row. */}
-        {hasPage && !pendingConfirm && mode !== "auto" && (
-          <p className="mt-2 px-1 text-[11.5px] text-muted">
-            {mode === "new_project"
-              /* What actually happens, which is not what this said for a while.
-                 startNewProject() creates a SEPARATE project and opens it with
-                 this brief — this page is not touched, not replaced, and is
-                 still in the tab strip afterwards. The old wording described
-                 the behaviour this chip had before it was fixed, and a warning
-                 about losing work that cannot be lost is its own small harm. */
-              ? "The next message starts a new app, in its own workspace."
-              : "The next message edits this page."}
-          </p>
-        )}
-        </div>
         )}
 
         {/* Which of the four this is. Only ever shown when the rules genuinely

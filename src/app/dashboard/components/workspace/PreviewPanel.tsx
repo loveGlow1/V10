@@ -1352,9 +1352,13 @@ export default function PreviewPanel({
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center bg-white px-6 text-center">
               <p className="text-[13px] leading-relaxed text-slate-500">
-                {pageFailed
-                  ? "This page could not be loaded. Try refreshing."
-                  : "Loading the page…"}
+                {/* A project opened blank from the tab strip has nothing to
+                    load yet, which is not a failure. */}
+                {pageFailed && !project?.last_build_at
+                  ? "Nothing built yet. Describe your app in the chat and it will appear here."
+                  : pageFailed
+                    ? "This page could not be loaded. Try refreshing."
+                    : "Loading the page…"}
               </p>
             </div>
           )}
