@@ -134,8 +134,11 @@ export default function TopNav({ tabs, onUpgradeClick, onAccountSettingsClick, p
           floating with a hairline under them. */}
       <div className="mx-auto flex h-full w-full items-stretch justify-between gap-3 px-4 sm:px-6">
         {/* Brand */}
-        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-          <a href="/dashboard" className="flex shrink-0 items-center gap-2" aria-label="QuickStark.Ai dashboard">
+        {/* On the tabs' line, not the bar's: the tabs hang 34px tall from the
+            bar's bottom edge, so the mark and the name sit in a 34px row on that
+            same edge and share their centre line with "Home". */}
+        <div className="flex min-w-0 items-end gap-2 sm:gap-4">
+          <a href="/dashboard" className="-mb-px flex h-[34px] shrink-0 items-center gap-2" aria-label="QuickStark.Ai dashboard">
             <span className="flex h-7 w-7 items-center justify-center overflow-hidden">
               <Q3DCanvas scale={0.55} />
             </span>
