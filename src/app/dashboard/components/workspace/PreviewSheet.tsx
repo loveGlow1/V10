@@ -9,7 +9,7 @@ import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 
 import { ManageMark } from "./panelMarks";
-import VisualEditPanel from "./VisualEditPanel";
+import { VisualEditPrompt } from "./VisualEditOverlay";
 import { usePreviewBridge } from "./preview-bridge";
 
 /* The preview, over the whole screen, on a phone.
@@ -62,7 +62,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, tokens, previewVisual, deselect, selectParent } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, deselect } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -236,21 +236,21 @@ export default function PreviewSheet({
                 />
                 {/* Over the frame rather than instead of it, so the frame is
                     already loading while this is on screen. */}
-                {editMode && projectId ? (
-                  <VisualEditPanel
-                    layout="sheet"
+                {editMode && projectId && picked ? (
+                  <VisualEditPrompt
                     projectId={projectId}
                     picked={picked}
-                    tokens={tokens}
-                    onPreview={previewVisual}
-                    onApplied={() => {
+                    docked
+                    onSent={() => {
                       setPicked(null);
-                      setNonce((value) => value + 1);
+                      deselect();
                     }}
-                    onClose={() => setEditMode(false)}
-                    onDeselect={deselect}
-                    onSelectParent={selectParent}
+                    onCancel={deselect}
                   />
+                ) : editMode ? (
+                  <p className="pointer-events-none absolute inset-x-0 bottom-20 z-20 mx-auto w-fit rounded-full bg-[#1c1c1f]/90 px-3.5 py-1.5 text-[12.5px] text-white/85 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+                    Tap anything to change it
+                  </p>
                 ) : null}
                 <AnimatePresence>
                   {!loaded && (

@@ -181,7 +181,7 @@ export const PREVIEW_RUNTIME = `
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
     if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
-    if (data.deselect === true) { selected = null; place(selectBox, null); return; }
+    if (data.deselect === true) { selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
     if (typeof data.navigate !== 'string') return;
@@ -198,6 +198,10 @@ export const PREVIEW_RUNTIME = `
   var editing = false;
   var hoverBox = null;
   var selectBox = null;
+  /* The tag of what is selected, in a badge on its top-left corner — "h1",
+     "button" — so it is clear which element a request will be about. */
+  var selectLabel = null;
+  var lastRect = '';
   var selected = null;
   var hovered = null;
   var following = 0;
@@ -211,6 +215,47 @@ export const PREVIEW_RUNTIME = `
     box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border-radius:3px;display:none;box-sizing:border-box;border:' + width + 'px solid ' + colour + ';';
     document.body.appendChild(box);
     return box;
+  }
+
+  function label() {
+    var tag = document.createElement('div');
+    tag.setAttribute('data-qs-overlay', '');
+    tag.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;display:none;align-items:center;gap:4px;padding:2px 6px;border-radius:5px;background:#2563eb;color:#fff;font:600 11px/16px ui-sans-serif,system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.25);';
+    document.body.appendChild(tag);
+    return tag;
+  }
+
+  function placeLabel(element) {
+    if (!selectLabel) return;
+    if (!element || !element.isConnected) { selectLabel.style.display = 'none'; return; }
+    var rect = element.getBoundingClientRect();
+    selectLabel.textContent = '\u25C7 ' + element.tagName.toLowerCase();
+    selectLabel.style.display = 'flex';
+    selectLabel.style.left = Math.max(2, rect.left) + 'px';
+    selectLabel.style.top = (rect.top > 22 ? rect.top - 22 : rect.top + 2) + 'px';
+  }
+
+  function rectOf(element) {
+    var rect = element.getBoundingClientRect();
+    return {
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
+    };
+  }
+
+  /* Where the selected element is now, sent only when it moved, so the
+     workspace can keep its prompt beside it while the page scrolls. */
+  function reportRect() {
+    if (!selected || !selected.isConnected) return;
+    var rect = rectOf(selected);
+    var key = rect.top + ',' + rect.left + ',' + rect.width + ',' + rect.height + ',' + rect.viewportWidth;
+    if (key === lastRect) return;
+    lastRect = key;
+    report('rect', rect);
   }
 
   function place(box, element) {
@@ -256,7 +301,8 @@ export const PREVIEW_RUNTIME = `
       repeated: sameSource(src).length,
       color: style.color,
       background: style.backgroundColor,
-      fontSize: style.fontSize
+      fontSize: style.fontSize,
+      rect: rectOf(element)
     };
   }
 
@@ -274,6 +320,8 @@ export const PREVIEW_RUNTIME = `
   function tick() {
     if (!editing) { following = 0; return; }
     place(selectBox, selected);
+    placeLabel(selected);
+    reportRect();
     if (hovered) place(hoverBox, hovered);
     following = window.requestAnimationFrame(tick);
   }
@@ -289,7 +337,9 @@ export const PREVIEW_RUNTIME = `
 
   function selectElement(element) {
     selected = element;
+    lastRect = '';
     place(selectBox, element);
+    placeLabel(element);
     reveal(element);
     report('select', describeElement(element));
   }
@@ -312,6 +362,16 @@ export const PREVIEW_RUNTIME = `
     selectElement(element);
   }
 
+  /* Escape lets go of the selection, in the frame as in the workspace. */
+  function onKey(event) {
+    if (!editing || event.key !== 'Escape' || !selected) return;
+    selected = null;
+    lastRect = '';
+    place(selectBox, null);
+    placeLabel(null);
+    report('deselect', null);
+  }
+
   function onBlock(event) {
     if (!editing) return;
     event.preventDefault();
@@ -326,11 +386,12 @@ export const PREVIEW_RUNTIME = `
   function setEditing(on) {
     if (on === editing) return;
     editing = on;
-    if (!hoverBox) { hoverBox = overlay('rgba(59,130,246,0.7)', 1); selectBox = overlay('#2563eb', 2); }
+    if (!hoverBox) { hoverBox = overlay('rgba(59,130,246,0.7)', 1); selectBox = overlay('#2563eb', 2); selectLabel = label(); }
     if (on) {
       window.addEventListener('mousemove', onHover, true);
       window.addEventListener('click', onPick, true);
       window.addEventListener('submit', onBlock, true);
+      window.addEventListener('keydown', onKey, true);
       window.addEventListener('scroll', follow, true);
       window.addEventListener('resize', follow);
       document.documentElement.style.cursor = 'crosshair';
@@ -339,6 +400,7 @@ export const PREVIEW_RUNTIME = `
       window.removeEventListener('mousemove', onHover, true);
       window.removeEventListener('click', onPick, true);
       window.removeEventListener('submit', onBlock, true);
+      window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', follow, true);
       window.removeEventListener('resize', follow);
       document.documentElement.style.cursor = '';
@@ -347,6 +409,8 @@ export const PREVIEW_RUNTIME = `
       if (following) { window.cancelAnimationFrame(following); following = 0; }
       place(hoverBox, null);
       place(selectBox, null);
+      placeLabel(null);
+      lastRect = '';
     }
   }
 

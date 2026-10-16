@@ -30,7 +30,7 @@ import {
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
-import VisualEditPanel from "./VisualEditPanel";
+import { PreviewToolbar, VisualEditPrompt } from "./VisualEditOverlay";
 import { usePreviewBridge } from "./preview-bridge";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
@@ -435,18 +435,24 @@ export default function PreviewPanel({
   /* ── The visual editor ─────────────────────────────────────────────────
    *
    * Edit mode is the preview's: the frame outlines and selects what is
-   * clicked (see preview/runtime.ts) and reports it here; the panel beside it
-   * makes the changes. See VisualEditPanel. */
-  const {
-    editMode,
-    setEditMode,
-    picked,
-    setPicked,
-    tokens: designTokens,
-    previewVisual,
-    deselect,
-    selectParent,
-  } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+   * clicked (see preview/runtime.ts) and reports it here; a prompt opens
+   * beside it and sends the request to the chat. See VisualEditOverlay. */
+  const { editMode, setEditMode, picked, setPicked, deselect } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+
+  /* The floating toolbar's other two controls: the width the preview is shown
+     at, and full screen for the frame's own box. */
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const frameBoxRef = useRef<HTMLDivElement | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === frameBoxRef.current && frameBoxRef.current !== null);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void frameBoxRef.current?.requestFullscreen?.().catch(() => {});
+  }
   /* Editing happens on the project rendered from its source, never on the
      live site, which knows nothing of where its elements were written. */
   const framesLive = !editMode;
@@ -899,7 +905,10 @@ export default function PreviewPanel({
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       {previewUrl ? (
         <div className="flex h-full min-h-[280px] gap-3">
-        <div className="relative flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]">
+        <div
+          ref={frameBoxRef}
+          className="relative flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line/[0.07] bg-layer/[0.02]"
+        >
           {/* Nothing is written across the top of the frame. What used to sit
               here was a private preview URL — nothing to click, nothing to do
               with it, and on every screenshot and screen-share of somebody's
@@ -1242,7 +1251,9 @@ export default function PreviewPanel({
               src={publishedLive}
               title={`${project?.name ?? "App"} — live`}
               sandbox={liveSandbox}
-              className="min-h-0 flex-1 border-0 bg-white"
+              className={`min-h-0 flex-1 border-0 bg-white ${
+                device === "mobile" ? "w-[390px] max-w-full self-center" : ""
+              }`}
             />
           ) : isReceipt ? (
             /* The summary came back, which now means the renderer could not
@@ -1290,18 +1301,38 @@ export default function PreviewPanel({
               </button>
             </div>
           ) : pageHtml !== null ? (
-            <iframe
-              key={`${previewUrl}#${reloads}`}
-              ref={frameRef}
-              srcDoc={framedHtml ?? ""}
-              title={`${project?.name ?? "App"} preview`}
-              /* No allow-same-origin, deliberately: this document was written by
-                 a model from someone's prompt, and it runs its own scripts. An
-                 opaque origin is what keeps it away from the session cookie and
-                 the API routes on this domain. */
-              sandbox="allow-scripts allow-forms allow-popups"
-              className="min-h-0 flex-1 border-0 bg-white"
-            />
+            /* The frame's own box, so the edit prompt can be placed in the
+               frame's coordinates — see VisualEditPrompt. */
+            <div
+              className={`relative flex min-h-0 flex-1 flex-col ${
+                device === "mobile" ? "w-[390px] max-w-full self-center border-x border-line/[0.08]" : "w-full"
+              }`}
+            >
+              <iframe
+                key={`${previewUrl}#${reloads}`}
+                ref={frameRef}
+                srcDoc={framedHtml ?? ""}
+                title={`${project?.name ?? "App"} preview`}
+                /* No allow-same-origin, deliberately: this document was written by
+                   a model from someone's prompt, and it runs its own scripts. An
+                   opaque origin is what keeps it away from the session cookie and
+                   the API routes on this domain. */
+                sandbox="allow-scripts allow-forms allow-popups"
+                className="min-h-0 flex-1 border-0 bg-white"
+              />
+              {editMode && picked && project?.id ? (
+                <VisualEditPrompt
+                  projectId={project.id}
+                  picked={picked}
+                  docked={!isDesktop}
+                  onSent={() => {
+                    setPicked(null);
+                    deselect();
+                  }}
+                  onCancel={deselect}
+                />
+              ) : null}
+            </div>
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center bg-white px-6 text-center">
               <p className="text-[13px] leading-relaxed text-slate-500">
@@ -1311,42 +1342,19 @@ export default function PreviewPanel({
               </p>
             </div>
           )}
-          {/* On a phone the controls are a sheet over the preview, never a
-              second box stacked under it — see VisualEditPanel's sheet. */}
-          {editMode && project?.id && !isDesktop ? (
-            <VisualEditPanel
-              layout="sheet"
-              projectId={project.id}
-              picked={picked}
-              tokens={designTokens}
-              onPreview={previewVisual}
-              onApplied={() => {
-                setPicked(null);
-                setReloads((count) => count + 1);
-              }}
-              onClose={() => setEditMode(false)}
-              onDeselect={deselect}
-              onSelectParent={selectParent}
-            />
-          ) : null}
+          {/* Edit, the width it is shown at, full screen — floating over the
+              foot of the frame, the way the preview's own controls do in
+              other builders. */}
+          <PreviewToolbar
+            editMode={editMode}
+            canEdit={Boolean(previewUrl) && !isReceipt}
+            onToggleEdit={() => setEditMode((on) => !on)}
+            device={device}
+            onDevice={setDevice}
+            fullscreen={fullscreen}
+            onFullscreen={toggleFullscreen}
+          />
         </div>
-          {editMode && project?.id && isDesktop ? (
-            <div className="flex min-h-0 w-72 shrink-0 overflow-hidden rounded-2xl border border-line/[0.07]">
-              <VisualEditPanel
-                projectId={project.id}
-                picked={picked}
-                tokens={designTokens}
-                onPreview={previewVisual}
-                onApplied={() => {
-                  setPicked(null);
-                  setReloads((count) => count + 1);
-                }}
-                onClose={() => setEditMode(false)}
-                onDeselect={deselect}
-                onSelectParent={selectParent}
-              />
-            </div>
-          ) : null}
         </div>
       ) : (
         <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
@@ -1860,17 +1868,6 @@ export default function PreviewPanel({
             <RotateCw className="h-4 w-4" />
           </button>
 
-          {/* Point at something in the preview and change it. */}
-          <button
-            onClick={() => setEditMode((on) => !on)}
-            disabled={!previewUrl || isReceipt}
-            title={editMode ? "Close visual edit" : "Visual edit — click anything in the preview to change it"}
-            aria-label={editMode ? "Close visual edit" : "Visual edit"}
-            aria-pressed={editMode}
-            className={`${tile} ${editMode ? "bg-layer/[0.10] text-ink" : ""}`}
-          >
-            <MousePointerClick className="h-4 w-4" />
-          </button>
 
           <button
             onClick={() => {
