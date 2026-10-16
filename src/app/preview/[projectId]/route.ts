@@ -12,6 +12,7 @@ import { toStandalone } from "@/lib/standalone-page";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { isSafeExternalOrigin } from "@/lib/preview/safe-frame";
+import { withSinglePageEdit } from "@/lib/builder/preview/single-page-edit";
 
 /* Serves the page a build produced.
  *
@@ -607,7 +608,12 @@ export async function GET(
     );
   }
 
-  return new Response(build.html, {
+  /* A single page has no runtime, so edit mode comes with it here — see
+     lib/builder/preview/single-page-edit.ts. Not the receipt asked for with
+     ?diagnostics=1, which is a document about the build, not the page. */
+  const page = wantsDiagnostics ? (build.html as string) : withSinglePageEdit(build.html as string);
+
+  return new Response(page, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       /* The line that makes serving this safe — see the note above. Scripts and
