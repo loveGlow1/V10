@@ -15,11 +15,11 @@ import {
   GitFork,
   Github,
   Cable,
-  Code2,
   MicOff,
   Paperclip,
-  Plus,
   Shuffle,
+  SlidersHorizontal,
+  ChevronRight,
   ListChecks,
   X,
 } from "lucide-react";
@@ -330,7 +330,6 @@ export default function ChatPanel({
   /* The sliders button's sheet, and the one setting in it that changes what
      sending does: plan mode answers with a plan and touches nothing. */
   const [addOpen, setAddOpen] = useState(false);
-  const [modeOpen, setModeOpen] = useState(false);
   const [planMode, setPlanMode] = useState(false);
 
   /* Alt+P switches Build and Plan from anywhere in the workspace, the way the
@@ -1662,8 +1661,6 @@ export default function ChatPanel({
     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink/80 transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.97]";
   const ghostChip =
     "flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-[13px] text-ink/85 transition-colors hover:bg-layer/[0.08] hover:text-ink active:scale-[0.98]";
-  const menuItem =
-    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.06]";
 
   const putLongChatAway = useCallback(() => {
     const at = messages.length;
@@ -2399,10 +2396,10 @@ export default function ChatPanel({
             </div>
 
             <div className="relative mt-3 flex min-w-0 items-center justify-between gap-2">
-              {/* Left: one "+" for everything that adds to or leaves the
-                  conversation, then the connectors. Everything else that used to
-                  sit here lives in the "+" menu, which is what keeps the row
-                  inside the box on a narrow panel. */}
+              {/* Left: attach, settings, then the connectors. Settings holds
+                  everything that changes how the chat runs or where it goes —
+                  model, Plan mode, GitHub and Fork — which is what keeps the
+                  row inside the box on a narrow panel. */}
               <div className="flex shrink-0 items-center gap-1">
                 <input
                   type="file"
@@ -2420,18 +2417,26 @@ export default function ChatPanel({
                   }}
                 />
                 <button
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Upload file or assets"
+                  title="Upload file or assets"
+                  className={ghost}
+                >
+                  <Paperclip className="h-4 w-4 -rotate-45" />
+                </button>
+
+                <button
                   onClick={() => {
                     setAddOpen((open) => !open);
                     setModelOpen(false);
-                    setModeOpen(false);
                     setForkOpen(false);
                   }}
                   aria-expanded={addOpen}
-                  aria-label="Add"
-                  title="Add"
-                  className={addOpen ? `${ghost} bg-layer/[0.08]` : ghost}
+                  aria-label={planMode ? "Settings (Plan mode on)" : "Settings"}
+                  title="Settings"
+                  className={`${addOpen ? `${ghost} bg-layer/[0.08]` : ghost} ${planMode ? "text-accent" : ""}`}
                 >
-                  {addOpen ? <X className="h-[18px] w-[18px]" /> : <Plus className="h-[18px] w-[18px]" />}
+                  <SlidersHorizontal className="h-4 w-4" />
                 </button>
 
                 {/* Every integration, unfiltered — the connectors. */}
@@ -2449,7 +2454,6 @@ export default function ChatPanel({
                 <button
                   onClick={() => {
                     setModelOpen((open) => !open);
-                    setModeOpen(false);
                     setAddOpen(false);
                     setForkOpen(false);
                   }}
@@ -2471,27 +2475,6 @@ export default function ChatPanel({
                   <ChevronDown
                     className={`h-3.5 w-3.5 shrink-0 opacity-70 transition-transform ${modelOpen ? "rotate-180" : ""}`}
                   />
-                </button>
-
-                {/* Build or Plan. Plan used to be a switch in Settings with a
-                    chip that appeared once it was on; it is one choice with two
-                    answers, so it is one control that always says which. */}
-                <button
-                  onClick={() => {
-                    setModeOpen((open) => !open);
-                    setModelOpen(false);
-                    setAddOpen(false);
-                    setForkOpen(false);
-                  }}
-                  aria-expanded={modeOpen}
-                  aria-label={planMode ? "Mode: Plan" : "Mode: Build"}
-                  title="Switch modes with Alt+P"
-                  className={`${ghostChip} shrink-0 ${planMode ? "text-accent" : ""}`}
-                >
-                  {planMode ? <ListChecks className="h-4 w-4" /> : <Code2 className="h-4 w-4" />}
-                  <span className="hidden font-medium tracking-tight sm:inline">
-                    {planMode ? "Plan" : "Build"}
-                  </span>
                 </button>
 
                 <button
@@ -2550,23 +2533,57 @@ export default function ChatPanel({
               <Popover
                 open={addOpen}
                 onClose={() => setAddOpen(false)}
-                title="Add"
+                title="Settings"
                 align="left"
                 side="top"
-                width="w-[min(240px,100%)]"
+                width="w-[min(300px,100%)]"
                 sheetOnMobile={false}
               >
-                <div className="-m-1.5 flex flex-col" role="menu">
+                <div className="-m-1.5 flex flex-col gap-1.5" role="menu">
+                  <p className="px-2.5 pb-0.5 pt-1 text-center text-[13.5px] font-semibold text-ink">
+                    Settings
+                  </p>
                   <button
                     role="menuitem"
                     onClick={() => {
                       setAddOpen(false);
-                      fileInputRef.current?.click();
+                      setModelOpen(true);
                     }}
-                    className={menuItem}
+                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.08]"
                   >
-                    <Paperclip className="h-4 w-4 -rotate-45 text-muted" />
-                    Upload file or assets
+                    <span className="flex shrink-0">
+                      <ProviderMark provider={providerOf(model)} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11.5px] text-muted">Model</span>
+                      <span className="block truncate text-[13.5px] font-medium text-ink">
+                        {chosen.name}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                  </button>
+                  <button
+                    role="menuitemcheckbox"
+                    aria-checked={planMode}
+                    title="Switch modes with Alt+P"
+                    onClick={() => setPlanMode((on) => !on)}
+                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.08]"
+                  >
+                    <ListChecks className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="flex-1 text-[13.5px] font-medium text-ink">Plan mode</span>
+                    {/* The switch itself — on means review before building. */}
+                    <span
+                      aria-hidden
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                        planMode ? "bg-accent" : "bg-layer/[0.16]"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] ${
+                          planMode ? "left-[18px]" : "left-0.5"
+                        }`}
+                      />
+                    </span>
                   </button>
                   <button
                     role="menuitem"
@@ -2574,9 +2591,9 @@ export default function ChatPanel({
                       setAddOpen(false);
                       onOpenIntegrations();
                     }}
-                    className={menuItem}
+                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.08]"
                   >
-                    <Github className="h-4 w-4 text-muted" />
+                    <Github className="h-4 w-4 shrink-0 text-muted" />
                     Save to GitHub
                   </button>
                   <button
@@ -2586,56 +2603,14 @@ export default function ChatPanel({
                       setAddOpen(false);
                       setForkOpen(true);
                     }}
-                    className={`${menuItem} disabled:cursor-not-allowed disabled:opacity-45`}
+                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    <GitFork className="h-4 w-4 text-muted" />
-                    Fork (fresh chat, same code)
+                    <GitFork className="h-4 w-4 shrink-0 text-muted" />
+                    Fork
                   </button>
                 </div>
               </Popover>
 
-              <Popover
-                open={modeOpen}
-                onClose={() => setModeOpen(false)}
-                title="Mode"
-                align="right"
-                side="top"
-                width="w-[min(240px,100%)]"
-                sheetOnMobile={false}
-              >
-                <div className="-m-1.5 flex flex-col" role="menu">
-                  {(
-                    [
-                      { plan: false, label: "Build", blurb: "Start making changes now" },
-                      { plan: true, label: "Plan", blurb: "Review before building" },
-                    ] as const
-                  ).map((option) => (
-                    <button
-                      key={option.label}
-                      role="menuitemradio"
-                      aria-checked={planMode === option.plan}
-                      onClick={() => {
-                        setPlanMode(option.plan);
-                        setModeOpen(false);
-                      }}
-                      className="flex w-full items-start justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-layer/[0.05]"
-                    >
-                      <span>
-                        <span className="block text-[13.5px] font-medium text-ink">{option.label}</span>
-                        <span className="block text-[12px] text-muted">{option.blurb}</span>
-                      </span>
-                      {planMode === option.plan && (
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                      )}
-                    </button>
-                  ))}
-                  <p className="mt-1 border-t border-line/[0.06] px-2.5 pb-0.5 pt-2 text-[11.5px] text-muted">
-                    Switch modes with{" "}
-                    <kbd className="rounded border border-line/[0.12] px-1 font-sans">Alt</kbd>{" "}
-                    <kbd className="rounded border border-line/[0.12] px-1 font-sans">P</kbd>
-                  </p>
-                </div>
-              </Popover>
               {/* Anchored to the row rather than to the chip that opens it: a
                   panel hung off a control near the right edge has only the
                   width between that control and the edge, which on a phone is
