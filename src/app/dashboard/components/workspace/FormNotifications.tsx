@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Check, Loader2, Mail, Send } from "lucide-react";
+import { AtSign, Check, Info, Loader2, Mail, Pencil, Send } from "lucide-react";
 
 /* "Email me new messages" — whether QuickStark emails the owner when one of
    their forms is sent, and to which address. The message itself is saved
@@ -133,34 +133,49 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
       </p>
 
       {state.enabled && !editing && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-layer/[0.03] px-3 py-2.5">
-          <p className="min-w-0 flex-1 text-[12.5px] text-soft">
-            Emails go to <span className="break-all font-medium text-ink">{to}</span>
-            {usingAccount && state.accountEmail && <span className="text-muted"> (your account email)</span>}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setEditing(true);
-              setNotice(null);
-              setProblem(null);
-              setDraft(state.email ?? "");
-            }}
-            className="h-8 rounded-lg border border-line/[0.09] px-3 text-[12.5px] text-ink transition-colors hover:bg-layer/[0.05]"
-          >
-            Update email
-          </button>
-          {state.configured && (
+        <div className="mt-3 overflow-hidden rounded-xl border border-line/[0.07] bg-layer/[0.03]">
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
+              <AtSign className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 text-[11.5px] text-muted">
+                Emails go to
+                {usingAccount && state.accountEmail && (
+                  <span className="rounded-full bg-layer/[0.08] px-1.5 py-px text-[10.5px]">Account email</span>
+                )}
+              </p>
+              <p className="mt-0.5 truncate text-[13.5px] font-medium text-ink" title={to}>
+                {to}
+              </p>
+            </div>
+          </div>
+          <div className="flex border-t border-line/[0.07]">
             <button
               type="button"
-              onClick={() => void sendTest()}
-              disabled={testing}
-              className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink disabled:opacity-50"
+              onClick={() => {
+                setEditing(true);
+                setNotice(null);
+                setProblem(null);
+                setDraft(state.email ?? "");
+              }}
+              className="flex h-10 flex-1 items-center justify-center gap-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05]"
             >
-              {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              Send test email
+              <Pencil className="h-3.5 w-3.5" />
+              Update email
             </button>
-          )}
+            {state.configured && (
+              <button
+                type="button"
+                onClick={() => void sendTest()}
+                disabled={testing}
+                className="flex h-10 flex-1 items-center justify-center gap-1.5 border-l border-line/[0.07] text-[12.5px] font-medium text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink disabled:opacity-50"
+              >
+                {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Send test email
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -170,7 +185,7 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
             event.preventDefault();
             void save({ email: draft.trim() || null });
           }}
-          className="mt-3 rounded-lg bg-layer/[0.03] p-3"
+          className="mt-3 rounded-xl border border-line/[0.07] bg-layer/[0.03] p-3.5"
         >
           <label htmlFor={`notify-email-${projectId}`} className="text-[12px] font-medium text-ink">
             Send form emails to
@@ -212,18 +227,24 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
       )}
 
       {notice && (
-        <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-accent">
+        <p className="mt-2.5 flex items-start gap-2 rounded-lg bg-accent/10 px-3 py-2 text-[12px] leading-relaxed text-accent">
           <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          {notice}
+          <span className="min-w-0 break-words">{notice}</span>
         </p>
       )}
 
       {state.enabled && !state.configured && (
-        <p className="mt-2 text-[12px] leading-relaxed text-amber-400">
-          Email sending isn&apos;t switched on for this deployment yet, so messages are saved but not emailed.
+        <p className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-400">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>Email sending isn&apos;t set up yet. Messages are still saved{state.inbox ? " in your inbox" : ""}.</span>
         </p>
       )}
-      {problem && <p className="mt-2 text-[12px] leading-relaxed text-amber-400">{problem}</p>}
+      {problem && (
+        <p className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-400">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{problem}</span>
+        </p>
+      )}
     </div>
   );
 }
