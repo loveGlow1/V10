@@ -573,7 +573,7 @@ export async function GET(
                  document runs source a customer's prompt produced. It needs
                  scripts to be an application at all, and it must not have this
                  origin's cookies while it does. */
-              "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+              "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
               "X-Content-Type-Options": "nosniff",
               "Cache-Control": "no-store",
             },
@@ -588,7 +588,7 @@ export async function GET(
         return new Response(staticSiteDocument(tree, repoAssets, staticEntry), {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
-            "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+            "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-store",
           },
@@ -645,7 +645,7 @@ export async function GET(
          forms are allowed because a page needs them; same-origin is not, which
          is what denies the session cookie and this origin's API routes.
          allow-popups so an <a target="_blank"> in a landing page still works. */
-      "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+      "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
       /* Belt and braces for the framed case, and it costs nothing. */
       "X-Content-Type-Options": "nosniff",
       /* A build replaces the page at the same address, so a cached copy is a

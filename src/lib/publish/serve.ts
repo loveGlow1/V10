@@ -228,7 +228,7 @@ export async function servePublished(asked: Asked): Promise<Response> {
       /* See the note at the top of this file. Scripts and forms run because a
          real site needs them; same-origin is withheld, and on a path-served
          page that is what denies this app's own session cookie. */
-      "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups",
+      "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
       "X-Content-Type-Options": "nosniff",
       /* A published page changes only when somebody publishes, so it is worth
          caching at the edge — and it must revalidate rather than go stale,

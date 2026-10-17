@@ -579,12 +579,12 @@ export default function PreviewPanel({
   /* The live frame keeps allow-same-origin only for an address that is
      provably another origin — see lib/preview/safe-frame. */
   const liveSandbox = useMemo(() => {
-    if (!publishedLive || typeof window === "undefined") return "allow-scripts allow-forms allow-popups";
+    if (!publishedLive || typeof window === "undefined") return "allow-scripts allow-forms allow-popups allow-downloads";
     if (isSafeExternalOrigin(publishedLive, window.location.origin)) {
-      return "allow-scripts allow-forms allow-popups allow-same-origin";
+      return "allow-scripts allow-forms allow-popups allow-downloads allow-same-origin";
     }
     console.warn("[preview] live address is not a separate origin; dropping allow-same-origin:", publishedLive);
-    return "allow-scripts allow-forms allow-popups";
+    return "allow-scripts allow-forms allow-popups allow-downloads";
   }, [publishedLive]);
 
   const previewUrl = safeHttpUrl(project ? projectPreviewUrl(project) : null);
@@ -1519,7 +1519,8 @@ export default function PreviewPanel({
                   title="Next version, loading"
                   aria-hidden
                   tabIndex={-1}
-                  sandbox="allow-scripts allow-forms allow-popups"
+                  sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+                  allow="web-share"
                   className="pointer-events-none absolute inset-0 h-full w-full border-0 opacity-0"
                 />
               ) : null}
@@ -1532,7 +1533,8 @@ export default function PreviewPanel({
                    a model from someone's prompt, and it runs its own scripts. An
                    opaque origin is what keeps it away from the session cookie and
                    the API routes on this domain. */
-                sandbox="allow-scripts allow-forms allow-popups"
+                sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+                allow="web-share"
                 className="min-h-0 flex-1 border-0 bg-white"
               />
               {editMode && picked && picks.length > 0 && project?.id ? (

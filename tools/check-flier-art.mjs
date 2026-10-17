@@ -90,6 +90,17 @@ const serve = readFileSync(join(root, "src/lib/publish/serve.ts"), "utf8");
 has(/withFlierFit\(withSinglePageEdit\(/.test(preview) && /withFlierFit\(publication\.html/.test(serve) && /html = withFlierFit\(html\)/.test(save), "applied in the preview, the published site and the stored page");
 has(/data-width and data-height/.test(rules), "the flier rules build the canvas at its exact size");
 
+/* The download: the platform's, clean, high resolution, to Photos on a phone. */
+has(/addEventListener\('click', onClick, true\)/.test(fitted) && /stopImmediatePropagation\(\)/.test(fitted), "Download PNG is taken over before the page's own handler");
+has(/pixelRatio: ratio/.test(fitted) && /Math\.min\(2, 4096/.test(fitted), "exported at twice the design size, capped at 4096px");
+has(/borderRadius: '0', boxShadow: 'none'/.test(fitted), "a clean image: square corners, no shadow, the canvas only");
+has(/navigator\.share\(\{ files: \[file\]/.test(fitted) && /a\.download = fileName\(\)/.test(fitted), "the share sheet on a phone (Save Image → Photos), a file download on a computer");
+has(/Save image/.test(fitted), "if the tap expires while the image is made, one more tap saves it");
+has(fitted.includes(Fit.HTML_TO_IMAGE) && /@\d+\.\d+\.\d+\//.test(Fit.HTML_TO_IMAGE), "the renderer is a pinned version");
+const panel = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+has(/sandbox allow-scripts allow-forms allow-popups allow-downloads/.test(preview) && /allow-downloads/.test(serve), "downloads are allowed by the preview's and the published site's sandbox");
+has((panel.match(/allow-downloads/g) ?? []).length >= 3 && /allow="web-share"/.test(panel), "and by the workspace frame, with the share sheet allowed");
+
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
