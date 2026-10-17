@@ -14,10 +14,12 @@
  *
  * Two answers, and both are quick:
  *
- *   - no Supabase linked yet → one sentence and a button that opens the
- *     linking panel. Nothing is edited and nothing is charged.
- *   - linked → the table is made (scan, create, check, like every build) and
- *     the page editor is told exactly how to reach it.
+ *   - no Supabase linked → the forms go to the owner's QuickStark inbox
+ *     (src/lib/forms/inbox.ts): nothing to set up, an email per message, and
+ *     the messages in the Database panel. A contact form should not need a
+ *     database the owner has to think about.
+ *   - linked → the table is made in their Supabase (scan, create, check, like
+ *     every build) and the page editor is told exactly how to reach it.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -36,6 +38,8 @@ import {
   isConnectDatabaseHref,
 } from "./connect-link";
 import { oauthConfigured } from "./supabase-oauth";
+import { inboxBrief } from "@/lib/forms/inbox";
+import { SITE_URL } from "@/lib/site";
 
 export const PAGE_TABLE = "submissions";
 
@@ -160,7 +164,7 @@ export function pageDataBrief(input: { url: string; anonKey: string; schema: str
 export type PageData =
   | { kind: "needs-link"; said: string; links: { label: string; href: string }[] }
   | { kind: "failed"; said: string }
-  | { kind: "ready"; brief: string; said: string; note: string };
+  | { kind: "ready"; brief: string; said: string; note: string; title?: string };
 
 /**
  * Makes a single page able to keep what its forms collect.
@@ -182,12 +186,15 @@ export async function preparePageData(
   const backend = await resolveBackend(service, input.projectId);
 
   if (!backend || backend.mode !== "own" || !backend.url || !backend.anonKey) {
+    /* No Supabase of their own: the QuickStark inbox, with nothing to set up. */
     return {
-      kind: "needs-link",
+      kind: "ready",
+      brief: inboxBrief({ projectId: input.projectId, siteUrl: SITE_URL }),
+      title: "Connected your forms inbox",
       said:
-        "Happy to — this page can save what people send straight into your own Supabase. " +
-        "Connect your database first (it takes a few seconds), then send your message again and I'll wire it up.",
-      links: [connectButtonFor(input.projectId)],
+        "Your form is wired up — what people send lands in your QuickStark inbox (Database panel), and you'll get an email for each new message. " +
+        "Want the messages in your own Supabase instead? Connect it any time and ask me again.",
+      note: "messages go to the QuickStark inbox",
     };
   }
 

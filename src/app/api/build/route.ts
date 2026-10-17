@@ -265,6 +265,7 @@ import { responsiveBrief } from "@/lib/builder/qa/responsive";
 import { validatePage } from "@/lib/builder/validate";
 import { describeVerification, repairBrief, verifyEdit } from "@/lib/builder/verify-edit";
 import { SITE_URL } from "@/lib/site";
+import { inboxBrief } from "@/lib/forms/inbox";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -3407,7 +3408,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       }
 
       if (pageData?.kind === "ready") {
-        steps.mark("upgrade", "Connected your database", pageData.note || "the submissions table is ready");
+        steps.mark("upgrade", pageData.title ?? "Connected your database", pageData.note || "the submissions table is ready");
         await deliver(pageData.said, { key: "capability" });
       }
 
@@ -5279,6 +5280,11 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
        writes against its real tables and names instead of inventing its own.
        See lib/builder/backend/agent/wiring.ts. Empty for every other project. */
     const wiredDatabaseBrief = service ? await wiredBriefFor(service, project.id) : "";
+    const formsBackend = service ? await resolveBackend(service, project.id) : null;
+    const formsBriefText =
+      formsBackend && formsBackend.mode !== "none" && formsBackend.mode !== "shared" && formsBackend.url
+        ? ""
+        : inboxBrief({ projectId: project.id, siteUrl: SITE_URL });
 
     const promptContext = {
       /* The tab's own rules — only when the tab still names the kind being
@@ -5362,6 +5368,10 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
          connected Stripe was shown an app saying payments were not connected
          yet. Empty for a project with no keys, which is almost all of them. */
       integrations: integrationBrief(connected),
+      /* Where its forms go when it has no database of its own: the owner's
+         QuickStark inbox, so a contact form works on first publish instead of
+         pretending to send. See lib/forms/inbox.ts. */
+      forms: formsBriefText || undefined,
       /* What this project does with products, and what it deliberately does
          not. PRODUCTS ARE NOT COMMERCE — see commerce.ts. */
       commerce: commerceBrief(architecture.manifest.commerce),

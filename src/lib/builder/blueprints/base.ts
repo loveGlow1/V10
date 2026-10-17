@@ -138,7 +138,7 @@ STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of thes
 Never send one of these through a photo slot, and never send a photograph through an SVG.
 - Prefer a system font stack. The page is downloadable, and everything it fetches that file has to carry. One webfont family at most, and only where the typeface is genuinely the design.
 - Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
-- Forms and interactive controls must behave — validate and respond in-page. There is no server, so never post to one; show the state a real submission would produce.
+- Forms and controls must behave — validate and respond in-page. Send submissions where a FORMS section says; without one, post nowhere and show what a real submission would produce.
 
 THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - Lay it out for 320px first and let it grow. It is checked at 320, 375, 480, 768, 1280 and 1440 and has to be right at all six, not merely uncut.
