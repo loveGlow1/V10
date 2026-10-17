@@ -144,14 +144,18 @@ import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
 import { currentTree, storeTree, storedTreeAsOf } from "@/lib/builder/store-tree";
 import {
+  describeRecent,
   describeVersions,
   formatWhen,
   listVersions,
   parseTarget as parseVersionTarget,
   readVersionRequest,
+  recentDistinct,
   resolveTarget as resolveVersionTarget,
   restorePrompt,
   safeTimeZone,
+  termsOf,
+  versionsShowing,
 } from "@/lib/builder/versions";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
 import { commonModulesFor, modulesFor, presetFor, publicationModulesFor, staffFor, uploadsBucket, withStaff } from "@/lib/builder/presets";
@@ -1350,7 +1354,7 @@ async function handle(
      No model and no charge. See lib/builder/versions.ts. */
   if (versionAsk?.kind === "list" && service && !planOnly) {
     const versions = await listVersions(service, project.id);
-    const said = describeVersions(versions, timeZone);
+    const said = versionAsk.recent ? describeRecent(versions, timeZone) : describeVersions(versions, timeZone);
     const stored = await deliver(said, { key: "versions" });
     return NextResponse.json({
       stored,
@@ -1661,7 +1665,14 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      * rather than toggling. See lib/builder/versions.ts. */
     const versions = service ? await listVersions(service, project.id) : [];
     const target = parseVersionTarget(prompt, new Date(), timeZone);
-    const resolved = resolveVersionTarget(versions, target, timeZone);
+    /* "When it had the rent and buy": which versions showed those words in a
+       place the current version does not. Searched against what is showing,
+       newest first. */
+    const showing =
+      target?.kind === "with" && service && versions.length > 0
+        ? await versionsShowing(service, project.id, termsOf(target.phrase), versions[versions.length - 1].id)
+        : null;
+    const resolved = resolveVersionTarget(versions, target, timeZone, new Date(), showing);
 
     const declined = (message: string, key: string) =>
       deliver(message, { key }).then((stored) =>
@@ -1688,10 +1699,13 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
     if (!resolved.ok) return declined(resolved.message, "revert-none");
 
     const chosen = resolved.version;
-    /* Already showing it: nothing to write, and saying so is the answer. */
-    if (resolved.content === resolved.current) {
+    /* Already showing it — the same version, or one that looks identical:
+       nothing to write, and saying so is the answer. */
+    if (resolved.alreadyShowing) {
       return declined(
-        `You're already on version ${resolved.content}${chosen.number !== resolved.content ? "" : ` — "${chosen.label}"`}. Nothing to change.`,
+        resolved.content === resolved.current
+          ? `You're already on version ${resolved.content} — "${versions[resolved.content - 1].label}". Nothing to change.`
+          : `What's showing now already looks exactly like version ${chosen.number}, so there's nothing to change.`,
         "revert-same",
       );
     }
@@ -1796,9 +1810,16 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         ? `version ${source.number}`
         : `version ${chosen.number} (the same as version ${source.number})`;
     const restoredLine = `Restored ${named}${which} — "${source.label}", from ${formatWhen(source.createdAt, timeZone)}. It's saved as version ${newNumber}, so nothing is lost: say "undo" to step back further, or "go back to version ${versions.length}" to return to what you had.`;
+    /* The three most recent others, in case this was not the one meant. */
+    const others = recentDistinct(versions, 3, [chosen.number, source.number]);
+    const otherLine = others.length
+      ? ` Not the one you meant? The most recent others are ${others
+          .map((v) => `version ${v.number} (${formatWhen(v.createdAt, timeZone)}, "${v.label}")`)
+          .join(", ")}.`
+      : "";
     const revertMessage = remainder
-      ? `${restoredLine} You also asked to ${remainder} — send that again and I'll make the change on this version.`
-      : restoredLine;
+      ? `${restoredLine}${otherLine} You also asked to ${remainder} — send that again and I'll make the change on this version.`
+      : `${restoredLine}${otherLine}`;
 
     const storedRevert = await deliver(revertMessage, { key: "revert" });
 

@@ -140,6 +140,102 @@ const listed = V.describeVersions(afterUndo, TZ, NOW);
 is(/Version 6\*\* · today at 2:00 PM · Restored version 4 ← showing now/.test(listed), true, "the list marks what is showing and when");
 is(/same as version 4/.test(listed), true, "and says which version that is");
 
+/* ── Aurelia Estates: the real history ─────────────────────────────────
+   38 versions with their real fingerprints (first six characters) and times.
+   Many are copies of an earlier one — failed edits, undos that toggled — and
+   the Buy/Rent toggle left the home page at version 33. */
+const AURELIA = [
+  ["a68f2e", "2026-09-30T18:19:00Z", "BUILD A PREMIUM REAL ESTATE PLATFORM"],
+  ["de428e", "2026-09-30T18:21:00Z", "fill the images were the are missing"],
+  ["2560cb", "2026-09-30T18:25:00Z", "add images under the featured properties section"],
+  ["63224f", "2026-09-30T18:49:00Z", "add the missing photos on landing page"],
+  ["2981b5", "2026-09-30T18:56:00Z", "update the dark black cards to brighten up"],
+  ["10c85f", "2026-09-30T19:08:00Z", "make the Search Properties button easy to read"],
+  ["b8bef4", "2026-09-30T19:10:00Z", "make the rent easy to read too"],
+  ["8fc229", "2026-10-01T02:27:00Z", "the search panel behind the Buy / Rent buttons"],
+  ["b8bef4", "2026-10-01T02:29:00Z", "Reverted: Undo the last change."],
+  ["7244bf", "2026-10-01T02:30:00Z", "change only the Rent button so it looks like Buy"],
+  ["84a22e", "2026-10-01T03:59:00Z", "Add a user dashboard and make every feature real"],
+  ["09f38b", "2026-10-01T04:24:00Z", "In components/Nav.tsx, change the listener"],
+  ["f37c91", "2026-10-01T07:33:00Z", "fix the dashboard settings"],
+  ["7bb5dd", "2026-10-01T07:33:30Z", "fix the dashboard settings"],
+  ["a2b579", "2026-10-01T07:34:00Z", "fix the dashboard settings"],
+  ["513b76", "2026-10-01T17:15:00Z", "Visual edit: <h1> font"],
+  ["dd18ac", "2026-10-01T17:21:00Z", "Visual edit: <p> text"],
+  ["513b76", "2026-10-01T17:21:30Z", "Reverted: Undo the last change."],
+  ["bd3aaf", "2026-10-02T09:11:00Z", "Update the logo with a different logo image"],
+  ["513b76", "2026-10-02T09:11:30Z", "Reverted: Undo the last change."],
+  ["bd3aaf", "2026-10-02T09:12:00Z", "Reverted: Undo the last change."],
+  ["513b76", "2026-10-02T09:12:30Z", "Reverted: Undo the last change."],
+  ["d76203", "2026-10-16T07:47:00Z", "Change these exact elements: div"],
+  ["e6f2a8", "2026-10-16T07:49:00Z", "Change these exact elements: button"],
+  ["6fb390", "2026-10-16T08:24:00Z", "Change these exact elements: h1"],
+  ["c87d9c", "2026-10-16T08:25:00Z", "Change these exact elements: p"],
+  ["117f6b", "2026-10-16T08:27:00Z", "Change these exact elements: p"],
+  ["c87d9c", "2026-10-16T08:28:00Z", "Reverted: update only the specified one"],
+  ["99249a", "2026-10-16T08:29:00Z", "Change these exact elements: div"],
+  ["560216", "2026-10-16T08:29:30Z", "Change these exact elements: p"],
+  ["e68378", "2026-10-16T17:54:00Z", "Add a favicon and a social share image"],
+  ["228ad8", "2026-10-16T18:14:00Z", "Make every form on the site actually submit somewhere"],
+  ["b69900", "2026-10-16T18:15:00Z", "Make every form on the site actually submit somewhere"],
+  ["50cd2c", "2026-10-16T18:15:30Z", "Make every form on the site actually submit somewhere"],
+  ["b69900", "2026-10-16T18:17:00Z", "Reverted: revert to the previus version"],
+  ["9826a8", "2026-10-16T18:24:00Z", "Reverted: revert to the previus version"],
+  ["f5de01", "2026-10-16T18:24:30Z", "Reverted: revert to the previus version"],
+  ["228ad8", "2026-10-17T01:35:00Z", "Restored version 32: Make every form on the site actually submit somewhere"],
+];
+const aureliaAt = (count) => {
+  const slice = AURELIA.slice(0, count);
+  const rows = slice.map(([, at, prompt], i) => ({ id: `v${i + 1}`, prompt, created_at: at }));
+  const digests = new Map(slice.map(([d], i) => [`v${i + 1}`, d]));
+  return V.versionsFromRows(rows, digests);
+};
+const at37 = aureliaAt(37);
+const at38 = aureliaAt(38);
+const AUR_NOW = new Date("2026-10-17T02:00:00Z");
+const pickIn = (list, message, showing = null) => {
+  const r = V.resolveTarget(list, V.parseTarget(message, AUR_NOW, TZ), TZ, AUR_NOW, showing);
+  return r.ok ? (r.alreadyShowing ? `already: ${r.version.number}` : r.version.number) : `refused: ${r.message}`;
+};
+
+is(at37[34].restoredFrom, 33, "an old undo is matched to the version it really copied (35 = 33)");
+is(at37[35].restoredFrom, null, "and one that matches nothing stands as its own version (36)");
+is(at37[21].restoredFrom, 20, "a chain of old undos follows its fingerprints (22 = 20)");
+is(V.contentOf(at37, 22), 16, "and resolves to the first version that looked like that (16)");
+is(at38[37].restoredFrom, 32, "the restore made today is read as a copy of version 32");
+
+/* "The very last change before the current state." */
+is(pickIn(at37, "undo"), 36, "from 37, undo is 36 — the last version that looks different");
+is(pickIn(at38, "undo"), 31, "from 38 (a copy of 32), undo is 31, not a step back into the copies");
+is(pickIn(aureliaAt(23), "undo"), 22, "from 23 (an edit), undo is the state just before it: 22");
+is(pickIn(aureliaAt(22), "undo"), 15, "from 22 (itself an undo, = 16), undo keeps going back — to 15, not round again to 21");
+is(pickIn(at37, "undo the last 3 changes"), 34, "undoing 37, 36 and 35 leaves 34");
+
+/* "When it had the rent and buy" — by what the versions showed. */
+const rentBuy37 = new Set(AURELIA.slice(0, 32).map((_, i) => `v${i + 1}`));
+is(V.termsOf("the rent and buy"), ["rent", "buy"], "the words a described state names");
+is(V.readVersionRequest("restore to when it had the rent and buy")?.kind, "goto", "'restore to when it had…' is a version move");
+is(pickIn(at37, "restore to when it had the rent and buy", rentBuy37), 32, "from 37: the most recent version that still had Rent and Buy is 32");
+is(pickIn(at37, "go back to when the home page had the rent and buy buttons", rentBuy37), 32, "said another way, the same");
+is(
+  String(pickIn(at38, "restore to when it had the rent and buy", new Set())).startsWith("refused: No earlier version had"),
+  true,
+  "from 38 the search finds nothing missing: it says Rent and Buy are already showing, and restores nothing",
+);
+is(pickIn(at37, "restore to when it had the rent and buy", null), 10, "without the search, it falls back to the newest request naming both (10)");
+
+/* Already showing. */
+is(pickIn(at38, "go back to version 32"), "already: 32", "version 32 when 38 is a copy of it: already showing");
+is(pickIn(at37, "go back to version 33"), 33, "a different-looking version is restored");
+
+/* The three most recent to choose from. */
+is(V.recentDistinct(at38, 3).map((v) => v.number), [37, 36, 35], "the 3 most recent that look different from what's showing, newest first");
+is(V.recentDistinct(at37, 3).map((v) => v.number), [36, 35, 34], "from 37");
+is(V.readVersionRequest("show me my recent versions")?.recent, true, "'recent versions' asks for the three");
+is(/1\. \*\*Version 37\*\*/.test(V.describeRecent(at38, TZ, AUR_NOW)), true, "and lists the newest first");
+is(/looks the same as version 33/.test(V.describeVersions(at37, TZ, AUR_NOW)), false, "a recorded restore is labelled as a restore, not as a look-alike");
+is(/Version 14\*\* .* · fix the dashboard settings\n/.test(V.describeVersions(aureliaAt(16), TZ, AUR_NOW)), true, "versions that differ get no look-alike note");
+
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} check${failed === 1 ? "" : "s"} failed.` : "\nAll version history checks passed.");
 process.exit(failed ? 1 : 0);
