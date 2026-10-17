@@ -114,6 +114,7 @@ import { describeEdit, editPlanBrief, planEdit } from "@/lib/builder/edit-plan";
 import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
+import { loadReferencedProjects, referenceText } from "@/lib/builder/project-reference";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
@@ -1063,6 +1064,21 @@ async function handle(
      the same files were downloaded and encoded up to three times — and, worse,
      that nothing above could see what had happened to them. */
   const files = await attachmentBlocks(attachments);
+
+  /* Another of their own projects, named in the message as the thing to go
+     by — "like my Aurelia Estates site". Its latest page is read from their
+     build history and put in front of every model call below, so the model
+     works from the real page rather than a guess at it. Read under the
+     person's own session, so only their projects can be reached. See
+     src/lib/builder/project-reference.ts. */
+  const referenced = freeReview ? [] : await loadReferencedProjects(supabase, prompt, project.id).catch(() => []);
+  const referencedText = referenceText(referenced);
+  if (referenced.length > 0) {
+    const names = referenced.map((reference) => reference.name).join(" and ");
+    steps.begin("reference", `Reading ${names} from your history`, "opening its latest build…");
+    files.blocks.unshift({ type: "text", text: referencedText });
+    steps.mark("reference", `Read ${names} from your history`, "used as the reference for this build");
+  }
 
   if (attachments.length > 0) {
     const usable = attachments.length - files.skipped.length;
@@ -2606,7 +2622,9 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
               retried: false,
             }
           : await editSource(
-          stageRequest ?? prompt,
+          /* This path takes no attachment blocks, so a named reference rides
+             in the request itself. */
+          referencedText ? `${stageRequest ?? prompt}\n\n${referencedText}` : stageRequest ?? prompt,
           leanTarget,
           picked.why,
           project_.tree,
@@ -5459,7 +5477,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
     const request = generationRequest(
       model,
       buildPrompt,
-      userMessage(project.name, buildBrief, attachedText, imageUrls.length),
+      userMessage(project.name, buildBrief, [attachedText, referencedText].filter(Boolean).join("\n\n"), imageUrls.length),
       imageUrls.map((url) => ({ url })),
       /* The same condition that decided treeInstructions above, because it is
          the same fact: this build's answer is a file tree rather than a
