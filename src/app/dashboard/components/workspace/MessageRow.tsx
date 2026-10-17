@@ -88,7 +88,11 @@ export default function MessageRow({
   const connectLink = onConnectDatabase
     ? message.links?.find((link) => isConnectDatabaseHref(link.href))
     : undefined;
-  const chips = message.links?.filter((link) => link !== connectLink);
+  /* No "Open it": on a phone, where these chips show, it opened the
+     published site, which keeps the last published version until the next
+     publish — so after a change it showed an older app than the one just
+     built. "Preview" opens the newest, so it is the one kept. */
+  const chips = message.links?.filter((link) => link !== connectLink && link.label !== "Open it");
 
   /* The card's buttons and these chips are two ways to the same two things, so
      only one of them is ever on offer. While the buttons are up they are the
