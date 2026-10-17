@@ -273,5 +273,15 @@ const pipelinesSrc = readFileSync(join(root, "src/lib/video/pipelines.ts"), "utf
 has(/- \$\{narrationRule\(answers\.voice\)\}/.test(directorSrc) && /write a voiceover line for EVERY scene/.test(directorSrc), "a narrated video gets a voice line in every scene, not just the last");
 has(/no voiceover\|music only\|none/.test(directorSrc), "No voiceover / Music only still means none");
 has(!/initial: "Music only"/.test(pipelinesSrc) && /id: "voice", label: "Voiceover", options: \["Male", "Female", "No voiceover"\], initial: "Male"/.test(pipelinesSrc), "trailers ask for a voice, and every type defaults to narrated");
+/* The finished video in the chat, with Download. */
+const announce = readFileSync(join(root, "src/lib/video/announce.ts"), "utf8");
+const fileRoute = readFileSync(join(root, "src/app/api/video/[id]/file/route.ts"), "utf8");
+const msgRow = readFileSync(join(root, "src/app/dashboard/components/workspace/MessageRow.tsx"), "utf8");
+const falRoute = readFileSync(join(root, "src/app/api/video/[id]/render/fal/route.ts"), "utf8");
+const localCut = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+has(/label: "video:1", href: finalVideoUrl\(/.test(announce) && /dedupe_key: `video-final:/.test(announce), "a finished video is posted to the chat once, with the video in it");
+has(/await announceFinal\(service, \{ videoId, version, origin/.test(localCut) && /if \(media\) await announceFinal\(/.test(falRoute), "whichever way the cut was made — here or on fal");
+has(/<ReplyVideos videos=\{videos\} \/>/.test(msgRow) && /<video[\s\S]{0,80}controls[\s\S]{0,40}playsInline/.test(msgRow), "the chat plays it");
+has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServerClient/.test(fileRoute) && /\.eq\("engine", "compose"\)/.test(fileRoute), "Download saves the MP4 itself — the owner's, under their session");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

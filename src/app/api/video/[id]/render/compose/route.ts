@@ -25,6 +25,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "No service key." }, { status: 503 });
-  after(() => composeLocally(service, id, version));
+  after(() => composeLocally(service, id, version, new URL(request.url).origin));
   return NextResponse.json({ ok: true }, { status: 202 });
 }
