@@ -568,13 +568,29 @@ export function architectureQuestion(
 `
     : "";
 
-  return `${managedOffered ? "Three" : "Two"} ways to build this ${thing}.
+  const ownLine = `**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free, and the data stays in your account. Connect it from the Database panel — sign in to Supabase and pick a project, or have one created — and the build sets up the tables and sign-in for you, checking your existing tables first so nothing of yours is touched.`;
+
+  /* Without a managed database, connecting their own is the way to the real
+     thing, so it is offered first. */
+  if (!managedOffered) {
+    return `Two ways to build this ${thing}.
+
+${ownLine}
+
+**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
+      kind === "ecommerce" ? "catalogue" : "writing"
+    } built into the page. Faster, and right if what you want now is the design. Its contact forms still work: messages go to your QuickStark inbox.
+
+Which one?`;
+  }
+
+  return `Three ways to build this ${thing}.
 
 ${ours}**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
     kind === "ecommerce" ? "catalogue" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
-**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free, and the data stays in your account. Connect it from the Database panel — sign in to Supabase and pick a project, or have one created — and the build sets up the tables and sign-in for you, checking your existing tables first so nothing of yours is touched.
+${ownLine}
 
 Which one?`;
 }
@@ -643,7 +659,19 @@ export function architectureOptions(
     },
   ];
 
-  return managedOffered ? options : options.filter((option) => option.value !== "managed");
+  if (managedOffered) return options;
+  /* With no managed database on offer, connecting their own Supabase is the
+     way to the real app, so it goes first and says how little it asks. */
+  const own = options.find((option) => option.value === "own")!;
+  const frontend = options.find((option) => option.value === "frontend")!;
+  return [
+    {
+      ...own,
+      blurb:
+        "The full app, with sign-in and an admin, on your own Supabase — free, and it takes about a minute: sign in and pick or create a project. The data stays yours, and no credit is spent.",
+    },
+    frontend,
+  ];
 }
 
 /** Whether a value came back from the browser as one of the three answers. */

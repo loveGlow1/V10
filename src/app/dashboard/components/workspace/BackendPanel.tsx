@@ -7,6 +7,7 @@ import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "l
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
 
 import ConnectSupabase from "./ConnectSupabase";
+import FormInbox from "./FormInbox";
 import DatabaseAgent from "./DatabaseAgent";
 import { CONNECT_EVENT, announceConnected, takeConnectIntent } from "./database-connect";
 import FormNotifications from "./FormNotifications";
@@ -920,6 +921,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
           )}
         </>
       )}
+
+      {/* The forms inbox — what visitors sent through forms on pages with no
+          database of their own. See src/lib/forms/inbox.ts. */}
+      {projectId && !unavailable && <FormInbox projectId={projectId} />}
     </div>
   );
 }

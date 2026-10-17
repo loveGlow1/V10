@@ -180,6 +180,9 @@ export function composeNotification(input: {
   projectName: string;
   record: Record<string, unknown>;
   dashboardUrl: string | null;
+  /* Where the message is kept, when that is not the owner's own Supabase —
+     the QuickStark inbox says so and links to it instead. */
+  savedIn?: string;
 }): { subject: string; text: string; replyTo: string | null } {
   const record = input.record;
   const data =
@@ -212,9 +215,10 @@ export function composeNotification(input: {
     "",
     "—",
     email ? "Reply to this email to answer them directly." : "They didn't leave an email address.",
-    `Every message is saved in your own Supabase, in the submissions table${
-      input.dashboardUrl ? `: ${input.dashboardUrl}` : "."
-    }`,
+    input.savedIn ??
+      `Every message is saved in your own Supabase, in the submissions table${
+        input.dashboardUrl ? `: ${input.dashboardUrl}` : "."
+      }`,
     "You're getting this because email notifications are on for this app in QuickStark (Database panel).",
   );
 

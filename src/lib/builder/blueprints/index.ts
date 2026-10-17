@@ -98,6 +98,12 @@ export type ProjectContext = {
      beside the stage plan for the same reason it does — it modifies what may
      be BUILT, not how to build it. */
   integrations?: string;
+  /* Where this project's forms send what people type — see
+     src/lib/forms/inbox.ts. Set when the project has no database of its own,
+     so a contact form, waitlist or RSVP posts to the owner's QuickStark inbox
+     rather than pretending to send. Empty when the project's own database
+     takes its forms. */
+  forms?: string;
   /* What this project does with products — see commerce.ts. Empty for every
      project that has none, which is most of them. Says what is built AND what
      is not, because the absent instruction is the one that gets invented: a
@@ -294,7 +300,7 @@ ${context.architecture ? `${architectureBrief(context.architecture)}\n\n──�
 ${context.target ? `${context.target}\n\n────────────────────────────────────────\n\n` : ""}THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}
-${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${context.integrations ? `\n────────────────────────────────────────\n\n${context.integrations}\n` : ""}${context.commerce ? `\n────────────────────────────────────────\n\n${context.commerce}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}
+${context.stagePlan ? `\n────────────────────────────────────────\n\n${context.stagePlan}\n` : ""}${context.integrations ? `\n────────────────────────────────────────\n\n${context.integrations}\n` : ""}${context.forms ? `\n────────────────────────────────────────\n\n${context.forms}\n` : ""}${context.commerce ? `\n────────────────────────────────────────\n\n${context.commerce}\n` : ""}${projectContext(context)}${context.manifest ? `\n${manifestForPrompt(context.manifest, Boolean(context.treeInstructions))}\n` : ""}
 ${localeFor(context.market ?? DEFAULT_MARKET)}
 ────────────────────────────────────────
 ${
