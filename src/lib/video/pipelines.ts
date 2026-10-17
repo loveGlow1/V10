@@ -88,7 +88,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
       { id: "style", label: "Style", options: ["Clean & minimal", "Bold kinetic type", "3D shapes", "Hand-drawn", "Corporate"], initial: "Clean & minimal" },
       ASPECT,
       LENGTH_SHORT,
-      { id: "voice", label: "Voiceover", options: ["Female", "Male", "Music only"], initial: "Music only" },
+      { id: "voice", label: "Voiceover", options: ["Female", "Male", "Music only"], initial: "Female" },
     ],
     director: [
       "Everything is designed motion: animated typography, shapes, icons, diagrams, logo reveals, transitions. No live-action people.",
@@ -133,7 +133,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
       { id: "style", label: "Style", options: ["Product reveal", "Feature showcase", "360° rotation", "Lifestyle", "Luxury", "App / software"], initial: "Product reveal" },
       ASPECT_WIDE,
       { ...LENGTH_SHORT, initial: "15s" },
-      { id: "voice", label: "Voiceover", options: ["Female", "Male", "Music only"], initial: "Music only" },
+      { id: "voice", label: "Voiceover", options: ["Female", "Male", "Music only"], initial: "Female" },
     ],
     director: [
       "PRODUCT CONSISTENCY IS LOCKED: write a precise product description (shape, colour, material, logo placement, proportions) into `locks.product`, and every scene's visual and motion prompt must refer to the product exactly as locked — never redesign it.",
@@ -268,6 +268,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
       { id: "length", label: "Length", options: ["15s", "30s", "60s"], initial: "30s" },
       ASPECT_WIDE,
       { id: "countdown", label: "Countdown", options: ["No date", "Show a launch date"], initial: "No date" },
+      { id: "voice", label: "Voiceover", options: ["Male", "Female", "No voiceover"], initial: "Male" },
     ],
     director: [
       "Build tension: slow open, rising pace, a final hard cut to the title card. Alternate title cards with shots.",

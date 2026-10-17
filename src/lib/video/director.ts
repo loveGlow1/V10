@@ -15,6 +15,17 @@ import { normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIs
 
 export const DIRECTOR_MODEL = "claude-sonnet-5";
 
+/* Whether the video is narrated, from the Voiceover choice. A narrated video
+   is narrated throughout: a voice on the last line only reads as a video
+   whose sound broke. Pure. */
+export function narrationRule(voice: string | undefined): string {
+  if (voice && /^(no voiceover|music only|none)$/i.test(voice.trim())) {
+    return "No narration: leave every scene's voiceover empty; the story is told by picture, on-screen text and sound.";
+  }
+  const who = voice && /male/i.test(voice) ? `a ${voice.toLowerCase()} narrator` : "a narrator";
+  return `Narrated throughout by ${who}: write a voiceover line for EVERY scene — a title card or beat of 2 seconds or less may stay silent — so the voice carries the video from the first scene to the last. Each line must be speakable within its scene's duration (about 2.5 words per second) and lines read as one continuous script.`;
+}
+
 function systemFor(pipeline: PipelineId, answers: Record<string, string>): string {
   const spec = PIPELINES[pipeline];
   const target = secondsFrom(answers.length);
@@ -27,6 +38,7 @@ ${spec.director.map((rule) => `- ${rule}`).join("\n")}
 
 RULES FOR EVERY VIDEO:
 - Target length: ${target} seconds. Scene durations must add up to it.
+- ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - Anything that must look the same in more than one scene (product, creator, characters, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
