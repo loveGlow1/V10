@@ -763,6 +763,7 @@ export default function DashboardPage() {
                     prompt={transcript}
                     kind={activeSubtype ? activeType : null}
                     target={formatTarget({ category: activeCategory, subtype: activeSubtype })}
+                    flier={activeCategory === "fliers" ? { subtype: subtype.id } : null}
                     video={
                       videoMode && videoPipeline
                         ? { pipeline: videoPipeline, answers: answersFor(PIPELINES[videoPipeline], videoAnswers), consent: videoConsent }
