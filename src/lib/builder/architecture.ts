@@ -568,14 +568,18 @@ export function architectureQuestion(
 `
     : "";
 
+  const laterLine = `**Full app, database later** — the whole ${thing} built production-ready now: every page, sign-in and the admin, with the database schema included. Nothing to connect today; when you connect a database, it comes to life without a rebuild.`;
+
   const ownLine = `**Connect my own database** — the real ${thing}: a database behind it, an admin area where you manage ${managed}, and people can sign in — built against your own Supabase. It is free, and the data stays in your account. Connect it from the Database panel — sign in to Supabase and pick a project, or have one created — and the build sets up the tables and sign-in for you, checking your existing tables first so nothing of yours is touched.`;
 
   /* Without a managed database, connecting their own is the way to the real
      thing, so it is offered first. */
   if (!managedOffered) {
-    return `Two ways to build this ${thing}.
+    return `Three ways to build this ${thing}.
 
 ${ownLine}
+
+${laterLine}
 
 **The front of it** — the ${thing} exactly as a visitor sees it, with the ${
       kind === "ecommerce" ? "catalogue" : "writing"
@@ -584,13 +588,15 @@ ${ownLine}
 Which one?`;
   }
 
-  return `Three ways to build this ${thing}.
+  return `Four ways to build this ${thing}.
 
 ${ours}**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
     kind === "ecommerce" ? "catalogue" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
 ${ownLine}
+
+${laterLine}
 
 Which one?`;
 }
@@ -617,13 +623,20 @@ Which one?`;
  * the answer AUTHORISES: somebody who picked "The real thing" did consent to a
  * database on our side, so honouring that is right. What is no longer possible
  * is arriving here having answered nothing. */
-export type ArchitectureChoice = "managed" | "full" | "frontend" | "own";
+/* "later" is the full app with its database still to come: every layer
+   built, production-ready, against tables that are written down but not yet
+   anywhere. It is "own" with nothing to connect today — same record against
+   the project, same build — so it collapses onto it. The difference is only
+   what the person is asked to do now, which is nothing. */
+export type ArchitectureChoice = "managed" | "full" | "frontend" | "own" | "later";
 
-/** The three real answers. "full" collapses onto "managed". */
+/** The three real answers. "full" collapses onto "managed", "later" onto "own". */
 export type DatabaseChoice = "managed" | "frontend" | "own";
 
 export function databaseChoice(choice: ArchitectureChoice): DatabaseChoice {
-  return choice === "full" ? "managed" : choice;
+  if (choice === "full") return "managed";
+  if (choice === "later") return "own";
+  return choice;
 }
 
 export function architectureOptions(
@@ -657,12 +670,19 @@ export function architectureOptions(
       blurb:
         "The full app, with sign-in and an admin, on your own Supabase — free to set up, and the data stays yours. Nothing is created on our side, and no credit is spent.",
     },
+    {
+      value: "later",
+      label: "Full app, database later",
+      blurb:
+        "Every page, sign-in and the admin built production-ready now, with the database schema included. Connect a database whenever you're ready and it comes to life — nothing to rebuild.",
+    },
   ];
 
   if (managedOffered) return options;
   /* With no managed database on offer, connecting their own Supabase is the
      way to the real app, so it goes first and says how little it asks. */
   const own = options.find((option) => option.value === "own")!;
+  const later = options.find((option) => option.value === "later")!;
   const frontend = options.find((option) => option.value === "frontend")!;
   return [
     {
@@ -670,13 +690,14 @@ export function architectureOptions(
       blurb:
         "The full app, with sign-in and an admin, on your own Supabase — free, and it takes about a minute: sign in and pick or create a project. The data stays yours, and no credit is spent.",
     },
+    later,
     frontend,
   ];
 }
 
 /** Whether a value came back from the browser as one of the three answers. */
 export function isArchitectureChoice(value: unknown): value is ArchitectureChoice {
-  return value === "managed" || value === "full" || value === "frontend" || value === "own";
+  return value === "managed" || value === "full" || value === "frontend" || value === "own" || value === "later";
 }
 
 /**
@@ -726,6 +747,17 @@ export function architectureFromChoice(
     return {
       ...decided,
       why: [...decided.why, "you are connecting your own backend, so nothing is created on our side"],
+      certain: true,
+    };
+  }
+
+  /* LATER is OWN without the connecting: every layer, built in full, and the
+     database it was written against shipped as SQL to be run when there is
+     one. */
+  if (choice === "later") {
+    return {
+      ...decided,
+      why: [...decided.why, "you are connecting a database later, so the app is built in full and waits for it"],
       certain: true,
     };
   }

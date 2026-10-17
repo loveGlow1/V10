@@ -259,7 +259,7 @@ export default function ChatPanel({
       text: string;
       kind?: BuildKind;
       stack?: "standalone-html" | "nextjs";
-      options: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
+      options: { value: "managed" | "full" | "frontend" | "own" | "later"; label: string; blurb: string }[];
       /* Carried so the answer does not lose an upgrade already agreed to. */
       upgrade?: boolean;
     } | null
@@ -1120,7 +1120,7 @@ export default function ChatPanel({
       stack?: "standalone-html" | "nextjs";
       /* And to "the real thing, or the front of it" — see pendingArchitecture.
          The broader of the two: it decides whether there is a database at all. */
-      architecture?: "managed" | "full" | "frontend" | "own";
+      architecture?: "managed" | "full" | "frontend" | "own" | "later";
       /* The yes to an upgrade offer — see pendingUpgrade. */
       upgrade?: boolean;
       /* "Run it" on SQL that was shown first — see pendingSql. */

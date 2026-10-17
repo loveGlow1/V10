@@ -85,9 +85,11 @@ const {
   architectureFromChoice,
   architectureOptions,
   architectureQuestion,
+  databaseChoice,
   decideArchitecture,
   describeArchitecture,
   isArchitectureChoice,
+  LAYERS,
   raiseArchitecture,
 } = await import(join(out, "lib/builder/architecture.js"));
 const { dataModelFor, schemaBrief, schemaNameFor, toSql, toTypes } = await import(
@@ -950,16 +952,22 @@ const chipsWithManaged = architectureOptions("ecommerce", true);
 /* Managed databases are off by default — each one is a Supabase project billed
    to the platform monthly — so the customer is offered the front of it or
    their own database, and the managed chip appears only when switched on. */
-if (chips.length === 2 && !chips.some((chip) => chip.value === "managed")) {
-  pass("with managed databases off, two answers are offered and neither is ours");
+if (chips.length === 3 && !chips.some((chip) => chip.value === "managed")) {
+  pass("with managed databases off, three answers are offered and none is ours");
 } else {
-  fail("with managed databases off, two answers are offered and neither is ours", chips.map((chip) => chip.value).join(", "));
+  fail("with managed databases off, three answers are offered and none is ours", chips.map((chip) => chip.value).join(", "));
 }
 
-if (chipsWithManaged.length === 3 && chipsWithManaged.some((chip) => chip.value === "managed")) {
-  pass("switched on, the managed database is offered as a third");
+if (chipsWithManaged.length === 4 && chipsWithManaged.some((chip) => chip.value === "managed")) {
+  pass("switched on, the managed database is offered as a fourth");
 } else {
-  fail("switched on, the managed database is offered as a third", chipsWithManaged.map((chip) => chip.value).join(", "));
+  fail("switched on, the managed database is offered as a fourth", chipsWithManaged.map((chip) => chip.value).join(", "));
+}
+
+if (chips.some((chip) => chip.value === "later") && chipsWithManaged.some((chip) => chip.value === "later")) {
+  pass("either way, the full app can be built now with its database connected later");
+} else {
+  fail("either way, the full app can be built now with its database connected later", chips.map((chip) => chip.value).join(", "));
 }
 
 if (chipsWithManaged.every((chip) => isArchitectureChoice(chip.value))) {
@@ -1006,7 +1014,23 @@ if (asOwn.manifest.database && asOwn.manifest.authentication) {
   );
 }
 
-if (asOwn.certain && asFrontend.certain) {
+const asLater = architectureFromChoice("later", "ecommerce", decidedStore);
+if (
+  LAYERS.every((layer) => asLater.manifest[layer] === asOwn.manifest[layer]) &&
+  asLater.needsProject === asOwn.needsProject
+) {
+  pass("database later builds exactly the app that connecting your own would");
+} else {
+  fail("database later builds exactly the app that connecting your own would", describeArchitecture(asLater.manifest));
+}
+
+if (databaseChoice("later") === "own" && databaseChoice("full") === "managed") {
+  pass("and is recorded against the project as your own database, not yet connected");
+} else {
+  fail("and is recorded against the project as your own database, not yet connected", databaseChoice("later"));
+}
+
+if (asOwn.certain && asFrontend.certain && asLater.certain) {
   pass("and an answered question is not asked again");
 } else {
   fail("and an answered question is not asked again");

@@ -28,7 +28,7 @@ import { type DesignDNA, tokensCss } from "./design";
 import type { BuildKind } from "./kinds";
 import type { MemberArea } from "./member-area";
 import { allCommerce } from "./commerce";
-import { type DataModel, schemaBrief, toTypes } from "./schema";
+import { type DataModel, schemaBrief, toSql, toTypes } from "./schema";
 import { splitClientRoutes } from "./client-routes";
 import { AUTH_DEFER, repairStructure } from "./next-structure";
 import { type BuildMode, buildModeOf } from "./build-mode";
@@ -432,6 +432,17 @@ JavaScript and served to every visitor; a service key there bypasses every
 policy for everyone who loads the page.
 
 See \`lib/supabase.ts\` and \`lib/database.types.ts\`.
+
+## Connecting the database
+
+The app is complete without one: until the variables above are set, every page
+renders, data shows its empty or "not connected yet" state, and sign-in says it
+turns on once the database is connected. To bring it to life:
+
+1. Create a Supabase project (or use one you have).
+2. Run \`database/schema.sql\` in its SQL editor — the tables, row-level
+   security and policies this app was written against. It is safe to run twice.
+3. Set the three variables above, from Project Settings → API, and redeploy.
 `
     : ""
 }`,
@@ -483,16 +494,9 @@ const schema = process.env.NEXT_PUBLIC_SUPABASE_SCHEMA ?? "${model.schema}";
  * variable became "your app does not compile", which is both the wrong size of
  * problem and a description of the wrong thing.
  *
- * So the client is built the first time something asks it for anything. The
- * build does not, and now compiles whatever the environment holds. A page that
- * reads data does, and it fails there, in the browser, naming the two variables
- * — which is where somebody can actually do something about it. */
-function connect() {
-  if (!url || !anonKey) {
-    throw new Error(
-      "This app needs NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. See README.md.",
-    );
-  }
+ * So the client is built the first time something asks it for anything, and
+ * with nothing configured it is not built at all — see waiting() below. */
+function connect(url: string, anonKey: string) {
 
   /* The schema as an explicit generic, not just as a runtime option.
    *
@@ -510,6 +514,80 @@ ${AUTH_DEFER}
   return created;
 }
 
+/** Whether this app has a database to talk to. False until the two variables
+    above are set — show a calm "coming soon" note rather than an error. */
+export const databaseConnected = Boolean(url && anonKey);
+
+/* ── Built in full, waiting for its database ───────────────────────────────
+ *
+ * An app can be finished before its database exists: every page, sign-in and
+ * the admin are written against the tables in database/schema.sql, and the
+ * database is connected later. Until then nothing here throws. Every query
+ * resolves the way a failed one does — data null, and an error that says
+ * plainly what is missing — so each page shows its own error or empty state,
+ * and sign-in says it turns on once the database is connected. Set the two
+ * variables (README.md) and the same code talks to the real thing. */
+const NOT_CONNECTED = {
+  message: "This app's database isn't connected yet.",
+  code: "DATABASE_NOT_CONNECTED",
+  details: "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. See README.md.",
+  hint: "",
+};
+const SIGN_IN_LATER = { ...NOT_CONNECTED, message: "Sign-in turns on once this app's database is connected." };
+
+function settles<T>(value: T) {
+  return (onFulfilled?: (value: T) => unknown, onRejected?: (reason: unknown) => unknown) =>
+    Promise.resolve(value).then(onFulfilled, onRejected);
+}
+
+/* A query of any length — from().select().eq().order()... — that settles as
+   "not connected" wherever it is awaited. */
+function query(): unknown {
+  const result = { data: null, error: NOT_CONNECTED, count: null, status: 503, statusText: "Database not connected" };
+  const chain: object = new Proxy(
+    {},
+    { get: (_target, property) => (property === "then" ? settles(result) : () => chain) },
+  );
+  return chain;
+}
+
+function waiting(): unknown {
+  const noSession = { data: { user: null, session: null }, error: null };
+  const refused = { data: { user: null, session: null }, error: SIGN_IN_LATER };
+  const channel: object = new Proxy({}, { get: () => () => channel });
+  return {
+    from: () => query(),
+    rpc: () => query(),
+    schema: () => ({ from: () => query(), rpc: () => query() }),
+    channel: () => channel,
+    removeChannel: () => Promise.resolve("ok"),
+    removeAllChannels: () => Promise.resolve([]),
+    storage: {
+      from: () =>
+        new Proxy(
+          {},
+          {
+            get: (_target, property) =>
+              property === "getPublicUrl"
+                ? () => ({ data: { publicUrl: "" } })
+                : () => Promise.resolve({ data: null, error: NOT_CONNECTED }),
+          },
+        ),
+    },
+    auth: new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          if (property === "getUser" || property === "getSession") return () => Promise.resolve(noSession);
+          if (property === "signOut") return () => Promise.resolve({ error: null });
+          if (property === "onAuthStateChange") return () => ({ data: { subscription: { unsubscribe() {} } } });
+          return () => Promise.resolve(refused);
+        },
+      },
+    ),
+  };
+}
+
 let client: ReturnType<typeof connect> | null = null;
 
 /* The same \`supabase\` every page already imports — \`supabase.from(...)\`,
@@ -517,7 +595,7 @@ let client: ReturnType<typeof connect> | null = null;
    only to hold connect() back until the first property is read. */
 export const supabase = new Proxy({} as ReturnType<typeof connect>, {
   get(_target, property) {
-    client = client ?? connect();
+    client = client ?? (url && anonKey ? connect(url, anonKey) : (waiting() as ReturnType<typeof connect>));
     const value = Reflect.get(client, property, client);
     return typeof value === "function" ? value.bind(client) : value;
   },
@@ -530,6 +608,29 @@ export const supabase = new Proxy({} as ReturnType<typeof connect>, {
        model the migration came from — see schema.ts, toTypes. */
     const types = toTypes(model);
     if (types) files.push({ path: "lib/database.types.ts", content: types });
+
+    /* The tables themselves, as SQL anyone can run. An app built before its
+       database is connected ships with exactly what it needs, so connecting
+       it later is one paste rather than a rebuild. Not under supabase/, which
+       authored-sql.ts reads as SQL the model wrote. toSql refuses a model it
+       could not make safe (a table locked by RLS with no policy, say); that
+       is the migration's problem to report, and it must not stop the files. */
+    let sql = "";
+    try {
+      sql = toSql(model);
+    } catch {
+      sql = "";
+    }
+    if (sql) {
+      files.push({
+        path: "database/schema.sql",
+        content: `-- The database this app was written against: tables, row-level security
+-- and policies. Run it once in your Supabase project's SQL editor, then set
+-- the variables in README.md. Safe to run again.
+
+${sql}`,
+      });
+    }
 
     /* No .env.example, deliberately, and the README names the three variables
        instead.

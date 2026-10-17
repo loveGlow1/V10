@@ -78,7 +78,7 @@ export type BuildReply = {
   /* A database change the agent planned and dry-ran, waiting for Approve.
      Approving goes to /api/projects/[id]/backend/agent, never back through chat. */
   surgery?: { id: string; level: number; confirmation: string | null; summary: string; kind: string };
-  architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
+  architectureOptions?: { value: "managed" | "full" | "frontend" | "own" | "later"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -122,7 +122,7 @@ type BuildPayload = {
   /* A database change the agent planned and dry-ran, waiting for Approve.
      Approving goes to /api/projects/[id]/backend/agent, never back through chat. */
   surgery?: { id: string; level: number; confirmation: string | null; summary: string; kind: string };
-  architectureOptions?: { value: "managed" | "full" | "frontend" | "own"; label: string; blurb: string }[];
+  architectureOptions?: { value: "managed" | "full" | "frontend" | "own" | "later"; label: string; blurb: string }[];
   /* The stack that reading of the brief implied, returned with the question so
      the answer does not re-derive it. */
   stack?: "standalone-html" | "nextjs";
@@ -182,7 +182,7 @@ export type BuildOptions = {
    * when its own planner reports the decision as a guess. See
    * lib/builder/architecture.ts.
    */
-  architecture?: "managed" | "full" | "frontend" | "own" | null;
+  architecture?: "managed" | "full" | "frontend" | "own" | "later" | null;
   /** The yes to an upgrade offer: move this single page into a full app, kept as it is. */
   upgrade?: boolean;
   /** "Run it" on SQL that was shown first: the exact SQL to run. */
