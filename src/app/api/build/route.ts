@@ -4548,7 +4548,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      * Best effort. A row that cannot be written costs the next build a
      * repeated question, which is a great deal better than failing a build
      * somebody has paid for. */
-    if (chosenArchitecture === "own" && service) {
+    if (databaseChoice(chosenArchitecture) === "own" && service) {
       const { error: backendError } = await service.from("project_backends").upsert(
         {
           project_id: project.id,

@@ -206,16 +206,30 @@ export const byAlias: Media | null = null;
     fail(`${label}: importing the client with no environment does not throw`, String(error.message));
   }
 
+  /* With no database yet the app is still whole: a query settles as "not
+     connected" with no throw, so the page shows its own empty or error state,
+     and sign-in says it turns on once the database is connected. */
   if (unset) {
     try {
-      unset.supabase.from("media");
-      fail(`${label}: using it unconfigured says which variables are missing`, "it returned a client instead");
-    } catch (error) {
+      has(unset.databaseConnected === false, `${label}: unconfigured, it says no database is connected`);
+      const result = await unset.supabase.from("media").select("id").eq("id", 1).order("id");
       has(
-        /NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(error.message),
-        `${label}: using it unconfigured says which variables are missing`,
-        error.message,
+        result.data === null && result.error?.code === "DATABASE_NOT_CONNECTED" &&
+          /NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(result.error.details),
+        `${label}: and a query of any length settles as "not connected", naming the variables`,
+        JSON.stringify(result),
       );
+      const session = await unset.supabase.auth.getSession();
+      const signIn = await unset.supabase.auth.signInWithPassword({ email: "a@b.co", password: "x" });
+      unset.supabase.auth.onAuthStateChange(() => {}).data.subscription.unsubscribe();
+      has(
+        session.data.session === null && session.error === null && /database is connected/.test(signIn.error?.message ?? ""),
+        `${label}: signed out, and sign-in says it turns on once the database is connected`,
+      );
+      const upload = await unset.supabase.storage.from("media").upload("a.png", new Blob(["x"]));
+      has(upload.error?.code === "DATABASE_NOT_CONNECTED", `${label}: storage waits the same way`);
+    } catch (error) {
+      fail(`${label}: using it unconfigured never throws`, String(error.message));
     }
   }
 
