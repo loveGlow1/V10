@@ -22,7 +22,9 @@ export const FLIER_RATIO: Record<FlierCard["format"], string> = { portrait: "2 /
 export function FlierThumb({ flier, className = "" }: { flier: FlierCard; className?: string }) {
   return (
     <Link
-      href={flier.projectId ? `/dashboard/project/${flier.projectId}` : `/dashboard/fliers/${flier.finalId ?? flier.id}`}
+      /* Into the workspace, where it can be changed — straight to its project,
+         or through /open, which gives an older flier one. */
+      href={flier.projectId ? `/dashboard/project/${flier.projectId}` : `/dashboard/fliers/${flier.id}/open`}
       className={`group relative block overflow-hidden rounded-2xl border border-line/[0.08] bg-layer/[0.04] ${className}`}
       style={{ aspectRatio: FLIER_RATIO[flier.format] ?? "2 / 3" }}
     >

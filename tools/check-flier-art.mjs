@@ -158,6 +158,15 @@ has(/latest\?\.request \? await reviseRequest\(latest\.request, prompt\)/.test(w
 has(/status: ok \? "Built" : "Failed", last_build_at/.test(ws), "the preview reloads when the images land");
 has(/owner\?\.intent === FLIER_INTENT/.test(previewApi) && /flierBoardHtml\(await loadFlierBoard/.test(previewApi), "the preview iframe shows the flier board, freshly signed");
 has(/data-src/.test(ws) && /id="save"/.test(ws), "the board is interactive: open a version, save it");
+/* Back into the workspace from Your fliers — any flier, old or new. */
+const openApi = readFileSync(join(root, "src/app/api/flyers/[id]/workspace/route.ts"), "utf8");
+const thumb = readFileSync(join(root, "src/app/dashboard/components/FlierThumb.tsx"), "utf8");
+const oldStudio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");
+has(/flier\.projectId \? `\/dashboard\/project\/\$\{flier\.projectId\}` : `\/dashboard\/fliers\/\$\{flier\.id\}\/open`/.test(thumb), "every flier in Your fliers opens in the workspace");
+has(/if \(root\.site_id\)[\s\S]{0,300}return NextResponse\.json\(\{ projectId: project\.id \}\)/.test(openApi), "one made there goes back to its own project");
+has(/intent: FLIER_INTENT/.test(openApi) && /update\(\{ site_id: project\.id \}\)/.test(openApi), "an older one is given a flier project, its images left where they are");
+has(/\.eq\('id', id\)\s*\.maybeSingle/.test(openApi) && /deleted_at\) return NextResponse\.json\(\{ error: 'This flier is in Recently deleted/.test(openApi), "only the caller's own flier, and not one in Recently deleted");
+has(/Open in workspace/.test(oldStudio), "the older studio page offers the way back too");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
