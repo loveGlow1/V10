@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 export type FlierCard = {
   id: string;
   finalId: string | null;
+  projectId?: string | null;
   status: "queued" | "running" | "done" | "failed";
   headline: string;
   format: "portrait" | "square" | "landscape" | "story";
@@ -21,7 +22,7 @@ export const FLIER_RATIO: Record<FlierCard["format"], string> = { portrait: "2 /
 export function FlierThumb({ flier, className = "" }: { flier: FlierCard; className?: string }) {
   return (
     <Link
-      href={`/dashboard/fliers/${flier.finalId ?? flier.id}`}
+      href={flier.projectId ? `/dashboard/project/${flier.projectId}` : `/dashboard/fliers/${flier.finalId ?? flier.id}`}
       className={`group relative block overflow-hidden rounded-2xl border border-line/[0.08] bg-layer/[0.04] ${className}`}
       style={{ aspectRatio: FLIER_RATIO[flier.format] ?? "2 / 3" }}
     >

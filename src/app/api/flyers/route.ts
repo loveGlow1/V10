@@ -23,7 +23,7 @@ export const maxDuration = 300;
  * is delivered (lib/flyers/run.ts). On unless FLYERS_API_ENABLED=0. */
 const DISABLED = process.env.FLYERS_API_ENABLED === '0';
 
-type Row = { id: string; status: string; request: FlyerRequest | null; outputs: StoredOutput[] | null; created_at: string; parent_job_id?: string | null; deleted_at?: string | null };
+type Row = { id: string; status: string; request: FlyerRequest | null; outputs: StoredOutput[] | null; created_at: string; parent_job_id?: string | null; deleted_at?: string | null; site_id?: string | null };
 
 /* Your fliers: one card per brief, newest first. The picture is the newest
  * finished final when there is one, else the first draft. Read under the
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
 
   const { data: drafts, error } = await supabase
     .from('flyer_jobs')
-    .select('id, status, request, outputs, created_at')
+    .select('id, status, request, outputs, created_at, site_id')
     .eq('stage', 'preview')
     .is('parent_job_id', null)
     .is('deleted_at', null)
@@ -123,6 +123,8 @@ export async function GET(req: Request) {
       const thumb = await sign(path);
       return {
         id: row.id,
+        /* Made in the workspace: that is where it opens. */
+        projectId: row.site_id ?? null,
         finalId: final?.id ?? null,
         status: row.status,
         headline: row.request?.spec?.headline ?? '',

@@ -102,3 +102,79 @@ export async function requestFromBrief(brief: string, subtype: string | null | u
     return fallback;
   }
 }
+
+const REVISE = `You revise the design brief of a flier the person has already seen. You are given the current brief as JSON and the change they asked for. Apply exactly that change and keep everything else the same, word for word. Reply with the whole revised brief as JSON only, in the same shape:
+{"brand":"","headline":"","subhead":"","details":[""],"cta":"","imagery":"","colors":{"primary":"#hex","accent":"#hex","background":"#hex","text":"#hex"},"vibe":"","style":"brand | typography | photo"}
+Never invent facts the person did not give — no dates, prices, addresses, phone numbers or URLs.`;
+
+/** The current flier's request with one change applied, read by Haiku; the change added to the picture brief when it cannot be. */
+export async function reviseRequest(previous: FlyerRequest, change: string): Promise<FlyerRequest> {
+  const text = change.replace(/\s+/g, " ").trim().slice(0, 1500);
+  const fallback: FlyerRequest = {
+    ...previous,
+    spec: { ...previous.spec, imagery: `${previous.spec.imagery ?? ""} Change: ${text}`.trim().slice(0, 600) },
+    stage: "preview",
+    parentJobId: undefined,
+    selectedPreviewPath: undefined,
+  };
+  if (!process.env.ANTHROPIC_API_KEY) return fallback;
+  const current = {
+    brand: previous.brand.name,
+    headline: previous.spec.headline,
+    subhead: previous.spec.subhead ?? "",
+    details: previous.spec.details ?? [],
+    cta: previous.spec.cta ?? "",
+    imagery: previous.spec.imagery ?? "",
+    colors: previous.brand.colors,
+    vibe: previous.brand.vibe ?? "",
+    style: previous.spec.styleIntent ?? "brand",
+  };
+  try {
+    const message = await new Anthropic().messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 700,
+      system: REVISE,
+      messages: [{ role: "user", content: `CURRENT BRIEF:\n${JSON.stringify(current)}\n\nCHANGE:\n${text}` }],
+    });
+    const raw = message.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .replace(/```json|```/g, "")
+      .trim();
+    const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)) as Record<string, unknown>;
+    const colors = (parsed.colors ?? {}) as Record<string, unknown>;
+    const color = (key: "primary" | "accent" | "background" | "text", otherwise: string | undefined) =>
+      typeof colors[key] === "string" && HEX.test(colors[key] as string) ? (colors[key] as string) : otherwise;
+    const style = parsed.style === "typography" || parsed.style === "photo" || parsed.style === "brand" ? (parsed.style as StyleIntent) : previous.spec.styleIntent;
+    return {
+      ...previous,
+      brand: {
+        ...previous.brand,
+        name: typeof parsed.brand === "string" ? clip(parsed.brand, 60) : previous.brand.name,
+        colors: {
+          ...previous.brand.colors,
+          primary: color("primary", previous.brand.colors.primary) ?? previous.brand.colors.primary,
+          accent: color("accent", previous.brand.colors.accent),
+          background: color("background", previous.brand.colors.background),
+          text: color("text", previous.brand.colors.text),
+        },
+        vibe: clip(parsed.vibe, 80) || previous.brand.vibe,
+      },
+      spec: {
+        ...previous.spec,
+        headline: clip(parsed.headline, 80) || previous.spec.headline,
+        subhead: typeof parsed.subhead === "string" ? clip(parsed.subhead, 120) || undefined : previous.spec.subhead,
+        details: Array.isArray(parsed.details) ? parsed.details.map((d) => clip(d, 80)).filter(Boolean).slice(0, 4) : previous.spec.details,
+        cta: typeof parsed.cta === "string" ? clip(parsed.cta, 40) || undefined : previous.spec.cta,
+        imagery: clip(parsed.imagery, 400) || previous.spec.imagery,
+        styleIntent: style,
+      },
+      stage: "preview",
+      parentJobId: undefined,
+      selectedPreviewPath: undefined,
+    };
+  } catch {
+    return fallback;
+  }
+}

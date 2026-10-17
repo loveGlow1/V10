@@ -1,6 +1,6 @@
 import { workflow, node, trigger, newCredential, switchCase, expr } from '@n8n/workflow-sdk';
 
-/* QuickStark.Ai — Video Render (bZejkBTNs4XRn1FF). A mirror of the live
+/* QuickStark.Ai — Video Render (Ppdk6AgQIOWuETxR). A mirror of the live
  * workflow, like build-orchestrator.workflow.ts: change it in n8n, then bring
  * the change back here. When the two disagree, the workflow is right.
  *
@@ -27,7 +27,7 @@ const webhook = trigger({
     name: 'Render Job Webhook',
     position: [0, 300],
     parameters: { httpMethod: 'POST', path: 'api/v1/video-render', authentication: 'headerAuth', responseMode: 'onReceived', options: {} },
-    credentials: { httpHeaderAuth: { id: '8mazybFPHaUQeSwd', name: 'Header Auth account' } },
+    credentials: { httpHeaderAuth: { id: '8eSfR6NoliNUtHDA', name: 'Header Auth account' } },
   },
 });
 
@@ -160,7 +160,7 @@ const callback = node({
       jsonBody: expr('{{ JSON.stringify({ videoId: $json.videoId, version: $json.version, signature: $json.signature, job: $json.job, url: $json.url, error: $json.error }) }}'),
       options: { timeout: 60000 },
     },
-    credentials: { httpHeaderAuth: { id: '8mazybFPHaUQeSwd', name: 'Header Auth account' } },
+    credentials: { httpHeaderAuth: { id: '8eSfR6NoliNUtHDA', name: 'Header Auth account' } },
   },
 });
 

@@ -107,7 +107,7 @@ const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
 const start = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
 const flyersApi = readFileSync(join(root, "src/app/api/flyers/route.ts"), "utf8");
 const briefSrc = readFileSync(join(root, "src/lib/flyers/brief.ts"), "utf8");
-has(/flier=\{activeCategory === "fliers"/.test(home) && /if \(flier\) \{[\s\S]{0,200}fetch\("\/api\/flyers"/.test(start) && /router\.push\(`\/dashboard\/fliers\//.test(start), "the Fliers tab opens the Flier Studio, never a website workspace");
+has(/subtype: activeCategory === "fliers" \? subtype\.id : activeSubtype/.test(home), "the Fliers tab sends its target and size to the workspace, where the image engine — never the page builder — answers it");
 has(/requestFromBrief\(/.test(flyersApi) && /stage === 'final' && typeof raw\.parentJobId === 'string'/.test(flyersApi), "the flier API takes a plain brief, and makes a final from a chosen draft");
 has(/currentBalance/.test(flyersApi) && !/FLYERS_API_ENABLED === '1'/.test(flyersApi), "on by default now a screen uses it, with the balance checked first");
 has(/Never invent facts/.test(briefSrc) && /heuristicRequest/.test(briefSrc), "the brief is read without inventing facts, with a fallback when the model is unavailable");
@@ -147,6 +147,17 @@ const projectsPage = readFileSync(join(root, "src/app/dashboard/projects/page.ts
 has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /void save\(open\)/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
 has(/typeof raw\.again === 'string'[\s\S]{0,500}stage: 'preview', variants: 4/.test(flyersApi), "4 more versions reuse the brief as new drafts");
 has(/href="\/dashboard\/fliers"[\s\S]{0,200}Fliers/.test(projectsPage), "the Projects page's last tab is Fliers");
+/* Fliers open in the workspace, like a website. */
+const ws = readFileSync(join(root, "src/lib/flyers/workspace.ts"), "utf8");
+const buildApi = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
+const previewApi = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+const startBtn = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
+has(!/fetch\("\/api\/flyers"/.test(startBtn), "the Fliers tab opens the workspace, not a separate studio");
+has(/project\.intent === FLIER_INTENT \|\| \(isFlierTarget\(body\.target\)/.test(buildApi) && /status: "Building"/.test(buildApi), "a flier project's messages go to the image engine and answer as a build");
+has(/latest\?\.request \? await reviseRequest\(latest\.request, prompt\)/.test(ws), "every message after the first is a change to the current flier");
+has(/status: ok \? "Built" : "Failed", last_build_at/.test(ws), "the preview reloads when the images land");
+has(/owner\?\.intent === FLIER_INTENT/.test(previewApi) && /flierBoardHtml\(await loadFlierBoard/.test(previewApi), "the preview iframe shows the flier board, freshly signed");
+has(/data-src/.test(ws) && /id="save"/.test(ws), "the board is interactive: open a version, save it");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
