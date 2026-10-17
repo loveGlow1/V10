@@ -35,6 +35,24 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   mobile_app: "Mobile App",
 };
 
+/* ── Coming soon ───────────────────────────────────────────────────────
+ *
+ * A tab shown but not yet buildable. Mobile App is here because its
+ * pipeline is not built: a build from it would charge for a generic web app
+ * dressed in mobile rules. So the tab says "Soon" and cannot be picked, the
+ * prompt cannot move the tab to it, and the build route refuses it before
+ * anything that costs — a request that names it from anywhere else is
+ * turned away rather than half-built. Remove the id to open it again. */
+export const COMING_SOON: ReadonlySet<Category> = new Set<Category>(["mobile_app"]);
+
+export function isComingSoon(category: Category): boolean {
+  return COMING_SOON.has(category);
+}
+
+export function comingSoonMessage(category: Category): string {
+  return `${CATEGORY_LABEL[category]}s are coming soon — that builder isn't ready yet, so nothing was built and no credits were used. Pick Website or Web App to build it for the web in the meantime.`;
+}
+
 export type SubType = {
   id: string;
   label: string;
@@ -306,7 +324,11 @@ export function resolveTarget(target: Target, brief: string): ResolvedTarget {
 export function categoryFor(brief: string): Category | null {
   if (/\b(flyer|flier|poster|banner|instagram post|social (media )?post|story graphic|thumbnail|invitation card)\b/i.test(brief)) return "fliers";
   if (/\b(video|reel|tiktok|youtube short|commercial|animation|animated explainer|trailer)\b/i.test(brief)) return "video";
-  if (/\b(mobile app|phone app|ios app|android app|react native|flutter|app store|play store|pwa)\b/i.test(brief)) return "mobile_app";
+  /* A mobile brief does not move the tab while Mobile App is coming soon:
+     the tab would land somewhere that cannot build. */
+  if (/\b(mobile app|phone app|ios app|android app|react native|flutter|app store|play store|pwa)\b/i.test(brief)) {
+    return isComingSoon("mobile_app") ? null : "mobile_app";
+  }
   const read = heuristicKind(brief);
   if (!read || read.confidence < 0.8) return null;
   return read.kind === "webapp" ? "web_app" : "website";

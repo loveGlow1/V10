@@ -225,7 +225,14 @@ import {
   KIND_LABEL,
   type KindResult,
 } from "@/lib/builder/kinds";
-import { CATEGORY_LABEL, parseTarget, resolveTarget, targetBrief } from "@/lib/builder/targets";
+import {
+  CATEGORY_LABEL,
+  comingSoonMessage,
+  isComingSoon,
+  parseTarget,
+  resolveTarget,
+  targetBrief,
+} from "@/lib/builder/targets";
 import { builderAvailability } from "@/lib/builder/availability";
 import { detectMarket, isMarket } from "@/lib/builder/market";
 import {
@@ -1140,6 +1147,19 @@ async function handle(
      versions" — is rules and stored rows, no model, so it is read before
      anything that needs one and works while building is paused. See
      lib/builder/versions.ts. */
+  /* A tab whose builder is not ready (Mobile App, for now) is refused here,
+     before the classifier, a model or a charge: building from it would bill
+     for something its pipeline does not make yet. See COMING_SOON. */
+  const soonTarget = parseTarget(body.target);
+  if (soonTarget && isComingSoon(soonTarget.category)) {
+    const said = comingSoonMessage(soonTarget.category);
+    const stored = await deliver(said, { key: "coming-soon" });
+    return NextResponse.json(
+      { error: said, code: "coming_soon", category: soonTarget.category, stored },
+      { status: 409 },
+    );
+  }
+
   const timeZone = safeTimeZone((body as { timeZone?: unknown }).timeZone);
   const versionAsk = currentHtml ? readVersionRequest(prompt) : null;
 
