@@ -23,11 +23,15 @@ import type { ProductionPlan } from "./plan";
 
 export { CLIP_COST, VOICE_COST };
 
-/* A clip that has not reported in this long is not coming: the instance stops
-   an execution at 180s, and this leaves room for n8n's own queue. */
 export const MAX_CLIP_SECONDS = 6;
 
-export const STALE_AFTER_MS = 8 * 60 * 1000;
+/* A clip that has not reported in this long is not coming. Not minutes: the
+   n8n plan runs five executions at a time and queues the rest, and with five
+   MiniMax clips rendering together one took over nine minutes — so an eight-
+   clip video's second wave lands near twenty. A late clip is still taken
+   (render/callback), but a render should not be called failed while its
+   clips are only waiting their turn. */
+export const STALE_AFTER_MS = 30 * 60 * 1000;
 /* fal's jobs (lip sync, avatar, music, the final compose) queue and can take
    longer; they are given more room before being called lost. */
 export const FAL_STALE_AFTER_MS = 25 * 60 * 1000;
@@ -155,7 +159,7 @@ export async function dispatchJobs(input: {
           method: "POST",
           headers: { "Content-Type": "application/json", [WEBHOOK_TOKEN_HEADER]: token },
           body: JSON.stringify({ videoId: input.videoId, version: input.version, signature, aspect: input.aspect, callbackUrl: input.callbackUrl, job }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(20000),
           cache: "no-store",
         });
         if (response.ok) return { job, ok: true };
@@ -164,7 +168,11 @@ export async function dispatchJobs(input: {
           ok: false,
           error: response.status === 404 ? "The render workflow is not published." : response.status === 403 ? "The render workflow rejected the token." : `The render workflow answered ${response.status}.`,
         };
-      } catch {
+      } catch (error) {
+        /* No answer in time is n8n's queue, not a refusal: past its five
+           concurrent executions it holds the request until a slot frees, then
+           runs the job and reports back like any other. A refusal answers. */
+        if ((error as { name?: string })?.name === "TimeoutError") return { job, ok: true };
         return { job, ok: false, error: "Could not reach the render workflow." };
       }
     }),
