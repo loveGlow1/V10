@@ -3159,6 +3159,18 @@ create index if not exists video_renders_video_idx on public.video_renders (vide
 create unique index if not exists video_renders_one_per_job
   on public.video_renders (video_id, version, coalesce(scene, -1), engine);
 
+-- A video engine paused for the whole deployment — the n8n MiniMax usage credit
+-- ran out — and until when (migration 20261017200000_video_engine_state.sql).
+-- Service role only: RLS on with no policy BY DESIGN.
+create table if not exists public.video_engine_state (
+  engine        text primary key check (char_length(engine) <= 40),
+  paused_until  timestamptz,
+  reason        text check (reason is null or char_length(reason) <= 500),
+  updated_at    timestamptz not null default now()
+);
+alter table public.video_engine_state enable row level security;
+revoke all on public.video_engine_state from anon, authenticated;
+
 do $$
 declare t text;
 begin

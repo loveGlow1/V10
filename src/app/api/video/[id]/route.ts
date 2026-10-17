@@ -75,6 +75,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         : now - new Date(row.updated_at).getTime() > (["avatar", "music", "compose"].includes(row.engine) ? FAL_STALE_AFTER_MS : STALE_AFTER_MS)),
   );
   for (const row of stale) {
+    /* An n8n clip that never came back is handed to the next engine rather
+       than failed: the usage credit was tried first, not instead. */
+    if (service && row.engine === "video" && row.provider === "n8n:minimax" && row.scene !== null) {
+      const handedOn = await retryClip(service, { videoId: id, version: video.current_version as number, n: row.scene, failed: "n8n", origin: new URL(request.url).origin });
+      if (handedOn) continue;
+    }
     await supabase.from("video_renders").update({ status: "failed", error: "Timed out — the render job never reported back." }).eq("id", row.id);
     row.status = "failed";
     row.error = "Timed out — the render job never reported back.";

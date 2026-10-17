@@ -25,8 +25,8 @@ import { type Aspect, type ClipEngine, clipCost, parseProvider, providerOf, rout
 import { frameFor } from "./frames";
 import type { ProductionPlan } from "./plan";
 import { advance } from "./production";
-import { clipWebhookUrl, submitClip } from "./providers";
-import { VOICE_COST } from "./render";
+import { clipWebhookUrl, speak, submitClip } from "./providers";
+import { VOICE_COST, languageFor, voiceIdFor } from "./render";
 
 export type Landing = {
   videoId: string;
@@ -130,6 +130,8 @@ export async function retryClip(
   const frame = await frameFor(service, { userId: video.user_id as string, videoId: input.videoId, version: input.version, plan, scene });
   const answers = (video.answers ?? {}) as Record<string, string>;
   const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier: tierFrom(process.env, answers.quality) });
+  /* Forward only, and never back to n8n: a clip handed on from n8n has
+     already had its turn on the usage credit. */
   const next = chain.slice(chain.indexOf(input.failed) + 1).filter((engine) => engine !== "n8n");
   for (const engine of next) {
     const sent = await submitClip(
@@ -153,3 +155,49 @@ export async function retryClip(
 
 /** The engine a running clip row is on, from its provider column. */
 export const engineOfRow = (provider: string | null | undefined) => parseProvider(provider);
+
+/**
+ * Every n8n job of a render that is still waiting, handed on at once — the
+ * moment n8n says its MiniMax usage credit is spent (credit.ts). Clips go to
+ * the next engine in their chain; voice lines to MiniMax speech when there is
+ * a key. A job nothing else can take is left to report or time out as it was.
+ */
+export async function failoverN8n(service: SupabaseClient, input: { videoId: string; version: number; origin: string }): Promise<number> {
+  const { data: rows } = await service
+    .from("video_renders")
+    .select("scene, engine")
+    .eq("video_id", input.videoId)
+    .eq("version", input.version)
+    .eq("provider", "n8n:minimax")
+    .eq("status", "running");
+  const waiting = (rows ?? []).filter((row): row is { scene: number; engine: string } => row.scene !== null);
+  if (!waiting.length) return 0;
+
+  const [{ data: planRow }, { data: video }] = await Promise.all([
+    service.from("video_versions").select("plan").eq("video_id", input.videoId).eq("version", input.version).maybeSingle(),
+    service.from("video_projects").select("answers").eq("id", input.videoId).maybeSingle(),
+  ]);
+  const plan = planRow?.plan as ProductionPlan | undefined;
+  const answers = (video?.answers ?? {}) as Record<string, string>;
+
+  const moved = await Promise.all(
+    waiting.map(async (row) => {
+      if (row.engine === "video") return retryClip(service, { videoId: input.videoId, version: input.version, n: row.scene, failed: "n8n", origin: input.origin });
+      if (row.engine !== "voice" || !process.env.MINIMAX_API_KEY || !plan) return false;
+      const line = plan.scenes.find((scene) => scene.n === row.scene)?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+      if (!line) return false;
+      /* Claimed first, so a late n8n reply for the same line is ignored. */
+      await service
+        .from("video_renders")
+        .update({ provider: "minimax:speech", updated_at: new Date().toISOString() })
+        .eq("video_id", input.videoId)
+        .eq("version", input.version)
+        .eq("scene", row.scene)
+        .eq("engine", "voice");
+      const spoken = await speak({ text: line, voiceId: voiceIdFor(answers), language: languageFor(answers) });
+      await landResult(service, { videoId: input.videoId, version: input.version, kind: "voice", n: row.scene, bytes: spoken.ok ? spoken.audio : null, error: spoken.ok ? null : spoken.error, origin: input.origin });
+      return true;
+    }),
+  );
+  return moved.filter(Boolean).length;
+}

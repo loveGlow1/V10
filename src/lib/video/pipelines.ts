@@ -299,10 +299,10 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
   },
 };
 
-/* Asked of every video: which engines make its clips. "Best" ranks by output
-   quality (Seedance 2.0 first); "Economy" puts the free MiniMax credit first
-   wherever it can make the scene properly. See clip-engines.ts tierFrom. */
-export const QUALITY: Question = { id: "quality", label: "Quality", options: ["Best", "Economy"], initial: "Best" };
+/* Asked of every video: which engines make its clips. "MiniMax credit" spends
+   the MiniMax usage credit on n8n first; "Best" ranks by output quality
+   (Seedance 2.0 first). See clip-engines.ts tierFrom. */
+export const QUALITY: Question = { id: "quality", label: "Quality", options: ["MiniMax credit", "Best"], initial: "MiniMax credit" };
 for (const pipeline of Object.values(PIPELINES)) {
   if (!pipeline.questions.some((question) => question.id === QUALITY.id)) pipeline.questions.push(QUALITY);
 }

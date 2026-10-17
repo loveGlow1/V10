@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -36,6 +36,7 @@ const E = await import(join(dir, "engines.js"));
 const R = await import(join(dir, "render.js"));
 const F = await import(join(dir, "fal.js"));
 const C = await import(join(dir, "clip-engines.js"));
+const K = await import(join(dir, "credit.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -160,19 +161,24 @@ const mm = { MINIMAX_API_KEY: "k" };
 const hf = { HF_API_KEY_ID: "i", HF_API_KEY_SECRET: "s" };
 const every = { ...mm, ...hf, FAL_KEY: "f", N8N_WEBHOOK_URL: "https://n8n.example.com/webhook/x", N8N_WEBHOOK_TOKEN: "t" };
 const ugcScene = { pipeline: "ugc_influencer", aspect: "9:16", fromFrame: false };
-has(C.routeClip(ugcScene, every)[0] === "seedance", "UGC, best: Seedance 2.0 first");
+has(C.routeClip(ugcScene, every)[0] === "n8n", "by default the MiniMax usage credit on n8n goes first — vertical included");
+has(C.routeClip(ugcScene, every)[1] === "seedance", "and behind it, the best paid engine for the scene");
+has(C.routeClip({ ...ugcScene, tier: "best" }, every)[0] === "seedance", "UGC, best: Seedance 2.0 first");
+has(C.routeClip({ ...ugcScene, tier: "credit" }, hf)[0] === "seedance", "with no n8n connected, the credit tier goes straight to the best engine");
 has(C.routeClip({ ...ugcScene, tier: "economy" }, every)[0] === "seedance", "economy never sends a vertical text-to-video scene to a landscape-only engine");
 has(C.routeClip({ ...ugcScene, fromFrame: true, tier: "economy" }, every)[0] === "minimax", "economy, from a frame: the free MiniMax credit first");
 has(C.routeClip(ugcScene, mm).length === 0, "MiniMax alone cannot make a vertical scene from text — no crop, it is left out");
 has(C.routeClip({ ...ugcScene, fromFrame: true }, mm)[0] === "minimax", "but can from a frame, where the frame decides the shape");
-has(C.routeClip({ pipeline: "photo_to_video", aspect: "9:16", fromFrame: true }, every)[0] === "minimax", "photo to video: MiniMax Hailuo image-to-video first");
+has(C.routeClip({ pipeline: "photo_to_video", aspect: "9:16", fromFrame: true, tier: "best" }, every)[0] === "minimax", "photo to video: MiniMax Hailuo image-to-video first");
 has(C.routeClip({ pipeline: "explainer", aspect: "16:9", fromFrame: false }, mm)[0] === "minimax", "a landscape explainer runs on the free credit alone");
 has(!C.routeClip({ pipeline: "trailer", aspect: "16:9", fromFrame: true }, { FAL_KEY: "f" }).includes("seedance-fal"), "fal's Seedance is never asked to start from a frame");
 has(C.routeClip(ugcScene, nothing).length === 0, "nothing connected, nothing routed");
 has(C.routeClip({ ...ugcScene, prefer: "seedance-fal" }, every)[0] === "seedance-fal", "an engine can be preferred, and only when it can make the scene");
 has(C.durationFor("minimax", 4) === 6 && C.durationFor("minimax", 8) === 10 && C.durationFor("minimax", 30) === 10, "MiniMax clips are 6s or 10s");
 has(C.durationFor("seedance", 7) === 7 && C.durationFor("seedance", 40) === 15 && C.durationFor("kling", 6) === 10, "Seedance 4–15s, Kling 5 or 10s");
-has(C.tierFrom({ VIDEO_QUALITY: "economy" }) === "economy" && C.tierFrom({}) === "best" && C.tierFrom({}, "Draft (fast)") === "economy", "quality comes from the video's answer, then VIDEO_QUALITY, else best");
+has(C.tierFrom({ VIDEO_QUALITY: "economy" }) === "economy" && C.tierFrom({}) === "credit" && C.tierFrom({}, "Best") === "best" && C.tierFrom({ VIDEO_QUALITY: "best" }, "MiniMax credit") === "credit", "quality comes from the video's answer, then VIDEO_QUALITY, else the MiniMax credit");
+const n8nOnly = { N8N_WEBHOOK_URL: "https://n8n.example.com/webhook/x", N8N_WEBHOOK_TOKEN: "t" };
+has(C.voiceDirect({ ...n8nOnly, ...mm }) === false && C.voiceDirect({ ...n8nOnly, ...mm }, "best") === true && C.voiceDirect(mm) === true, "voices go through n8n on the credit tier, direct otherwise");
 for (const engine of ["seedance", "kling", "minimax", "seedance-fal"]) {
   const parsed = C.parseProvider(C.providerOf(engine, "abc-123"));
   has(parsed?.engine === engine && parsed.id === "abc-123", `${engine}: its request is found again from the row`);
@@ -194,6 +200,31 @@ has(/submitClip\(/.test(render) && /ensureKeyframe\(/.test(render) && /speak\(/.
 const providers = readFileSync(join(root, "src/lib/video/providers.ts"), "utf8");
 has(/generate_audio: false/.test(providers), "generated clips bring no audio of their own to fight the voice and music");
 has(!/console\.log/.test(providers) && /process\.env\.HF_API_KEY_SECRET/.test(providers) && !/HF_API_KEY_SECRET/.test(readFileSync(join(root, "src/lib/video/clip-engines.ts"), "utf8").replace(/env\.HF_API_KEY_SECRET/g, "")), "keys are read on the server and never logged");
+
+has(/retryClip\(service, \{ videoId: id, version, n, failed: "n8n"/.test(callback), "a clip n8n could not make goes on to the next engine instead of failing");
+has(/kind === "voice" && process\.env\.MINIMAX_API_KEY/.test(callback) && /speak\(/.test(callback), "a voice line n8n could not make is voiced by MiniMax directly");
+const studio = readFileSync(join(root, "src/app/api/video/[id]/route.ts"), "utf8");
+has(/row\.provider === "n8n:minimax"[\s\S]{0,200}retryClip\(/.test(studio), "an n8n clip that never came back is handed on, not failed");
+has(/for \(const engine of chain\)[\s\S]{0,120}engine === "n8n"/.test(render), "render walks each chain in order, n8n included");
+
+console.log("\nthe MiniMax usage credit on n8n");
+for (const said of ["MiniMax: insufficient balance (1008)", "Your credits have been exhausted", "quota exceeded for this account", "402 Payment Required", "Out of credits — top up to continue", "usage limit reached"]) {
+  has(K.isCreditExhausted(said), `"${said}" reads as the credit running out`);
+}
+for (const said of ["rate limit exceeded, try again later", "429 Too Many Requests", "1002", "MiniMax refused the prompt as sensitive", "nothing returned", ""]) {
+  has(!K.isCreditExhausted(said), `"${said || "(empty)"}" does not`);
+}
+has(K.pauseHours({}) === 24 && K.pauseHours({ N8N_CREDIT_PAUSE_HOURS: "6" }) === 6 && K.pauseHours({ N8N_CREDIT_PAUSE_HOURS: "nope" }) === 24, "n8n is paused for 24h by default, then tried again");
+const wideScene = { pipeline: "explainer", aspect: "16:9", fromFrame: false, tier: "credit" };
+has(C.routeClip(wideScene, every).slice(0, 2).join() === "n8n,minimax", "credit tier: n8n first, then the main MiniMax API");
+has(C.routeClip({ ...wideScene, skip: ["n8n"] }, every)[0] === "minimax", "with n8n paused, the main API is first — immediately");
+has(C.routeClip({ ...ugcScene, tier: "credit", skip: ["n8n"] }, every)[0] === "seedance", "and a vertical scene the main API cannot make from text goes on to Seedance");
+has(C.voiceDirect({ ...n8nOnly, ...mm }, "credit", true) === true, "with n8n paused, voices go to MiniMax directly");
+has(E.renderCost(vertical, every, "MiniMax credit", ["n8n"]) === C.ENGINES.seedance.cost + E.COMPOSE_COST && E.renderCost(vertical, every, "MiniMax credit") === C.ENGINES.n8n.cost + E.COMPOSE_COST, "the price quoted follows the pause");
+has(/isCreditExhausted\(error\)[\s\S]{0,200}pauseN8n\([\s\S]{0,120}failoverN8n\(/.test(callback), "the first 'credit spent' reply pauses n8n and hands the whole render on at once");
+has(/row\.provider !== "n8n:minimax"\) return NextResponse\.json\(\{ ok: true, ignored: true \}\)/.test(callback), "a late n8n reply for a job already handed on is ignored");
+has(/n8nPausedUntil\(/.test(render) && /skip \}\)/.test(render), "new renders skip a paused n8n");
+has(/\.eq\("provider", "n8n:minimax"\)[\s\S]{0,60}\.eq\("status", "running"\)/.test(results), "the hand-off takes only the render's n8n jobs still waiting");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -23,6 +23,7 @@ import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
+import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
@@ -107,7 +108,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const quality = answers.quality ?? null;
-  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality);
+  const tier = tierFrom(process.env, quality);
+  /* Spent MiniMax usage credit pauses n8n for everybody: straight to the main
+     API until it is worth trying again (lib/video/credit.ts). */
+  const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
+  const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
+  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -122,13 +128,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version).eq("scene", key.scene).eq("engine", key.engine);
   }
   const { error: insertError } = await supabase.from("video_renders").insert(
-    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect() ? "minimax:speech" : "n8n:minimax", status: "running" })),
+    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect(process.env, tier, n8nPaused) ? "minimax:speech" : "n8n:minimax", status: "running" })),
   );
   if (insertError) return NextResponse.json({ error: "Could not start the render." }, { status: 500 });
 
   const origin = new URL(request.url).origin;
   const callbackUrl = `${origin}/api/video/${id}/render/callback`;
-  const tier = tierFrom(process.env, quality);
   const fail = (job: RenderJob, error: string) =>
     supabase
       .from("video_renders")
@@ -146,22 +151,47 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       : null;
 
   const sent: { job: RenderJob; ok: boolean; error?: string }[] = [];
-  const viaN8n: RenderJob[] = [];
   const voices: Extract<RenderJob, { kind: "voice" }>[] = [];
+  const toN8n = async (job: RenderJob) => (await dispatchJobs({ videoId: id, version, userId, aspect: plan.aspect, callbackUrl, jobs: [job] }))[0];
 
+  /* Each job walks its chain in order. On the default "credit" tier n8n —
+     the MiniMax usage credit — is first, and a paid engine is only reached
+     when n8n refuses the job; a clip n8n later FAILS is handed on by the
+     callback (results.ts retryClip). */
   await Promise.all(
     jobs.map(async (job) => {
       if (job.kind === "voice") {
-        if (voiceDirect()) voices.push(job);
-        else viaN8n.push(job);
+        if (voiceDirect(process.env, tier, n8nPaused)) {
+          voices.push(job);
+          return;
+        }
+        const result = await toN8n(job);
+        if (result.ok) sent.push(result);
+        else if (process.env.MINIMAX_API_KEY) {
+          /* n8n could not take it: the same MiniMax voice, direct. */
+          await supabase.from("video_renders").update({ provider: "minimax:speech" }).eq("video_id", id).eq("version", version).eq("scene", job.n).eq("engine", "voice");
+          voices.push(job);
+        } else {
+          await fail(job, result.error ?? "Not sent.");
+          sent.push(result);
+        }
         return;
       }
       const scene = plan.scenes.find((entry) => entry.n === job.n);
       const frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
-      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier });
-      const direct = chain.filter((engine): engine is Exclude<ClipEngine, "n8n"> => engine !== "n8n");
+      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip });
       let reason = "No connected video engine can make this scene at this aspect ratio.";
-      for (const engine of direct) {
+      for (const engine of chain) {
+        if (engine === "n8n") {
+          const result = await toN8n(frame ? { ...job, imageUrl: frame } : job);
+          if (result.ok) {
+            await supabase.from("video_renders").update({ provider: providerOf("n8n", "") }).eq("video_id", id).eq("version", version).eq("scene", job.n).eq("engine", "video");
+            sent.push({ job, ok: true });
+            return;
+          }
+          reason = result.error ?? reason;
+          continue;
+        }
         const result = await submitClip(
           engine,
           { prompt: scene?.motionPrompt || job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
@@ -180,21 +210,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         }
         reason = result.error;
       }
-      if (chain.includes("n8n")) viaN8n.push(frame ? { ...job, imageUrl: frame } : job);
-      else {
-        await fail(job, reason);
-        sent.push({ job, ok: false, error: reason });
-      }
+      await fail(job, reason);
+      sent.push({ job, ok: false, error: reason });
     }),
   );
-
-  if (viaN8n.length) {
-    const dispatched = await dispatchJobs({ videoId: id, version, userId, aspect: plan.aspect, callbackUrl, jobs: viaN8n });
-    for (const result of dispatched) {
-      if (!result.ok) await fail(result.job, result.error ?? "Not sent.");
-      sent.push(result);
-    }
-  }
 
   /* Voice lines straight from MiniMax, after the answer: each takes a few
      seconds, and the studio watches the rows fill in. */
