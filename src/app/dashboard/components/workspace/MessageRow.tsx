@@ -103,8 +103,15 @@ export default function MessageRow({
   const supabaseLink = message.links?.find((link) => isConnectSupabaseHref(link.href));
   /* Images a reply carries — a flier's versions — drawn as pictures, not chips. */
   const images = message.links?.filter((link) => link.label.startsWith("image:"));
+  /* And videos — a finished cut — drawn as a player. */
+  const videos = message.links?.filter((link) => link.label.startsWith("video:"));
   const chips = message.links?.filter(
-    (link) => link !== connectLink && link !== supabaseLink && link.label !== "Open it" && !link.label.startsWith("image:"),
+    (link) =>
+      link !== connectLink &&
+      link !== supabaseLink &&
+      link.label !== "Open it" &&
+      !link.label.startsWith("image:") &&
+      !link.label.startsWith("video:"),
   );
 
   /* The card's buttons and these chips are two ways to the same two things, so
@@ -165,6 +172,7 @@ export default function MessageRow({
         <ChatMarkdown text={message.text} className="text-[15px] leading-7 text-soft" />
 
         {images && images.length > 0 && <ReplyImages images={images} />}
+        {videos && videos.length > 0 && <ReplyVideos videos={videos} />}
 
         {/* Said only where it is true: work that actually landed. "Applied" over
             a refusal or a failure would be the panel disagreeing with the
@@ -316,5 +324,37 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
         </div>
       )}
     </>
+  );
+}
+
+/* A reply's video, in the conversation: it plays right here, and Download
+   saves the MP4 itself — the file route answers with it as an attachment. */
+function ReplyVideos({ videos }: { videos: { label: string; href: string }[] }) {
+  const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
+  return (
+    <div className="mt-3 flex max-w-[520px] flex-col gap-3">
+      {videos.map((video, index) => (
+        <div key={video.href} className="overflow-hidden rounded-xl border border-line/[0.08] bg-black">
+          <video
+            src={video.href}
+            controls
+            playsInline
+            preload="metadata"
+            aria-label={videos.length > 1 ? `Video ${index + 1}` : "Your video"}
+            className="block max-h-[70vh] w-full bg-black"
+          />
+          <div className="flex items-center justify-between gap-3 border-t border-line/[0.08] bg-panel px-3 py-2">
+            <span className="text-[12.5px] text-muted">MP4{videos.length > 1 ? ` · ${index + 1}` : ""}</span>
+            <a
+              href={download(video.href)}
+              download
+              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3.5 text-[13px] font-semibold text-onSolid transition-opacity hover:opacity-90"
+            >
+              <Download className="h-3.5 w-3.5" /> Download
+            </a>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

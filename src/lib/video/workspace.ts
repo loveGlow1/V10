@@ -169,13 +169,15 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
 <div id="player" hidden><div class="stage" id="stage"><video id="clip" playsinline muted></video><div class="card" id="card"><b></b><span></span></div><div class="ost" id="ost"></div><div class="cap" id="cap" hidden></div></div>
 <div class="bar" id="bar"><button class="play" id="play" aria-label="Play">▶</button><div class="track"><i id="prog"></i></div><span class="time" id="time">0s</span></div>
 <audio id="voice"></audio></div>
-<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p><a id="finaldl" style="color:#f97316" target="_blank" rel="noopener">Open the MP4</a></p></div>
+<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p></div>
 <h2 id="sh" hidden>Scenes</h2><div class="scenes" id="scenes"></div>
 <p class="empty" id="empty" hidden>Describe your video in the chat to plan it.</p>
 </div>
 <script>
 (function(){
   var FEED=${JSON.stringify(feed)};
+  /* Download goes to the app's own file route, which saves the MP4 itself. */
+  var FILE=${JSON.stringify(input.videoId ? `${input.origin}/api/video/${input.videoId}/file` : "")};
   var $=function(id){return document.getElementById(id)};
   var state=null,scenes=[],i=0,playing=false,t0=0,elapsedBefore=0,timer=null,lastKey='';
   var RATIO={'9:16':'9 / 16','1:1':'1 / 1','16:9':'16 / 9','4:5':'4 / 5'};
@@ -207,7 +209,7 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     $('empty').hidden=true;var plan=latest.plan;scenes=plan.scenes||[];$('title').textContent=plan.title||$('title').textContent;
     var st=state.video.status,done=scenes.filter(function(s){return job(s.n)==='done'}).length;
     $('status').textContent=state.final?'Your video is ready — play it, or open the MP4.':st==='rendering'?'Rendering — '+done+' of '+scenes.length+' scenes have landed. They play as soon as they arrive.':st==='failed'?'Some scenes could not be made. Ask in the chat to try again or change them.':done?'Rendered — press play.':'Version '+latest.version+' planned — the preview plays the plan until the clips land.';
-    if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=state.final}}
+    if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=FILE?FILE+'?v='+latest.version+'&download=1':state.final}}
     else{$('final').hidden=true;$('player').hidden=false;var ratio=RATIO[plan.aspect]||'9 / 16',p=ratio.split(' / ');$('stage').style.aspectRatio=ratio;
       /* As large as fits: the full width, or the height of the screen less the controls — whichever is smaller. */
       $('stage').style.width='min(100%, calc((100vh - 170px) * '+p[0]+' / '+p[1]+'))';$('bar').style.width=$('stage').style.width}

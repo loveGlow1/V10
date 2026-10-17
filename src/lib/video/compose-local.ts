@@ -30,6 +30,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import ffmpegPath from "ffmpeg-static";
 
 import type { ProductionPlan, Scene } from "./plan";
+import { announceFinal } from "./announce";
 import { signedUrl } from "./production";
 
 const exec = promisify(execFile);
@@ -126,7 +127,7 @@ async function font(): Promise<string | null> {
 type Row = { scene: number | null; engine: string; status: string; output_path: string | null };
 
 /** Makes the version's final MP4 and lands it on the compose row. Never throws. */
-export async function composeLocally(service: SupabaseClient, videoId: string, version: number): Promise<void> {
+export async function composeLocally(service: SupabaseClient, videoId: string, version: number, origin: string): Promise<void> {
   const dir = `/tmp/qs-compose-${videoId}-${version}-${Date.now()}`;
   const finish = (update: Record<string, unknown>) =>
     service.from("video_renders").update({ ...update, updated_at: new Date().toISOString() }).eq("video_id", videoId).eq("version", version).eq("engine", "compose");
@@ -199,19 +200,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
 
     await finish({ status: "done", output_path: `storage:${path}`, error: null });
     await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
-    if (video.project_id) {
-      await service.from("projects").update({ last_build_at: new Date().toISOString() }).eq("id", video.project_id);
-      await service.from("project_messages").insert({
-        project_id: video.project_id,
-        user_id: video.user_id,
-        role: "system",
-        body: `Your video is ready as one MP4 — ${segments.length} scenes joined in order, with the voice and on-screen words. Play it in the preview, or open the MP4 there to download it.`,
-        links: [],
-        tone: "normal",
-        kind: "build_ready",
-        dedupe_key: `video-final:${videoId}:${version}`,
-      });
-    }
+    await announceFinal(service, { videoId, version, origin, scenes: segments.length });
   } catch (error) {
     await finish({ status: "failed", error: (error instanceof Error ? error.message : "The final cut could not be made.").slice(0, 500) });
     const { data: rows } = await service.from("video_renders").select("engine, status").eq("video_id", videoId).eq("version", version);

@@ -8,6 +8,7 @@
  * row is marked, a delivered job is charged once, and the production line is
  * advanced. A finished compose finishes the video. */
 
+import { announceFinal } from "@/lib/video/announce";
 import { NextResponse } from "next/server";
 
 import { chargeCredits } from "@/lib/credits-server";
@@ -87,6 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     /* The scenes are what the cut is made of; a failed compose still leaves
        a playable video in the studio. */
     await service.from("video_projects").update({ status: "ready" }).eq("id", id);
+    if (media) await announceFinal(service, { videoId: id, version, origin: url.origin });
   } else {
     await advance(service, id, version, url.origin);
     const { data: rows } = await service.from("video_renders").select("engine, status").eq("video_id", id).eq("version", version);
