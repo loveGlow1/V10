@@ -182,6 +182,12 @@ has(/fal-ai\/nano-banana-pro/.test(falProv) && /'fal-nano-banana': 'FAL_KEY'/.te
 has(/preview: \['n8n-minimax', 'n8n-openai', 'fal-nano-banana'\]/.test(routerSrc), "after the free credit, and first with FLIER_ENGINE=nano-banana");
 has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k" }).join() === "fal-nano-banana", "with only a fal key, fliers are made by Nano Banana");
 has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k", FLIER_ENGINE: "nano-banana", N8N_WEBHOOK_TOKEN: "t", N8N_WEBHOOK_URL: "https://n8n.example/webhook/x" })[0] === "fal-nano-banana", "FLIER_ENGINE=nano-banana puts it first");
+/* Covers on Continue working. */
+const cover = readFileSync(join(root, "src/app/api/projects/[id]/cover/route.ts"), "utf8");
+const pthumb = readFileSync(join(root, "src/app/dashboard/components/PageThumbnail.tsx"), "utf8");
+has(/MEDIA_INTENTS\.has\(props\.intent\) \? <MediaCover/.test(pthumb) && /intent=\{project\.intent\}/.test(homeList), "a flier or video tile under Continue working shows its own picture");
+has(/project\.intent === "flier"[\s\S]{0,500}liveOutputs\(job\.outputs\)/.test(cover) && /project\.intent === "video"[\s\S]{0,900}\.eq\("status", "done"\)/.test(cover), "the newest flier image; a video's first landed clip, else its still");
+has(/createSupabaseServerClient/.test(cover) && !/createSupabaseServiceClient/.test(cover), "read under the owner's session only");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);

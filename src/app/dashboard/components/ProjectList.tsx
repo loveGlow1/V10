@@ -440,6 +440,7 @@ export default function ProjectList() {
                    visits and redrawing it when a build lands are the same
                    question, and this is the answer to both. */
                 stamp={project.last_build_at}
+                intent={project.intent}
                 className="h-[72px] w-[115px] rounded-[10px] ring-1 ring-line/[0.1] md:h-[70px] md:w-[110px] md:rounded-lg md:ring-0"
               />
               <span className="min-w-0">

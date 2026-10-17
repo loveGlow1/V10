@@ -299,6 +299,7 @@ function ProjectsScreen() {
                     hasPage={Boolean(safeHttpUrl(project?.preview_url ?? null))}
                     name={row.name}
                     stamp={project?.last_build_at ?? null}
+                    intent={project?.intent ?? null}
                     /* Smaller than the dashboard's tile below 640px, because
                        this row carries a control the dashboard's does not and
                        the 24px comes off the name and the address otherwise.
