@@ -166,8 +166,8 @@ try {
      Free: Haiku and Sonnet. Every paid plan: everything. */
   const expected = {
     free: ["claude-haiku-4-5", "claude-sonnet-5"],
-    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"],
-    pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"],
+    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5"],
+    pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5"],
   };
   for (const [plan, ids] of Object.entries(expected)) {
     const got = credits.modelsForPlan(plan).map((model) => model.id).sort();
@@ -312,6 +312,13 @@ try {
     models.creditMultiplierFor("claude-fable-5") > models.creditMultiplierFor("claude-opus-5"),
     "Fable costs more than Opus",
     "Fable is meant to be the dearest thing on the menu",
+  );
+  /* Opus 5.5: the newest Opus, priced below Opus 5 and above the default. */
+  is(models.resolveModel("claude-opus-5-5")?.apiId, "claude-opus-5-5", "Opus 5.5 resolves to its API id");
+  has(
+    models.creditMultiplierFor("claude-opus-5-5") > models.creditMultiplierFor(models.AUTO_MODEL) &&
+      models.creditMultiplierFor("claude-opus-5-5") < models.creditMultiplierFor("claude-opus-5"),
+    "Opus 5.5 costs more than the default and less than Opus 5, as its price does",
   );
   has(
     models.creditMultiplierFor("claude-opus-5") > models.creditMultiplierFor(models.AUTO_MODEL),
