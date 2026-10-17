@@ -9,13 +9,15 @@
  *      (engine "avatar", not a clone)        → fal lip sync (clip + voice)
  *   2. a clone's presenter scene whose voice is in → fal OmniHuman (photo + voice)
  *   3. nothing left running, every scene has a picture → fal compose: one MP4
+ *      — or, with no FAL_KEY, the same cut made on this server with ffmpeg
+ *      (compose-local.ts), so a render always ends as one MP4
  *
  * Server-only; runs under the service key (it is called from callbacks). */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { falConfigured, wantsMusic } from "./engines";
-import { FAL, falWebhookUrl, submitFal, type FalJob } from "./fal";
+import { FAL, falToken, falWebhookUrl, submitFal, type FalJob } from "./fal";
 import type { ProductionPlan } from "./plan";
 
 type Row = { scene: number | null; engine: string; status: string; output_path: string | null };
@@ -62,9 +64,46 @@ export async function startMusic(service: SupabaseClient, base: { video_id: stri
   });
 }
 
+/* Without fal: once nothing is running and a scene has a picture, claim the
+   compose row and have this server join the scenes (compose-local.ts), in a
+   route of its own so the join has its full time budget. */
+async function advanceLocal(service: SupabaseClient, videoId: string, version: number, origin: string): Promise<void> {
+  try {
+    const { data } = await service.from("video_renders").select("scene, engine, status, output_path").eq("video_id", videoId).eq("version", version);
+    const rows = (data ?? []) as Row[];
+    if (rows.some((row) => row.status === "running" || row.status === "queued") || rows.some((row) => row.engine === "compose")) return;
+    if (!rows.some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done")) return;
+    const { data: video } = await service.from("video_projects").select("user_id").eq("id", videoId).maybeSingle();
+    if (!video) return;
+    const { error } = await service
+      .from("video_renders")
+      .insert({ video_id: videoId, user_id: video.user_id, version, scene: null, engine: "compose", provider: "local", status: "running" });
+    if (error) return;
+    const response = await fetch(`${origin}/api/video/${videoId}/render/compose?v=${version}&t=${falToken(videoId, version, "compose-local")}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    }).catch(() => null);
+    if (!response?.ok) {
+      await service
+        .from("video_renders")
+        .update({ status: "failed", error: "The final cut could not be started." })
+        .eq("video_id", videoId)
+        .eq("version", version)
+        .eq("engine", "compose");
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("video advance (local):", error);
+  }
+}
+
 /** Starts whatever the version's rows now allow. Never throws. */
 export async function advance(service: SupabaseClient, videoId: string, version: number, origin: string): Promise<void> {
-  if (!falConfigured()) return;
+  if (!falConfigured()) {
+    await advanceLocal(service, videoId, version, origin);
+    return;
+  }
   try {
     const { data: video } = await service.from("video_projects").select("id, user_id, pipeline").eq("id", videoId).maybeSingle();
     if (!video) return;

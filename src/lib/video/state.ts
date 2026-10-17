@@ -9,6 +9,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { parseProvider } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
 import { clipStatus } from "@/lib/video/providers";
+import { advance } from "@/lib/video/production";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
@@ -84,6 +85,19 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
   if (stale.length && !(renderRows ?? []).some((row) => row.status === "running")) {
     status = (renderRows ?? []).some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done") ? "ready" : "failed";
     await supabase.from("video_projects").update({ status }).eq("id", id);
+  }
+
+  /* A finished render with no final cut yet — its last result arrived before
+     the cut could be started, or before cuts were made here at all — gets one
+     now. advance claims the compose row, so asking twice starts it once. */
+  const rowsNow = renderRows ?? [];
+  if (
+    service &&
+    rowsNow.length > 0 &&
+    !rowsNow.some((row) => row.status === "running" || row.status === "queued" || row.engine === "compose") &&
+    rowsNow.some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done")
+  ) {
+    await advance(service, id, video.current_version as number, origin);
   }
 
   const renders = await Promise.all(
