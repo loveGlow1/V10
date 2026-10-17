@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
@@ -47,6 +47,7 @@ import { shouldRedeploy } from "@/lib/publish/redeploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument, restoreImages, stashImages } from "@/lib/page-html";
+import { runAutopilot } from "@/lib/builder/backend/agent/autopilot";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
@@ -1602,6 +1603,27 @@ export async function POST(request: Request) {
     kind: "build_ready",
     dedupeKey: `ready:${claim.requestId || landedAt}`,
   });
+
+  /* ── Then the database, by itself where that is safe ─────────────────
+   *
+   * Once the build is in the thread, the connected database is brought in
+   * line with what the app needs: scanned read-only, compared with the app,
+   * and whatever is missing planned, dry-run, applied when it is purely
+   * additive, and verified — everything else waits as an Approve card. After
+   * the response, so a slow database never holds the build up; it says what
+   * it did in the thread. Skipped quietly where no database is connected. See
+   * lib/builder/backend/agent/autopilot.ts for the guardrails. */
+  if (tree.length > 0 && summaryArchitecture.database && !project.deleted_at) {
+    const projectForDb = project.id as string;
+    after(async () => {
+      try {
+        await runAutopilot(supabase, { projectId: projectForDb, userId: claim.userId, trigger: "build" });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`save: ${projectForDb} — the database autopilot failed:`, error);
+      }
+    });
+  }
 
   if (!announced) {
     // eslint-disable-next-line no-console

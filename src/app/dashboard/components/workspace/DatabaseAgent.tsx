@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, RotateCcw, ShieldAlert, Sparkles, Undo2 } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw, ShieldAlert, Sparkles, Undo2, Wand2 } from "lucide-react";
 
 /* The database agent, in the Database panel: what is in the connected
  * database, how the app is wired to it, every change made to it, and its
@@ -48,6 +48,9 @@ type State = {
   analysis: Analysis | null;
   wiring: Wiring | null;
   surgeries: Surgery[];
+  /* Whether additive changes the app needs are applied without Approve. See
+     lib/builder/backend/agent/autopilot.ts. */
+  autopilot?: { enabled: boolean; killed: boolean };
 };
 
 const ICON: Record<Status, string> = { MATCHED: "✅", ADAPTABLE: "🟡", MISSING: "🔴", UNUSED: "⚪", RISK: "⚠️" };
@@ -84,7 +87,7 @@ export default function DatabaseAgent({ projectId }: { projectId: string }) {
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
       setNote(body.error ?? body.message ?? null);
-      if (action === "approve" || action === "fix_wiring" || action === "undo" || action === "new_project") setTab("Surgeries");
+      if (action === "approve" || action === "fix_wiring" || action === "undo" || action === "new_project" || action === "autopilot") setTab("Surgeries");
       await load();
     } catch {
       setNote("That didn't get through. Nothing was changed.");
@@ -134,6 +137,46 @@ export default function DatabaseAgent({ projectId }: { projectId: string }) {
       )}
       {state.analysis?.production.level === "HIGH" && (
         <p className="mt-1.5 text-[11.5px] text-amber-400">Production database ({state.analysis.production.reasons.join(", ")}): every change is backed up first.</p>
+      )}
+
+      {/* Automatic setup: the agent creates what the app needs by itself when
+          that is purely additive; everything else is planned for Approve. */}
+      {state.autopilot && (
+        <div className="mt-3 rounded-lg border border-line/[0.07] bg-layer/[0.02] p-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink">
+              <Wand2 className="h-3.5 w-3.5 text-muted" /> Set up automatically
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={state.autopilot.enabled}
+              aria-label="Set up the database automatically"
+              disabled={busy !== null || state.autopilot.killed}
+              onClick={() => void act("autopilot_setting", { enabled: !state.autopilot?.enabled })}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                state.autopilot.enabled ? "bg-accent" : "bg-layer/[0.15]"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
+                  state.autopilot.enabled ? "left-[18px]" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
+            {state.autopilot.killed
+              ? "Switched off for this deployment. Every change waits for your Approve."
+              : state.autopilot.enabled
+                ? "After each build, new tables the app needs are created for you — checked in a dry run first and verified after. Anything that changes or removes what you already have waits for your Approve."
+                : "Off: every change the app needs is planned and waits for your Approve."}
+          </p>
+          <button type="button" className={`${button} mt-2`} disabled={busy !== null} onClick={() => void act("autopilot")}>
+            {busy === "autopilot" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+            Set up my database now
+          </button>
+        </div>
       )}
 
       {state.wiring && (

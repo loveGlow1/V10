@@ -3292,6 +3292,11 @@ alter table public.project_backends
 
 grant select (db_map, db_map_at, db_analysis, db_wiring) on public.project_backends to authenticated;
 
+-- The database autopilot's switch (migration 20261017180000_db_autopilot.sql):
+-- whether purely additive changes the app needs are applied without Approve.
+alter table public.project_backends
+  add column if not exists db_autopilot boolean not null default true;
+
 create table if not exists public.db_surgeries (
   id               uuid primary key default gen_random_uuid(),
   project_id       uuid not null references public.projects (id) on delete cascade,

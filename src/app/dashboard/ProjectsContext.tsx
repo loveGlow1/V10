@@ -187,6 +187,8 @@ export type BuildOptions = {
   upgrade?: boolean;
   /** "Run it" on SQL that was shown first: the exact SQL to run. */
   confirmSql?: string | null;
+  /** The automatic review round for the newest build — see lib/builder/review-round.ts. */
+  review?: boolean;
   /**
    * Which model to build with, as the composer's picker has it.
    *
@@ -485,6 +487,9 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           stack: options.stack ?? null,
           architecture: options.architecture ?? null,
           upgrade: options.upgrade === true,
+          /* The server writes this round's prompt from the build's own
+             findings; all the browser says is which build — the newest. */
+          review: options.review ? "latest" : null,
           ...(options.confirmSql ? { confirmSql: true, sql: options.confirmSql } : {}),
           model: options.model ?? null,
           /* So "yesterday's version" and "the one from 3pm" mean this

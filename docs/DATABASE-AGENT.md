@@ -112,6 +112,14 @@ tables, and samples at most five rows only when a column's meaning is unclear;
 flags instruction-like text in rows, comments, defaults and policies; and
 fences anything passed to a model in `<untrusted_database_content>`.
 
+## The autopilot
+
+After each build, on connect, and from "Set up my database now", the agent
+runs this procedure by itself. It applies a change without Approve only when
+every statement is purely additive and every access rule is on a table born
+in that same change. Everything else is planned and waits. The guardrails are
+in `docs/AGENTIC-BUILD.md`, and the verdict is in `agent/auto-verdict.ts`.
+
 ## Chat commands
 
 "Analyze my database" · "Connect the app to my existing tables" · "Add a phone

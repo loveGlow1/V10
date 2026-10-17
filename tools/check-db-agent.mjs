@@ -28,7 +28,7 @@ writeFileSync(
       typeRoots: [join(root, "node_modules", "@types")],
       baseUrl: root, paths: { "@/*": ["src/*"] },
     },
-    files: ["sql-guard.ts", "db-map.ts", "untrusted.ts", "wiring.ts", "surgery.ts", "probe.ts", "commands.ts", "approval.ts", "tools.ts"].map(agent),
+    files: ["sql-guard.ts", "db-map.ts", "untrusted.ts", "wiring.ts", "surgery.ts", "probe.ts", "commands.ts", "approval.ts", "tools.ts", "auto-verdict.ts"].map(agent),
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
@@ -58,6 +58,7 @@ const dbmap = await import(join(base, "db-map.js"));
 const untrusted = await import(join(base, "untrusted.js"));
 const wiring = await import(join(base, "wiring.js"));
 const surgery = await import(join(base, "surgery.js"));
+const auto = await import(join(base, "auto-verdict.js"));
 const probe = await import(join(base, "probe.js"));
 const commands = await import(join(base, "commands.js"));
 
@@ -394,6 +395,38 @@ has(untrusted.maskValue("bio", "mail me at bob@corp.io") === "mail me at b***@c.
 has(!untrusted.maySample({ schema: "auth", name: "users", columns: [] }).ok && !untrusted.maySample({ schema: "public", name: "payments", columns: [{ name: "data", type: "jsonb" }] }).ok, "auth.users and payments are never sampled");
 has(untrusted.maySample(legacy).ok && !untrusted.maySample(owned).ok, "only tables whose meaning is unclear are sampled");
 has(/limit 5$/.test(untrusted.sampleSql("public", "legacy_imports", 50)), "and never more than five rows");
+
+console.log("\n   The autopilot: what it may apply without Approve:");
+has(auto.autoVerdict(p3).auto === true, "a missing table, with its own policies and RLS, is applied by itself", auto.autoVerdict(p3));
+has(auto.autoVerdict(p4).auto === false, "a rename (add, backfill) waits for Approve", auto.autoVerdict(p4));
+has(auto.autoVerdict(p5).auto === false, "a dropped column waits for a typed confirmation", auto.autoVerdict(p5));
+has(auto.autoVerdict(p6).auto === false, "securing a table that already exists is the owner's call", auto.autoVerdict(p6));
+const plan = (sql) => surgery.planSurgery({ sql, map, production: true });
+has(auto.autoVerdict(plan("alter table appointments add column if not exists notes2 text;")).auto === true, "an optional column on an existing table is additive");
+has(auto.autoVerdict(plan("alter table appointments add column paid boolean not null default false;")).auto === false, "a required column waits");
+has(auto.autoVerdict(plan("create policy open_all on appointments for select to anon using (true);")).auto === false, "a new access rule on an existing table waits");
+has(auto.autoVerdict(plan("grant select on appointments to anon;")).auto === false, "a grant on an existing table waits");
+has(auto.autoVerdict(plan("insert into services (name) values ('x');")).auto === false, "writing rows waits");
+has(auto.autoVerdict(plan("create table copy_of_customers as select * from customers;")).auto === false, "copying data into a new table waits");
+has(auto.autoVerdict(plan("create or replace function public.f() returns int language sql as $$ select 1 $$;")).auto === false, "code in the database waits");
+has(auto.autoVerdict(plan("do $$ begin perform 1; end $$;")).auto === false, "a DO block waits");
+has(auto.autoVerdict(plan("create table auth.sneaky (id int);")).auto === false, "Supabase's own schemas are never touched");
+has(
+  auto.autoVerdict(plan("create table public.a (id uuid primary key);\ncreate policy a_read on public.a for select to authenticated using (true);\nalter table public.a enable row level security;")).auto === true,
+  "a new table's own policy and RLS are part of creating it",
+);
+const many = Array.from({ length: auto.MAX_NEW_TABLES + 1 }, (_, i) => `create table public.t${i} (id int);`).join("\n");
+has(auto.autoVerdict(plan(many)).auto === false, `more than ${auto.MAX_NEW_TABLES} new tables at once waits`);
+has(auto.autoVerdict({ ...p3, confirmation: "DROP x" }).auto === false && auto.autoVerdict({ ...p3, refused: ["no"] }).auto === false, "a confirmation or a refusal always stops it");
+
+const service = readFileSync(join(root, "src/lib/builder/backend/agent/service.ts"), "utf8");
+has(/if \(input\.autopilot\) \{[\s\S]{0,400}AUTOPILOT_MARK[\s\S]{0,200}autoVerdict\(row\.plan/.test(service), "approveSurgery re-takes the verdict on the stored plan, and only for the autopilot's own plans");
+const route = readFileSync(join(root, "src/app/api/projects/[id]/backend/agent/route.ts"), "utf8");
+has(/approveSurgery\(service, \{ \.\.\.base, surgeryId, confirmation: [^}]*\}\)/.test(route) && !/approveSurgery\([^)]*autopilot/.test(route), "the panel's Approve can never claim to be the autopilot");
+const pilot = readFileSync(join(root, "src/lib/builder/backend/agent/autopilot.ts"), "utf8");
+has(/autopilotKilled\(\)/.test(pilot) && /db_autopilot/.test(pilot) && /MAX_AUTO_PER_HOUR/.test(pilot) && /IN_FLIGHT_MS/.test(pilot), "kill switch, owner switch, hourly cap and one-at-a-time are all checked");
+has(/risks: true/.test(pilot) && /changes access to tables you already have/.test(pilot), "unsafe existing tables are always planned for Approve, never fixed by itself");
+has(/planUndo/.test(pilot), "a change whose checks fail has its undo planned at once");
 
 console.log("\n   Chat commands:");
 for (const [m, kind] of [

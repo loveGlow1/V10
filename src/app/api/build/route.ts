@@ -267,6 +267,7 @@ import { describeVerification, repairBrief, verifyEdit } from "@/lib/builder/ver
 import { SITE_URL } from "@/lib/site";
 import { inboxBrief } from "@/lib/forms/inbox";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
+import { reviewEligibility } from "@/lib/builder/review-round";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -308,6 +309,11 @@ type BuildRequestBody = {
   projectId?: unknown;
   prompt?: unknown;
   requestId?: unknown;
+  /* Set only by the workspace's automatic review round, once a build lands:
+     the id of the build to review. The prompt for it is written here from
+     that build's recorded findings, never taken from the browser — see
+     lib/builder/review-round.ts. */
+  review?: unknown;
   /* What the composer says this message is, when it says anything. An explicit
      choice always wins over the classifier — the person knows, and the
      classifier is guessing. */
@@ -704,7 +710,7 @@ async function handle(
   }
 
   const typed = typeof body.prompt === "string" ? body.prompt.trim() : "";
-  const planOnly = body.planOnly === true;
+  let planOnly = body.planOnly === true;
 
   /* A file on its own is a message.
    *
@@ -716,7 +722,7 @@ async function handle(
   const attached = Array.isArray(body.attachmentIds)
     ? body.attachmentIds.filter((id) => typeof id === "string").length
     : 0;
-  const prompt = typed || (attached > 0 ? "Use the attached file in this page." : "");
+  let prompt = typed || (attached > 0 ? "Use the attached file in this page." : "");
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
 
   if (!prompt) {
@@ -771,6 +777,27 @@ async function handle(
      it owes. Ownership was settled just above, under the caller's session. */
   const service = createSupabaseServiceClient();
 
+  /* ── The review round ───────────────────────────────────────────────────
+   *
+   * The build that just landed, read back and fixed: one free edit, made from
+   * the findings its review recorded. The browser names the build and nothing
+   * else — the prompt is written from the build row, so this cannot be used
+   * to have an arbitrary edit done for free, and it runs once per build. See
+   * lib/builder/review-round.ts for every guardrail. */
+  let freeReview = false;
+  if (typeof body.review === "string" && body.review) {
+    if (!service) return NextResponse.json({ error: "Reviews are unavailable right now." }, { status: 503 });
+    const due = await reviewEligibility(service, { projectId: project.id as string, userId: user.id, buildId: body.review.slice(0, 64) });
+    if (!due.ok) return NextResponse.json({ error: due.reason, code: "review_not_due" }, { status: 409 });
+    prompt = due.prompt;
+    body.intentOverride = "edit";
+    planOnly = false;
+    freeReview = true;
+  }
+  /* Everything below charges through this, so a review round is never billed
+     wherever its edit happens to end up. */
+  const bill: typeof chargeCredits = (client, input) => (freeReview ? Promise.resolve(null) : chargeCredits(client, input));
+
   /* ── Can this account pay for anything at all? ──────────────────────────
      Before the classifier, not after it. Classifying is itself a model call,
      and so is every branch below it: an empty account that gets as far as here
@@ -781,7 +808,7 @@ async function handle(
      is not read as having nothing. */
   const balance = service ? await currentBalance(service, user.id) : null;
 
-  if (balance && !canAfford(balance, ENTRY_COST)) {
+  if (balance && !freeReview && !canAfford(balance, ENTRY_COST)) {
     return NextResponse.json(
       {
         error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Top up to keep building.`,
@@ -1538,7 +1565,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
           spentTokens = generated.outputTokens;
         }
         if (spentTokens > 0) {
-          await chargeCredits(service, {
+          await bill(service, {
             userId: user.id,
             action: "chat",
             cost: creditCostOf("chat", { outputTokens: spentTokens }),
@@ -1652,7 +1679,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
           steps.mark("database", ran.ok ? "Ran it in your database" : "Your database refused it", `${judged.statements.length} statement${judged.statements.length === 1 ? "" : "s"}`);
 
           if (spentTokens > 0) {
-            await chargeCredits(service, {
+            await bill(service, {
               userId: user.id,
               action: "chat",
               cost: creditCostOf("chat", { outputTokens: spentTokens }),
@@ -2097,7 +2124,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
          model call with the page in it. Charging a build rate for a sentence
          that changed nothing would be charging for the classifier's caution. */
       if (service && delivered) {
-        await chargeCredits(service, {
+        await bill(service, {
           userId: user.id,
           action: "chat",
           cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel }),
@@ -2174,7 +2201,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
            billing somebody extra for the classifier's caution is charging them
            for our own uncertainty. */
         const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel });
-        await chargeCredits(service, {
+        await bill(service, {
           userId: user.id,
           action: "chat",
           cost: roundCredits(askCost + contextCost),
@@ -3056,7 +3083,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       const storedEdit = await deliver(said, { key: "edit" });
 
       const editCost = creditCostOf(BUILD_ACTION, { filesTouched: 1, modelId: source.model });
-      const charge = await chargeCredits(service, {
+      const charge = await bill(service, {
         userId: user.id,
         action: BUILD_ACTION,
         cost: roundCredits(editCost + contextCost),
@@ -4034,7 +4061,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
        nothing — see EDIT_MODEL_STRONG — and billing the cheap rate for the dear
        model is the mistake this file has made before. */
     const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: edited.model });
-    const charge = await chargeCredits(service, {
+    const charge = await bill(service, {
       userId: user.id,
       action: BUILD_ACTION,
       cost: roundCredits(editCost + contextCost),

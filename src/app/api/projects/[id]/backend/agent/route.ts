@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { autopilotEnabled, autopilotKilled, runAutopilot } from "@/lib/builder/backend/agent/autopilot";
 import {
   approveSurgery,
   cancelSurgery,
@@ -33,6 +34,9 @@ import { ownedProject } from "../owned";
  *          { action: "new_project", … }           a new Supabase project, planned with its cost
  *          { action: "approve", surgeryId, confirmation? }   ← the ONLY path to a write
  *          { action: "cancel", surgeryId }
+ *          { action: "autopilot", trigger? }       bring the database in line with the app:
+ *                                                  additive changes applied, the rest planned
+ *          { action: "autopilot_setting", enabled } the owner's switch for the above
  *
  * Approve is answered under the owner's own session (ownedProject), and the
  * approval token is minted and spent inside approveSurgery. The chat path can
@@ -85,6 +89,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     wiring: wiring?.report ?? null,
     typesReady: Boolean(wiring?.types),
     surgeries: surgeries ?? [],
+    autopilot: { enabled: await autopilotEnabled(service, owned.projectId), killed: autopilotKilled() },
   });
 }
 
@@ -99,6 +104,8 @@ type Body = {
   name?: unknown;
   region?: unknown;
   organizationId?: unknown;
+  trigger?: unknown;
+  enabled?: unknown;
 };
 
 const str = (v: unknown, max = 20_000) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -171,6 +178,25 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       case "cancel": {
         const r = await cancelSurgery(service, owned.projectId, str(body.surgeryId, 64));
         return r.ok ? NextResponse.json({ cancelled: true }) : failed(r);
+      }
+      case "autopilot": {
+        /* The message comes back rather than going into the thread: the
+           panel or chat that asked shows it. */
+        const r = await runAutopilot(service, {
+          ...base,
+          trigger: body.trigger === "connect" ? "connect" : "chat",
+          announce: false,
+        });
+        return r.ok ? NextResponse.json({ status: r.status, message: r.message, surgeryIds: r.surgeryIds }) : failed(r);
+      }
+      case "autopilot_setting": {
+        if (typeof body.enabled !== "boolean") return failed({ reason: "On or off?" });
+        const { error } = await service
+          .from("project_backends")
+          .update({ db_autopilot: body.enabled })
+          .eq("project_id", owned.projectId);
+        if (error) return failed({ reason: "That setting couldn't be saved." }, 500);
+        return NextResponse.json({ autopilot: { enabled: body.enabled && !autopilotKilled(), killed: autopilotKilled() } });
       }
       default:
         return failed({ reason: "Unknown action." });
