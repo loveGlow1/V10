@@ -19,7 +19,7 @@
  * Pure apart from reading the environment, so tools/check-video.mjs can pass
  * its own. */
 
-import { type Aspect, anyClipEngine, clipCost, routeClip, tierFrom, voiceDirect } from "./clip-engines";
+import { type Aspect, type ClipEngine, anyClipEngine, clipCost, routeClip, tierFrom, voiceDirect } from "./clip-engines";
 import type { PipelineId } from "./pipelines";
 import type { ProductionPlan } from "./plan";
 
@@ -86,18 +86,18 @@ export function enginesNeeded(plan: ProductionPlan): { engine: EngineId; require
 /* What a render costs when every job delivers — shown on the button, checked
    against the balance before anything is sent. */
 /* The engine a scene's clip goes to first: where its price comes from. */
-export function firstEngineFor(plan: ProductionPlan, scene: { engine: string }, env: Env = process.env, quality?: string | null) {
+export function firstEngineFor(plan: ProductionPlan, scene: { engine: string }, env: Env = process.env, quality?: string | null, skip: ClipEngine[] = []) {
   const fromFrame = plan.pipeline === "photo_to_video" || (scene.engine === "avatar" && ["ugc_influencer", "commercial_ad", "social_video"].includes(plan.pipeline));
-  return routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame, tier: tierFrom(env, quality) }, env)[0] ?? null;
+  return routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame, tier: tierFrom(env, quality), skip }, env)[0] ?? null;
 }
 
-export function renderCost(plan: ProductionPlan, env: Env = process.env, quality?: string | null): number {
+export function renderCost(plan: ProductionPlan, env: Env = process.env, quality?: string | null, skip: ClipEngine[] = []): number {
   const fal = falConfigured(env);
   let total = 0;
   for (const scene of plan.scenes) {
     const avatar = scene.engine === "avatar";
     const spoken = Boolean(scene.voiceover.trim());
-    if (!(avatar && isClone(plan.pipeline))) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality)) : CLIP_COST;
+    if (!(avatar && isClone(plan.pipeline))) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality, skip)) : CLIP_COST;
     if (spoken) total += VOICE_COST;
     if (avatar && fal && spoken) total += isClone(plan.pipeline) ? AVATAR_COST : LIPSYNC_COST;
   }

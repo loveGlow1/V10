@@ -113,7 +113,8 @@ export function ranking(pipeline: PipelineId, tier: Tier, fromFrame: boolean): C
   else if (FOOTAGE.includes(pipeline)) order = ["seedance", "seedance-fal", "kling", "minimax", "n8n"];
   else order = ["seedance", "minimax", "kling", "seedance-fal", "n8n"];
   /* Credit: the MiniMax usage credit on n8n before anything that is paid for. */
-  if (tier === "credit") order = ["n8n", ...order.filter((engine) => engine !== "n8n")];
+  /* …and straight after it the main API: MiniMax's own, on its key. */
+  if (tier === "credit") order = ["n8n", "minimax", ...order.filter((engine) => engine !== "n8n" && engine !== "minimax")];
   /* Economy: direct MiniMax first, wherever it can make the scene. */
   if (tier === "economy") order = ["minimax", ...order.filter((engine) => engine !== "minimax")];
   return order;
@@ -131,13 +132,15 @@ export function canMake(engine: ClipEngine, scene: { aspect: Aspect; fromFrame: 
  * its aspect, best first for the tier. Empty means no connected engine can.
  */
 export function routeClip(
-  input: { pipeline: PipelineId; aspect: Aspect; fromFrame: boolean; tier?: Tier; prefer?: ClipEngine | null },
+  input: { pipeline: PipelineId; aspect: Aspect; fromFrame: boolean; tier?: Tier; prefer?: ClipEngine | null; skip?: ClipEngine[] },
   env: Env = process.env,
 ): ClipEngine[] {
   const tier = input.tier ?? tierFrom(env);
   let order = ranking(input.pipeline, tier, input.fromFrame);
   if (input.prefer && order.includes(input.prefer)) order = [input.prefer, ...order.filter((engine) => engine !== input.prefer)];
-  return order.filter((engine) => ENGINES[engine].configured(env) && canMake(engine, input));
+  /* Paused engines — n8n once its usage credit is spent (credit.ts). */
+  const skip = new Set(input.skip ?? []);
+  return order.filter((engine) => !skip.has(engine) && ENGINES[engine].configured(env) && canMake(engine, input));
 }
 
 /**
@@ -170,9 +173,9 @@ export function anyClipEngine(env: Env = process.env): boolean {
 /* Voice lines: on the "credit" tier the n8n route (MiniMax speech on the
    usage credit) whenever it is connected; otherwise MiniMax's own speech API
    with MINIMAX_API_KEY, or n8n when that is all there is. */
-export function voiceDirect(env: Env = process.env, tier: Tier = tierFrom(env)): boolean {
+export function voiceDirect(env: Env = process.env, tier: Tier = tierFrom(env), n8nPaused = false): boolean {
   if (!env.MINIMAX_API_KEY) return false;
-  return !(tier === "credit" && ENGINES.n8n.configured(env));
+  return n8nPaused || !(tier === "credit" && ENGINES.n8n.configured(env));
 }
 
 /* Where a row's provider column says a clip is: "hf:seedance:<id>",

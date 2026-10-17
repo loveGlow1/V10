@@ -21,8 +21,9 @@ import { NextResponse, after } from "next/server";
 
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { type Aspect, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
+import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
+import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
@@ -108,7 +109,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const quality = answers.quality ?? null;
   const tier = tierFrom(process.env, quality);
-  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality);
+  /* Spent MiniMax usage credit pauses n8n for everybody: straight to the main
+     API until it is worth trying again (lib/video/credit.ts). */
+  const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
+  const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
+  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -123,7 +128,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version).eq("scene", key.scene).eq("engine", key.engine);
   }
   const { error: insertError } = await supabase.from("video_renders").insert(
-    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect(process.env, tier) ? "minimax:speech" : "n8n:minimax", status: "running" })),
+    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect(process.env, tier, n8nPaused) ? "minimax:speech" : "n8n:minimax", status: "running" })),
   );
   if (insertError) return NextResponse.json({ error: "Could not start the render." }, { status: 500 });
 
@@ -156,7 +161,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   await Promise.all(
     jobs.map(async (job) => {
       if (job.kind === "voice") {
-        if (voiceDirect(process.env, tier)) {
+        if (voiceDirect(process.env, tier, n8nPaused)) {
           voices.push(job);
           return;
         }
@@ -174,7 +179,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
       const scene = plan.scenes.find((entry) => entry.n === job.n);
       const frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
-      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier });
+      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip });
       let reason = "No connected video engine can make this scene at this aspect ratio.";
       for (const engine of chain) {
         if (engine === "n8n") {

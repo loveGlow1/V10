@@ -35,6 +35,20 @@ reports back. That job then continues down the "Best" chain below. A voice
 line n8n can't make is voiced by MiniMax directly when `MINIMAX_API_KEY` is
 set.
 
+**When the usage credit runs out, the switch is immediate.** The first n8n
+reply that says the credit is spent does three things (`lib/video/credit.ts`):
+
+- It pauses n8n for the whole deployment, recorded in `video_engine_state`.
+- It hands that render's other n8n jobs on straight away, without waiting
+  for each to fail. Clips go to the main MiniMax API, which is next in line
+  after n8n, and voices go to MiniMax speech.
+- Every new render skips n8n until the pause ends, after
+  `N8N_CREDIT_PAUSE_HOURS` (default 24). Then n8n is tried again, in case the
+  credit was topped up or reset.
+
+A rate limit is not an empty account and pauses nothing. A late n8n reply for
+a job that has already been handed on is ignored.
+
 | Video | Best | Economy |
 |---|---|---|
 | UGC, ads, cinematic, trailers, social | Seedance 2.0 → Seedance 1.5 (fal) → Kling → MiniMax | MiniMax (when it can) → Seedance 2.0 → … |

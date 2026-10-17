@@ -14,7 +14,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { speak } from "@/lib/video/providers";
 import { hasWebhookToken, languageFor, verifyRender, voiceIdFor } from "@/lib/video/render";
-import { landResult, retryClip } from "@/lib/video/results";
+import { isCreditExhausted, pauseN8n } from "@/lib/video/credit";
+import { failoverN8n, landResult, retryClip } from "@/lib/video/results";
 
 /* Room to copy a clip into storage before answering n8n. */
 export const maxDuration = 60;
@@ -48,6 +49,47 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const url = typeof body.url === "string" && /^https:\/\//.test(body.url) ? body.url : null;
   const origin = new URL(request.url).origin;
+  const error = url ? null : String(body.error ?? "Nothing was returned.");
+
+  /* Only while the job is still n8n's. One already handed to another engine
+     (the credit ran out, or it timed out) is that engine's now, and a late
+     reply from n8n is acknowledged and ignored. */
+  const { data: row } = await service
+    .from("video_renders")
+    .select("provider, status")
+    .eq("video_id", id)
+    .eq("version", version)
+    .eq("scene", n)
+    .eq("engine", kind === "clip" ? "video" : "voice")
+    .maybeSingle();
+  if (!row || row.status !== "running" || row.provider !== "n8n:minimax") return NextResponse.json({ ok: true, ignored: true });
+
+  /* The MiniMax usage credit behind n8n is spent: n8n is paused for every
+     render, and this render's n8n jobs — this one included — go to the main
+     API now rather than each failing in turn. See lib/video/credit.ts. */
+  if (isCreditExhausted(error)) {
+    await pauseN8n(service, error ?? "credit exhausted");
+    await failoverN8n(service, { videoId: id, version, origin });
+    const { data: still } = await service
+      .from("video_renders")
+      .select("provider, status")
+      .eq("video_id", id)
+      .eq("version", version)
+      .eq("scene", n)
+      .eq("engine", kind === "clip" ? "video" : "voice")
+      .maybeSingle();
+    if (still?.provider !== "n8n:minimax" || still.status !== "running") return NextResponse.json({ ok: true, failover: true });
+    await landResult(service, {
+      videoId: id,
+      version,
+      kind,
+      n,
+      error: "The MiniMax usage credit on n8n has run out, and no other engine is connected to take this over. Add MINIMAX_API_KEY to use the main API.",
+      engine: kind === "clip" ? "n8n" : null,
+      origin,
+    });
+    return NextResponse.json({ ok: true });
+  }
 
   /* n8n spends the MiniMax usage credit first; when it could not make a
      piece, the piece goes on rather than failing — a clip to the next engine
@@ -75,7 +117,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     kind,
     n,
     url,
-    error: url ? null : String(body.error ?? "Nothing was returned."),
+    error,
     engine: kind === "clip" ? "n8n" : null,
     origin,
   });
