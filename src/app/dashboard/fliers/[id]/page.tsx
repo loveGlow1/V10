@@ -142,8 +142,8 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
     <main className="relative z-10 mx-auto w-full max-w-5xl flex-1 px-4 pb-24 pt-5 md:px-6">
       <header className="flex items-center gap-3">
         <Link
-          href={final && job.parentId ? `/dashboard/fliers/${job.parentId}` : "/dashboard"}
-          aria-label={final ? "Back to the drafts" : "Back to Home"}
+          href={final && job.parentId ? `/dashboard/fliers/${job.parentId}` : "/dashboard/fliers"}
+          aria-label={final ? "Back to the drafts" : "Back to your fliers"}
           className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />

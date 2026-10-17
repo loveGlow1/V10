@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import TopNav from "./components/TopNav";
 import TopBar from "./components/TopBar";
@@ -889,6 +890,12 @@ export default function DashboardPage() {
             })}
             </div>
           </div>
+          {/* Where the fliers made here are kept — the Video tab has its own. */}
+          {activeCategory === "fliers" && (
+            <Link href="/dashboard/fliers" className="mt-3 block text-center text-[12.5px] text-muted hover:text-ink">
+              Your fliers →
+            </Link>
+          )}
           {CATEGORY_NOTE[activeCategory] && (
             <p className="mt-2 hidden px-2 text-center text-[12px] text-[#6e6e76] md:block">{CATEGORY_NOTE[activeCategory]}</p>
           )}

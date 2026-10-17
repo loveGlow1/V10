@@ -21,6 +21,62 @@ export const maxDuration = 300;
  * is delivered (lib/flyers/run.ts). On unless FLYERS_API_ENABLED=0. */
 const DISABLED = process.env.FLYERS_API_ENABLED === '0';
 
+type Output = { path: string };
+type Row = { id: string; status: string; request: FlyerRequest | null; outputs: Output[] | null; created_at: string; parent_job_id?: string | null };
+
+/* Your fliers: one card per brief, newest first. The picture is the newest
+ * finished final when there is one, else the first draft. Read under the
+ * caller's session, so RLS returns only their jobs and their folder. */
+export async function GET() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Sign in to see your fliers.' }, { status: 401 });
+
+  const { data: drafts, error } = await supabase
+    .from('flyer_jobs')
+    .select('id, status, request, outputs, created_at')
+    .eq('stage', 'preview')
+    .is('parent_job_id', null)
+    .order('created_at', { ascending: false })
+    .limit(60)
+    .returns<Row[]>();
+  if (error) return NextResponse.json({ error: 'Could not load your fliers.' }, { status: 500 });
+
+  const ids = (drafts ?? []).map((row) => row.id);
+  const { data: finals } = ids.length
+    ? await supabase
+        .from('flyer_jobs')
+        .select('id, status, outputs, created_at, parent_job_id')
+        .in('parent_job_id', ids)
+        .eq('status', 'done')
+        .order('created_at', { ascending: false })
+        .returns<Row[]>()
+    : { data: [] as Row[] };
+  const finalFor = new Map<string, Row>();
+  for (const final of finals ?? []) {
+    if (final.parent_job_id && !finalFor.has(final.parent_job_id) && final.outputs?.[0]?.path) finalFor.set(final.parent_job_id, final);
+  }
+
+  const fliers = await Promise.all(
+    (drafts ?? []).map(async (row) => {
+      const final = finalFor.get(row.id);
+      const path = final?.outputs?.[0]?.path ?? row.outputs?.[0]?.path ?? null;
+      const { data } = path ? await supabase.storage.from('flyers').createSignedUrl(path, 60 * 60) : { data: null };
+      return {
+        id: row.id,
+        finalId: final?.id ?? null,
+        status: row.status,
+        headline: row.request?.spec?.headline ?? '',
+        format: row.request?.spec?.format ?? 'portrait',
+        created_at: row.created_at,
+        thumb: data?.signedUrl ?? null,
+      };
+    }),
+  );
+  return NextResponse.json({ fliers }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
 type Body = Partial<FlyerRequest> & { brief?: unknown; subtype?: unknown };
 
 export async function POST(req: Request) {

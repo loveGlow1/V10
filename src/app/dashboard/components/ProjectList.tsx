@@ -3,13 +3,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Clapperboard, Laptop, Pin, Radio } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, Laptop, Pin, Radio } from "lucide-react";
 import Image from "next/image";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 
 import { isPublished, useProjects } from "../ProjectsContext";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import PageThumbnail from "./PageThumbnail";
+import { FlierThumb, type FlierCard } from "./FlierThumb";
 import ProjectLifecycleMenu from "./ProjectLifecycleMenu";
 import { browserAccessToken, byRank, isArchived, patchProject } from "@/lib/projects/client";
 import { listContinueWorking, type ProjectListItem } from "@/lib/projects/queries";
@@ -74,12 +75,13 @@ function updatedAgo(iso: string) {
  * That job belongs to View all, which is why the grid mark All wore now sits in
  * that link. The two chips left are a real toggle, so they get the middle. */
 
-type View = "apps" | "published" | "videos";
+type View = "apps" | "published" | "videos" | "fliers";
 
 const VIEWS: { id: View; label: string; heading: string; icon: typeof Laptop }[] = [
   { id: "apps", label: "Apps", heading: "Continue working", icon: Laptop },
   { id: "published", label: "Published", heading: "Live apps", icon: Radio },
   { id: "videos", label: "Videos", heading: "Your videos", icon: Clapperboard },
+  { id: "fliers", label: "Fliers", heading: "Your fliers", icon: ImageIcon },
 ];
 
 /* Says what to do rather than what is absent — an empty state that only reports
@@ -89,6 +91,7 @@ const EMPTY: Record<View, string> = {
   apps: "No active apps.",
   published: "Nothing published yet. Open an app and press Publish to put it online.",
   videos: "No videos yet. Pick the Video tab above and choose what to create.",
+  fliers: "No fliers yet. Pick the Fliers tab above and describe one.",
 };
 
 /* A Video Studio project as /api/video lists it. */
@@ -133,6 +136,20 @@ export default function ProjectList() {
         if (live && Array.isArray(body?.videos)) setVideos(body.videos as VideoRow[]);
       })
       /* Quietly empty: the Videos view says how to make one. */
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  /* Fliers likewise: their own table, read beside the apps. */
+  const [fliers, setFliers] = useState<FlierCard[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/flyers", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (live && Array.isArray(body?.fliers)) setFliers(body.fliers as FlierCard[]);
+      })
       .catch(() => {});
     return () => {
       live = false;
@@ -184,7 +201,7 @@ export default function ProjectList() {
       published: rows
         .filter((row) => isPublishedProject(row))
         .sort((a, b) => Date.parse(b.published_at ?? "") - Date.parse(a.published_at ?? "")),
-    } satisfies Record<Exclude<View, "videos">, ProjectListItem[]>;
+    } satisfies Record<Exclude<View, "videos" | "fliers">, ProjectListItem[]>;
   }, [ranked]);
 
   /* Pin and archive both move a row, so both change the list in place first and
@@ -227,9 +244,11 @@ export default function ProjectList() {
      this section is Apps and nothing else. */
   const active: View = isWide ? view : "apps";
   const current = VIEWS.find((option) => option.id === active) ?? VIEWS[0];
-  const shown = active === "videos" ? [] : buckets[active].slice(0, SHOWN);
+  const shown = active === "videos" || active === "fliers" ? [] : buckets[active].slice(0, SHOWN);
   const shownVideos = active === "videos" ? videos.slice(0, SHOWN) : [];
-  const count = (id: View) => (id === "videos" ? videos.length : buckets[id].length);
+  /* Pictures, so a row of them rather than three: four fit the column. */
+  const shownFliers = active === "fliers" ? fliers.slice(0, 4) : [];
+  const count = (id: View) => (id === "videos" ? videos.length : id === "fliers" ? fliers.length : buckets[id].length);
 
   return (
     <section className="mt-[120px] w-full max-w-[720px] md:mt-16">
@@ -287,7 +306,7 @@ export default function ProjectList() {
                 link, and the arrow was already saying the only thing that
                 needed saying. */}
             <Link
-              href={active === "videos" ? "/dashboard/video" : "/dashboard/projects?filter=all"}
+              href={active === "videos" ? "/dashboard/video" : active === "fliers" ? "/dashboard/fliers" : "/dashboard/projects?filter=all"}
               className="flex h-8 shrink-0 items-center rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
             >
               View all →
@@ -347,8 +366,19 @@ export default function ProjectList() {
             Apps, and an empty Apps is the state the heading already disappears
             for. A line of explanation under a heading that is not there would
             be new furniture on the screen with the least room for it. */}
-        {isWide && !error && shown.length === 0 && shownVideos.length === 0 && (
+        {isWide && !error && shown.length === 0 && shownVideos.length === 0 && shownFliers.length === 0 && (
           <p className="px-3 py-8 text-center text-sm text-muted">{EMPTY[active]}</p>
+        )}
+
+        {shownFliers.length > 0 && (
+          <div className="grid grid-cols-4 items-start gap-3 px-3 py-2">
+            {shownFliers.map((flier) => (
+              <div key={flier.id} className="min-w-0">
+                <FlierThumb flier={flier} className="rounded-xl" />
+                <p className="mt-1.5 truncate text-[12.5px] text-soft">{flier.headline || "Flier"}</p>
+              </div>
+            ))}
+          </div>
         )}
 
         {shownVideos.map((video) => {
