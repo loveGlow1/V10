@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Download, Loader2, Pause, Play, RotateCcw, ShieldCheck, Upload, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Check, Download, Loader2, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Upload, Wand2, X } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
@@ -268,44 +268,71 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       )}
 
       {shown && (
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="min-w-0 space-y-4">
-            {/* Step 3: the plan */}
+        /* The workspace: the video and its scenes, with the Director's chat
+           beside them — ask for a change in words and get a new version, the
+           way an app is edited. On a phone: the video, then the chat, then
+           the scenes. */
+        <div className="mt-5 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
+            {/* Step 7: preview */}
+            {data.final || data.renders.some((r) => (r.engine === "video" || r.engine === "avatar") && r.status === "done" && r.url) ? (
+              <FinalCut plan={data.latest?.plan ?? shown} renders={data.renders} final={data.final} title={shown.title} />
+            ) : (
+              <Animatic plan={shown} />
+            )}
+            {/* Step 5: generate */}
             <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
-              <h2 className="text-[14px] font-medium text-ink">Production plan</h2>
-              <p className="mt-1 text-[12px] text-muted">
-                {shown.aspect} · {totalSeconds(shown)}s of {shown.target}s · {shown.scenes.length} scenes
-              </p>
-              {shown.concept && <p className="mt-3 text-[13.5px] leading-relaxed text-soft">{shown.concept}</p>}
-              {shown.strategy && (
-                <p className="mt-2 text-[13px] leading-relaxed text-muted">
-                  <span className="text-soft">Strategy:</span> {shown.strategy}
-                </p>
+              <button
+                onClick={() => void render()}
+                disabled={busy !== null || dirty || status === "rendering"}
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
+              >
+                {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                {status === "rendering" ? "Rendering…" : data.renders.length ? "Render again" : "Generate video"}
+                {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
+              </button>
+              {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
+              {data.renders.some((r) => r.status === "failed") && status !== "rendering" && (
+                <button onClick={() => void render(true)} disabled={busy !== null} className="mt-2 flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
+                  <RotateCcw className="h-3.5 w-3.5" /> Retry failed scenes
+                </button>
               )}
-              <dl className="mt-3 grid gap-x-4 gap-y-1.5 text-[12.5px] sm:grid-cols-2">
-                {shown.voice && (<div><dt className="inline text-muted">Voice: </dt><dd className="inline text-soft">{shown.voice}</dd></div>)}
-                {shown.music && (<div><dt className="inline text-muted">Music: </dt><dd className="inline text-soft">{shown.music}</dd></div>)}
-                {shown.cta && (<div><dt className="inline text-muted">CTA: </dt><dd className="inline text-soft">{shown.cta}</dd></div>)}
-              </dl>
-              {Object.keys(shown.locks).length > 0 && (
-                <div className="mt-3 space-y-1">
-                  {Object.entries(shown.locks).map(([key, value]) => (
-                    <p key={key} className="text-[12.5px] text-muted">
-                      <span className="mr-1 rounded bg-layer/[0.08] px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-soft">{key} lock</span> {value}
-                    </p>
+              {data.readiness?.notes?.map((text) => (
+                <p key={text} className="mt-2 text-[12px] leading-snug text-muted">{text}</p>
+              ))}
+              {dirty && <p className="mt-2 text-[12px] text-muted">Save your scene edits first.</p>}
+              {renderResult && <p className={`mt-2 text-[12.5px] leading-relaxed ${renderResult.ok ? "text-emerald-400" : "text-soft"}`}>{renderResult.text}</p>}
+              {data.readiness && (
+                <ul className="mt-3 space-y-1">
+                  {data.readiness.engines.map((engine) => (
+                    <li key={engine.engine} className="flex justify-between text-[12px]">
+                      <span className="text-soft">{engine.label}</span>
+                      <span className={engine.health === "available" ? "text-emerald-400" : "text-muted"}>{HEALTH[engine.health] ?? engine.health}</span>
+                    </li>
                   ))}
-                </div>
-              )}
-              {shown.hooks.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-[12px] text-muted">Hook variations</p>
-                  <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-[12.5px] text-soft">
-                    {shown.hooks.map((hook) => (<li key={hook}>{hook}</li>))}
-                  </ol>
-                </div>
+                </ul>
               )}
             </section>
+          </div>
 
+          <DirectorChat
+            versions={data.versions}
+            current={data.latest?.version ?? null}
+            title={shown.title}
+            scenes={shown.scenes.length}
+            seconds={totalSeconds(shown)}
+            renders={data.renders}
+            status={status ?? ""}
+            busy={busy}
+            note={note}
+            setNote={setNote}
+            onAsk={(text) => void plan({ note: text })}
+            onRender={() => void render()}
+            canRender={!dirty && status !== "rendering"}
+            cost={data.cost}
+          />
+
+          <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-2">
             {/* Step 4: scenes */}
             <section className="space-y-2.5">
               <div className="flex items-center justify-between">
@@ -353,53 +380,45 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     <p className="mt-1 leading-relaxed">{scene.motionPrompt}</p>
                     {scene.sound && <p className="mt-1">Sound: {scene.sound}</p>}
                   </details>
+                  <SceneAsk n={scene.n} disabled={busy !== null} onAsk={(text) => void plan({ note: `Change only scene ${scene.n}, keep every other scene exactly as it is: ${text}` })} />
                 </article>
               ))}
             </section>
-          </div>
-
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-            {/* Step 7: preview */}
-            {data.final || data.renders.some((r) => (r.engine === "video" || r.engine === "avatar") && r.status === "done" && r.url) ? (
-              <FinalCut plan={data.latest?.plan ?? shown} renders={data.renders} final={data.final} title={shown.title} />
-            ) : (
-              <Animatic plan={shown} />
-            )}
-
-            {/* Step 5: generate */}
-            <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
-              <button
-                onClick={() => void render()}
-                disabled={busy !== null || dirty || status === "rendering"}
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
-              >
-                {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {status === "rendering" ? "Rendering…" : data.renders.length ? "Render again" : "Generate video"}
-                {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
-              </button>
-              {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
-              {data.renders.some((r) => r.status === "failed") && status !== "rendering" && (
-                <button onClick={() => void render(true)} disabled={busy !== null} className="mt-2 flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
-                  <RotateCcw className="h-3.5 w-3.5" /> Retry failed scenes
-                </button>
+            {/* Step 3: the plan */}
+            <details className="group rounded-[16px] border border-line/[0.08] bg-panel p-4">
+              <summary className="cursor-pointer select-none list-none text-[14px] font-medium text-ink">Production plan <span className="text-[12px] font-normal text-muted group-open:hidden">· show</span></summary>
+              <p className="mt-1 text-[12px] text-muted">
+                {shown.aspect} · {totalSeconds(shown)}s of {shown.target}s · {shown.scenes.length} scenes
+              </p>
+              {shown.concept && <p className="mt-3 text-[13.5px] leading-relaxed text-soft">{shown.concept}</p>}
+              {shown.strategy && (
+                <p className="mt-2 text-[13px] leading-relaxed text-muted">
+                  <span className="text-soft">Strategy:</span> {shown.strategy}
+                </p>
               )}
-              {data.readiness?.notes?.map((text) => (
-                <p key={text} className="mt-2 text-[12px] leading-snug text-muted">{text}</p>
-              ))}
-              {dirty && <p className="mt-2 text-[12px] text-muted">Save your scene edits first.</p>}
-              {renderResult && <p className={`mt-2 text-[12.5px] leading-relaxed ${renderResult.ok ? "text-emerald-400" : "text-soft"}`}>{renderResult.text}</p>}
-              {data.readiness && (
-                <ul className="mt-3 space-y-1">
-                  {data.readiness.engines.map((engine) => (
-                    <li key={engine.engine} className="flex justify-between text-[12px]">
-                      <span className="text-soft">{engine.label}</span>
-                      <span className={engine.health === "available" ? "text-emerald-400" : "text-muted"}>{HEALTH[engine.health] ?? engine.health}</span>
-                    </li>
+              <dl className="mt-3 grid gap-x-4 gap-y-1.5 text-[12.5px] sm:grid-cols-2">
+                {shown.voice && (<div><dt className="inline text-muted">Voice: </dt><dd className="inline text-soft">{shown.voice}</dd></div>)}
+                {shown.music && (<div><dt className="inline text-muted">Music: </dt><dd className="inline text-soft">{shown.music}</dd></div>)}
+                {shown.cta && (<div><dt className="inline text-muted">CTA: </dt><dd className="inline text-soft">{shown.cta}</dd></div>)}
+              </dl>
+              {Object.keys(shown.locks).length > 0 && (
+                <div className="mt-3 space-y-1">
+                  {Object.entries(shown.locks).map(([key, value]) => (
+                    <p key={key} className="text-[12.5px] text-muted">
+                      <span className="mr-1 rounded bg-layer/[0.08] px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-soft">{key} lock</span> {value}
+                    </p>
                   ))}
-                </ul>
+                </div>
               )}
-            </section>
-
+              {shown.hooks.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-[12px] text-muted">Hook variations</p>
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-[12.5px] text-soft">
+                    {shown.hooks.map((hook) => (<li key={hook}>{hook}</li>))}
+                  </ol>
+                </div>
+              )}
+            </details>
             {/* Step 6: QA */}
             {issues.length > 0 && (
               <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
@@ -414,28 +433,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 </ul>
               </section>
             )}
-
-            {/* Revise, variation, export, versions */}
-            <section className="space-y-3 rounded-[16px] border border-line/[0.08] bg-panel p-4">
-              <div>
-                <textarea
-                  rows={2}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Ask for a change — e.g. make the hook funnier"
-                  className="w-full resize-none rounded-lg border border-line/[0.1] bg-transparent px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.25]"
-                />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button onClick={() => void plan({ note })} disabled={busy !== null || !note.trim()} className="flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
-                    {busy === "plan" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Revise
-                  </button>
-                  <button onClick={() => void plan({ note: "Create a variation: a different hook and fresh visuals, keeping the same product, message, locks and length." })} disabled={busy !== null} className="flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
-                    <RotateCcw className="h-3.5 w-3.5" /> Create variation
-                  </button>
-                </div>
-                <p className="mt-1.5 text-[11.5px] text-muted">A new plan uses 1 credit. Saving your own edits is free.</p>
-              </div>
-              <div className="flex flex-wrap gap-2 border-t border-line/[0.06] pt-3">
+            <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
+              <div className="flex flex-wrap gap-2 ">
                 <button onClick={() => download(`${shown.title || "video"}-script.txt`, scriptText(shown), "text/plain")} className="flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink">
                   <Download className="h-3.5 w-3.5" /> Script
                 </button>
@@ -443,17 +442,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                   <Download className="h-3.5 w-3.5" /> Plan (JSON)
                 </button>
               </div>
-              {data.versions.length > 1 && (
-                <ul className="space-y-0.5 border-t border-line/[0.06] pt-3 text-[12px] text-muted">
-                  {data.versions.slice(0, 8).map((v) => (
-                    <li key={v.version} className={v.version === data.latest?.version ? "text-soft" : ""}>
-                      v{v.version} · {v.note || "Plan"}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </section>
-          </aside>
+          </div>
         </div>
       )}
     </main>
@@ -739,5 +729,201 @@ function SceneByScene({ plan, renders }: { plan: ProductionPlan; renders: Render
         The cut plays the real clips and voice in order. A single MP4 export needs a compose engine — coming next.
       </p>
     </section>
+  );
+}
+
+/* Why a render made nothing, in words a person can act on — never the
+   provider's log line. */
+function renderFailure(renders: RenderRow[]): string | null {
+  const failed = renders.filter((render) => render.status === "failed");
+  if (failed.length === 0 || renders.some((render) => render.status === "done" && render.url)) return null;
+  const errors = failed.map((render) => render.error ?? "").join(" ");
+  if (/payment required|402|insufficient|out of credit|quota|balance/i.test(errors)) {
+    return "The video engine's account is out of credit, so no clips were made and nothing was charged. Once it's topped up, press Retry failed scenes — your plan is kept.";
+  }
+  if (/sensitive|safety|moderation|policy/i.test(errors)) {
+    return "The video engine declined some scenes. Ask me to tone them down, then render again.";
+  }
+  return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
+}
+
+/* A version's note, as the person said it. */
+function spoken(note: string): string | null {
+  if (!note || note === "First plan" || note === "Planned again") return null;
+  if (note === "Your edits") return "I edited the scenes myself.";
+  const scene = note.match(/^Change only scene (\d+), keep every other scene exactly as it is: ([\s\S]*)$/);
+  if (scene) return `Scene ${scene[1]}: ${scene[2]}`;
+  if (note.startsWith("Create a variation:")) return "Make a variation.";
+  return note;
+}
+
+const QUICK = [
+  { label: "Variation", note: "Create a variation: a different hook and fresh visuals, keeping the same product, message, locks and length." },
+  { label: "Shorter", note: "Make it shorter and punchier — cut it to about 15 seconds, keeping the hook and the CTA." },
+  { label: "Funnier hook", note: "Make the opening hook funnier and more scroll-stopping." },
+  { label: "Different creator", note: "Use a different creator — a different look and voice — and keep them identical in every shot." },
+];
+
+/* The Director's chat: every version as a turn of the conversation, the
+   render's outcome said plainly, and a box to ask for the next change. */
+function DirectorChat(props: {
+  versions: { version: number; note: string; created_at: string }[];
+  current: number | null;
+  title: string;
+  scenes: number;
+  seconds: number;
+  renders: RenderRow[];
+  status: string;
+  busy: string | null;
+  note: string;
+  setNote: (value: string) => void;
+  onAsk: (text: string) => void;
+  onRender: () => void;
+  canRender: boolean;
+  cost: number;
+}) {
+  const { versions, current, busy, note, setNote, onAsk } = props;
+  const end = useRef<HTMLDivElement>(null);
+  const turns = [...versions].reverse();
+  const failure = props.status !== "rendering" ? renderFailure(props.renders) : null;
+  const rendered = props.renders.some((render) => render.status === "done" && render.url);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [versions.length, busy, failure]);
+
+  const send = () => {
+    const text = note.trim();
+    if (!text || busy !== null) return;
+    onAsk(text);
+  };
+
+  return (
+    <section
+      aria-label="Ask the Director for changes"
+      className="flex min-h-[320px] flex-col rounded-[16px] border border-line/[0.08] bg-panel lg:sticky lg:top-4 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-2rem)] lg:self-start"
+    >
+      <header className="flex items-center gap-2 border-b border-line/[0.06] px-4 py-3">
+        <Sparkles className="h-4 w-4 text-accent" />
+        <h2 className="text-[14px] font-medium text-ink">Director</h2>
+        <span className="ml-auto text-[11.5px] text-muted">Each change is a new version</span>
+      </header>
+
+      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
+        {turns.map((turn) => {
+          const said = spoken(turn.note);
+          return (
+            <div key={turn.version} className="space-y-2">
+              {said && <p className="ml-8 rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{said}</p>}
+              <p className="mr-6 text-soft">
+                {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
+                {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
+                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then render it."}
+              </p>
+            </div>
+          );
+        })}
+        {props.status === "rendering" && (
+          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering the clips — they arrive one by one, usually within a few minutes.</p>
+        )}
+        {failure && <p className="rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft">{failure}</p>}
+        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and render again whenever you like.</p>}
+        {busy === "plan" && (
+          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
+        )}
+        <div ref={end} />
+      </div>
+
+      <div className="border-t border-line/[0.06] p-3">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {QUICK.map((quick) => (
+            <button
+              key={quick.label}
+              type="button"
+              onClick={() => onAsk(quick.note)}
+              disabled={busy !== null}
+              className="h-7 rounded-full border border-line/[0.1] px-2.5 text-[12px] text-soft hover:text-ink disabled:opacity-40"
+            >
+              {quick.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-end gap-2 rounded-2xl border border-line/[0.1] bg-layer/[0.03] p-2 focus-within:border-line/[0.25]">
+          <textarea
+            rows={2}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Ask for a change — e.g. make her sound more excited"
+            className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-1 text-[13.5px] text-ink outline-none placeholder:text-muted"
+          />
+          <button
+            type="button"
+            onClick={send}
+            disabled={busy !== null || !note.trim()}
+            aria-label="Send"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-solid text-onSolid disabled:opacity-40"
+          >
+            {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+          </button>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[11.5px] text-muted">A change uses 1 credit. Editing scenes yourself is free.</p>
+          {props.current !== null && (
+            <button
+              type="button"
+              onClick={props.onRender}
+              disabled={busy !== null || !props.canRender}
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40"
+            >
+              <Play className="h-3.5 w-3.5" /> {rendered ? "Render again" : "Render"} · {props.cost}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* "Change this scene" — a request about one scene, kept to that scene. */
+function SceneAsk({ n, disabled, onAsk }: { n: number; disabled: boolean; onAsk: (text: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-2 flex items-center gap-1.5 text-[12px] text-accent hover:underline">
+        <Wand2 className="h-3.5 w-3.5" /> Change this scene
+      </button>
+    );
+  }
+  return (
+    <form
+      className="mt-2 flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!text.trim()) return;
+        onAsk(text.trim());
+        setText("");
+        setOpen(false);
+      }}
+    >
+      <input
+        autoFocus
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={`What should change in scene ${n}?`}
+        className="h-9 flex-1 rounded-lg border border-line/[0.1] bg-transparent px-2.5 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.25]"
+      />
+      <button type="submit" disabled={disabled || !text.trim()} className="h-9 rounded-full bg-solid px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40">
+        Change
+      </button>
+      <button type="button" onClick={() => setOpen(false)} aria-label="Cancel" className="h-9 w-9 rounded-full text-muted hover:text-ink">
+        <X className="mx-auto h-4 w-4" />
+      </button>
+    </form>
   );
 }
