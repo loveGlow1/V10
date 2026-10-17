@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  ArrowLeftToLine,
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
@@ -16,7 +17,6 @@ import {
   LayoutGrid,
   LifeBuoy,
   LogOut,
-  PanelLeftClose,
   Plus,
   Repeat2,
   Settings,
@@ -356,12 +356,14 @@ export default function Sidebar({
                 </span>
               </div>
 
+              {/* A soft, borderless square with an arrow back to the edge the
+                  panel slid out of — it says "tuck this away" rather than "x". */}
               <button
                 onClick={onClose}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-line/[0.08] bg-layer/[0.05] text-ink/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:bg-layer/[0.09] hover:text-ink"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-layer/[0.07] text-ink/55 transition-all hover:bg-layer/[0.11] hover:text-ink active:scale-95"
                 aria-label="Close menu"
               >
-                <PanelLeftClose className="h-4 w-4" />
+                <ArrowLeftToLine className="h-[18px] w-[18px]" strokeWidth={2.25} />
               </button>
             </div>
 
