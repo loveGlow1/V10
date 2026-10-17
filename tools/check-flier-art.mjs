@@ -136,6 +136,12 @@ const buildRoute = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8"
 has(/html\.ilike\.\*data-qs-flier\*/.test(review), "a flier is never given the website review round");
 has(/if \(service && !freeReview\) \{\s*await recordMessage\(service, \{\s*projectId: project\.id,\s*userId: user\.id,\s*role: "you"/.test(buildRoute), "the review round's own instruction is never shown as the person's message");
 
+const gallery = readFileSync(join(root, "src/app/dashboard/fliers/page.tsx"), "utf8");
+const homeList = readFileSync(join(root, "src/app/dashboard/components/ProjectList.tsx"), "utf8");
+has(/export async function GET\(\)[\s\S]{0,600}\.eq\('stage', 'preview'\)[\s\S]{0,80}\.is\('parent_job_id', null\)/.test(flyersApi), "fliers are listed one per brief, under the caller's own session");
+has(/fetch\("\/api\/flyers"/.test(gallery) && /Your fliers/.test(gallery), "Your fliers lists every flier");
+has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.test(homeList), "and Home has a Fliers view that leads to it"
+);
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
