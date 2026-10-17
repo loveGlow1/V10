@@ -116,6 +116,7 @@ import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { loadReferencedProjects, referenceText } from "@/lib/builder/project-reference";
 import { FLIER_INTENT, isFlierTarget, startFlierTurn } from "@/lib/flyers/workspace";
+import { VIDEO_INTENT, startVideoTurn } from "@/lib/video/workspace";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
@@ -808,6 +809,44 @@ async function handle(
         requestId: turn.jobId,
         projectId: project.id,
         intent: FLIER_INTENT,
+        status: "Building",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: turn.message,
+      },
+      project: null,
+    });
+  }
+
+  /* ── A video ────────────────────────────────────────────────────────────
+   *
+   * The same, for a video made from Home: the first message plans it and
+   * sends every scene to render, every one after it revises the plan and
+   * renders it again. The clips land in the preview on their own. See
+   * lib/video/workspace.ts. */
+  if (project.intent === VIDEO_INTENT) {
+    steps.begin("video", "Working on your video", "reading what you asked for…");
+    const turn = await startVideoTurn({
+      supabase,
+      service,
+      userId: user.id,
+      project: { id: project.id as string },
+      prompt,
+      requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
+      origin: new URL(request.url).origin,
+    });
+    if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
+    steps.mark("video", "Started", "the Creative Director is on it");
+    return NextResponse.json({
+      stored: false,
+      steps: steps.list(),
+      intent: "new_project",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: VIDEO_INTENT,
         status: "Building",
         links: { preview: "", repo: "", admin: "" },
         configKeys: {},

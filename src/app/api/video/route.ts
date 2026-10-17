@@ -7,7 +7,9 @@
 
 import { NextResponse } from "next/server";
 
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { PIPELINES, answersFor, isPipelineId } from "@/lib/video/pipelines";
+import { VIDEO_INTENT } from "@/lib/video/workspace";
 
 import { videoSession } from "./shared";
 
@@ -16,7 +18,7 @@ export async function GET() {
   if ("error" in session) return session.error;
   const { data, error } = await session.supabase
     .from("video_projects")
-    .select("id, title, pipeline, status, current_version, updated_at")
+    .select("id, title, pipeline, status, current_version, updated_at, project_id")
     .order("updated_at", { ascending: false })
     .limit(50);
   if (error) return NextResponse.json({ error: "Could not read your videos." }, { status: 500 });
@@ -41,9 +43,19 @@ export async function POST(request: Request) {
     );
   }
 
+  /* Made from Home, a video opens in the workspace like a website: its
+     project, proved to be the caller's by RLS, is linked and marked a video. */
+  let projectId: string | null = null;
+  if (typeof body.projectId === "string" && body.projectId) {
+    const { data: project } = await session.supabase.from("projects").select("id").eq("id", body.projectId).maybeSingle();
+    if (!project) return NextResponse.json({ error: "That project is not yours." }, { status: 403 });
+    projectId = project.id as string;
+  }
+
   const { data, error } = await session.supabase
     .from("video_projects")
     .insert({
+      project_id: projectId,
       user_id: session.userId,
       pipeline: pipeline.id,
       title: brief.split(/[.\n]/)[0].slice(0, 80) || pipeline.label,
@@ -57,6 +69,10 @@ export async function POST(request: Request) {
     // eslint-disable-next-line no-console
     console.error("video create:", error);
     return NextResponse.json({ error: "Could not start the video. Has the Video Studio schema been applied?" }, { status: 500 });
+  }
+  if (projectId) {
+    const writer = createSupabaseServiceClient() ?? session.supabase;
+    await writer.from("projects").update({ intent: VIDEO_INTENT, name: `Video: ${brief.split(/[.\n]/)[0].slice(0, 60) || pipeline.label}` }).eq("id", projectId);
   }
   return NextResponse.json({ id: data.id });
 }
