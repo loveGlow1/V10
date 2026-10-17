@@ -6,7 +6,17 @@ import type { FlyerRequest } from '@/lib/flyers/types';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
+/* Off unless switched on. Every call generates up to four images on paid
+   image models, and nothing here checks or charges credits yet — and no
+   screen calls this route — so left open it was free, unlimited image
+   generation for any signed-in account. Turn it on (FLYERS_API_ENABLED=1)
+   once it charges for what it makes. */
+const ENABLED = process.env.FLYERS_API_ENABLED === '1';
+
 export async function POST(req: Request) {
+  if (!ENABLED) {
+    return NextResponse.json({ error: 'Flyer generation is not available yet.' }, { status: 404 });
+  }
   const supabase = await createSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
   const { data: { user } } = await supabase.auth.getUser();
