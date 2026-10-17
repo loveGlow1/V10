@@ -29,19 +29,32 @@ async function context(id: string) {
   return { owned, service };
 }
 
+/* Whether this project's forms save to the owner's own Supabase (emails come
+   from a trigger installed there) or to the QuickStark inbox (emails come from
+   the submit route, on by default). See src/lib/forms/inbox.ts. */
+async function usesOwnSupabase(service: NonNullable<ReturnType<typeof createSupabaseServiceClient>>, projectId: string) {
+  const backend = await resolveBackend(service, projectId);
+  return backend && backend.mode === "own" && backend.url ? backend : null;
+}
+
 async function state(service: NonNullable<ReturnType<typeof createSupabaseServiceClient>>, projectId: string, userId: string) {
-  const [{ data: row }, { data: owner }] = await Promise.all([
+  const [{ data: row }, { data: owner }, own] = await Promise.all([
     service
       .from("form_notifications")
       .select("enabled, email, installed_at, last_sent_at")
       .eq("project_id", projectId)
       .maybeSingle<Row>(),
     service.auth.admin.getUserById(userId),
+    usesOwnSupabase(service, projectId),
   ]);
   return {
     configured: isEmailConfigured(),
-    installed: Boolean(row?.installed_at),
-    enabled: row ? row.enabled : false,
+    /* The inbox needs nothing installed: the submit route sends the email. */
+    inbox: !own,
+    installed: own ? Boolean(row?.installed_at) : true,
+    /* With no row yet: off for an own Supabase (nothing is installed there
+       until asked), on for the inbox (its first message turns it on). */
+    enabled: row ? row.enabled : !own,
     email: row?.email ?? null,
     accountEmail: owner?.user?.email ?? null,
     lastSentAt: row?.last_sent_at ?? null,
@@ -81,11 +94,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 
   /* Turned on where nothing is installed yet: install it now, against the
      Supabase this app is connected to, so the switch does what it says. */
-  if (patch.enabled && !row?.installed_at) {
-    const backend = await resolveBackend(service, owned.projectId);
-    if (!backend || backend.mode !== "own") {
-      return NextResponse.json({ error: "Connect your Supabase first." }, { status: 409 });
-    }
+  const backend = await usesOwnSupabase(service, owned.projectId);
+  if (patch.enabled && !row?.installed_at && backend) {
     const installed = await installFormNotifications(service, {
       projectId: owned.projectId,
       userId: owned.userId,
@@ -99,11 +109,15 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   }
 
   if (Object.keys(patch).length > 0) {
-    const { error } = row || patch.enabled
+    const { error } = row
       ? await service.from("form_notifications").update(patch).eq("project_id", owned.projectId)
       : await service
           .from("form_notifications")
-          .insert({ project_id: owned.projectId, user_id: owned.userId, enabled: false, ...patch });
+          /* A new row starts as it already behaved: off for an own Supabase,
+             on for the inbox — then takes what was asked. */
+          /* An upsert, because installing just above creates the row: it
+             only sets these columns, so the installed secret is kept. */
+          .upsert({ project_id: owned.projectId, user_id: owned.userId, enabled: !backend, ...patch }, { onConflict: "project_id" });
     if (error) return NextResponse.json({ error: `That couldn't be saved: ${error.message}` }, { status: 500 });
   }
 

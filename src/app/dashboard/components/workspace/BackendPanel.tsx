@@ -924,7 +924,14 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
 
       {/* The forms inbox — what visitors sent through forms on pages with no
           database of their own. See src/lib/forms/inbox.ts. */}
-      {projectId && !unavailable && <FormInbox projectId={projectId} />}
+      {projectId && !unavailable && (
+        <>
+          <FormInbox projectId={projectId} />
+          {/* Email settings for the inbox. A project on its own Supabase has
+              them above, beside that connection. */}
+          {!(backend?.mode === "own" && backend.url) && <FormNotifications projectId={projectId} />}
+        </>
+      )}
     </div>
   );
 }
