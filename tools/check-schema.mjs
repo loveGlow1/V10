@@ -79,7 +79,7 @@ for (const file of sources(join(root, "src"))) {
 /* Not ours. Supabase Storage buckets share the .from() spelling with tables,
    and a generated project's own tables are created per project at build time
    by provision.ts rather than declared here. */
-const NOT_TABLES = new Set(["project-attachments", "attachments", "avatars", "assets"]);
+const NOT_TABLES = new Set(["project-attachments", "attachments", "avatars", "assets", "flyers"]);
 
 let failed = 0;
 const missing = [];

@@ -126,7 +126,7 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
     "a coming-soon agent cannot be chosen",
   );
   has(
-    /agentForModel\(model\)\?\.title \?\? shortModelName/.test(page),
+    /(agentForModel\(model\)|chosenAgent)\?\.title \?\? shortModelName/.test(page),
     "the chip names the agent, or the model when no agent claims it",
     "a model picked in the workspace's fuller list has no agent, and naming nothing is worse",
   );

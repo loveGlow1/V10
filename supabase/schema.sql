@@ -3367,3 +3367,58 @@ revoke all on public.db_agent_secrets from anon, authenticated;
 comment on table public.db_agent_approvals is 'Spent database-agent approval nonces. Service role only: RLS on with no policy BY DESIGN.';
 comment on table public.db_agent_audit is 'Every database-agent tool call. Service role only: RLS on with no policy BY DESIGN.';
 comment on table public.db_agent_secrets is 'Sealed secret keys of connected Supabase projects. Service role only: RLS on with no policy BY DESIGN, never returned to any client or model.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Flyer jobs: one row per flyer request, written by /api/flyers and advanced by
+-- src/lib/flyers/run.ts. Mirrors supabase/migrations/20261002015553_flyer_jobs.sql
+-- and 20261002020310_flyer_jobs_stage.sql, written to be rerun like the rest of
+-- this file, so an environment built from schema.sql alone has the table too.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.flyer_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  site_id uuid,
+  status text not null default 'queued'
+    check (status in ('queued','running','done','failed')),
+  request jsonb not null,
+  outputs jsonb not null default '[]'::jsonb,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.flyer_jobs
+  add column if not exists stage text not null default 'preview'
+    check (stage in ('preview','final')),
+  add column if not exists parent_job_id uuid
+    references public.flyer_jobs(id) on delete set null;
+
+alter table public.flyer_jobs enable row level security;
+drop policy if exists "flyer_jobs_select_own" on public.flyer_jobs;
+create policy "flyer_jobs_select_own" on public.flyer_jobs
+  for select using (auth.uid() = user_id);
+drop policy if exists "flyer_jobs_insert_own" on public.flyer_jobs;
+create policy "flyer_jobs_insert_own" on public.flyer_jobs
+  for insert with check (auth.uid() = user_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'flyer_jobs'
+  ) then
+    alter publication supabase_realtime add table public.flyer_jobs;
+  end if;
+end $$;
+
+-- The finished flyers. Private: read through signed URLs, under <user_id>/...
+insert into storage.buckets (id, name, public)
+values ('flyers', 'flyers', false)
+on conflict (id) do nothing;
+
+drop policy if exists "flyers_read_own" on storage.objects;
+create policy "flyers_read_own" on storage.objects
+  for select using (
+    bucket_id = 'flyers'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );

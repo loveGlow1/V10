@@ -262,9 +262,11 @@ export class QuotaReachedError extends Error {
   }
 }
 
-/** Whether a refused create was refused for the account's limits: 402, 403 or 429, or a body that says limit, quota or plan. */
+/** Whether a refused create was refused for the account's limits: 402 or 429, or any refusal (a 403 included) whose body says limit, quota or plan.
+ *  A bare 403 is a token without permission, not a full account: reading it as
+ *  full stopped a publish that should have gone on with a note. */
 export function isQuotaRefusal(status: number, body: unknown): boolean {
-  if (status === 402 || status === 403 || status === 429) return true;
+  if (status === 402 || status === 429) return true;
   if (status < 400) return false;
   let text = "";
   try {
