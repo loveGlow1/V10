@@ -108,6 +108,15 @@ export async function reviewDue(
   if (now - Date.parse(latest.created_at) > REVIEW_WINDOW_MS) return { due: false, reason: "That build is too old to review automatically." };
   const findings = findingsOf(latest.qa_issues);
   if (findings.length === 0) return { due: false, reason: "The review found nothing to fix." };
+  /* A flier is artwork, not a website: the review's gates (routes, forms,
+     loading states) do not apply to it, and an edit made from them only ever
+     talks it into becoming an app. */
+  const { count: flier } = await service
+    .from("project_builds")
+    .select("id", { count: "exact", head: true })
+    .eq("id", latest.id)
+    .or("html.ilike.*data-qs-flier*,html.ilike.*download png*");
+  if ((flier ?? 0) > 0) return { due: false, reason: "Fliers are not reviewed as websites." };
   const { count } = await service
     .from("project_messages")
     .select("id", { count: "exact", head: true })

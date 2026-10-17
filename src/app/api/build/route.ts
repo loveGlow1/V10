@@ -1113,7 +1113,10 @@ async function handle(
       ? `${prompt}\n\n(${attachments.map((file) => file.name).join(", ")})`
       : prompt;
 
-  if (service) {
+  /* Not for the review round: its prompt is the builder's own instruction to
+     itself, written from the build's findings, and the person never said it.
+     The round announces itself in the thread as the system (review-round.ts). */
+  if (service && !freeReview) {
     await recordMessage(service, {
       projectId: project.id,
       userId: user.id,

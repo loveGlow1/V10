@@ -3,7 +3,7 @@ import type { FlyerRequest, Provider } from './types';
 const MIN_REFS_FOR_PRO = 2;
 
 const FALLBACK: Record<Provider, Provider[]> = {
-  'nano-banana-2': ['nano-banana-pro', 'gpt-image-2'],
+  'nano-banana-2': ['nano-banana-pro', 'gpt-image-2', 'ideogram-v3'],
   'nano-banana-pro': ['gpt-image-2', 'ideogram-v3'],
   'gpt-image-2': ['nano-banana-pro', 'ideogram-v3'],
   'gpt-image-1.5': ['gpt-image-2', 'nano-banana-pro'],
@@ -19,9 +19,22 @@ export function pickPrimary(req: FlyerRequest): Provider {
   return 'gpt-image-2';
 }
 
-export function providerChain(req: FlyerRequest): Provider[] {
+/* Which providers this deployment has a key for. A chain only names those,
+   so a missing key is skipped rather than tried and failed. */
+const KEY: Record<Provider, string> = {
+  'nano-banana-2': 'GEMINI_API_KEY',
+  'nano-banana-pro': 'GEMINI_API_KEY',
+  'gpt-image-2': 'OPENAI_API_KEY',
+  'gpt-image-1.5': 'OPENAI_API_KEY',
+  'ideogram-v3': 'IDEOGRAM_API_KEY',
+};
+export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) => Boolean(env[KEY[p]]);
+
+export function providerChain(req: FlyerRequest, env: Record<string, string | undefined> = process.env): Provider[] {
   const primary = pickPrimary(req);
-  return [primary, ...FALLBACK[primary].filter((p) => p !== primary)];
+  const all: Provider[] = [primary, ...FALLBACK[primary].filter((p) => p !== primary)];
+  for (const p of ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro'] as Provider[]) if (!all.includes(p)) all.push(p);
+  return all.filter((p) => providerConfigured(p, env));
 }
 
 /* Reference URLs arrive in the request body and are fetched by the server,

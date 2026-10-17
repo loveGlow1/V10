@@ -88,7 +88,7 @@ export async function runFlyerJob(jobId: string, userId: string, input: FlyerReq
         failures.push(`${p}: ${msg(e)}`);
       }
     }
-    if (!result) throw new Error(`All providers failed -> ${failures.join(' | ')}`);
+    if (!result) throw new Error(failures.length ? `All providers failed -> ${failures.join(' | ')}` : 'No image provider is connected (GEMINI_API_KEY, OPENAI_API_KEY or IDEOGRAM_API_KEY).');
 
     const outputs: { provider: Provider; stage: string; path: string }[] = [];
     for (const [i, buf] of result.images.entries()) {

@@ -22,7 +22,7 @@ writeFileSync(config, JSON.stringify({
     skipLibCheck: true, strict: true, types: ["node"], typeRoots: [join(root, "node_modules", "@types")],
     baseUrl: root, paths: { "@/*": ["src/*"] },
   },
-  files: [join(root, "src/lib/flyers/art.ts"), join(root, "src/lib/flyers/fit.ts")],
+  files: [join(root, "src/lib/flyers/art.ts"), join(root, "src/lib/flyers/fit.ts"), join(root, "src/lib/flyers/router.ts")],
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -42,6 +42,7 @@ writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 })(join(out, "lib"));
 const A = await import(join(out, "lib/flyers/art.js"));
 const Fit = await import(join(out, "lib/flyers/fit.js"));
+const Router = await import(join(out, "lib/flyers/router.js"));
 
 let failed = 0;
 const has = (cond, t, d) => {
@@ -100,6 +101,22 @@ has(fitted.includes(Fit.HTML_TO_IMAGE) && /@\d+\.\d+\.\d+\//.test(Fit.HTML_TO_IM
 const panel = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
 has(/sandbox allow-scripts allow-forms allow-popups allow-downloads/.test(preview) && /allow-downloads/.test(serve), "downloads are allowed by the preview's and the published site's sandbox");
 has((panel.match(/allow-downloads/g) ?? []).length >= 3 && /allow="web-share"/.test(panel), "and by the workspace frame, with the share sheet allowed");
+
+/* The Fliers tab is image generation, not the website builder. */
+const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
+const start = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
+const flyersApi = readFileSync(join(root, "src/app/api/flyers/route.ts"), "utf8");
+const briefSrc = readFileSync(join(root, "src/lib/flyers/brief.ts"), "utf8");
+has(/flier=\{activeCategory === "fliers"/.test(home) && /if \(flier\) \{[\s\S]{0,200}fetch\("\/api\/flyers"/.test(start) && /router\.push\(`\/dashboard\/fliers\//.test(start), "the Fliers tab opens the Flier Studio, never a website workspace");
+has(/requestFromBrief\(/.test(flyersApi) && /stage === 'final' && typeof raw\.parentJobId === 'string'/.test(flyersApi), "the flier API takes a plain brief, and makes a final from a chosen draft");
+has(/currentBalance/.test(flyersApi) && !/FLYERS_API_ENABLED === '1'/.test(flyersApi), "on by default now a screen uses it, with the balance checked first");
+has(/Never invent facts/.test(briefSrc) && /heuristicRequest/.test(briefSrc), "the brief is read without inventing facts, with a fallback when the model is unavailable");
+const chain = Router.providerChain({ brand: { name: "x", colors: { primary: "#000000" } }, spec: { headline: "h", format: "square", textMode: "ai" }, stage: "preview" }, { OPENAI_API_KEY: "o" });
+has(chain.join() === "gpt-image-2", "only connected image models are tried", chain);
+const review = readFileSync(join(root, "src/lib/builder/review-round.ts"), "utf8");
+const buildRoute = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
+has(/html\.ilike\.\*data-qs-flier\*/.test(review), "a flier is never given the website review round");
+has(/if \(service && !freeReview\) \{\s*await recordMessage\(service, \{\s*projectId: project\.id,\s*userId: user\.id,\s*role: "you"/.test(buildRoute), "the review round's own instruction is never shown as the person's message");
 
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");

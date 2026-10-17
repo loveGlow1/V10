@@ -49,13 +49,15 @@ const has = (cond, t, d) => {
 };
 
 /* A fake service client: one build row, and a thread whose dedupe index works. */
-function fake(build, { claimed = false } = {}) {
+function fake(build, { claimed = false, flier = false } = {}) {
   const keys = new Set(claimed ? [`review:${build?.id}`] : []);
   const chain = (table) => {
+    let asksFlier = false;
     const q = {
       select: () => q, eq: () => q, order: () => q, limit: () => q,
+      or: () => { asksFlier = true; return q; },
       maybeSingle: async () => ({ data: table === "project_builds" ? build : null, error: null }),
-      then: (resolve) => resolve({ count: keys.size, error: null }),
+      then: (resolve) => resolve({ count: asksFlier ? (flier ? 1 : 0) : keys.size, error: null }),
       insert: async (row) => {
         if (keys.has(row.dedupe_key)) return { error: { code: "23505" } };
         keys.add(row.dedupe_key);
@@ -87,6 +89,8 @@ has(!again.ok, "a second round for the same build is refused", again);
 has(!(await R.reviewEligibility(fake(fresh, { claimed: true }), input, now)).ok, "even when the first round never landed");
 
 has(!(await R.reviewEligibility(fake({ ...fresh, qa_issues: [] }), input, now)).ok, "a clean build gets no round");
+const flierRound = await R.reviewEligibility(fake(fresh, { flier: true }), input, now);
+has(!flierRound.ok && /Fliers/.test(flierRound.reason), "a flier never gets the website review round", flierRound);
 has(!(await R.reviewEligibility(fake({ ...fresh, prompt: R.reviewPrompt("b0", fresh.qa_issues) }), input, now)).ok, "a round's own build is never reviewed again");
 has(!(await R.reviewEligibility(fake({ ...fresh, created_at: "2026-10-17T09:00:00Z" }), input, now)).ok, "an old build is not reviewed");
 has(!(await R.reviewEligibility(fake(fresh), { ...input, buildId: "b0" }, now)).ok, "only the newest build");

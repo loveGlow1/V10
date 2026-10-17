@@ -32,7 +32,7 @@ export function buildPrompt(brand: BrandKit, spec: FlyerSpec, provider: Provider
           : '';
 
   return [
-    `Professional promotional flyer for "${brand.name}".`,
+    brand.name ? `Professional promotional flyer for "${brand.name}".` : `Professional promotional flyer.`,
     brand.vibe && `Brand style: ${brand.vibe}.`,
     `Strict color palette: ${palette}. No off-brand colors.`,
     fonts,
