@@ -35,6 +35,10 @@ import type { FlyerRequest } from "./types";
 
 export const FLIER_INTENT = "flier";
 
+/** A flier image on this app's own file route; with download, saved as a clean PNG. Pure. */
+export const imageUrl = (origin: string, jobId: string, path: string, download = false) =>
+  `${origin}/api/flyers/${jobId}/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+
 /** Whether a message from the composer is for a flier: the Fliers tab's target. Pure. */
 export const isFlierTarget = (target: unknown) => typeof target === "string" && /^fliers(:|$)/.test(target);
 
@@ -53,6 +57,8 @@ export async function startFlierTurn(input: {
   prompt: string;
   target: unknown;
   requestId: string;
+  /** This app's address, for the image links the thread keeps. */
+  origin: string;
 }): Promise<FlierTurn> {
   const { supabase, service, userId, project, prompt } = input;
 
@@ -119,6 +125,10 @@ export async function startFlierTurn(input: {
         userId,
         role: "system",
         kind: ok ? "build_ready" : "build_failed",
+        /* The images themselves, shown in the chat: each an "image:" link to
+           this app's file route, which serves it to its owner and saves it as
+           a clean PNG (see MessageRow). */
+        links: ok ? liveOutputs(done?.outputs).map((output, index) => ({ label: `image:${index + 1}`, href: imageUrl(input.origin, job.id, output.path) })) : undefined,
         tone: ok ? "normal" : "error",
         body: ok
           ? `Here are ${liveOutputs(done?.outputs).length} versions of "${request.spec.headline}". Tap one in the preview to see it full size and save it, or tell me what to change.`
@@ -142,7 +152,7 @@ export type BoardVersion = {
   status: string;
   headline: string;
   format: string;
-  images: { url: string; name: string }[];
+  images: { url: string; name: string; download: string }[];
 };
 
 const RATIO: Record<string, string> = { portrait: "2 / 3", square: "1 / 1", landscape: "3 / 2", story: "9 / 16" };
@@ -151,7 +161,7 @@ const fileName = (headline: string, n: number) =>
   `${(headline || "flier").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "flier"}-${n}.png`;
 
 /** The flier's versions, newest first, with freshly signed image URLs. */
-export async function loadFlierBoard(supabase: SupabaseClient, projectId: string): Promise<BoardVersion[]> {
+export async function loadFlierBoard(supabase: SupabaseClient, projectId: string, origin: string): Promise<BoardVersion[]> {
   const { data: jobs } = await supabase
     .from("flyer_jobs")
     .select("id, status, request, outputs, created_at, error")
@@ -167,7 +177,7 @@ export async function loadFlierBoard(supabase: SupabaseClient, projectId: string
       const images = await Promise.all(
         liveOutputs(job.outputs).map(async (output, index) => {
           const { data } = await supabase.storage.from("flyers").createSignedUrl(output.path, 60 * 60 * 6);
-          return data?.signedUrl ? { url: data.signedUrl, name: fileName(headline, index + 1) } : null;
+          return data?.signedUrl ? { url: data.signedUrl, name: fileName(headline, index + 1), download: imageUrl(origin, job.id, output.path, true) } : null;
         }),
       );
       return {
@@ -175,7 +185,7 @@ export async function loadFlierBoard(supabase: SupabaseClient, projectId: string
         status: job.status,
         headline,
         format: job.request?.spec?.format ?? "portrait",
-        images: images.filter((image): image is { url: string; name: string } => image !== null),
+        images: images.filter((image): image is { url: string; name: string; download: string } => image !== null),
       };
     }),
   );
@@ -184,8 +194,8 @@ export async function loadFlierBoard(supabase: SupabaseClient, projectId: string
 /** The interactive preview: the newest versions large, earlier ones below, a full-size view with Save. Pure. */
 export function flierBoardHtml(versions: BoardVersion[]): string {
   const [current, ...earlier] = versions;
-  const card = (image: { url: string; name: string }, ratio: string, alt: string) =>
-    `<button class="card" style="aspect-ratio:${ratio}" data-src="${escape(image.url)}" data-name="${escape(image.name)}" aria-label="${escape(alt)}"><img src="${escape(image.url)}" alt="${escape(alt)}" loading="lazy"></button>`;
+  const card = (image: { url: string; name: string; download: string }, ratio: string, alt: string) =>
+    `<button class="card" style="aspect-ratio:${ratio}" data-src="${escape(image.url)}" data-name="${escape(image.name)}" data-download="${escape(image.download)}" aria-label="${escape(alt)}"><img src="${escape(image.url)}" alt="${escape(alt)}" loading="lazy"></button>`;
   const working = current && (current.status === "queued" || current.status === "running");
   const body = !current
     ? `<p class="empty">Describe your flier in the chat and four versions appear here.</p>`
@@ -225,30 +235,23 @@ h2{max-width:1100px;margin:32px auto 6px;font-size:15px}.sub{max-width:1100px;ma
 .empty{max-width:420px;margin:80px auto;text-align:center;color:#a1a1aa}
 #view{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(0,0,0,.92);padding:16px;z-index:10}
 #view.open{display:flex}#view img{max-width:100%;max-height:78vh;border-radius:14px}
-.row{display:flex;gap:10px}.btn{height:44px;padding:0 20px;border-radius:999px;border:0;font:600 14px system-ui;cursor:pointer}
+.row{display:flex;gap:10px}.btn{display:inline-flex;align-items:center;height:44px;padding:0 20px;border-radius:999px;border:0;font:600 14px system-ui;cursor:pointer;text-decoration:none}
 .save{background:#f97316;color:#111}.close{background:rgba(255,255,255,.12);color:#fff}#note{color:#a1a1aa;font-size:13px;min-height:18px;margin:0}
 </style></head><body>
 ${body}
-<div id="view" role="dialog" aria-modal="true" aria-label="Flier, full size"><img alt="Flier, full size"><div class="row"><button class="btn save" id="save">Save image</button><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
+<div id="view" role="dialog" aria-modal="true" aria-label="Flier, full size"><img alt="Flier, full size"><div class="row"><a class="btn save" id="save" target="_blank" rel="noopener" download>Download</a><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
 <script>
 (function(){
   var view=document.getElementById('view'),img=view.querySelector('img'),note=document.getElementById('note'),current=null;
-  document.querySelectorAll('.card[data-src]').forEach(function(card){card.addEventListener('click',function(){current={src:card.dataset.src,name:card.dataset.name};img.src=current.src;note.textContent='';view.classList.add('open');});});
+  document.querySelectorAll('.card[data-src]').forEach(function(card){card.addEventListener('click',function(){current={src:card.dataset.src,name:card.dataset.name};img.src=current.src;var save=document.getElementById('save');save.href=card.dataset.download;save.setAttribute('download',card.dataset.name);note.textContent='';view.classList.add('open');});});
   function close(){view.classList.remove('open');}
   document.getElementById('close').addEventListener('click',close);
   view.addEventListener('click',function(e){if(e.target===view)close();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
-  document.getElementById('save').addEventListener('click',function(){
-    if(!current)return;note.textContent='Saving…';
-    fetch(current.src).then(function(r){return r.blob();}).then(function(blob){
-      var file=new File([blob],current.name,{type:blob.type||'image/png'});
-      if(navigator.canShare&&navigator.canShare({files:[file]})&&/iphone|ipad|android/i.test(navigator.userAgent)){
-        return navigator.share({files:[file]}).then(function(){note.textContent='';},function(){note.textContent='';});
-      }
-      var url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=current.name;document.body.appendChild(a);a.click();a.remove();
-      setTimeout(function(){URL.revokeObjectURL(url);},60000);note.textContent='Saved '+current.name;
-    }).catch(function(){window.open(current.src,'_blank');note.textContent='Opened in a new tab — long-press to save it.';});
-  });
+  /* Download is a link to the app's own file route, which answers with the
+     image as an attachment: the browser saves a clean PNG, nothing else. It
+     opens in a new tab because this preview is sandboxed; the tab is the
+     download and closes itself. */
 })();
 </script></body></html>`;
 }

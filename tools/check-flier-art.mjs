@@ -167,6 +167,14 @@ has(/if \(root\.site_id\)[\s\S]{0,300}return NextResponse\.json\(\{ projectId: p
 has(/intent: FLIER_INTENT/.test(openApi) && /update\(\{ site_id: project\.id \}\)/.test(openApi), "an older one is given a flier project, its images left where they are");
 has(/\.eq\('id', id\)\s*\.maybeSingle/.test(openApi) && /deleted_at\) return NextResponse\.json\(\{ error: 'This flier is in Recently deleted/.test(openApi), "only the caller's own flier, and not one in Recently deleted");
 has(/Open in workspace/.test(oldStudio), "the older studio page offers the way back too");
+/* The images in the chat, and a clean download. */
+const fileApi = readFileSync(join(root, "src/app/api/flyers/[id]/file/route.ts"), "utf8");
+const row = readFileSync(join(root, "src/app/dashboard/components/workspace/MessageRow.tsx"), "utf8");
+const wsSrc = readFileSync(join(root, "src/lib/flyers/workspace.ts"), "utf8");
+has(/links: ok \? liveOutputs\(done\?\.outputs\)\.map\(\(output, index\) => \(\{ label: `image:\$\{index \+ 1\}`/.test(wsSrc), "the ready message carries the images");
+has(/<ReplyImages images=\{images\} \/>/.test(row) && /!link\.label\.startsWith\("image:"\)/.test(row), "the chat shows them as pictures, not chips");
+has(/attachment; filename=/.test(fileApi) && /liveOutputs\(job\.outputs\)/.test(fileApi) && /createSupabaseServerClient/.test(fileApi), "Download is the image itself as an attachment — the owner's, and never a deleted one");
+has(/data-download=/.test(wsSrc) && /id="save" target="_blank"/.test(wsSrc), "the preview's Download uses the same clean file");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
