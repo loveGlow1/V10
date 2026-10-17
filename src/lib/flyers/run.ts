@@ -5,6 +5,7 @@ import { providerChain, refsFor } from './router';
 import { generateOpenAI } from './providers/openai';
 import { generateIdeogram } from './providers/ideogram';
 import { generateGemini } from './providers/gemini';
+import { generateMiniMaxImage } from './providers/minimax';
 import type { FlyerRequest, GenOutput, Provider } from './types';
 
 /* Created on first use rather than at import: createClient throws without a
@@ -54,6 +55,9 @@ async function runProvider(p: Provider, req: FlyerRequest, n: number): Promise<G
   switch (p) {
     case 'ideogram-v3':
       images = await generateIdeogram({ prompt, format, n, refs, negative: NEGATIVE });
+      break;
+    case 'minimax-image':
+      images = await generateMiniMaxImage({ prompt, format, n, large: req.stage === 'final' });
       break;
     case 'nano-banana-2':
       images = await generateGemini({ tier: 'flash', prompt, format, n, refs, size: '1K' });

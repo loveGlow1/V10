@@ -13,6 +13,15 @@ export const dynamic = 'force-dynamic';
 
 type Output = { provider: string; stage: string; path: string };
 
+/* What went wrong, in words the person can act on — never the provider log. */
+function failureFor(error: string | null): string {
+  const e = error ?? '';
+  if (/No image provider is connected/i.test(e)) return 'No image model is connected on this deployment yet, so nothing could be made. Nothing was charged.';
+  if (/out of credit|insufficient|1008|quota|billing|402/i.test(e)) return 'The image service is out of credit right now. Nothing was charged.';
+  if (/sensitive|safety|moderation|nsfw|policy/i.test(e)) return 'The image service declined this brief. Try wording it differently. Nothing was charged.';
+  return 'The images could not be made. Try again in a moment. Nothing was charged.';
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const supabase = await createSupabaseServerClient();
@@ -50,7 +59,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       stage: job.stage,
       parentId: job.parent_job_id,
       /* The provider's fallback note is for logs, not for the person. */
-      error: job.status === 'failed' ? 'The images could not be made. Try again in a moment.' : null,
+      error: job.status === 'failed' ? failureFor(job.error) : null,
       headline: request?.spec?.headline ?? '',
       format: request?.spec?.format ?? 'portrait',
       images: await sign(job.outputs as Output[]),

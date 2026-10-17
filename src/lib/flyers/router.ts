@@ -3,11 +3,14 @@ import type { FlyerRequest, Provider } from './types';
 const MIN_REFS_FOR_PRO = 2;
 
 const FALLBACK: Record<Provider, Provider[]> = {
-  'nano-banana-2': ['nano-banana-pro', 'gpt-image-2', 'ideogram-v3'],
-  'nano-banana-pro': ['gpt-image-2', 'ideogram-v3'],
-  'gpt-image-2': ['nano-banana-pro', 'ideogram-v3'],
-  'gpt-image-1.5': ['gpt-image-2', 'nano-banana-pro'],
-  'ideogram-v3': ['gpt-image-2', 'nano-banana-pro'],
+  'nano-banana-2': ['nano-banana-pro', 'gpt-image-2', 'ideogram-v3', 'minimax-image'],
+  'nano-banana-pro': ['gpt-image-2', 'ideogram-v3', 'minimax-image'],
+  'gpt-image-2': ['nano-banana-pro', 'ideogram-v3', 'minimax-image'],
+  'gpt-image-1.5': ['gpt-image-2', 'nano-banana-pro', 'minimax-image'],
+  'ideogram-v3': ['gpt-image-2', 'nano-banana-pro', 'minimax-image'],
+  /* MiniMax image-01 on the account's MiniMax key: behind the others, which
+     set text more reliably, and always there when it is the only key. */
+  'minimax-image': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro'],
 };
 
 export function pickPrimary(req: FlyerRequest): Provider {
@@ -27,13 +30,14 @@ const KEY: Record<Provider, string> = {
   'gpt-image-2': 'OPENAI_API_KEY',
   'gpt-image-1.5': 'OPENAI_API_KEY',
   'ideogram-v3': 'IDEOGRAM_API_KEY',
+  'minimax-image': 'MINIMAX_API_KEY',
 };
 export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) => Boolean(env[KEY[p]]);
 
 export function providerChain(req: FlyerRequest, env: Record<string, string | undefined> = process.env): Provider[] {
   const primary = pickPrimary(req);
   const all: Provider[] = [primary, ...FALLBACK[primary].filter((p) => p !== primary)];
-  for (const p of ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro'] as Provider[]) if (!all.includes(p)) all.push(p);
+  for (const p of ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'] as Provider[]) if (!all.includes(p)) all.push(p);
   return all.filter((p) => providerConfigured(p, env));
 }
 
@@ -62,6 +66,7 @@ export function isPublicHttpsUrl(value: unknown): value is string {
 export function refsFor(req: FlyerRequest, p: Provider): string[] {
   const shots = (req.brand.referenceImageUrls ?? []).filter(isPublicHttpsUrl);
   if (p === 'ideogram-v3') return shots.slice(0, 3);                 // style refs only, no logo
+  if (p === 'minimax-image') return [];                               // no image input
   const all = ([req.brand.logoUrl, ...shots].filter(Boolean) as string[]).filter(isPublicHttpsUrl);
   if (p === 'nano-banana-2' || p === 'nano-banana-pro') return all.slice(0, 14);
   return all.slice(0, 4);                                            // OpenAI edits

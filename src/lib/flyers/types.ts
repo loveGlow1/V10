@@ -3,7 +3,8 @@ export type Provider =
   | 'nano-banana-pro'
   | 'gpt-image-2'
   | 'gpt-image-1.5'
-  | 'ideogram-v3';
+  | 'ideogram-v3'
+  | 'minimax-image';
 
 export type FlyerFormat = 'portrait' | 'square' | 'landscape' | 'story';
 export type Stage = 'preview' | 'final';

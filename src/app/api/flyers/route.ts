@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { currentBalance } from '@/lib/credits-server';
 import { requestFromBrief } from '@/lib/flyers/brief';
+import { providerChain } from '@/lib/flyers/router';
 import { flyerJobCost, isOwnPreviewPath, runFlyerJob } from '@/lib/flyers/run';
 import { createSupabaseServiceClient } from '@/lib/supabase-service';
 import type { FlyerRequest } from '@/lib/flyers/types';
@@ -57,6 +58,18 @@ export async function POST(req: Request) {
   }
   if (body.selectedPreviewPath && !isOwnPreviewPath(body.selectedPreviewPath, user.id)) {
     return NextResponse.json({ error: 'That draft is not yours.' }, { status: 403 });
+  }
+
+  /* Said before anything starts or is charged: with no image model connected
+     every job would fail, and "try again" would be the wrong advice. */
+  if (providerChain({ ...body, stage }).length === 0) {
+    return NextResponse.json(
+      {
+        error: 'No image model is connected yet. Add MINIMAX_API_KEY, OPENAI_API_KEY, IDEOGRAM_API_KEY or GEMINI_API_KEY to the deployment to make fliers.',
+        code: 'no_image_model',
+      },
+      { status: 503 },
+    );
   }
 
   /* Enough credit for every image this job could make, before any is made. */
