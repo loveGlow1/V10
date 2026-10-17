@@ -193,6 +193,20 @@ export const REVERTS = [
      written the way it is. "Put the logo back on the left" is a move. */
   ["put the logo back on the left", true, "edit"],
   ["restore the original spacing on the hero", true, "revert"],
+
+  /* Naming a version. Each must be a revert, decided by the rules. */
+  ["go back to version 3", true, "revert"],
+  ["switch to version 2", true, "revert"],
+  ["take me back to the first version", true, "revert"],
+  ["restore the original version", true, "revert"],
+  ["revert to v4", true, "revert"],
+  ["go back 2 versions", true, "revert"],
+  ["restore the version from yesterday", true, "revert"],
+  ["go back to the second version please", true, "revert"],
+  ["bring back the latest version", true, "revert"],
+  ["take me back to the version where I added the pricing table", true, "revert"],
+  /* Not a version move: the word "version" in an ordinary edit. */
+  ["change the version number in the footer to 2.0", true, "edit"],
 ];
 
 /* Features for the project that is open. Every one of these used to be read
