@@ -85,7 +85,22 @@ for (const id of ["pwa", "native_mobile"]) has(T.SUBTYPES.mobile_app.find((e) =>
 console.log("\nthe tab follows the sentence");
 has(T.categoryFor("design a flyer for my church concert") === "fliers", "flyer → Fliers");
 has(T.categoryFor("make a reel for our launch") === "video", "reel → Video");
-has(T.categoryFor("build a mobile app for tracking runs") === "mobile_app", "mobile app → Mobile App");
+/* Mobile App is coming soon: its builder is not ready, so a mobile brief
+   does not move the tab there, and the route refuses it before anything that
+   costs. Flip these back when COMING_SOON no longer holds it. */
+has(T.isComingSoon("mobile_app") === true, "Mobile App is coming soon");
+has(T.categoryFor("build a mobile app for tracking runs") === null, "a mobile brief does not move the tab to a coming-soon one");
+has(/coming soon/.test(T.comingSoonMessage("mobile_app")) && /no credits/.test(T.comingSoonMessage("mobile_app")), "and the refusal says nothing was charged");
+{
+  const buildRoute = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+  const at = (needle) => buildRoute.indexOf(needle);
+  has(
+    at("isComingSoon(soonTarget.category)") > 0 && at("isComingSoon(soonTarget.category)") < at("classifyIntent({"),
+    "the build route refuses a coming-soon tab before the classifier, a model or a charge",
+  );
+  const home = readFileSync(join(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
+  has(/if \(soon\) return;/.test(home), "and Home's tab for it cannot be picked");
+}
 has(T.categoryFor("hello") === null, "nothing confident → stays put");
 
 console.log("\nwhat the build prompt carries");

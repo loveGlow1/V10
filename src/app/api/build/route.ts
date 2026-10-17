@@ -118,13 +118,14 @@ import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
 import { oauthConfigured } from "@/lib/builder/backend/supabase-oauth";
+import { CONNECT_SUPABASE_LABEL, connectSupabaseHref } from "@/lib/builder/backend/connect-link";
 import { MODE_BLURB, MODE_LABEL } from "@/lib/builder/backend/modes";
 import { commerceBrief } from "@/lib/builder/commerce";
 import { connectedServices, integrationBrief } from "@/lib/builder/integrations";
 import { describeProvision, provisionChecked } from "@/lib/builder/backend/provision";
 import { upgradeCapabilities } from "@/lib/builder/capability-upgrade";
 import {
-  CONNECT_DATABASE_LABEL,
+  connectButtonFor,
   connectDatabaseHref,
   isPageDataAsk,
   preparePageData,
@@ -225,7 +226,14 @@ import {
   KIND_LABEL,
   type KindResult,
 } from "@/lib/builder/kinds";
-import { CATEGORY_LABEL, parseTarget, resolveTarget, targetBrief } from "@/lib/builder/targets";
+import {
+  CATEGORY_LABEL,
+  comingSoonMessage,
+  isComingSoon,
+  parseTarget,
+  resolveTarget,
+  targetBrief,
+} from "@/lib/builder/targets";
 import { builderAvailability } from "@/lib/builder/availability";
 import { detectMarket, isMarket } from "@/lib/builder/market";
 import {
@@ -1140,6 +1148,19 @@ async function handle(
      versions" — is rules and stored rows, no model, so it is read before
      anything that needs one and works while building is paused. See
      lib/builder/versions.ts. */
+  /* A tab whose builder is not ready (Mobile App, for now) is refused here,
+     before the classifier, a model or a charge: building from it would bill
+     for something its pipeline does not make yet. See COMING_SOON. */
+  const soonTarget = parseTarget(body.target);
+  if (soonTarget && isComingSoon(soonTarget.category)) {
+    const said = comingSoonMessage(soonTarget.category);
+    const stored = await deliver(said, { key: "coming-soon" });
+    return NextResponse.json(
+      { error: said, code: "coming_soon", category: soonTarget.category, stored },
+      { status: 409 },
+    );
+  }
+
   const timeZone = safeTimeZone((body as { timeZone?: unknown }).timeZone);
   const versionAsk = currentHtml ? readVersionRequest(prompt) : null;
 
@@ -1166,7 +1187,12 @@ async function handle(
     /* A message that names a version to go to is a revert, whatever else it
        looks like — "use the original" is not an edit to the page. */
     override:
-      override ?? (versionAsk?.kind === "goto" ? "revert" : versionAsk?.kind === "list" ? "question" : null),
+      override ??
+      (versionAsk?.kind === "goto"
+        ? "revert"
+        : versionAsk?.kind === "list" || (currentHtml && asksToConnectBackend(prompt))
+          ? "question"
+          : null),
     /* Read before the words are. Somebody who attaches a file has said
        something the sentence often leaves out — "use this" and an empty box
        with a photograph in it are the same request — and routing that to a
@@ -1424,14 +1450,14 @@ async function handle(
           backend?.mode === "shared"
             ? "This project's data is on QuickStark's shared database, where other people's projects live too, so I don't run SQL there. Connect your own Supabase from the Database panel and I can run anything you need on it."
             : "There's no database connected to this project yet, so there's nowhere to run that. Connect your Supabase and send it again.",
-          { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+          { links: [connectButtonFor(project.id)] },
         );
       }
 
       if (!usable && command) {
         return answer(
           "There's no database of yours connected to this app yet. Connect your Supabase from the Database panel and I can analyse it, wire the app to it and change it safely.",
-          { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+          { links: [connectButtonFor(project.id)] },
         );
       }
 
@@ -1560,7 +1586,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         if (!runner) {
           return answer(
             "I couldn't reach your database just now. Reconnect Supabase from the Database panel — it takes a moment — and send this again.",
-            { links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }] },
+            { links: [connectButtonFor(project.id)] },
             "error",
           );
         }
@@ -1650,6 +1676,115 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         }
       }
     }
+  }
+
+  /* ── "connect database", "connect auth" ────────────────────────────────
+   *
+   * Answered, rather than sent to the file picker. Where a project's data
+   * lives is a setting on the project, not a line in its source, so there is
+   * no file for this to be an edit to — and the edit path, asked for one,
+   * landed on lib/supabase.ts or the layout, found nothing resembling the
+   * request, and said "I couldn't place that change". For a request that was
+   * never a change.
+   *
+   * After the database section (pasted SQL and schema requests go there) and
+   * before the revert, clarify, question and edit branches, and before anything
+   * is charged: "how do I connect a database?" is this request too, and answering
+   * it as a general question left out the one button it needed. This costs
+   * nothing because nothing is generated.
+   *
+   * It names the two real options rather than only pointing at a panel. The
+   * question a person is actually asking is "what are my choices and what do
+   * they cost", and the panel is where the choice is made, not what the choice
+   * IS. */
+  if (asksToConnectBackend(prompt) && !(pageDataAsk && intent === "edit") && !versionAsk && !planOnly) {
+    const current = service ? await resolveBackend(service, project.id) : null;
+    const connected =
+      current && current.mode !== "shared" && current.url
+        ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
+        : "";
+
+    /* Managed only where it is switched on — see managed.ts `offered`. */
+    const managedLine = managedOffered()
+      ? `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n`
+      : "";
+    /* ── One press to Supabase ──────────────────────────────────────────
+     *
+     * When Supabase sign-in is set up and nothing is connected yet, the reply
+     * is short and the button goes straight to Supabase's sign-in — not to a
+     * panel that has another button in it. Supabase brings the person back to
+     * the Database panel to pick or create a project. Everything below is the
+     * fuller answer, for when that one-press path is not available. */
+    const unconnected = !(current && current.mode !== "shared" && current.url);
+    if (unconnected && oauthConfigured()) {
+      const quick =
+        `Tap **${CONNECT_SUPABASE_LABEL}** below — sign in to Supabase, pick a project (or create a free one), and you're connected. ` +
+        `There's nothing to copy or paste: the keys, sign-in settings and this app's tables are set up for you, and your data and billing stay in your Supabase account.` +
+        (managedOffered()
+          ? `\n\nWould rather not use your own Supabase? **Other options** has ${MODE_LABEL.quickstark_managed.toLowerCase()}, set up for you.`
+          : "");
+      const quickLinks = [
+        { label: CONNECT_SUPABASE_LABEL, href: connectSupabaseHref(project.id) },
+        ...(managedOffered() ? [{ label: "Other options", href: connectDatabaseHref(project.id) }] : []),
+      ];
+      const stored = await deliver(quick, { key: "connect-backend", links: quickLinks });
+      return NextResponse.json({
+        stored,
+        steps: steps.list(),
+        intent: "question",
+        build: {
+          ok: true,
+          requestId: "",
+          projectId: project.id,
+          intent: "webapp",
+          status: "Built",
+          links: { preview: "", repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: quick,
+        },
+        project: null,
+        messageLinks: quickLinks,
+      });
+    }
+
+    const said =
+      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Database** in the workspace — the button below takes you there${
+        managedLine ? " — and pick one" : ""
+      }:\n\n` +
+      managedLine +
+      (oauthConfigured()
+        ? `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Press **Connect Supabase**, sign in, and pick a project — or have a free one created. There is nothing to copy or paste: the keys, the sign-in settings and this app's tables are all set up for you, and checked.\n\n`
+        : `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Create a free project at supabase.com, then paste its project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n`) +
+      `Connecting reads your database and changes nothing; this app's tables are created on the next build, beside anything you already have. ` +
+      `Your data, your sign-ups and your Supabase plan and billing all stay in your Supabase account.\n\n` +
+      `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
+
+    /* The panel named above, one press away rather than described. */
+    const connectLinks =
+      current && current.mode !== "shared" && current.url
+        ? undefined
+        : [connectButtonFor(project.id)];
+    const stored = await deliver(said, { key: "connect-backend", links: connectLinks });
+
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "question",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: said,
+      },
+      project: null,
+      messageLinks: connectLinks,
+    });
   }
 
   if (intent === "revert") {
@@ -2125,71 +2260,6 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
    * different artefacts with different rules: a component has no <html> to
    * balance, no stashed images, and neighbours that import it. See editSource.
    */
-  /* ── "connect database", "connect auth" ────────────────────────────────
-   *
-   * Answered, rather than sent to the file picker. Where a project's data
-   * lives is a setting on the project, not a line in its source, so there is
-   * no file for this to be an edit to — and the edit path, asked for one,
-   * landed on lib/supabase.ts or the layout, found nothing resembling the
-   * request, and said "I couldn't place that change". For a request that was
-   * never a change.
-   *
-   * Before the edit branch and before anything is charged: this costs nothing
-   * because nothing is generated.
-   *
-   * It names the two real options rather than only pointing at a panel. The
-   * question a person is actually asking is "what are my choices and what do
-   * they cost", and the panel is where the choice is made, not what the choice
-   * IS. */
-  if (asksToConnectBackend(prompt) && !(pageDataAsk && intent === "edit")) {
-    const current = service ? await resolveBackend(service, project.id) : null;
-    const connected =
-      current && current.mode !== "shared" && current.url
-        ? `This project is already connected — ${MODE_LABEL[current.mode]}, at ${current.url}. `
-        : "";
-
-    /* Managed only where it is switched on — see managed.ts `offered`. */
-    const managedLine = managedOffered()
-      ? `- **${MODE_LABEL.quickstark_managed}** — ${MODE_BLURB.quickstark_managed} It is set up for you, including sign-in and sign-up, and costs one credit.\n`
-      : "";
-    const said =
-      `${connected}Where your data lives is a setting on the project rather than something in its code, so open **Database** in the workspace — the button below takes you there${
-        managedLine ? " — and pick one" : ""
-      }:\n\n` +
-      managedLine +
-      (oauthConfigured()
-        ? `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Press **Connect Supabase**, sign in, and pick a project — or have a free one created. There is nothing to copy or paste: the keys, the sign-in settings and this app's tables are all set up for you, and checked.\n\n`
-        : `- **${MODE_LABEL.own}** — ${MODE_BLURB.own} Create a free project at supabase.com, then paste its project URL and anon key there, and the panel shows you the two auth settings to add in Supabase, which we cannot set on your behalf.\n\n`) +
-      `Connecting reads your database and changes nothing; this app's tables are created on the next build, beside anything you already have. ` +
-      `Your data, your sign-ups and your Supabase plan and billing all stay in your Supabase account.\n\n` +
-      `Once it is connected, ask me for the screens you want against it — a sign-in page, an account area, an admin — and those I can build.`;
-
-    /* The panel named above, one press away rather than described. */
-    const connectLinks =
-      current && current.mode !== "shared" && current.url
-        ? undefined
-        : [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }];
-    const stored = await deliver(said, { key: "connect-backend", links: connectLinks });
-
-    return NextResponse.json({
-      stored,
-      steps: steps.list(),
-      intent: "question",
-      build: {
-        ok: true,
-        requestId: "",
-        projectId: project.id,
-        intent: "webapp",
-        status: "Built",
-        links: { preview: "", repo: "", admin: "" },
-        configKeys: {},
-        artifacts: {},
-        message: said,
-      },
-      project: null,
-      messageLinks: connectLinks,
-    });
-  }
 
   if (intent === "edit" && service) {
     /* ── An edit becomes a task before it becomes a change ────────────────
@@ -2457,7 +2527,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         await deliver(upgrade.said, {
           key: "capability",
           links: upgrade.needsLink
-            ? [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }]
+            ? [connectButtonFor(project.id)]
             : undefined,
         });
       }
@@ -4935,7 +5005,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      and the button that does it is in the thread. */
   const needsDatabaseLinks =
     service && !backend && dataModel.tables.length > 0
-      ? [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(project.id) }]
+      ? [connectButtonFor(project.id)]
       : undefined;
   if (needsDatabaseLinks) {
     steps.mark(

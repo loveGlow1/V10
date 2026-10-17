@@ -2078,10 +2078,25 @@ export default function PreviewPanel({
         </div>
 
         <div className="relative flex min-w-0 shrink-0 items-center gap-1.5">
-          {/* No "open in a new tab". It opened the published site, or the
-              preview's own address, and either can be an older version than
-              this pane — the pane is the one place that always shows the
-              newest. The published address is in Publish. */}
+          {/* Open it in a tab of its own: the live site once it is published,
+              the private preview before that. */}
+          {publishedLive || previewUrl ? (
+            <a
+              href={publishedLive ?? `/preview/${project?.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={publishedLive ? `Open ${publishedLive}` : "Open the preview in a new tab"}
+              aria-label={publishedLive ? "Open the published app" : "Open the preview in a new tab"}
+              className={tile}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          ) : (
+            <button disabled title="Nothing to open yet" aria-label="Nothing to open yet" className={tile}>
+              <ExternalLink className="h-4 w-4" />
+            </button>
+          )}
+
           {/* A build writes to the same address, so the frame has to be told to
               look again. Disabled until there is something to look at, so it
               cannot promise a refresh of nothing. */}

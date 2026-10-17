@@ -28,7 +28,14 @@ import { describeProvision, provisionChecked } from "@/lib/builder/backend/provi
 import { spokenFor } from "@/lib/builder/edit-plan";
 import { installFormNotifications, isEmailConfigured } from "@/lib/builder/backend/form-notify";
 import type { DataModel } from "@/lib/builder/schema";
-import { CONNECT_DATABASE_LABEL, connectDatabaseHref, isConnectDatabaseHref } from "./connect-link";
+import {
+  CONNECT_DATABASE_LABEL,
+  CONNECT_SUPABASE_LABEL,
+  connectDatabaseHref,
+  connectSupabaseHref,
+  isConnectDatabaseHref,
+} from "./connect-link";
+import { oauthConfigured } from "./supabase-oauth";
 
 export const PAGE_TABLE = "submissions";
 
@@ -117,6 +124,17 @@ export function pageDataModel(schema: string): DataModel {
 
 export { CONNECT_DATABASE_LABEL, connectDatabaseHref, isConnectDatabaseHref };
 
+/**
+ * The button every "you need a database" reply carries: straight to
+ * Supabase's sign-in when that is set up — one press, nothing to find — and
+ * the Database panel when it is not.
+ */
+export function connectButtonFor(projectId: string): { label: string; href: string } {
+  return oauthConfigured()
+    ? { label: CONNECT_SUPABASE_LABEL, href: connectSupabaseHref(projectId) }
+    : { label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(projectId) };
+}
+
 /** What the page editor is told, once the table exists. */
 export function pageDataBrief(input: { url: string; anonKey: string; schema: string }): string {
   return [
@@ -169,7 +187,7 @@ export async function preparePageData(
       said:
         "Happy to — this page can save what people send straight into your own Supabase. " +
         "Connect your database first (it takes a few seconds), then send your message again and I'll wire it up.",
-      links: [{ label: CONNECT_DATABASE_LABEL, href: connectDatabaseHref(input.projectId) }],
+      links: [connectButtonFor(input.projectId)],
     };
   }
 
