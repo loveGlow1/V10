@@ -198,6 +198,23 @@ export const MODELS: Model[] = [
     contextWindow: 1_000_000,
   },
   {
+    id: "claude-opus-5-5",
+    /* $4/$20 per Mtok against Sonnet's $2/$10: twice the default, and cheaper
+       than Opus 5 for the same Opus tier. Thinking is always on — it cannot be
+       disabled, which model-request never asks for — and effort is sent
+       explicitly, so its lower default (medium) does not apply. */
+    creditMultiplier: 2,
+    reasoning: "adaptive",
+    minPlan: "standard",
+    name: "Claude Opus 5.5",
+    blurb: "The newest Opus: peak intelligence, lower cost",
+    provider: "claude",
+    badge: "New",
+    apiId: "claude-opus-5-5",
+    maxOutput: 64000,
+    contextWindow: 1_000_000,
+  },
+  {
     id: "claude-opus-5",
     /* $5/$25 per Mtok against Sonnet's $2/$10. */
     creditMultiplier: 2.5,
