@@ -396,6 +396,29 @@ export const PREVIEW_RUNTIME = `
    * do. Either way the screen renders. */
   var PROCESS = { env: Object.assign({ NODE_ENV: 'development', MODE: 'development', DEV: true, PROD: false, BASE_URL: '/' }, window.__QS_ENV || {}) };
 
+  /* Whether the host gave this preview a real database. Decided before the
+     placeholders below are filled in, so they can never be mistaken for one.
+   *
+     With none, the generated lib/supabase.ts still refused on first use -
+     "This app needs NEXT_PUBLIC_SUPABASE_URL..." - and a person looking at
+     their app saw an error screen meant for whoever deploys it. So the
+     variables are filled with placeholders the client accepts, and the
+     client it builds is the stub: every query resolves empty and the page
+     renders its own empty state, which is the truthful picture of an app
+     whose tables are not there yet. */
+  var LIVE_DB = Boolean(PROCESS.env.NEXT_PUBLIC_SUPABASE_URL && PROCESS.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  if (!LIVE_DB) {
+    var PLACEHOLDER_ENV = {
+      NEXT_PUBLIC_SUPABASE_URL: 'https://preview.supabase.invalid',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'preview-anon-key',
+      VITE_SUPABASE_URL: 'https://preview.supabase.invalid',
+      VITE_SUPABASE_ANON_KEY: 'preview-anon-key'
+    };
+    for (var placeholder in PLACEHOLDER_ENV) {
+      if (!PROCESS.env[placeholder]) PROCESS.env[placeholder] = PLACEHOLDER_ENV[placeholder];
+    }
+  }
+
   /* A picture the project refers to by path - "/logo.png" from public/, "./hero.jpg"
      beside a page - as the address it was stored at. Null for anything that is
      not one of them, which is then left exactly as written. */
@@ -897,7 +920,7 @@ ${EDIT_MODE}
   function liveSupabase() {
     var lib = window.supabase;
     if (!lib || typeof lib.createClient !== 'function') return null;
-    if (!PROCESS.env.NEXT_PUBLIC_SUPABASE_URL || !PROCESS.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+    if (!LIVE_DB) return null;
     /* Seeded from the workspace tab, which keeps the session across reloads
        of this frame — see auth-seed.ts — and told of every change to it. */
     var memory = {};
@@ -1081,10 +1104,28 @@ ${EDIT_MODE}
     return value;
   }
 
+  /* 'ready' means a screen has actually drawn, not that drawing has begun.
+     createRoot().render() returns before anything renders, so reporting from
+     there told the workspace a version was good before its first screen had
+     had the chance to fail - and the workspace, which keeps the previous
+     version until the next one is ready, swapped in a broken one. */
+  var readySent = false;
+  function screenDrawn() {
+    if (readySent) return;
+    readySent = true;
+    report('ready', { routes: routePatterns(), tokens: designTokens() });
+  }
+
   function Resolved(props) {
     var state = React.useState({ node: null, pending: true, error: null });
     var set = state[1];
     var key = props.routeKey;
+
+    /* After the commit, so a child that threw has already been caught by the
+       Boundary and this never runs for it. */
+    React.useEffect(function () {
+      if (!state[0].pending && !state[0].error) screenDrawn();
+    }, [state[0]]);
 
     React.useEffect(function () {
       var live = true;
@@ -1142,6 +1183,10 @@ ${EDIT_MODE}
     React.useEffect(function () {
       current = { pathname: current.pathname, search: current.search, params: match ? match.params : {} };
     }, [pathname]);
+
+    React.useEffect(function () {
+      if (!match) screenDrawn();
+    }, [match]);
 
     if (!match) {
       return h('div', { className: 'qs-failure' }, [
@@ -1289,7 +1334,8 @@ ${EDIT_MODE}
     }
     try {
       ReactDOM.createRoot(root).render(h(App, null));
-      /* The routes travel out with the boot report.
+      /* The routes travel out with the ready report, sent by screenDrawn()
+         once the first screen has actually rendered.
        *
        * A project has screens a visitor cannot reach by clicking — an admin
        * area, an account page, a dynamic route — and the customer has to be
@@ -1299,7 +1345,6 @@ ${EDIT_MODE}
        * So the list goes to the pane instead, and the pane puts the control
        * in its own toolbar where it belongs: ours in our furniture, theirs
        * left alone. Patterns only — nothing about the files. */
-      report('ready', { routes: routePatterns(), tokens: designTokens() });
     } catch (error) {
       report('error', String((error && error.message) || error));
       root.innerHTML = '';
