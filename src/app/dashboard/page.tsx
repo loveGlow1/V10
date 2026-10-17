@@ -683,7 +683,7 @@ export default function DashboardPage() {
                         anyway is better than naming nothing or naming the
                         wrong thing. */}
                     <span className="font-medium tracking-tight">
-                      {chosenAgent ? `${chosenAgent.title} · ${chosenAgent.subtitle}` : shortModelName(chosenModel)}
+                      {chosenAgent?.title ?? shortModelName(chosenModel)}
                     </span>
                     <ChevronDown
                       className={`h-3.5 w-3.5 text-ink transition-transform ${
