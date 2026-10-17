@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpRight, MousePointerClick, RotateCw, X } from "lucide-react";
+import { MousePointerClick, RotateCw, X } from "lucide-react";
 
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { isProjectSummary } from "@/lib/builder/project-summary";
@@ -188,8 +188,9 @@ export default function PreviewSheet({
                   <MousePointerClick className="h-4 w-4" />
                 </button>
               ) : null}
-              {/* Before the two that leave: managing the app is the one thing
-                  here you stay for. */}
+              {/* No "open in a new tab": that opened the preview's address on
+                  its own, which can show an older version than this pane —
+                  the pane is the one place that always shows the newest. */}
               {onManage && (
                 <button
                   onClick={onManage}
@@ -198,17 +199,6 @@ export default function PreviewSheet({
                 >
                   <ManageMark className="h-4 w-4" />
                 </button>
-              )}
-              {url && (
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Open preview in a new tab"
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-layer/[0.08] text-ink transition-colors hover:bg-layer/[0.12]"
-                >
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
               )}
               <button
                 onClick={onClose}
