@@ -175,6 +175,19 @@ has(/links: ok \? liveOutputs\(done\?\.outputs\)\.map\(\(output, index\) => \(\{
 has(/<ReplyImages images=\{images\} \/>/.test(row) && /!link\.label\.startsWith\("image:"\)/.test(row), "the chat shows them as pictures, not chips");
 has(/attachment; filename=/.test(fileApi) && /liveOutputs\(job\.outputs\)/.test(fileApi) && /createSupabaseServerClient/.test(fileApi), "Download is the image itself as an attachment — the owner's, and never a deleted one");
 has(/data-download=/.test(wsSrc) && /id="save" target="_blank"/.test(wsSrc), "the preview's Download uses the same clean file");
+/* Nano Banana on fal. */
+const falProv = readFileSync(join(root, "src/lib/flyers/providers/fal.ts"), "utf8");
+const routerSrc = readFileSync(join(root, "src/lib/flyers/router.ts"), "utf8");
+has(/fal-ai\/nano-banana-pro/.test(falProv) && /'fal-nano-banana': 'FAL_KEY'/.test(routerSrc), "Nano Banana Pro runs on fal with FAL_KEY");
+has(/preview: \['n8n-minimax', 'n8n-openai', 'fal-nano-banana'\]/.test(routerSrc), "after the free credit, and first with FLIER_ENGINE=nano-banana");
+has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k" }).join() === "fal-nano-banana", "with only a fal key, fliers are made by Nano Banana");
+has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k", FLIER_ENGINE: "nano-banana", N8N_WEBHOOK_TOKEN: "t", N8N_WEBHOOK_URL: "https://n8n.example/webhook/x" })[0] === "fal-nano-banana", "FLIER_ENGINE=nano-banana puts it first");
+/* Covers on Continue working. */
+const cover = readFileSync(join(root, "src/app/api/projects/[id]/cover/route.ts"), "utf8");
+const pthumb = readFileSync(join(root, "src/app/dashboard/components/PageThumbnail.tsx"), "utf8");
+has(/MEDIA_INTENTS\.has\(props\.intent\) \? <MediaCover/.test(pthumb) && /intent=\{project\.intent\}/.test(homeList), "a flier or video tile under Continue working shows its own picture");
+has(/project\.intent === "flier"[\s\S]{0,500}liveOutputs\(job\.outputs\)/.test(cover) && /project\.intent === "video"[\s\S]{0,900}\.eq\("status", "done"\)/.test(cover), "the newest flier image; a video's first landed clip, else its still");
+has(/createSupabaseServerClient/.test(cover) && !/createSupabaseServiceClient/.test(cover), "read under the owner's session only");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);

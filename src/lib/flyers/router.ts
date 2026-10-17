@@ -11,8 +11,10 @@ const FALLBACK: Record<Provider, Provider[]> = {
   /* MiniMax image-01 on the account's MiniMax key: behind the others, which
      set text more reliably, and always there when it is the only key. */
   'minimax-image': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro'],
-  'n8n-minimax': ['n8n-openai', 'gpt-image-2', 'ideogram-v3', 'nano-banana-2', 'minimax-image'],
-  'n8n-openai': ['n8n-minimax', 'gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
+  'n8n-minimax': ['n8n-openai', 'fal-nano-banana', 'gpt-image-2', 'ideogram-v3', 'nano-banana-2', 'minimax-image'],
+  'n8n-openai': ['n8n-minimax', 'fal-nano-banana', 'gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
+  /* Nano Banana Pro on fal: the first paid model, behind the free credit. */
+  'fal-nano-banana': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
 };
 
 export function pickPrimary(req: FlyerRequest): Provider {
@@ -35,6 +37,7 @@ const KEY: Record<Provider, string> = {
   'minimax-image': 'MINIMAX_API_KEY',
   'n8n-minimax': 'N8N_WEBHOOK_TOKEN',
   'n8n-openai': 'N8N_WEBHOOK_TOKEN',
+  'fal-nano-banana': 'FAL_KEY',
 };
 const n8nUrl = (env: Record<string, string | undefined>) => Boolean(env.N8N_FLIER_WEBHOOK_URL || env.N8N_WEBHOOK_URL);
 export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) =>
@@ -44,14 +47,20 @@ export const providerConfigured = (p: Provider, env: Record<string, string | und
    draft goes to MiniMax there (four in one call) and a final to OpenAI there
    (the best lettering), before any model on a key of our own. */
 const CREDIT_FIRST: Record<'preview' | 'final', Provider[]> = {
-  preview: ['n8n-minimax', 'n8n-openai'],
-  final: ['n8n-openai', 'n8n-minimax'],
+  preview: ['n8n-minimax', 'n8n-openai', 'fal-nano-banana'],
+  final: ['n8n-openai', 'n8n-minimax', 'fal-nano-banana'],
 };
+
+/* FLIER_ENGINE=nano-banana puts Nano Banana Pro on fal ahead of the free
+   credit — the sharpest lettering, paid for on FAL_KEY. */
+const preferred = (env: Record<string, string | undefined>): Provider[] => (env.FLIER_ENGINE === 'nano-banana' ? ['fal-nano-banana'] : []);
 
 export function providerChain(req: FlyerRequest, env: Record<string, string | undefined> = process.env): Provider[] {
   const primary = pickPrimary(req);
   const credit = req.provider && req.provider !== 'auto' ? [] : CREDIT_FIRST[req.stage === 'final' ? 'final' : 'preview'];
-  const all: Provider[] = [...credit, primary, ...FALLBACK[primary].filter((p) => p !== primary && !credit.includes(p))];
+  const head = req.provider && req.provider !== 'auto' ? [] : preferred(env);
+  const all: Provider[] = [...head, ...credit.filter((p) => !head.includes(p)), primary, ...FALLBACK[primary].filter((p) => p !== primary && !credit.includes(p) && !head.includes(p))];
+  if (all.indexOf(primary) !== all.lastIndexOf(primary)) all.splice(all.lastIndexOf(primary), 1);
   for (const p of ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'] as Provider[]) if (!all.includes(p)) all.push(p);
   return all.filter((p) => providerConfigured(p, env));
 }

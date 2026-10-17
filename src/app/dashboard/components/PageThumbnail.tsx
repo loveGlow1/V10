@@ -83,7 +83,93 @@ function remember(projectId: string, stamp: string | null | undefined, html: str
   }
 }
 
-export default function PageThumbnail({
+/* A flier or a video has no page to draw small; its tile is its own media. */
+const MEDIA_INTENTS = new Set(["flier", "video"]);
+
+type Props = {
+  projectId: string;
+  hasPage: boolean;
+  name: string;
+  stamp?: string | null;
+  className?: string;
+  /** What the project is — `projects.intent`. A flier or a video gets a cover. */
+  intent?: string | null;
+};
+
+export default function PageThumbnail(props: Props) {
+  return props.intent && MEDIA_INTENTS.has(props.intent) ? <MediaCover {...props} /> : <PageFrame {...props} />;
+}
+
+/* A flier's newest image, or a video's first landed clip (else its creator
+   still), as the tile — read from /api/projects/[id]/cover once the tile is
+   near the screen. Until then, and when there is nothing yet, the tile keeps
+   its colour and initial, exactly as a page tile does. */
+function MediaCover({ projectId, name, stamp, className = "h-[70px] w-[110px] rounded-lg" }: Props) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const [near, setNear] = useState(false);
+  const [cover, setCover] = useState<{ kind: "image" | "video"; url: string } | null>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const element = boxRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setNear(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!near) return;
+    let live = true;
+    fetch(`/api/projects/${projectId}/cover`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { kind?: "image" | "video" | null; url?: string | null } | null) => {
+        if (live && body?.kind && body.url) setCover({ kind: body.kind, url: body.url });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [near, projectId, stamp]);
+
+  return (
+    <span
+      ref={boxRef}
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden bg-gradient-to-br text-lg font-semibold text-ink/90 ${avatarFor(projectId)} ${className}`}
+    >
+      {name.charAt(0).toUpperCase()}
+      {cover?.kind === "image" && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={cover.url}
+          alt=""
+          aria-hidden
+          onLoad={() => setShown(true)}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${shown ? "opacity-100" : "opacity-0"}`}
+        />
+      )}
+      {cover?.kind === "video" && (
+        <video
+          src={`${cover.url}#t=0.5`}
+          muted
+          playsInline
+          preload="metadata"
+          aria-hidden
+          tabIndex={-1}
+          onLoadedData={() => setShown(true)}
+          className={`pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${shown ? "opacity-100" : "opacity-0"}`}
+        />
+      )}
+    </span>
+  );
+}
+
+function PageFrame({
   projectId,
   hasPage,
   name,

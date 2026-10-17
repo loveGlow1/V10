@@ -245,5 +245,8 @@ has(/planVideo\(writer, userId, video\.id, first \? \{\} : \{ note: prompt \}\)/
 has(/owner\?\.intent === VIDEO_INTENT/.test(vpreview) && /videoBoardHtml\(/.test(vpreview), "the preview iframe shows the video board");
 has(/verifyBoardToken\(id/.test(vboard) && /Access-Control-Allow-Origin/.test(vboard) && /\{ video: video \? \{ id: video\.id, status: video\.status, title: video\.title \} : null, latest, renders, final \}/.test(vboard), "the board reads its video's state with a token for that video only");
 has(/setTimeout\(load,busy\?6000:30000\)/.test(vws), "the board updates itself as clips land");
+has(/rendered\.status === 402[\s\S]{0,300}you have \$\{await balanceOf/.test(vws) && /say "render it"/.test(vws), "short of credits, the chat says how many it needs and how many you have");
+has(/const renderOnly = !first && RENDER_ONLY\.test/.test(vws), "\"render it\" renders the current plan without planning it again");
+has(/grid-template-columns:minmax\(0,1fr\)/.test(vws) && /overflow-x:hidden/.test(vws), "the video board fits a phone: nothing wider than the screen");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
