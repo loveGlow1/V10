@@ -10,6 +10,7 @@ import { fillImages, searchContext } from "@/lib/builder/images";
 import { ensureImageSources, fillTreeImages, upgradePlaceholders } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import { ART_COST, flierArtProvider, isFlier } from "@/lib/flyers/art";
 import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
@@ -799,9 +800,21 @@ export async function POST(request: Request) {
    * pipeline. Best effort: a read that fails costs variety, not the build. */
   const usedBefore = await previouslyUsedPhotos(supabase, project.id as string);
 
+  /* A flier's art is made for it — Ideogram, gpt-image-2 or Gemini, with
+     Unsplash behind them — rather than searched for, and given the time a
+     generated picture takes. Its words stay HTML. See lib/flyers/art.ts. */
+  const flierArt = !synthesised && tree.length === 0 && isFlier(html) ? flierArtProvider(providerFromEnv()) : null;
   const pictures = synthesised
     ? { html, credits: [], filled: 0, skipped: 0, bytes: 0, used: [] as string[] }
-    : await fillImages(html, providerFromEnv(), {
+    : flierArt
+      ? await fillImages(html, flierArt, {
+          context: searchContext(str(body.prompt)),
+          seed: project.id as string,
+          exclude: usedBefore,
+          timeoutMs: 110_000,
+          deadline: Date.now() + 120_000,
+        })
+      : await fillImages(html, providerFromEnv(), {
         context: searchContext(str(body.prompt)),
         /* Stable for this project and different between projects — see
            `rotation`. Two bakeries asking for the same photograph used to be
@@ -812,6 +825,20 @@ export async function POST(request: Request) {
         deadline: photosBy,
       });
   html = pictures.html;
+
+  /* The art that was generated, priced per picture and charged once per
+     build; a library photograph costs nothing extra. */
+  const artMade = flierArt?.made() ?? 0;
+  if (artMade > 0) {
+    await chargeCredits(supabase, {
+      userId: claim.userId,
+      action: "generate",
+      cost: artMade * ART_COST,
+      description: `Flier art: ${artMade} ${artMade === 1 ? "picture" : "pictures"} for ${str(body.prompt).slice(0, 40) || "a flier"}`,
+      projectId: project.id,
+      dedupeKey: `flier-art:${claim.requestId || project.id}`,
+    });
+  }
 
   /* Who took them, in the page that publishes them.
    *

@@ -1,6 +1,14 @@
 /* Step 5: generation. Each scene's clip and each voice line becomes a job,
- * sent to the n8n workflow "QuickStark.Ai — Video Render" one per execution
- * (lib/video/render.ts says why), and filed as a row in video_renders.
+ * filed as a row in video_renders:
+ *
+ *   clips    each sent to the best connected engine for that scene — Seedance
+ *            2.0, Kling, MiniMax Hailuo 2.3, Seedance 1.5 — falling through
+ *            the chain when one refuses (lib/video/clip-engines.ts); n8n when
+ *            it is the only route. On-camera UGC scenes start from one
+ *            generated creator keyframe, so it is the same person in every
+ *            shot (lib/video/frames.ts).
+ *   voices   MiniMax's own speech API with MINIMAX_API_KEY, after the
+ *            response; otherwise the n8n workflow.
  *
  *   {}                    render the current version
  *   { retryFailed: true } send only the jobs of the current render that failed
@@ -9,19 +17,24 @@
  * can cover the render. Credits are charged per job as each one arrives —
  * never for one that failed. */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
+import { ensureKeyframe, wantsKeyframe } from "@/lib/video/frames";
+import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
+import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import type { ProductionPlan } from "@/lib/video/plan";
-import { dispatchJobs, engineOf, jobCost, jobsFor, type RenderJob } from "@/lib/video/render";
+import { dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob, voiceIdFor } from "@/lib/video/render";
 
 import { videoSession } from "../../shared";
 
-/* Dispatching a job per scene and voice line, in parallel. */
-export const maxDuration = 60;
+/* Dispatching a job per scene and voice line, in parallel — and, for a UGC
+   video, making its creator keyframe first. */
+export const maxDuration = 300;
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -93,7 +106,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version);
   }
 
-  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan);
+  const quality = answers.quality ?? null;
+  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -108,21 +122,101 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version).eq("scene", key.scene).eq("engine", key.engine);
   }
   const { error: insertError } = await supabase.from("video_renders").insert(
-    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: "n8n:minimax", status: "running" })),
+    keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect() ? "minimax:speech" : "n8n:minimax", status: "running" })),
   );
   if (insertError) return NextResponse.json({ error: "Could not start the render." }, { status: 500 });
 
-  const callbackUrl = `${new URL(request.url).origin}/api/video/${id}/render/callback`;
-  const sent = await dispatchJobs({ videoId: id, version, userId, aspect: plan.aspect, callbackUrl, jobs });
-
-  for (const result of sent.filter((entry) => !entry.ok)) {
-    await supabase
+  const origin = new URL(request.url).origin;
+  const callbackUrl = `${origin}/api/video/${id}/render/callback`;
+  const tier = tierFrom(process.env, quality);
+  const fail = (job: RenderJob, error: string) =>
+    supabase
       .from("video_renders")
-      .update({ status: "failed", error: result.error ?? "Not sent." })
+      .update({ status: "failed", error })
       .eq("video_id", id)
       .eq("version", version)
-      .eq("scene", result.job.n)
-      .eq("engine", engineOf(result.job.kind));
+      .eq("scene", job.n)
+      .eq("engine", engineOf(job.kind));
+
+  /* The creator keyframe, once per version, before any on-camera clip. */
+  const writer = createSupabaseServiceClient();
+  const keyframe =
+    writer && wantsKeyframe(plan, (refs ?? []).some((asset) => asset.kind === "person"))
+      ? await ensureKeyframe(writer, { userId, videoId: id, version, plan })
+      : null;
+
+  const sent: { job: RenderJob; ok: boolean; error?: string }[] = [];
+  const viaN8n: RenderJob[] = [];
+  const voices: Extract<RenderJob, { kind: "voice" }>[] = [];
+
+  await Promise.all(
+    jobs.map(async (job) => {
+      if (job.kind === "voice") {
+        if (voiceDirect()) voices.push(job);
+        else viaN8n.push(job);
+        return;
+      }
+      const scene = plan.scenes.find((entry) => entry.n === job.n);
+      const frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
+      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier });
+      const direct = chain.filter((engine): engine is Exclude<ClipEngine, "n8n"> => engine !== "n8n");
+      let reason = "No connected video engine can make this scene at this aspect ratio.";
+      for (const engine of direct) {
+        const result = await submitClip(
+          engine,
+          { prompt: scene?.motionPrompt || job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
+          clipWebhookUrl(origin, id, version, job.n, engine),
+        );
+        if (result.ok) {
+          await supabase
+            .from("video_renders")
+            .update({ provider: providerOf(engine, result.id) })
+            .eq("video_id", id)
+            .eq("version", version)
+            .eq("scene", job.n)
+            .eq("engine", "video");
+          sent.push({ job, ok: true });
+          return;
+        }
+        reason = result.error;
+      }
+      if (chain.includes("n8n")) viaN8n.push(frame ? { ...job, imageUrl: frame } : job);
+      else {
+        await fail(job, reason);
+        sent.push({ job, ok: false, error: reason });
+      }
+    }),
+  );
+
+  if (viaN8n.length) {
+    const dispatched = await dispatchJobs({ videoId: id, version, userId, aspect: plan.aspect, callbackUrl, jobs: viaN8n });
+    for (const result of dispatched) {
+      if (!result.ok) await fail(result.job, result.error ?? "Not sent.");
+      sent.push(result);
+    }
+  }
+
+  /* Voice lines straight from MiniMax, after the answer: each takes a few
+     seconds, and the studio watches the rows fill in. */
+  if (voices.length && writer) {
+    const voiceId = voiceIdFor(answers);
+    after(async () => {
+      await Promise.all(
+        voices.map(async (job) => {
+          const spoken = await speak({ text: job.text, voiceId, language: languageFor(answers) });
+          await landResult(writer, {
+            videoId: id,
+            version,
+            kind: "voice",
+            n: job.n,
+            bytes: spoken.ok ? spoken.audio : null,
+            error: spoken.ok ? null : spoken.error,
+            origin,
+          });
+        }),
+      );
+    });
+    for (const job of voices) sent.push({ job, ok: true });
   }
 
   const accepted = sent.filter((entry) => entry.ok).length;

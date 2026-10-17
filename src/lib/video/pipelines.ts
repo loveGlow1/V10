@@ -299,6 +299,14 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
   },
 };
 
+/* Asked of every video: which engines make its clips. "Best" ranks by output
+   quality (Seedance 2.0 first); "Economy" puts the free MiniMax credit first
+   wherever it can make the scene properly. See clip-engines.ts tierFrom. */
+export const QUALITY: Question = { id: "quality", label: "Quality", options: ["Best", "Economy"], initial: "Best" };
+for (const pipeline of Object.values(PIPELINES)) {
+  if (!pipeline.questions.some((question) => question.id === QUALITY.id)) pipeline.questions.push(QUALITY);
+}
+
 /** The grid order on the studio's first screen: nine cards, then Photo → Video. */
 export const GRID: PipelineId[] = PIPELINE_IDS.filter((id) => id !== "photo_to_video");
 
