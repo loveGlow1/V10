@@ -254,5 +254,18 @@ const cb = readFileSync(join(root, "src/app/api/video/[id]/render/callback/route
 has(/STALE_AFTER_MS = 30 \* 60 \* 1000/.test(renderLib), "a queued n8n clip has 30 minutes before it is called lost");
 has(/name === "TimeoutError"\) return \{ job, ok: true \}/.test(renderLib), "a slow answer from n8n is its queue, not a refusal");
 has(/const late = row\?\.status === "failed" && url !== null;/.test(cb) && /row\.provider !== "n8n:minimax"/.test(cb), "a finished clip that arrives late is still taken — while it is still n8n's");
+/* The final cut, made here when there is no fal key. */
+const local = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+const prod = readFileSync(join(root, "src/lib/video/production.ts"), "utf8");
+const composeRoute = readFileSync(join(root, "src/app/api/video/[id]/render/compose/route.ts"), "utf8");
+const stateSrc = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
+const nextConfig = readFileSync(join(root, "next.config.mjs"), "utf8");
+has(/if \(!falConfigured\(\)\) \{\s*await advanceLocal\(/.test(prod), "with no FAL_KEY, a finished render is cut on this server");
+has(/provider: "local", status: "running"/.test(prod) && /render\/compose\?v=\$\{version\}&t=\$\{falToken\(videoId, version, "compose-local"\)\}/.test(prod), "the cut is claimed once and run in its own route");
+has(/verifyFalToken\(id, version, "compose-local"/.test(composeRoute) && /maxDuration = 300/.test(composeRoute), "the compose route takes only its own token, with a full time budget");
+has(/tpad=stop_mode=clone/.test(local) && /drawtext=fontfile=/.test(local) && /amix=inputs=2/.test(local) && /"concat"/.test(local), "each scene fitted, held, titled and voiced, then all joined in order");
+has(/storage\.from\("video-assets"\)\.upload\(path/.test(local) && /status: "done", output_path: `storage:\$\{path\}`/.test(local), "the MP4 is stored and becomes the version's final cut");
+has(/await advance\(service, id, video\.current_version/.test(stateSrc), "a finished render that missed its cut gets one when it is next looked at");
+has(/serverExternalPackages: \["ffmpeg-static"\]/.test(nextConfig) && /node_modules\/ffmpeg-static\/ffmpeg/.test(nextConfig), "the ffmpeg binary is shipped with the compose route");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

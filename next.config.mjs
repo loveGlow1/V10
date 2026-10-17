@@ -17,6 +17,13 @@ if (missingSupabasePublicEnvVars.length > 0) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /* ffmpeg for the final cut of a video (src/lib/video/compose-local.ts).
+     ffmpeg-static is a path to a binary, not code webpack can bundle, so it
+     stays external and the binary is traced into the one route that runs it. */
+  serverExternalPackages: ["ffmpeg-static"],
+  outputFileTracingIncludes: {
+    "/api/video/[id]/render/compose": ["./node_modules/ffmpeg-static/ffmpeg"],
+  },
   /* The code editor runs a real terminal — Node.js in the tab, through the
      WebContainer API — which needs the page to be cross-origin isolated. Only
      that page: isolation would stop the rest of the app framing previews and
