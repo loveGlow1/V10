@@ -34,6 +34,9 @@ export type Version = {
   restoredFrom: number | null;
   /** What the change was, in a few words. */
   label: string;
+  /** A fingerprint of its page and files: equal digests look identical. Null
+      when it could not be read, and then nothing is treated as identical. */
+  digest: string | null;
 };
 
 const RESTORED = /^Restored version (\d+)\b/i;
@@ -53,7 +56,10 @@ function labelOf(prompt: string, restoredFrom: number | null): string {
 }
 
 /** Numbers rows (oldest first) and reads which version each restore copied. */
-export function versionsFromRows(rows: { id: string; prompt: string | null; created_at: string }[]): Version[] {
+export function versionsFromRows(
+  rows: { id: string; prompt: string | null; created_at: string }[],
+  digests: ReadonlyMap<string, string> | null = null,
+): Version[] {
   const out: Version[] = [];
   rows.forEach((row, index) => {
     const number = index + 1;
@@ -63,10 +69,32 @@ export function versionsFromRows(rows: { id: string; prompt: string | null; crea
     if (named) {
       const n = Number(named[1]);
       if (n >= 1 && n < number) restoredFrom = n;
-    } else if (LEGACY_REVERT.test(prompt) && number >= 3) {
-      restoredFrom = number - 2;
+    } else if (LEGACY_REVERT.test(prompt)) {
+      /* The old undo did not record what it copied. With fingerprints, it is
+         the newest earlier version that looks the same — and none means it
+         copied nothing recognisable, so it stands as its own version. Without
+         them, the old rule: it restored the row two before it. */
+      const digest = digests?.get(row.id);
+      if (digests && digest) {
+        for (let earlier = out.length; earlier >= 1; earlier -= 1) {
+          if (out[earlier - 1].digest === digest) {
+            restoredFrom = earlier;
+            break;
+          }
+        }
+      } else if (number >= 3) {
+        restoredFrom = number - 2;
+      }
     }
-    out.push({ number, id: row.id, prompt, createdAt: row.created_at, restoredFrom, label: labelOf(prompt, restoredFrom) });
+    out.push({
+      number,
+      id: row.id,
+      prompt,
+      createdAt: row.created_at,
+      restoredFrom,
+      label: labelOf(prompt, restoredFrom),
+      digest: digests?.get(row.id) ?? null,
+    });
   });
   return out;
 }
@@ -81,7 +109,50 @@ export async function listVersions(service: SupabaseClient, projectId: string): 
     .eq("project_id", projectId)
     .order("created_at", { ascending: true })
     .limit(MAX_VERSIONS);
-  return versionsFromRows((data ?? []) as { id: string; prompt: string | null; created_at: string }[]);
+  /* Fingerprints, so undo can step over versions identical to what is
+     showing. Without the function (a database the schema has not reached)
+     every version counts as different, which is how undo behaved before. */
+  const { data: digests, error } = await service.rpc("project_version_digests", { p_project_id: projectId });
+  const byId = error
+    ? null
+    : new Map(((digests ?? []) as { build_id: string; digest: string }[]).map((row) => [row.build_id, row.digest]));
+  return versionsFromRows((data ?? []) as { id: string; prompt: string | null; created_at: string }[], byId);
+}
+
+/**
+ * Builds that showed these words somewhere the current version does not — the
+ * file that lost them, not a page that always had them. Null when the search
+ * is unavailable, so the caller falls back to matching past requests.
+ */
+export async function versionsShowing(
+  service: SupabaseClient,
+  projectId: string,
+  terms: string[],
+  currentBuildId: string,
+): Promise<Set<string> | null> {
+  if (terms.length === 0) return null;
+  const { data, error } = await service.rpc("project_versions_showing", {
+    p_project_id: projectId,
+    p_terms: terms,
+    p_current: currentBuildId,
+  });
+  if (error) return null;
+  return new Set(((data ?? []) as { build_id: string }[]).map((row) => row.build_id));
+}
+
+/* Words that describe a page rather than what is on it. */
+const NOT_CONTENT = new Set(
+  "the a an and or it its it's with of to in on for that this these those my our your was were had has have button buttons section sections page pages site website app tab tabs link links option options part bit thing things stuff one ones".split(" "),
+);
+
+/** The visible words a described state names: "the rent and buy" → rent, buy. */
+export function termsOf(phrase: string): string[] {
+  const out: string[] = [];
+  for (const word of phrase.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (word.length < 2 || word.length > 40 || NOT_CONTENT.has(word) || out.includes(word)) continue;
+    out.push(word);
+  }
+  return out.slice(0, 6);
 }
 
 /** The original version whose content a row carries: itself, or what it restored. */
@@ -103,9 +174,13 @@ export type Target =
   | { kind: "back"; steps: number }
   | { kind: "time"; at: Date; label: string }
   | { kind: "before"; phrase: string }
-  | { kind: "with"; phrase: string };
+  /* "content": a state somebody remembers seeing ("when it had the rent and
+     buy"), searched in what versions showed. "request": something somebody
+     asked for ("where I added pricing"), searched in past requests. Each
+     falls back to the other. */
+  | { kind: "with"; phrase: string; by: "content" | "request" };
 
-export type VersionRequest = { kind: "list" } | { kind: "goto"; target: Target };
+export type VersionRequest = { kind: "list"; recent?: boolean } | { kind: "goto"; target: Target };
 
 const WORD_NUMBERS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -135,14 +210,20 @@ const NAV =
 
 /* Pointing at a version — without one, "switch the header" is just an edit. */
 const POINTS_AT_VERSION =
-  /\b(?:version|revision|v\s*\d+|(?:original|initial|very first)\s+(?:one|draft|design|site|website|page|build|app|layout)\b|the original\s*[?.!]*$|very first|first one|earlier one|older one|previous one|one before|from (?:yesterday|this morning|today|last night|\d+ \w+ ago|an? \w+ ago)|\d+\s*(?:versions|changes|edits|steps) (?:back|ago)|before (?:i|you|we)\b)/i;
+  /\b(?:version|revision|v\s*\d+|(?:original|initial|very first)\s+(?:one|draft|design|site|website|page|build|app|layout)\b|the original\s*[?.!]*$|very first|first one|earlier one|older one|previous one|one before|from (?:yesterday|this morning|today|last night|\d+ \w+ ago|an? \w+ ago)|\d+\s*(?:versions|changes|edits|steps) (?:back|ago)|before (?:i|you|we)\b|when (?:it|the \w+) (?:still )?(?:had|has|showed|used to)|back to having)/i;
 
 /* A time of day: "at 3pm", "at 14:30", "at 9:05 am". */
 const CLOCK = /\b(?:at|around|about)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
 
+/* "recent versions", "my last few changes": the three most recent to pick from. */
+const RECENT = /\b(?:recent|latest few|last (?:few|three|3)) (?:versions|changes|updates|edits)\b/i;
+
 export function readVersionRequest(message: string): VersionRequest | null {
   const m = message.trim();
   if (!m) return null;
+  if (RECENT.test(m) && !/\b(?:undo|revert|roll ?back|restore|go back|switch to|back to)\b/i.test(m)) {
+    return { kind: "list", recent: true };
+  }
   if (LIST.test(m) && !/\b(?:undo|revert|roll ?back|restore|go back|switch to|back to)\b/i.test(m)) {
     return { kind: "list" };
   }
@@ -214,11 +295,24 @@ export function parseTarget(message: string, now: Date, timeZone: string): Targe
     if (phrase && !/^(?:that|this|it|then|now)$/.test(phrase)) return { kind: "before", phrase };
   }
 
+  /* How it looked: "when it had the rent and buy", "back to having a dark
+     header". Searched in what the versions showed, newest first. */
+  const state =
+    /\b(?:back to |from |back )?(?:when|where)\s+(?:it|the (?:site|website|page|app|home ?page|landing page))\s+(?:still\s+)?(?:had|has|showed|was showing|used to (?:have|show)|included|contained)\s+(.+)$/.exec(m) ??
+    /\bback to having\s+(.+)$/.exec(m);
+  if (state) {
+    const phrase = state[1].replace(/[?.!]+$/, "").trim();
+    if (phrase) return { kind: "with", phrase, by: "content" };
+  }
+
   const withChange =
-    /\b(?:version|one|draft)\s+(?:where|with|when|that|in which|from when)\s+(?:i|you|we)?\s*(?:had\s+)?(?:added|changed|made|asked(?: for)?|put|removed|updated|built|moved|has|had|included)?\s*(.+)$/.exec(m);
+    /\b(?:version|one|draft)\s+(?:where|with|when|that|in which|from when)\s+(?:(i|you|we)\s+)?(?:had\s+)?(added|changed|made|asked(?: for)?|put|removed|updated|built|moved|has|had|included)?\s*(.+)$/.exec(m);
   if (withChange) {
-    const phrase = withChange[1].replace(/[?.!]+$/, "").trim();
-    if (phrase) return { kind: "with", phrase };
+    const phrase = withChange[3].replace(/[?.!]+$/, "").trim();
+    /* A person who did something ("where I added") names a request; a
+       version that has something ("with the testimonials") names content. */
+    const by = withChange[1] || /^(?:added|changed|made|asked|put|removed|updated|built|moved)/.test(withChange[2] ?? "") ? "request" : "content";
+    if (phrase) return { kind: "with", phrase, by };
   }
 
   const timed = timeTarget(m, now, timeZone);
@@ -332,7 +426,15 @@ function matchScore(phrase: string, prompt: string): number {
 }
 
 export type Resolved =
-  | { ok: true; version: Version; content: number; current: number; note: string | null }
+  | {
+      ok: true;
+      version: Version;
+      content: number;
+      current: number;
+      note: string | null;
+      /** It looks exactly like what is showing now: nothing to restore. */
+      alreadyShowing: boolean;
+    }
   | { ok: false; message: string };
 
 /**
@@ -340,13 +442,24 @@ export type Resolved =
  * or for a restore, the version it copied — so an undo steps back from what the
  * person is actually looking at.
  */
-export function resolveTarget(versions: Version[], target: Target | null, timeZone = "UTC", now = new Date()): Resolved {
+export function resolveTarget(
+  versions: Version[],
+  target: Target | null,
+  timeZone = "UTC",
+  now = new Date(),
+  /* Builds that showed the described words where the current one does not —
+     see versionsShowing. Only for a "with" target. */
+  showing: ReadonlySet<string> | null = null,
+): Resolved {
   const total = versions.length;
   if (total === 0) return { ok: false, message: "There are no versions of this project yet." };
   const current = contentOf(versions, total);
+  const showingDigest = versions[total - 1].digest;
+  const looksLikeNow = (version: Version) =>
+    contentOf(versions, version.number) === current || (showingDigest !== null && version.digest === showingDigest);
   const pick = (number: number, note: string | null = null): Resolved => {
     const version = versions[number - 1];
-    return { ok: true, version, content: contentOf(versions, number), current, note };
+    return { ok: true, version, content: contentOf(versions, number), current, note, alreadyShowing: looksLikeNow(version) };
   };
   const wanted = target ?? { kind: "back", steps: 1 };
 
@@ -366,17 +479,33 @@ export function resolveTarget(versions: Version[], target: Target | null, timeZo
       return pick(total);
     }
     case "back": {
-      const number = current - wanted.steps;
-      if (number < 1) {
-        return {
-          ok: false,
-          message:
-            current === 1
-              ? "There's nothing to undo — you're on the first version of this project."
-              : `You can go back at most ${current - 1} step${current - 1 === 1 ? "" : "s"} from here — the first version is version 1.`,
-        };
+      /* Counted in versions that LOOK different. A step back onto a copy of
+         what is showing changes nothing anybody can see, and reads as an undo
+         that did not work; a run of identical versions is one step. */
+      let steps = 0;
+      let last: string | null = showingDigest;
+      let skipped = 0;
+      for (let number = current - 1; number >= 1; number -= 1) {
+        const version = versions[number - 1];
+        if (version.digest !== null && (looksLikeNow(version) || version.digest === last)) {
+          skipped += 1;
+          continue;
+        }
+        steps += 1;
+        last = version.digest;
+        if (steps === wanted.steps) {
+          return pick(number, skipped > 0 ? "the last version that looks different from what's showing" : null);
+        }
       }
-      return pick(number);
+      return {
+        ok: false,
+        message:
+          steps === 0
+            ? current === 1
+              ? "There's nothing to undo — you're on the first version of this project."
+              : "There's nothing to undo — every earlier version looks the same as what's showing now."
+            : `You can go back at most ${steps} step${steps === 1 ? "" : "s"} from here — that reaches version 1.`,
+      };
     }
     case "time": {
       let found: Version | null = null;
@@ -389,8 +518,44 @@ export function resolveTarget(versions: Version[], target: Target | null, timeZo
       }
       return pick(found.number);
     }
-    case "before":
     case "with": {
+      /* How it looked: the newest version that still showed it, where the
+         current one does not. Newest first, because the most recent time it
+         was there is nearly always the one meant. */
+      const byContent = (): Resolved | null => {
+        if (!showing) return null;
+        for (let number = total; number >= 1; number -= 1) {
+          const version = versions[number - 1];
+          if (showing.has(version.id) && !looksLikeNow(version)) {
+            return pick(number, `the most recent version that still had ${wanted.phrase}`);
+          }
+        }
+        return null;
+      };
+      if (wanted.by === "content") {
+        const found = byContent();
+        if (found) return found;
+        if (showing) {
+          /* The search ran and nothing showed it anywhere the current version
+             lacks it: it is showing now, or it never was. Falling back to old
+             requests here would restore some version that merely MENTIONED it
+             — for something that is already on the page. */
+          return {
+            ok: false,
+            message: `No earlier version had ${wanted.phrase} anywhere it's missing now — it looks like it's already showing. Ask me to "show versions" if you meant a different version.`,
+          };
+        }
+      }
+      const asked = byRequest(versions, wanted.phrase);
+      if (asked) return pick(asked.number, `the version where you asked: "${asked.label}"`);
+      const found = byContent();
+      if (found) return found;
+      return {
+        ok: false,
+        message: `I couldn't find a version matching "${wanted.phrase}". Ask me to "show versions" to see the list, then name one by its number.`,
+      };
+    }
+    case "before": {
       let best: Version | null = null;
       let bestScore = 0;
       for (const version of versions) {
@@ -408,13 +573,51 @@ export function resolveTarget(versions: Version[], target: Target | null, timeZo
           message: `I couldn't find a change matching "${wanted.phrase}". Ask me to "show versions" to see the list, then name one by its number.`,
         };
       }
-      if (wanted.kind === "with") return pick(best.number, `the version where you asked: "${best.label}"`);
       if (best.number === 1) {
         return { ok: false, message: `"${best.label}" was the very first version, so there's nothing before it.` };
       }
       return pick(best.number - 1, `the version just before "${best.label}"`);
     }
   }
+}
+
+/** The newest past request that matches a described change, or null. */
+function byRequest(versions: Version[], phrase: string): Version | null {
+  let best: Version | null = null;
+  let bestScore = 0;
+  for (const version of versions) {
+    if (version.restoredFrom || LEGACY_REVERT.test(version.prompt)) continue;
+    const s = matchScore(phrase, version.prompt);
+    if (s >= bestScore && s > 0) {
+      best = version;
+      bestScore = s;
+    }
+  }
+  return best && bestScore >= 0.5 ? best : null;
+}
+
+/**
+ * The most recent versions that look different from each other and from what
+ * is showing, newest first — the few somebody is most likely to want.
+ */
+export function recentDistinct(versions: Version[], count = 3, excluding: readonly number[] = []): Version[] {
+  const total = versions.length;
+  if (total === 0) return [];
+  const current = contentOf(versions, total);
+  const showing = versions[total - 1].digest;
+  const seen = new Set<string>();
+  if (showing) seen.add(showing);
+  const out: Version[] = [];
+  for (let number = total; number >= 1 && out.length < count; number -= 1) {
+    const version = versions[number - 1];
+    if (excluding.includes(number) || contentOf(versions, number) === current) continue;
+    if (version.digest !== null) {
+      if (seen.has(version.digest)) continue;
+      seen.add(version.digest);
+    }
+    out.push(version);
+  }
+  return out;
 }
 
 // ── Saying it ───────────────────────────────────────────────────────────
@@ -439,15 +642,32 @@ export function formatWhen(iso: string, timeZone: string, now = new Date()): str
 export function describeVersions(versions: Version[], timeZone: string, now = new Date(), limit = 15): string {
   if (versions.length === 0) return "This project has no versions yet.";
   const current = contentOf(versions, versions.length);
-  const shown = versions.slice(-limit).reverse();
-  const lines = shown.map((v) => {
+  /* The first version each fingerprint appeared in, so a copy can say so. */
+  const firstWith = new Map<string, number>();
+  for (const v of versions) if (v.digest && !firstWith.has(v.digest)) firstWith.set(v.digest, v.number);
+  const line = (v: Version) => {
     const mark = v.number === versions.length ? " ← showing now" : "";
-    return `**Version ${v.number}** · ${formatWhen(v.createdAt, timeZone, now)} · ${v.label}${mark}`;
-  });
+    const twin = v.digest ? firstWith.get(v.digest) : undefined;
+    const same = twin !== undefined && twin !== v.number && !v.restoredFrom ? ` (looks the same as version ${twin})` : "";
+    return `**Version ${v.number}** · ${formatWhen(v.createdAt, timeZone, now)} · ${v.label}${same}${mark}`;
+  };
+  const shown = versions.slice(-limit).reverse();
   const older = versions.length > limit ? `\n\n…and ${versions.length - limit} older version${versions.length - limit === 1 ? "" : "s"}, back to version 1.` : "";
   const showing =
     current !== versions.length ? `\n\nWhat's showing now is the same as version ${current}.` : "";
-  return `This project has ${versions.length} version${versions.length === 1 ? "" : "s"}:\n\n${lines.join("\n")}${older}${showing}\n\nSay "go back to version 3", "undo", "the version from yesterday" or "before I added the footer" to restore one. A restore is a new version on top, so it can be undone too.`;
+  return `This project has ${versions.length} version${versions.length === 1 ? "" : "s"}:\n\n${shown.map(line).join("\n")}${older}${showing}\n\nSay "go back to version 3", "undo", "the version from yesterday" or "when it had the pricing table" to restore one. A restore is a new version on top, so it can be undone too.`;
+}
+
+/** The three most recent versions that look different from now, to pick from. */
+export function describeRecent(versions: Version[], timeZone: string, now = new Date()): string {
+  const recent = recentDistinct(versions, 3);
+  if (recent.length === 0) {
+    return versions.length <= 1
+      ? "This project only has one version so far, so there's nothing earlier to go back to."
+      : "Every earlier version looks the same as what's showing now, so there's nothing different to go back to.";
+  }
+  const lines = recent.map((v, i) => `${i + 1}. **Version ${v.number}** · ${formatWhen(v.createdAt, timeZone, now)} · ${v.label}`);
+  return `Your ${recent.length === 1 ? "most recent earlier version" : `${recent.length} most recent earlier versions`}, newest first:\n\n${lines.join("\n")}\n\nThe first one is what "undo" goes back to. Say "go back to version ${recent[0].number}" — or name any other.`;
 }
 
 /** A time zone the person sent, or UTC when it is missing or not real. */
