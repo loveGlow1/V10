@@ -6,6 +6,7 @@ import { generateOpenAI } from './providers/openai';
 import { generateIdeogram } from './providers/ideogram';
 import { generateGemini } from './providers/gemini';
 import { generateMiniMaxImage } from './providers/minimax';
+import { generateN8nImage } from './providers/n8n';
 import type { FlyerRequest, GenOutput, Provider } from './types';
 
 /* Created on first use rather than at import: createClient throws without a
@@ -56,6 +57,19 @@ async function runProvider(p: Provider, req: FlyerRequest, n: number): Promise<G
     case 'ideogram-v3':
       images = await generateIdeogram({ prompt, format, n, refs, negative: NEGATIVE });
       break;
+    case 'n8n-minimax':
+      images = await generateN8nImage({ engine: 'minimax', prompt, format, n });
+      break;
+    case 'n8n-openai': {
+      /* One image per call there, so several drafts are several calls. */
+      const settled = await Promise.allSettled(Array.from({ length: n }, () => generateN8nImage({ engine: 'openai', prompt, format, n: 1 })));
+      images = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+      if (!images.length) {
+        const first = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+        throw first?.reason instanceof Error ? first.reason : new Error('n8n openai failed');
+      }
+      break;
+    }
     case 'minimax-image':
       images = await generateMiniMaxImage({ prompt, format, n, large: req.stage === 'final' });
       break;

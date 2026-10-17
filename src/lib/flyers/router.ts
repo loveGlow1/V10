@@ -11,6 +11,8 @@ const FALLBACK: Record<Provider, Provider[]> = {
   /* MiniMax image-01 on the account's MiniMax key: behind the others, which
      set text more reliably, and always there when it is the only key. */
   'minimax-image': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro'],
+  'n8n-minimax': ['n8n-openai', 'gpt-image-2', 'ideogram-v3', 'nano-banana-2', 'minimax-image'],
+  'n8n-openai': ['n8n-minimax', 'gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
 };
 
 export function pickPrimary(req: FlyerRequest): Provider {
@@ -31,12 +33,25 @@ const KEY: Record<Provider, string> = {
   'gpt-image-1.5': 'OPENAI_API_KEY',
   'ideogram-v3': 'IDEOGRAM_API_KEY',
   'minimax-image': 'MINIMAX_API_KEY',
+  'n8n-minimax': 'N8N_WEBHOOK_TOKEN',
+  'n8n-openai': 'N8N_WEBHOOK_TOKEN',
 };
-export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) => Boolean(env[KEY[p]]);
+const n8nUrl = (env: Record<string, string | undefined>) => Boolean(env.N8N_FLIER_WEBHOOK_URL || env.N8N_WEBHOOK_URL);
+export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) =>
+  Boolean(env[KEY[p]]) && (!p.startsWith('n8n-') || n8nUrl(env));
+
+/* The n8n usage credit first: its gateway pays for MiniMax and OpenAI, so a
+   draft goes to MiniMax there (four in one call) and a final to OpenAI there
+   (the best lettering), before any model on a key of our own. */
+const CREDIT_FIRST: Record<'preview' | 'final', Provider[]> = {
+  preview: ['n8n-minimax', 'n8n-openai'],
+  final: ['n8n-openai', 'n8n-minimax'],
+};
 
 export function providerChain(req: FlyerRequest, env: Record<string, string | undefined> = process.env): Provider[] {
   const primary = pickPrimary(req);
-  const all: Provider[] = [primary, ...FALLBACK[primary].filter((p) => p !== primary)];
+  const credit = req.provider && req.provider !== 'auto' ? [] : CREDIT_FIRST[req.stage === 'final' ? 'final' : 'preview'];
+  const all: Provider[] = [...credit, primary, ...FALLBACK[primary].filter((p) => p !== primary && !credit.includes(p))];
   for (const p of ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'] as Provider[]) if (!all.includes(p)) all.push(p);
   return all.filter((p) => providerConfigured(p, env));
 }
@@ -66,7 +81,7 @@ export function isPublicHttpsUrl(value: unknown): value is string {
 export function refsFor(req: FlyerRequest, p: Provider): string[] {
   const shots = (req.brand.referenceImageUrls ?? []).filter(isPublicHttpsUrl);
   if (p === 'ideogram-v3') return shots.slice(0, 3);                 // style refs only, no logo
-  if (p === 'minimax-image') return [];                               // no image input
+  if (p === 'minimax-image' || p.startsWith('n8n-')) return [];       // no image input
   const all = ([req.brand.logoUrl, ...shots].filter(Boolean) as string[]).filter(isPublicHttpsUrl);
   if (p === 'nano-banana-2' || p === 'nano-banana-pro') return all.slice(0, 14);
   return all.slice(0, 4);                                            // OpenAI edits

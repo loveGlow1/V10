@@ -19,6 +19,9 @@ export function buildPrompt(brand: BrandKit, spec: FlyerSpec, provider: Provider
           ...(spec.details ?? []).map((d) => `Detail line: "${d}"`),
           spec.cta && `Call to action button: "${spec.cta}"`,
           `Clear hierarchy: headline dominant, details small and legible.`,
+          brand.logoUrl
+            ? `Apart from the provided logo, add no logo, brand mark, signature or watermark, and no other words, letters or numbers anywhere.`
+            : `Add no logo, brand mark, signature or watermark, and no other words, letters or numbers anywhere — only the text above.`,
         ].filter(Boolean).join('\n')
       : `Do NOT render any text, letters, numbers or logos. Leave clean, uncluttered negative space in the top third and a bottom band for text to be added later.`;
 

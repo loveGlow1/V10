@@ -117,6 +117,17 @@ const req = { brand: { name: "x", colors: { primary: "#000000" } }, spec: { head
 has(Router.providerChain(req, { MINIMAX_API_KEY: "m" }).join() === "minimax-image", "with only a MiniMax key, fliers are made by MiniMax image-01");
 has(Router.providerChain(req, { MINIMAX_API_KEY: "m", OPENAI_API_KEY: "o" }).join() === "gpt-image-2,minimax-image", "and it stands behind the models that set text more reliably");
 has(Router.providerChain(req, {}).length === 0, "with no key at all, there is no chain");
+const n8n = { N8N_WEBHOOK_URL: "https://neuralist3.app.n8n.cloud/webhook/api/v1/build", N8N_WEBHOOK_TOKEN: "t" };
+has(Router.providerChain(req, n8n).join() === "n8n-minimax,n8n-openai", "on the n8n usage credit alone, drafts are made by MiniMax there, with OpenAI there behind it", Router.providerChain(req, n8n));
+has(Router.providerChain({ ...req, stage: "final" }, n8n)[0] === "n8n-openai", "a final goes to OpenAI on the n8n credit first — the best lettering");
+has(Router.providerChain(req, { ...n8n, OPENAI_API_KEY: "o" }).slice(0, 2).join() === "n8n-minimax,n8n-openai" && Router.providerChain(req, { ...n8n, OPENAI_API_KEY: "o" }).includes("gpt-image-2"), "the free credit is spent before any key of our own, which stays behind it");
+has(Router.providerChain(req, { N8N_WEBHOOK_TOKEN: "t" }).length === 0, "n8n needs its address as well as its token");
+const n8nProvider = readFileSync(join(root, "src/lib/flyers/providers/n8n.ts"), "utf8");
+has(/\/webhook\/api\/v1\/flier-image/.test(n8nProvider) && /WEBHOOK_TOKEN_HEADER/.test(n8nProvider) && /gpt-image-1-mini/.test(n8nProvider), "it calls the Flier Image workflow with the app's token, on the model the gateway allows");
+has(/\^https\?:/.test(n8nProvider), "and takes MiniMax's http:// image links as well as https");
+const promptSrc = readFileSync(join(root, "src/lib/flyers/prompt.ts"), "utf8");
+has(/no logo, brand mark, signature or watermark/.test(promptSrc), "the prompt forbids invented logos and stray words");
+has(/ili9dNrgumg2JjXU/.test(readFileSync(join(root, "n8n/flier-image.workflow.ts"), "utf8")), "the workflow is mirrored in the repo");
 has(/providerChain\(\{ \.\.\.body, stage \}\)\.length === 0[\s\S]{0,300}status: 503/.test(flyersApi), "and the flier is refused up front, before a job is made or anything is charged");
 const statusApi = readFileSync(join(root, "src/app/api/flyers/[id]/route.ts"), "utf8");
 has(/No image model is connected on this deployment yet/.test(statusApi) && /Nothing was charged/.test(statusApi), "a failed job says why, in words, and that nothing was charged");
