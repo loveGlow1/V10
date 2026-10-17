@@ -267,5 +267,11 @@ has(/tpad=stop_mode=clone/.test(local) && /drawtext=fontfile=/.test(local) && /a
 has(/storage\.from\("video-assets"\)\.upload\(path/.test(local) && /status: "done", output_path: `storage:\$\{path\}`/.test(local), "the MP4 is stored and becomes the version's final cut");
 has(/await advance\(service, id, video\.current_version/.test(stateSrc), "a finished render that missed its cut gets one when it is next looked at");
 has(/serverExternalPackages: \["ffmpeg-static"\]/.test(nextConfig) && /node_modules\/ffmpeg-static\/ffmpeg/.test(nextConfig), "the ffmpeg binary is shipped with the compose route");
+/* Narrated throughout, unless narration is turned off. */
+const directorSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
+const pipelinesSrc = readFileSync(join(root, "src/lib/video/pipelines.ts"), "utf8");
+has(/- \$\{narrationRule\(answers\.voice\)\}/.test(directorSrc) && /write a voiceover line for EVERY scene/.test(directorSrc), "a narrated video gets a voice line in every scene, not just the last");
+has(/no voiceover\|music only\|none/.test(directorSrc), "No voiceover / Music only still means none");
+has(!/initial: "Music only"/.test(pipelinesSrc) && /id: "voice", label: "Voiceover", options: \["Male", "Female", "No voiceover"\], initial: "Male"/.test(pipelinesSrc), "trailers ask for a voice, and every type defaults to narrated");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
