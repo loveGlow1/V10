@@ -95,7 +95,7 @@ const EMPTY: Record<View, string> = {
 };
 
 /* A Video Studio project as /api/video lists it. */
-type VideoRow = { id: string; title: string; pipeline: string; status: string; current_version: number; updated_at: string };
+type VideoRow = { id: string; title: string; pipeline: string; status: string; current_version: number; updated_at: string; project_id?: string | null };
 
 const VIDEO_STATUS: Record<string, string> = {
   planning: "Planning",
@@ -386,7 +386,7 @@ export default function ProjectList() {
           return (
             <button
               key={video.id}
-              onClick={() => router.push(`/dashboard/video/${video.id}`)}
+              onClick={() => router.push(video.project_id ? `/dashboard/project/${video.project_id}` : `/dashboard/video/${video.id}`)}
               className="flex w-full min-w-0 items-center gap-5 px-2 py-5 text-left transition-colors hover:bg-layer/[0.03] md:gap-4 md:rounded-2xl md:px-3 md:py-3"
             >
               {/* The type's own picture, the same one its card shows. */}

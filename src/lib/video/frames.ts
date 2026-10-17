@@ -13,11 +13,13 @@
  *   everything else  no frame — text-to-video
  *
  * The keyframe is made with Ideogram 3 (photoreal, exact aspect ratios),
- * then Gemini, then OpenAI, whichever is connected, and kept in video-assets
+ * then Gemini, then OpenAI, then MiniMax image-01 on the n8n usage credit —
+ * whichever is connected first — and kept in video-assets
  * as a render asset of the version so a retry starts from the same face.
  *
  * Server-only. */
 
+import { generateN8nImage, n8nImagesConfigured } from "@/lib/flyers/providers/n8n";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Aspect } from "./clip-engines";
@@ -89,6 +91,12 @@ async function openai(prompt: string, aspect: Aspect): Promise<Buffer | null> {
   return image ?? null;
 }
 
+async function n8nMinimax(prompt: string, aspect: Aspect): Promise<Buffer | null> {
+  const format = aspect === "9:16" ? "story" : aspect === "1:1" ? "square" : aspect === "16:9" ? "landscape" : "portrait";
+  const [image] = await generateN8nImage({ engine: "minimax", prompt, format, n: 1 });
+  return image ?? null;
+}
+
 /** Makes (or finds) the version's creator keyframe. A signed URL, or null when none can be made. */
 export async function ensureKeyframe(
   service: SupabaseClient,
@@ -104,6 +112,9 @@ export async function ensureKeyframe(
   if (process.env.IDEOGRAM_API_KEY) makers.push(() => ideogram(prompt, aspect));
   if (process.env.GEMINI_API_KEY) makers.push(() => gemini(prompt, aspect));
   if (process.env.OPENAI_API_KEY) makers.push(() => openai(prompt, aspect));
+  /* Last, and needing no key of our own: MiniMax image-01 on the n8n usage
+     credit, through the Flier Image workflow. */
+  if (n8nImagesConfigured()) makers.push(() => n8nMinimax(prompt, aspect));
 
   for (const make of makers) {
     try {

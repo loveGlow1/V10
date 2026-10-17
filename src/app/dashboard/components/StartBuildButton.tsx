@@ -88,7 +88,6 @@ export default function StartBuildButton({
   kind,
   target,
   video,
-  flier,
   context,
   onError,
   disabled = false,
@@ -106,14 +105,10 @@ export default function StartBuildButton({
      src/lib/builder/targets.ts. Travels beside the kind; the server resolves
      the kind from it when no kind was picked. */
   target?: string | null;
-  /* Set under the Video tab: sending opens the Video Studio instead of a
-     website workspace. The video is created first so references can be
-     uploaded against it; the studio makes the plan. */
+  /* Set under the Video tab: sending opens the workspace on a video project.
+     The video is created first so references can be uploaded against it;
+     the first message plans and renders it. */
   video?: { pipeline: string; answers: Record<string, string>; consent: boolean } | null;
-  /* Set under the Fliers tab: sending opens the Flier Studio — image
-     generation, not a web page. The sub-type (event flier, social post, promo
-     banner) decides the size. */
-  flier?: { subtype: string | null } | null;
   /* What the follow-up chips under the composer answered, as a sentence, or
      empty when nothing was asked or answered.
      Kept apart from `prompt` rather than folded into it because the two are
@@ -170,28 +165,25 @@ export default function StartBuildButton({
     setStarting(true);
     onError(null);
 
-    if (flier) {
-      const response = await fetch("/api/flyers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief: text, subtype: flier.subtype }),
-      }).catch(() => null);
-      const body = (await response?.json().catch(() => null)) as { id?: string; error?: string } | null;
-      if (!response?.ok || !body?.id) {
+    /* A flier opens in the same workspace a website is built in: a project
+       like any other, its first message the brief. The Fliers tab's target
+       rides along, which is how /api/build knows to hand it to the image
+       engine rather than the page builder (lib/flyers/workspace.ts). */
+    if (video) {
+      /* A video opens in the same workspace a website is built in: a project
+         like any other, linked to the video, whose first message — the brief
+         — plans it and sends it to render (lib/video/workspace.ts). */
+      const workspace = await create(nameFromPrompt(text));
+      if (!workspace) {
         inFlight.current = false;
         setStarting(false);
-        onError(body?.error ?? "Could not start the flier. Try again.");
+        onError("Could not open a new project. Check the message on your projects list.");
         return;
       }
-      router.push(`/dashboard/fliers/${body.id}`);
-      return;
-    }
-
-    if (video) {
       const response = await fetch("/api/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...video, brief: text }),
+        body: JSON.stringify({ ...video, brief: text, projectId: workspace.id }),
       }).catch(() => null);
       const body = (await response?.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (!response?.ok || !body?.id) {
@@ -204,7 +196,7 @@ export default function StartBuildButton({
         const failed = await uploadVideoReferences(body.id, video.pipeline, files);
         if (failed) onError(failed);
       }
-      router.push(`/dashboard/video/${body.id}`);
+      router.push(`/dashboard/project/${workspace.id}?prompt=${encodeURIComponent(text)}&target=${encodeURIComponent(`video:${video.pipeline}`)}`);
       return;
     }
 

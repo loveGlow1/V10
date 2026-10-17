@@ -115,6 +115,8 @@ import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { loadReferencedProjects, referenceText } from "@/lib/builder/project-reference";
+import { FLIER_INTENT, isFlierTarget, startFlierTurn } from "@/lib/flyers/workspace";
+import { VIDEO_INTENT, startVideoTurn } from "@/lib/video/workspace";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
@@ -759,7 +761,7 @@ async function handle(
     .from("projects")
     /* slug included so the address does not have to be re-read: it is what
        both the preview URL and the published URL are made from. */
-    .select("id, name, slug")
+    .select("id, name, slug, intent")
     .eq("id", projectId)
     .maybeSingle();
 
@@ -777,6 +779,83 @@ async function handle(
      so that a client can neither put its own HTML on a preview nor decide what
      it owes. Ownership was settled just above, under the caller's session. */
   const service = createSupabaseServiceClient();
+
+  /* ── A flier ────────────────────────────────────────────────────────────
+   *
+   * Made in this same workspace, but by the image engine rather than the page
+   * builder: the first message from the Fliers tab is the brief, every one
+   * after it a change, and each makes four new versions. It answers the way a
+   * full build does — Building now, the preview when the images land. See
+   * lib/flyers/workspace.ts. */
+  if (project.intent === FLIER_INTENT || (isFlierTarget(body.target) && !project.intent)) {
+    steps.begin("flier", "Designing your flier", "reading what you asked for…");
+    const turn = await startFlierTurn({
+      supabase,
+      service,
+      userId: user.id,
+      project: { id: project.id as string, name: (project.name as string | null) ?? null },
+      prompt,
+      target: body.target,
+      requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
+    });
+    if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
+    steps.mark("flier", "Started four versions", "the image models are working on them");
+    return NextResponse.json({
+      stored: false,
+      steps: steps.list(),
+      intent: "new_project",
+      build: {
+        ok: true,
+        requestId: turn.jobId,
+        projectId: project.id,
+        intent: FLIER_INTENT,
+        status: "Building",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: turn.message,
+      },
+      project: null,
+    });
+  }
+
+  /* ── A video ────────────────────────────────────────────────────────────
+   *
+   * The same, for a video made from Home: the first message plans it and
+   * sends every scene to render, every one after it revises the plan and
+   * renders it again. The clips land in the preview on their own. See
+   * lib/video/workspace.ts. */
+  if (project.intent === VIDEO_INTENT) {
+    steps.begin("video", "Working on your video", "reading what you asked for…");
+    const turn = await startVideoTurn({
+      supabase,
+      service,
+      userId: user.id,
+      project: { id: project.id as string },
+      prompt,
+      requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
+      origin: new URL(request.url).origin,
+    });
+    if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
+    steps.mark("video", "Started", "the Creative Director is on it");
+    return NextResponse.json({
+      stored: false,
+      steps: steps.list(),
+      intent: "new_project",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: VIDEO_INTENT,
+        status: "Building",
+        links: { preview: "", repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: turn.message,
+      },
+      project: null,
+    });
+  }
 
   /* ── The review round ───────────────────────────────────────────────────
    *

@@ -1,6 +1,8 @@
 import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-preview";
 import { buildModeOf } from "@/lib/builder/build-mode";
 import { withFlierFit } from "@/lib/flyers/fit";
+import { FLIER_INTENT, flierBoardHtml, loadFlierBoard } from "@/lib/flyers/workspace";
+import { VIDEO_INTENT, boardToken, videoBoardHtml } from "@/lib/video/workspace";
 import { existingVercelProject } from "@/lib/publish/deployment-store";
 import { canBeFramed } from "@/lib/publish/framable";
 import { appDomainFor, previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
@@ -287,6 +289,45 @@ export async function GET(
 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return notFound("Previews are unavailable — Supabase is not configured.");
+
+  /* A flier project has no page: its preview is the board of versions,
+     made fresh on every load so the image links are freshly signed. Read
+     under the caller's session, like everything else here. See
+     lib/flyers/workspace.ts. */
+  const { data: owner } = await supabase.from("projects").select("intent").eq("id", projectId).maybeSingle<{ intent: string | null }>();
+  if (owner?.intent === VIDEO_INTENT && !wantsListing && wantsFile === null) {
+    const { data: video } = await supabase
+      .from("video_projects")
+      .select("id, title")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string; title: string }>();
+    const page = videoBoardHtml({
+      videoId: video?.id ?? null,
+      token: video ? boardToken(video.id) : "",
+      origin: new URL(request.url).origin,
+      title: video?.title ?? "",
+    });
+    return new Response(page, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+  if (owner?.intent === FLIER_INTENT && !wantsListing && wantsFile === null) {
+    return new Response(flierBoardHtml(await loadFlierBoard(supabase, projectId)), {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   /* Under the caller's own session on purpose. RLS is what makes this private,
      rather than a check written here that could be forgotten. */

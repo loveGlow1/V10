@@ -10,7 +10,7 @@ import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 
 import { PIPELINE_ICON } from "../components/video/VideoTypeGrid";
 
-type Row = { id: string; title: string; pipeline: string; status: string; current_version: number; updated_at: string };
+type Row = { id: string; title: string; pipeline: string; status: string; current_version: number; updated_at: string; project_id?: string | null };
 
 export default function VideosPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -47,7 +47,7 @@ export default function VideosPage() {
           const Icon = pipeline ? PIPELINE_ICON[pipeline.icon] : null;
           return (
             <li key={row.id}>
-              <Link href={`/dashboard/video/${row.id}`} className="flex items-center gap-3 rounded-[14px] border border-line/[0.08] bg-panel px-4 py-3 hover:border-line/[0.16]">
+              <Link href={row.project_id ? `/dashboard/project/${row.project_id}` : `/dashboard/video/${row.id}`} className="flex items-center gap-3 rounded-[14px] border border-line/[0.08] bg-panel px-4 py-3 hover:border-line/[0.16]">
                 {Icon && <Icon className="h-4 w-4 shrink-0 text-muted" />}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] text-ink">{row.title}</span>

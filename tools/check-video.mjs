@@ -144,7 +144,8 @@ const create = readFileSync(join(root, "src/app/api/video/route.ts"), "utf8");
 has(/needsConsent && body\.consent !== true/.test(create), "creating a clone requires consent");
 const schema = readFileSync(join(root, "supabase/schema.sql"), "utf8");
 has(/video_projects_clone_consent/.test(schema) && /create table if not exists public\.video_versions/.test(schema), "schema: consent constraint and versioning");
-const render = readFileSync(join(root, "src/app/api/video/[id]/render/route.ts"), "utf8");
+/* The render route is a thin door; the work is in lib/video/start-render.ts. */
+const render = readFileSync(join(root, "src/app/api/video/[id]/render/route.ts"), "utf8") + readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
 has(/if \(!ready\.ready\)/.test(render), "render refuses rather than queue for engines that are not connected");
 has(/currentBalance/.test(render) && /retryFailed/.test(render), "render checks credits first and can retry only what failed");
 const callback = readFileSync(join(root, "src/app/api/video/[id]/render/callback/route.ts"), "utf8");
@@ -203,7 +204,7 @@ has(!/console\.log/.test(providers) && /process\.env\.HF_API_KEY_SECRET/.test(pr
 
 has(/retryClip\(service, \{ videoId: id, version, n, failed: "n8n"/.test(callback), "a clip n8n could not make goes on to the next engine instead of failing");
 has(/kind === "voice" && process\.env\.MINIMAX_API_KEY/.test(callback) && /speak\(/.test(callback), "a voice line n8n could not make is voiced by MiniMax directly");
-const studio = readFileSync(join(root, "src/app/api/video/[id]/route.ts"), "utf8");
+const studio = readFileSync(join(root, "src/app/api/video/[id]/route.ts"), "utf8") + readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
 has(/row\.provider === "n8n:minimax"[\s\S]{0,200}retryClip\(/.test(studio), "an n8n clip that never came back is handed on, not failed");
 has(/for \(const engine of chain\)[\s\S]{0,120}engine === "n8n"/.test(render), "render walks each chain in order, n8n included");
 
@@ -232,5 +233,17 @@ has(/<DirectorChat/.test(studioPage) && /onAsk=\{\(text\) => void plan\(\{ note:
 has(/Change only scene \$\{scene\.n\}, keep every other scene exactly as it is/.test(studioPage), "a scene can be changed on its own");
 has(/payment required\|402/.test(studioPage) && /out of credit, so no clips were made and nothing was charged/.test(studioPage), "a render that made nothing says why, in words");
 
+/* Videos open in the workspace, like a website. */
+const vws = readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8");
+const vboard = readFileSync(join(root, "src/app/api/video/[id]/board/route.ts"), "utf8");
+const vbuild = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
+const vpreview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+const vstart = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
+has(/projectId: workspace\.id/.test(vstart) && /router\.push\(`\/dashboard\/project\/\$\{workspace\.id\}/.test(vstart), "the Video tab opens the workspace on a project linked to the video");
+has(/project\.intent === VIDEO_INTENT/.test(vbuild) && /startVideoTurn\(/.test(vbuild), "a video project's messages plan and render it, not build a page");
+has(/planVideo\(writer, userId, video\.id, first \? \{\} : \{ note: prompt \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
+has(/owner\?\.intent === VIDEO_INTENT/.test(vpreview) && /videoBoardHtml\(/.test(vpreview), "the preview iframe shows the video board");
+has(/verifyBoardToken\(id/.test(vboard) && /Access-Control-Allow-Origin/.test(vboard) && /\{ video: video \? \{ id: video\.id, status: video\.status, title: video\.title \} : null, latest, renders, final \}/.test(vboard), "the board reads its video's state with a token for that video only");
+has(/setTimeout\(load,busy\?6000:30000\)/.test(vws), "the board updates itself as clips land");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
