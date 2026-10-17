@@ -138,8 +138,8 @@ has(/if \(service && !freeReview\) \{\s*await recordMessage\(service, \{\s*proje
 
 const gallery = readFileSync(join(root, "src/app/dashboard/fliers/page.tsx"), "utf8");
 const homeList = readFileSync(join(root, "src/app/dashboard/components/ProjectList.tsx"), "utf8");
-has(/export async function GET\(\)[\s\S]{0,600}\.eq\('stage', 'preview'\)[\s\S]{0,80}\.is\('parent_job_id', null\)/.test(flyersApi), "fliers are listed one per brief, under the caller's own session");
-has(/fetch\("\/api\/flyers"/.test(gallery) && /Your fliers/.test(gallery), "Your fliers lists every flier");
+has(/export async function GET\(req: Request\)[\s\S]{0,4000}\.eq\('stage', 'preview'\)[\s\S]{0,80}\.is\('parent_job_id', null\)/.test(flyersApi), "fliers are listed one per brief, under the caller's own session");
+has(/"\/api\/flyers"/.test(gallery) && /Your fliers/.test(gallery), "Your fliers lists every flier");
 has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.test(homeList), "and Home has a Fliers view that leads to it"
 );
 const studio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");

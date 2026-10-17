@@ -226,5 +226,11 @@ has(/row\.provider !== "n8n:minimax"\) return NextResponse\.json\(\{ ok: true, i
 has(/n8nPausedUntil\(/.test(render) && /skip \}\)/.test(render), "new renders skip a paused n8n");
 has(/\.eq\("provider", "n8n:minimax"\)[\s\S]{0,60}\.eq\("status", "running"\)/.test(results), "the hand-off takes only the render's n8n jobs still waiting");
 
+/* The studio is a workspace: the Director's chat edits the video in words. */
+const studioPage = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+has(/<DirectorChat/.test(studioPage) && /onAsk=\{\(text\) => void plan\(\{ note: text \}\)\}/.test(studioPage), "the studio has the Director's chat, and a message there makes a new version");
+has(/Change only scene \$\{scene\.n\}, keep every other scene exactly as it is/.test(studioPage), "a scene can be changed on its own");
+has(/payment required\|402/.test(studioPage) && /out of credit, so no clips were made and nothing was charged/.test(studioPage), "a render that made nothing says why, in words");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

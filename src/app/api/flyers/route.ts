@@ -6,6 +6,7 @@ import { providerChain } from '@/lib/flyers/router';
 import { flyerJobCost, isOwnPreviewPath, runFlyerJob } from '@/lib/flyers/run';
 import { createSupabaseServiceClient } from '@/lib/supabase-service';
 import type { FlyerRequest } from '@/lib/flyers/types';
+import { daysLeft, liveOutputs, type Output as StoredOutput } from '@/lib/flyers/trash';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -22,23 +23,76 @@ export const maxDuration = 300;
  * is delivered (lib/flyers/run.ts). On unless FLYERS_API_ENABLED=0. */
 const DISABLED = process.env.FLYERS_API_ENABLED === '0';
 
-type Output = { path: string };
-type Row = { id: string; status: string; request: FlyerRequest | null; outputs: Output[] | null; created_at: string; parent_job_id?: string | null };
+type Row = { id: string; status: string; request: FlyerRequest | null; outputs: StoredOutput[] | null; created_at: string; parent_job_id?: string | null; deleted_at?: string | null };
 
 /* Your fliers: one card per brief, newest first. The picture is the newest
  * finished final when there is one, else the first draft. Read under the
  * caller's session, so RLS returns only their jobs and their folder. */
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Sign in to see your fliers.' }, { status: 401 });
+  const sign = async (path: string | null | undefined) =>
+    path ? ((await supabase.storage.from('flyers').createSignedUrl(path, 60 * 60)).data?.signedUrl ?? null) : null;
+
+  /* Recently deleted: whole fliers, and single images of fliers still kept,
+     each with the days left before it is gone for good. */
+  if (new URL(req.url).searchParams.get('trash') === '1') {
+    const { data: deleted } = await supabase
+      .from('flyer_jobs')
+      .select('id, status, request, outputs, created_at, parent_job_id, deleted_at')
+      .not('deleted_at', 'is', null)
+      .is('parent_job_id', null)
+      .order('deleted_at', { ascending: false })
+      .limit(100)
+      .returns<Row[]>();
+    const { data: marked } = await supabase
+      .from('flyer_jobs')
+      .select('id, status, request, outputs, created_at, parent_job_id, deleted_at')
+      .is('deleted_at', null)
+      .contains('outputs', [{ trashed: true }])
+      .limit(100)
+      .returns<Row[]>();
+    const items = [
+      ...(await Promise.all(
+        (deleted ?? []).map(async (row) => ({
+          kind: 'flier' as const,
+          id: row.id,
+          path: null,
+          headline: row.request?.spec?.headline ?? '',
+          format: row.request?.spec?.format ?? 'portrait',
+          thumb: await sign(row.outputs?.[0]?.path),
+          deletedAt: row.deleted_at as string,
+          daysLeft: daysLeft(row.deleted_at as string),
+        })),
+      )),
+      ...(await Promise.all(
+        (marked ?? []).flatMap((row) =>
+          (row.outputs ?? [])
+            .filter((output) => output.trashed && output.deleted_at)
+            .map(async (output) => ({
+              kind: 'image' as const,
+              id: row.id,
+              path: output.path,
+              headline: row.request?.spec?.headline ?? '',
+              format: row.request?.spec?.format ?? 'portrait',
+              thumb: await sign(output.path),
+              deletedAt: output.deleted_at as string,
+              daysLeft: daysLeft(output.deleted_at as string),
+            })),
+        ),
+      )),
+    ].sort((a, b) => Date.parse(b.deletedAt) - Date.parse(a.deletedAt));
+    return NextResponse.json({ items }, { headers: { 'Cache-Control': 'no-store' } });
+  }
 
   const { data: drafts, error } = await supabase
     .from('flyer_jobs')
     .select('id, status, request, outputs, created_at')
     .eq('stage', 'preview')
     .is('parent_job_id', null)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(60)
     .returns<Row[]>();
@@ -50,20 +104,23 @@ export async function GET() {
         .from('flyer_jobs')
         .select('id, status, outputs, created_at, parent_job_id')
         .in('parent_job_id', ids)
+        .is('deleted_at', null)
         .eq('status', 'done')
         .order('created_at', { ascending: false })
         .returns<Row[]>()
     : { data: [] as Row[] };
   const finalFor = new Map<string, Row>();
   for (const final of finals ?? []) {
-    if (final.parent_job_id && !finalFor.has(final.parent_job_id) && final.outputs?.[0]?.path) finalFor.set(final.parent_job_id, final);
+    if (final.parent_job_id && !finalFor.has(final.parent_job_id) && liveOutputs(final.outputs)[0]?.path) finalFor.set(final.parent_job_id, final);
   }
 
   const fliers = await Promise.all(
     (drafts ?? []).map(async (row) => {
       const final = finalFor.get(row.id);
-      const path = final?.outputs?.[0]?.path ?? row.outputs?.[0]?.path ?? null;
-      const { data } = path ? await supabase.storage.from('flyers').createSignedUrl(path, 60 * 60) : { data: null };
+      const path = liveOutputs(final?.outputs)[0]?.path ?? liveOutputs(row.outputs)[0]?.path ?? null;
+      /* Every image of it deleted one by one: nothing left to show. */
+      if (!path && row.status === 'done') return null;
+      const thumb = await sign(path);
       return {
         id: row.id,
         finalId: final?.id ?? null,
@@ -71,11 +128,11 @@ export async function GET() {
         headline: row.request?.spec?.headline ?? '',
         format: row.request?.spec?.format ?? 'portrait',
         created_at: row.created_at,
-        thumb: data?.signedUrl ?? null,
+        thumb,
       };
     }),
   );
-  return NextResponse.json({ fliers }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ fliers: fliers.filter(Boolean) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 type Body = Partial<FlyerRequest> & { brief?: unknown; subtype?: unknown; again?: unknown };

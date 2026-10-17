@@ -19,7 +19,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Download, Loader2, PenLine, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, PenLine, RefreshCw, Trash2, X } from "lucide-react";
 
 type Image = { path: string; provider: string; url: string | null };
 type Job = {
@@ -50,7 +50,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Image | null>(null);
-  const [busy, setBusy] = useState<null | "again" | "save">(null);
+  const [busy, setBusy] = useState<null | "again" | "save" | "delete">(null);
   const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -92,6 +92,29 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
       return;
     }
     router.push(`/dashboard/fliers/${body.id}`);
+  }
+
+  /* To Recently deleted, where it can be put back for 15 days — one image,
+     or with no image the whole flier. */
+  async function remove(image: Image | null) {
+    if (!job) return;
+    if (!image && !window.confirm("Delete this flier? It stays in Recently deleted for 15 days, then it is gone for good.")) return;
+    setBusy("delete");
+    setNote(null);
+    const query = image ? `?path=${encodeURIComponent(image.path)}` : "";
+    const response = await fetch(`/api/flyers/${job.id}${query}`, { method: "DELETE" }).catch(() => null);
+    setBusy(null);
+    if (!response?.ok) {
+      setNote("It could not be deleted. Try again.");
+      return;
+    }
+    if (!image || job.images.length <= 1) {
+      router.push("/dashboard/fliers");
+      return;
+    }
+    setOpen(null);
+    setNote("Moved to Recently deleted — it can be put back for 15 days.");
+    void load();
   }
 
   async function save(image: Image) {
@@ -158,6 +181,16 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           <p className="text-[12px] text-muted">{final ? "Final · Flier Studio" : "Flier Studio"}</p>
           <h1 className="truncate text-[20px] font-semibold text-ink">{job.headline || "Your flier"}</h1>
         </div>
+        <button
+          type="button"
+          onClick={() => void remove(null)}
+          disabled={busy !== null || working}
+          aria-label="Delete this flier"
+          title="Delete this flier"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-danger disabled:opacity-40"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </header>
 
       {working && (
@@ -276,6 +309,18 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           >
             {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             {isPhone() ? "Save to Photos" : "Download PNG"}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void remove(open);
+            }}
+            disabled={busy !== null}
+            className={`${button} text-white/70 hover:text-white`}
+          >
+            {busy === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Delete this version
           </button>
           {note && <p className="text-center text-[13px] text-white/70">{note}</p>}
         </div>
