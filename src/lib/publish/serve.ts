@@ -1,3 +1,4 @@
+import { withFlierFit } from "@/lib/flyers/fit";
 import { latestDeployment, existingVercelProject } from "@/lib/publish/deployment-store";
 import { publicAddress } from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -218,7 +219,10 @@ export async function servePublished(asked: Asked): Promise<Response> {
 
   if (!publication?.html) return notFound("This site hasn't been published yet.");
 
-  return new Response(publication.html as string, {
+  /* A flier keeps its designed size and is scaled as a whole — see
+     lib/flyers/fit.ts. Applied when served, so fliers published before it
+     are fixed too. */
+  return new Response(withFlierFit(publication.html as string), {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       /* See the note at the top of this file. Scripts and forms run because a

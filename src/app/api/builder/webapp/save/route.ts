@@ -11,6 +11,7 @@ import { ensureImageSources, fillTreeImages, upgradePlaceholders } from "@/lib/b
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
 import { ART_COST, flierArtProvider, isFlier } from "@/lib/flyers/art";
+import { withFlierFit } from "@/lib/flyers/fit";
 import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
@@ -848,6 +849,9 @@ export async function POST(request: Request) {
    * an application asks to leave the demo tier. A build that filled a dozen
    * slots and credited nobody was a licence breach on every page it wrote. */
   html = addPhotoCredits(html, pictures.credits);
+  /* A flier keeps its designed size on any screen — see lib/flyers/fit.ts. In
+     the stored page, so a downloaded copy behaves the same. */
+  html = withFlierFit(html);
 
   if (pictures.filled > 0) {
     // eslint-disable-next-line no-console
