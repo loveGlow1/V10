@@ -13,6 +13,7 @@ export const maxDuration = 300;
 /* The Fliers tab's engine: image generation, not a web page.
  *
  *   { brief, subtype? }                         four drafts, read from the brief
+ *   { again: jobId }                            four more drafts of that brief
  *   { stage: "final", parentJobId, selectedPreviewPath }
  *                                               the chosen draft, made final
  *   { brand, spec, … }                          a full request, as before
@@ -77,7 +78,7 @@ export async function GET() {
   return NextResponse.json({ fliers }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-type Body = Partial<FlyerRequest> & { brief?: unknown; subtype?: unknown };
+type Body = Partial<FlyerRequest> & { brief?: unknown; subtype?: unknown; again?: unknown };
 
 export async function POST(req: Request) {
   if (DISABLED) {
@@ -92,7 +93,13 @@ export async function POST(req: Request) {
   if (!raw) return NextResponse.json({ error: 'Say what the flier is for.' }, { status: 400 });
 
   let body: FlyerRequest;
-  if (raw.stage === 'final' && typeof raw.parentJobId === 'string') {
+  if (typeof raw.again === 'string') {
+    /* Four more drafts of a brief already read: its request again, as new
+       drafts. RLS returns only the caller's own jobs, so this proves it too. */
+    const { data: earlier } = await supabase.from('flyer_jobs').select('id, request').eq('id', raw.again).maybeSingle();
+    if (!earlier) return NextResponse.json({ error: 'That flier is not yours or no longer exists.' }, { status: 403 });
+    body = { ...(earlier.request as FlyerRequest), stage: 'preview', variants: 4, parentJobId: undefined, selectedPreviewPath: undefined };
+  } else if (raw.stage === 'final' && typeof raw.parentJobId === 'string') {
     /* A final is the chosen draft, made again at full quality from the same
        request. RLS returns only the caller's own jobs, so this proves it too. */
     const { data: parent } = await supabase.from('flyer_jobs').select('id, request').eq('id', raw.parentJobId).maybeSingle();

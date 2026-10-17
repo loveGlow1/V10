@@ -246,6 +246,14 @@ function ProjectsScreen() {
               {option.label}
             </button>
           ))}
+          {/* Fliers are images, not projects, so this one leaves for their own
+              page rather than filtering the list below. */}
+          <Link
+            href="/dashboard/fliers"
+            className="flex h-8 items-center rounded-lg px-3 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
+          >
+            Fliers
+          </Link>
         </div>
 
         <div className="relative sm:w-[240px]">

@@ -4,17 +4,22 @@
  * page: the brief is read into a flier spec (lib/flyers/brief.ts) and the
  * image models make it (lib/flyers/run.ts).
  *
- *   drafts   four quick variations of the brief
- *   pick     tap the one to take forward
- *   final    the chosen draft made again at full quality
- *   save     on a phone, the share sheet — "Save Image" puts it in Photos;
- *            on a computer, a .png download
+ *   drafts   four variations of the brief, each a finished image
+ *   view     tap one to see it full size
+ *   save     that exact image — on a phone, the share sheet ("Save Image"
+ *            puts it in Photos); on a computer, a .png download
+ *   more     four more variations of the same brief
+ *
+ * There is no separate "final": the models make each draft at full quality,
+ * and a final made again from the brief came back as a different picture
+ * rather than the one that was picked. What you see is what you save.
+ * (Finals made before this still open here, read-only.)
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Check, Download, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, Loader2, PenLine, RefreshCw, X } from "lucide-react";
 
 type Image = { path: string; provider: string; url: string | null };
 type Job = {
@@ -44,8 +49,8 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "final" | "again" | "save">(null);
+  const [open, setOpen] = useState<Image | null>(null);
+  const [busy, setBusy] = useState<null | "again" | "save">(null);
   const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -70,19 +75,20 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
     return () => window.clearInterval(timer);
   }, [working, load]);
 
-  async function makeFinal() {
-    if (!job || !picked) return;
-    setBusy("final");
+  /* Four more of the same brief, as a new flier of their own. */
+  async function more() {
+    if (!job) return;
+    setBusy("again");
     setNote(null);
     const response = await fetch("/api/flyers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage: "final", parentJobId: job.id, selectedPreviewPath: picked }),
+      body: JSON.stringify({ again: job.id }),
     }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as { id?: string; error?: string } | null;
     setBusy(null);
     if (!response?.ok || !body?.id) {
-      setNote(body?.error ?? "The final could not be started. Try again.");
+      setNote(body?.error ?? "More versions could not be started. Try again.");
       return;
     }
     router.push(`/dashboard/fliers/${body.id}`);
@@ -149,7 +155,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] text-muted">{final ? "Final · Flier Studio" : "Drafts · Flier Studio"}</p>
+          <p className="text-[12px] text-muted">{final ? "Final · Flier Studio" : "Flier Studio"}</p>
           <h1 className="truncate text-[20px] font-semibold text-ink">{job.headline || "Your flier"}</h1>
         </div>
       </header>
@@ -157,7 +163,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
       {working && (
         <div className="mt-6 flex items-center gap-2.5 rounded-2xl border border-line/[0.08] bg-layer/[0.03] px-4 py-3 text-[14px] text-soft">
           <Loader2 className="h-4 w-4 animate-spin" />
-          {final ? "Making your final at full quality — usually under a minute…" : "Designing four drafts — usually 20–40 seconds…"}
+          {final ? "Making your final — usually under a minute…" : "Designing four versions — usually 20–40 seconds…"}
         </div>
       )}
 
@@ -191,18 +197,13 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
                 <button
                   key={image.path}
                   type="button"
-                  onClick={() => setPicked(image.path)}
-                  aria-pressed={picked === image.path}
-                  className={`relative overflow-hidden rounded-2xl border-2 transition ${picked === image.path ? "border-accent" : "border-transparent"}`}
+                  onClick={() => setOpen(image)}
+                  aria-label={`See version ${index + 1} full size`}
+                  className="relative overflow-hidden rounded-2xl border border-line/[0.08] transition hover:border-line/[0.2]"
                   style={{ aspectRatio: ratio }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={image.url} alt={`Draft ${index + 1}`} className="h-full w-full object-cover" />
-                  {picked === image.path && (
-                    <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-accent text-onSolid">
-                      <Check className="h-4 w-4" />
-                    </span>
-                  )}
+                  <img src={image.url} alt={`Version ${index + 1}`} className="h-full w-full object-cover" />
                 </button>
               ) : (
                 <div key={index} className="animate-pulse rounded-2xl bg-layer/[0.06]" style={{ aspectRatio: ratio }} />
@@ -212,25 +213,20 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
 
           {job.status === "done" && (
             <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => void makeFinal()} disabled={!picked || busy !== null} className={`${button} bg-accent text-onSolid`}>
-                {busy === "final" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Make it final (HD)
+              <p className="w-full text-[13px] text-muted">Tap a version to see it full size and save it.</p>
+              <button type="button" onClick={() => void more()} disabled={busy !== null} className={`${button} border border-line/[0.1] text-ink`}>
+                {busy === "again" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                4 more versions
               </button>
-              {picked && (
-                <button type="button" onClick={() => void save(job.images.find((image) => image.path === picked)!)} disabled={busy !== null} className={`${button} border border-line/[0.1] text-ink`}>
-                  <Download className="h-4 w-4" /> Save this draft
-                </button>
-              )}
               <Link href="/dashboard" className={`${button} text-soft`}>
-                <RotateCcw className="h-4 w-4" /> New brief
+                <PenLine className="h-4 w-4" /> New brief
               </Link>
-              {!picked && <p className="w-full text-[13px] text-muted">Tap the draft you like, then make it final.</p>}
             </div>
           )}
 
           {job.finals.length > 0 && (
             <section className="mt-8">
-              <h2 className="text-[14px] font-medium text-ink">Finals</h2>
+              <h2 className="text-[14px] font-medium text-ink">Made earlier</h2>
               <div className="mt-3 flex flex-wrap gap-3">
                 {job.finals.map((entry) => (
                   <Link key={entry.id} href={`/dashboard/fliers/${entry.id}`} className="w-28 overflow-hidden rounded-xl border border-line/[0.08]" style={{ aspectRatio: ratio }}>
@@ -249,6 +245,41 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
       )}
 
       {note && <p className="mt-4 text-center text-[13px] text-soft">{note}</p>}
+
+      {/* One version, full size — the exact image Save hands over. */}
+      {open?.url && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Flier, full size"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-4"
+          onClick={() => setOpen(null)}
+        >
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setOpen(null)}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={open.url} alt={job.headline} onClick={(event) => event.stopPropagation()} className="max-h-[75vh] w-auto max-w-full rounded-2xl" />
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              void save(open);
+            }}
+            disabled={busy === "save"}
+            className={`${button} bg-accent text-onSolid`}
+          >
+            {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {isPhone() ? "Save to Photos" : "Download PNG"}
+          </button>
+          {note && <p className="text-center text-[13px] text-white/70">{note}</p>}
+        </div>
+      )}
     </main>
   );
 }

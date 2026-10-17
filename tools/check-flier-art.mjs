@@ -142,6 +142,11 @@ has(/export async function GET\(\)[\s\S]{0,600}\.eq\('stage', 'preview'\)[\s\S]{
 has(/fetch\("\/api\/flyers"/.test(gallery) && /Your fliers/.test(gallery), "Your fliers lists every flier");
 has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.test(homeList), "and Home has a Fliers view that leads to it"
 );
+const studio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");
+const projectsPage = readFileSync(join(root, "src/app/dashboard/projects/page.tsx"), "utf8");
+has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /void save\(open\)/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
+has(/typeof raw\.again === 'string'[\s\S]{0,500}stage: 'preview', variants: 4/.test(flyersApi), "4 more versions reuse the brief as new drafts");
+has(/href="\/dashboard\/fliers"[\s\S]{0,200}Fliers/.test(projectsPage), "the Projects page's last tab is Fliers");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);
