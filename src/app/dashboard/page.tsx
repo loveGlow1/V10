@@ -614,8 +614,10 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              <div className="relative mt-3 flex items-center justify-between gap-2 sm:mt-4">
-                <div className="relative flex shrink-0 items-center gap-[3px] sm:gap-2">
+              <div className="relative mt-3 flex min-w-0 items-center justify-between gap-2 sm:mt-4">
+                {/* The left side gives way, never the right: a long agent name
+                    truncates rather than pushing send out of the box. */}
+                <div className="relative flex min-w-0 shrink items-center gap-[3px] sm:gap-2">
                   {/* One input, opened straight away: the device's own picker
                       is the picker. A desktop gets its file dialog; a phone
                       gets its native sheet — Photo Library, Take Photo, Choose
@@ -674,19 +676,21 @@ export default function DashboardPage() {
                     }}
                     aria-expanded={isModelPopoverOpen}
                     aria-label="Choose an agent"
-                    className="qs-control flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
+                    className="qs-control flex h-8 min-w-0 shrink items-center gap-1.5 whitespace-nowrap rounded-full border border-line/[0.08] bg-layer/[0.03] px-2.5 text-[13px] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.06] active:scale-[0.98] md:h-10 md:gap-2 md:px-3.5 md:text-sm"
                   >
-                    <ProviderMark provider={chosenModel.provider} />
+                    <span className="flex shrink-0">
+                      <ProviderMark provider={chosenModel.provider} />
+                    </span>
                     {/* The agent's name when the chosen model is one, and the
                         model's own when it is not — a model picked in the
                         workspace's fuller list has no agent, and naming it
                         anyway is better than naming nothing or naming the
                         wrong thing. */}
-                    <span className="font-medium tracking-tight">
+                    <span className="min-w-0 truncate font-medium tracking-tight">
                       {chosenAgent?.title ?? shortModelName(chosenModel)}
                     </span>
                     <ChevronDown
-                      className={`h-3.5 w-3.5 text-ink transition-transform ${
+                      className={`h-3.5 w-3.5 shrink-0 text-ink transition-transform ${
                         isModelPopoverOpen ? "rotate-180" : ""
                       }`}
                     />
