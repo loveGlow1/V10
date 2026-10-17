@@ -56,7 +56,7 @@ export function engineHealth(engine: EngineId, env: Env = process.env): EngineHe
     engine === "avatar" || engine === "music" || engine === "compose"
       ? falConfigured(env)
       : engine === "voice"
-        ? voiceDirect(env) || n8nConfigured(env)
+        ? Boolean(env.MINIMAX_API_KEY) || n8nConfigured(env)
         : anyClipEngine(env);
   return ok ? "available" : "not-configured";
 }

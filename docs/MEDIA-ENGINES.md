@@ -11,12 +11,12 @@ through to the next one when an engine refuses or fails.
 | `MINIMAX_API_KEY` | MiniMax Hailuo 2.3 clips and MiniMax speech, direct (the free MiniMax credit). With this key alone, a video renders clips and voices without n8n. |
 | `HF_API_KEY_ID` + `HF_API_KEY_SECRET` | Higgsfield: Seedance 2.0 (text- and image-to-video, up to 1080p, every aspect ratio) and Kling 2.5 Turbo Pro |
 | `FAL_KEY` | Seedance 1.5 Pro on fal (text-to-video), plus lip sync, the clone avatar, music and the final MP4, as before |
-| `N8N_WEBHOOK_URL` + `N8N_WEBHOOK_TOKEN` | MiniMax through the n8n render workflow, now the last resort |
+| `N8N_WEBHOOK_URL` + `N8N_WEBHOOK_TOKEN` | MiniMax-H3 clips and MiniMax speech through the n8n render workflow, on the MiniMax usage credit. This is tried **first** by default. |
 | `IDEOGRAM_API_KEY` | Ideogram 3: graphic flier art, and the UGC creator keyframe (photoreal, exact aspect) |
 | `OPENAI_API_KEY` | gpt-image-2: photographic flier art, keyframe fallback (`OPENAI_IMAGE_MODEL` overrides the model) |
 | `GEMINI_API_KEY` | Gemini image (Nano Banana Pro): fallback for both |
 | `UNSPLASH_ACCESS_KEY` | Unsplash photographs: the last resort behind every flier art chain |
-| `VIDEO_QUALITY=economy` | Puts the free MiniMax credit first by default. Each video's own **Quality** answer overrides it. |
+| `VIDEO_QUALITY` | The default tier: unset or `credit` puts n8n (the usage credit) first, `best` ranks by quality, `economy` puts direct MiniMax first. Each video's own **Quality** answer ("MiniMax credit" or "Best") overrides it. |
 | `FLIER_ART=stock` | Keeps fliers on Unsplash only |
 | `MINIMAX_SPEECH_MODEL` | Overrides the speech model (default `speech-2.6-hd`) |
 
@@ -27,6 +27,13 @@ can make it at its aspect ratio. No engine is ever asked to crop a vertical
 scene out of landscape. MiniMax and Kling text-to-video are landscape-only,
 so for a 9:16 or 1:1 scene they are used only when the scene starts from a
 frame.
+
+**MiniMax credit (the default):** every clip and voice line goes to n8n
+first, so the usage credit is spent before anything paid for. A paid engine
+is only reached when n8n refuses a job at dispatch, fails it, or never
+reports back. That job then continues down the "Best" chain below. A voice
+line n8n can't make is voiced by MiniMax directly when `MINIMAX_API_KEY` is
+set.
 
 | Video | Best | Economy |
 |---|---|---|

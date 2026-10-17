@@ -16,11 +16,13 @@
  *   seedance-fal   Seedance 1.5 Pro on fal.ai, text-to-video with real aspect
  *                  ratios — the fallback that runs on the key the production
  *                  line already has.
- *   n8n            MiniMax through the n8n render workflow — the original
- *                  route, kept as the last resort.
+ *   n8n            MiniMax-H3 through the n8n render workflow, on the account's
+ *                  MiniMax usage credit (n8n's gateway). Every aspect ratio
+ *                  from text, 4–6s clips.
  *
- * Quality tiers: "best" ranks by output quality; "economy" puts the free
- * MiniMax credit first wherever it can make the scene properly. A chain is
+ * Tiers: "credit" — the default — spends the MiniMax usage credit on n8n
+ * first and only reaches for a paid engine when n8n refuses or fails a clip;
+ * "best" ranks by output quality; "economy" puts direct MiniMax first. A chain is
  * never a guess about the aspect: an engine that would crop a vertical scene
  * into landscape is left out of that scene's chain altogether.
  *
@@ -30,7 +32,7 @@
 import type { PipelineId } from "./pipelines";
 
 export type ClipEngine = "seedance" | "minimax" | "kling" | "seedance-fal" | "n8n";
-export type Tier = "best" | "economy";
+export type Tier = "credit" | "best" | "economy";
 export type Aspect = "9:16" | "1:1" | "16:9" | "4:5";
 
 type Env = Record<string, string | undefined>;
@@ -83,10 +85,11 @@ export const ENGINES: Record<ClipEngine, EngineSpec> = {
     configured: (env) => Boolean(env.FAL_KEY),
   },
   n8n: {
-    label: "MiniMax (n8n)",
+    label: "MiniMax-H3 (n8n, usage credit)",
     cost: 4,
     durations: [4, 5, 6],
-    textAspects: "landscape-only",
+    /* The workflow passes the plan's ratio to MiniMax-H3 (4:5 as 3:4). */
+    textAspects: ALL,
     imageToVideo: true,
     configured: (env) => Boolean((env.N8N_VIDEO_WEBHOOK_URL || env.N8N_WEBHOOK_URL) && env.N8N_WEBHOOK_TOKEN),
   },
@@ -109,7 +112,9 @@ export function ranking(pipeline: PipelineId, tier: Tier, fromFrame: boolean): C
   if (FROM_FRAME.includes(pipeline) || fromFrame) order = ["minimax", "seedance", "kling", "seedance-fal", "n8n"];
   else if (FOOTAGE.includes(pipeline)) order = ["seedance", "seedance-fal", "kling", "minimax", "n8n"];
   else order = ["seedance", "minimax", "kling", "seedance-fal", "n8n"];
-  /* Economy: the free MiniMax credit first, wherever it can make the scene. */
+  /* Credit: the MiniMax usage credit on n8n before anything that is paid for. */
+  if (tier === "credit") order = ["n8n", ...order.filter((engine) => engine !== "n8n")];
+  /* Economy: direct MiniMax first, wherever it can make the scene. */
   if (tier === "economy") order = ["minimax", ...order.filter((engine) => engine !== "minimax")];
   return order;
 }
@@ -135,11 +140,16 @@ export function routeClip(
   return order.filter((engine) => ENGINES[engine].configured(env) && canMake(engine, input));
 }
 
-/** VIDEO_QUALITY=economy puts the free credit first; anything else is "best". */
+/**
+ * The video's own Quality answer, then VIDEO_QUALITY, then "credit": the
+ * MiniMax usage credit on n8n is spent before anything paid for.
+ */
 export function tierFrom(env: Env = process.env, answer?: string | null): Tier {
+  if (answer && /credit|n8n/i.test(answer)) return "credit";
   if (answer && /econom|draft|fast|cheap/i.test(answer)) return "economy";
   if (answer && /best|premium|quality/i.test(answer)) return "best";
-  return (env.VIDEO_QUALITY ?? "").trim().toLowerCase() === "economy" ? "economy" : "best";
+  const set = (env.VIDEO_QUALITY ?? "").trim().toLowerCase();
+  return set === "best" ? "best" : set === "economy" ? "economy" : "credit";
 }
 
 /** The allowed duration nearest the scene's, never shorter than it where one exists. */
@@ -157,8 +167,13 @@ export function anyClipEngine(env: Env = process.env): boolean {
   return CLIP_ENGINES.some((engine) => ENGINES[engine].configured(env));
 }
 
-/* Voice lines: MiniMax's own speech API with the same key, or the n8n route. */
-export const voiceDirect = (env: Env = process.env) => Boolean(env.MINIMAX_API_KEY);
+/* Voice lines: on the "credit" tier the n8n route (MiniMax speech on the
+   usage credit) whenever it is connected; otherwise MiniMax's own speech API
+   with MINIMAX_API_KEY, or n8n when that is all there is. */
+export function voiceDirect(env: Env = process.env, tier: Tier = tierFrom(env)): boolean {
+  if (!env.MINIMAX_API_KEY) return false;
+  return !(tier === "credit" && ENGINES.n8n.configured(env));
+}
 
 /* Where a row's provider column says a clip is: "hf:seedance:<id>",
    "minimax:<task>", "fal-clip:<id>". Not "fal:", which the production line's

@@ -11,8 +11,10 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { hasWebhookToken, verifyRender } from "@/lib/video/render";
-import { landResult } from "@/lib/video/results";
+import type { ProductionPlan } from "@/lib/video/plan";
+import { speak } from "@/lib/video/providers";
+import { hasWebhookToken, languageFor, verifyRender, voiceIdFor } from "@/lib/video/render";
+import { landResult, retryClip } from "@/lib/video/results";
 
 /* Room to copy a clip into storage before answering n8n. */
 export const maxDuration = 60;
@@ -45,6 +47,28 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const url = typeof body.url === "string" && /^https:\/\//.test(body.url) ? body.url : null;
+  const origin = new URL(request.url).origin;
+
+  /* n8n spends the MiniMax usage credit first; when it could not make a
+     piece, the piece goes on rather than failing — a clip to the next engine
+     in its chain, a voice line to MiniMax's own speech API. */
+  if (!url && kind === "clip" && (await retryClip(service, { videoId: id, version, n, failed: "n8n", origin }))) {
+    return NextResponse.json({ ok: true, retried: true });
+  }
+  if (!url && kind === "voice" && process.env.MINIMAX_API_KEY) {
+    const plan = (await service.from("video_versions").select("plan").eq("video_id", id).eq("version", version).maybeSingle()).data?.plan as ProductionPlan | undefined;
+    const { data: project } = await service.from("video_projects").select("answers").eq("id", id).maybeSingle();
+    const line = plan?.scenes.find((scene) => scene.n === n)?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+    if (line) {
+      const answers = (project?.answers ?? {}) as Record<string, string>;
+      const spoken = await speak({ text: line, voiceId: voiceIdFor(answers), language: languageFor(answers) });
+      if (spoken.ok) {
+        await landResult(service, { videoId: id, version, kind, n, bytes: spoken.audio, origin });
+        return NextResponse.json({ ok: true, retried: true });
+      }
+    }
+  }
+
   await landResult(service, {
     videoId: id,
     version,
@@ -53,7 +77,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     url,
     error: url ? null : String(body.error ?? "Nothing was returned."),
     engine: kind === "clip" ? "n8n" : null,
-    origin: new URL(request.url).origin,
+    origin,
   });
 
   return NextResponse.json({ ok: true });
