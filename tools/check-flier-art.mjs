@@ -22,7 +22,7 @@ writeFileSync(config, JSON.stringify({
     skipLibCheck: true, strict: true, types: ["node"], typeRoots: [join(root, "node_modules", "@types")],
     baseUrl: root, paths: { "@/*": ["src/*"] },
   },
-  files: [join(root, "src/lib/flyers/art.ts")],
+  files: [join(root, "src/lib/flyers/art.ts"), join(root, "src/lib/flyers/fit.ts")],
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -41,6 +41,7 @@ writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
   }
 })(join(out, "lib"));
 const A = await import(join(out, "lib/flyers/art.js"));
+const Fit = await import(join(out, "lib/flyers/fit.js"));
 
 let failed = 0;
 const has = (cond, t, d) => {
@@ -76,6 +77,18 @@ const api = readFileSync(join(root, "src/app/api/flyers/route.ts"), "utf8");
 const run = readFileSync(join(root, "src/lib/flyers/run.ts"), "utf8");
 has(/currentBalance/.test(api) && /status: 402/.test(api), "the flyer API checks the balance before it makes anything");
 has(/dedupeKey: `flyer:\$\{jobId\}`/.test(run) && /flyerJobCost\(stage, outputs\.length\)/.test(run), "and charges once, for the images that arrived");
+
+/* Fit: a flier shrinks as a picture on a small screen. */
+const older = '<div id="flier"></div><button>Download PNG</button><span>1200 × 628 px</span></body></html>';
+has(Fit.looksLikeFlier(older) && Fit.looksLikeFlier('<div data-qs-flier>') && !Fit.looksLikeFlier("<main><h1>Bakery</h1></main>"), "fliers are recognised, including ones made before the marker");
+const fitted = Fit.withFlierFit(older);
+has(fitted.includes(Fit.FIT_MARK) && fitted.indexOf(Fit.FIT_MARK) < fitted.indexOf("</body>"), "the fit script goes in before </body>");
+has(Fit.withFlierFit(fitted) === fitted && Fit.withFlierFit("<main>site</main>") === "<main>site</main>", "once, and never on a page that is not a flier");
+has(/scaler\.appendChild\(canvas\)/.test(fitted) && !/canvas\.style\.transform/.test(fitted), "the wrapper is scaled, never the canvas, so Download PNG still exports full size");
+const preview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts"), "utf8");
+const serve = readFileSync(join(root, "src/lib/publish/serve.ts"), "utf8");
+has(/withFlierFit\(withSinglePageEdit\(/.test(preview) && /withFlierFit\(publication\.html/.test(serve) && /html = withFlierFit\(html\)/.test(save), "applied in the preview, the published site and the stored page");
+has(/data-width and data-height/.test(rules), "the flier rules build the canvas at its exact size");
 
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");

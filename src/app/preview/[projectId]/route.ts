@@ -1,5 +1,6 @@
 import { appPreviewDocument, canRenderApp } from "@/lib/builder/preview/app-preview";
 import { buildModeOf } from "@/lib/builder/build-mode";
+import { withFlierFit } from "@/lib/flyers/fit";
 import { existingVercelProject } from "@/lib/publish/deployment-store";
 import { canBeFramed } from "@/lib/publish/framable";
 import { appDomainFor, previewAliasFor, publicAddress } from "@/lib/publish/vercel-deploy";
@@ -633,7 +634,9 @@ export async function GET(
   /* A single page has no runtime, so edit mode comes with it here — see
      lib/builder/preview/single-page-edit.ts. Not the receipt asked for with
      ?diagnostics=1, which is a document about the build, not the page. */
-  const page = wantsDiagnostics ? (build.html as string) : withSinglePageEdit(build.html as string);
+  /* A flier keeps its designed size and is scaled as a whole — see
+     lib/flyers/fit.ts. */
+  const page = wantsDiagnostics ? (build.html as string) : withFlierFit(withSinglePageEdit(build.html as string));
 
   return new Response(page, {
     headers: {
