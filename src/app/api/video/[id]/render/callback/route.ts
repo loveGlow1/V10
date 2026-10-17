@@ -62,7 +62,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     .eq("scene", n)
     .eq("engine", kind === "clip" ? "video" : "voice")
     .maybeSingle();
-  if (!row || row.status !== "running" || row.provider !== "n8n:minimax") return NextResponse.json({ ok: true, ignored: true });
+  /* A clip that arrives after it was given up on is still the clip that was
+     asked for: n8n's queue can hold a job past the stale limit, and throwing
+     away a finished clip helps nobody. Taken only while the job is still
+     n8n's — one handed to another engine stays that engine's. */
+  const late = row?.status === "failed" && url !== null;
+  if (!row || (row.status !== "running" && !late) || row.provider !== "n8n:minimax") return NextResponse.json({ ok: true, ignored: true });
 
   /* The MiniMax usage credit behind n8n is spent: n8n is paused for every
      render, and this render's n8n jobs — this one included — go to the main

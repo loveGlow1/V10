@@ -248,5 +248,11 @@ has(/setTimeout\(load,busy\?6000:30000\)/.test(vws), "the board updates itself a
 has(/rendered\.status === 402[\s\S]{0,300}you have \$\{await balanceOf/.test(vws) && /say "render it"/.test(vws), "short of credits, the chat says how many it needs and how many you have");
 has(/const renderOnly = !first && RENDER_ONLY\.test/.test(vws), "\"render it\" renders the current plan without planning it again");
 has(/grid-template-columns:minmax\(0,1fr\)/.test(vws) && /overflow-x:hidden/.test(vws), "the video board fits a phone: nothing wider than the screen");
+/* n8n's queue: five at a time, the rest wait — not failures. */
+const renderLib = readFileSync(join(root, "src/lib/video/render.ts"), "utf8");
+const cb = readFileSync(join(root, "src/app/api/video/[id]/render/callback/route.ts"), "utf8");
+has(/STALE_AFTER_MS = 30 \* 60 \* 1000/.test(renderLib), "a queued n8n clip has 30 minutes before it is called lost");
+has(/name === "TimeoutError"\) return \{ job, ok: true \}/.test(renderLib), "a slow answer from n8n is its queue, not a refusal");
+has(/const late = row\?\.status === "failed" && url !== null;/.test(cb) && /row\.provider !== "n8n:minimax"/.test(cb), "a finished clip that arrives late is still taken — while it is still n8n's");
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
