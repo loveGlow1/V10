@@ -917,7 +917,7 @@ async function handle(
     const picked = resolveModel(asked);
     if (!picked) return null;
 
-    const plan = balance?.planId ?? "free";
+    const plan = balance?.modelPlanId ?? "free";
     if (!modelAllowedOnPlan(picked, plan)) return null;
 
     /* Priced as what an edit actually is — a chat action, which is how this
@@ -3972,6 +3972,9 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
   const viewerPlan = beforeBuild?.planId ?? "free";
+  /* What the models are gated by — Standard for a Free account that has
+     topped up a month of it. See modelPlanFor. */
+  const modelPlan = beforeBuild?.modelPlanId ?? "free";
 
   /* The model is settled HERE rather than further down, because affordability
      and model choice are the same decision and pretending otherwise is what
@@ -4001,11 +4004,11 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      told about the plan rather than quietly given Sonnet. Affordability, below,
      IS solved by spending less, and so it is. */
   const requiredPlan = planRequiredFor(requested);
-  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(requested, viewerPlan)) {
-    const usable = affordableModels(beforeBuild, viewerPlan).length
-      ? affordableModels(beforeBuild, viewerPlan)
-      : modelsForPlan(viewerPlan);
-    const said = `${requested.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to build with it, or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
+  if (beforeBuild && requiredPlan && !modelAllowedOnPlan(requested, modelPlan)) {
+    const usable = affordableModels(beforeBuild, modelPlan).length
+      ? affordableModels(beforeBuild, modelPlan)
+      : modelsForPlan(modelPlan);
+    const said = `${requested.name} is on the ${requiredPlan.name} plan and you are on ${PLANS[viewerPlan].name}. Upgrade to any paid plan, or top up $${PLANS.standard.monthlyPriceUsd} or more, to build with it — or use ${usable.map((entry) => entry.name).join(" or ")} — ${PLANS[viewerPlan].name} includes ${usable.length === 1 ? "it" : "them"}.`;
     const stored = await deliver(said, { tone: "error", key: "plan-locked" });
     return NextResponse.json(
       { error: said, code: "model_requires_plan", requiredPlan: requiredPlan.id, stored },
@@ -4017,7 +4020,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      per model — the band describes a turn on the default and every other model
      multiplies it — so an account holding eight credits cannot open a Fable
      build that prices at forty. What it CAN do is build on something cheaper. */
-  const choice = resolveBuildModel(requested, beforeBuild, viewerPlan);
+  const choice = resolveBuildModel(requested, beforeBuild, modelPlan);
 
   if (!choice) {
     /* The only refusal left: nothing on this plan fits this balance. The
