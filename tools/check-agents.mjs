@@ -135,8 +135,12 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
      is the workbench, and somebody who wants a model by name works there. */
   const composer = readFileSync(
     join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+  /* Every model, split across the picker's two pages: Auto and Claude in the
+     main card, every other maker behind "More models". The two filters are
+     each other's complement, so nothing falls between them. */
   has(
-    /groupedModels\(\)/.test(composer),
+    /MODELS\.filter\(\(option\) => option\.provider === "auto" \|\| option\.provider === "claude"\)/.test(composer) &&
+      /MODELS\.filter\(\(option\) => option\.provider !== "auto" && option\.provider !== "claude"\)/.test(composer),
     "the workspace composer still offers every model by name",
     "the agent list is the front door's vocabulary, not a reduction of what the product can do",
   );

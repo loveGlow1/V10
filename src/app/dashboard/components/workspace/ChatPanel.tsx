@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp,
-  Check,
-  ChevronDown,
   Clock,
   Database,
   Loader2,
@@ -18,7 +16,6 @@ import {
   Cable,
   MicOff,
   Paperclip,
-  Shuffle,
   Settings2,
   ChevronRight,
   ListChecks,
@@ -26,7 +23,7 @@ import {
 } from "lucide-react";
 
 import {
-  groupedModels,
+  MODELS,
   shortModelName,
   providerOf,
 } from "../../models";
@@ -49,6 +46,7 @@ import ChatMarkdown from "./ChatMarkdown";
 import { type BuildResult } from "./BuildResultCard";
 import { ProviderMark } from "./modelMarks";
 import Popover from "./Popover";
+import ChoiceSheet, { type ChoiceRow } from "../ChoiceSheet";
 import { RESUME_STEP_POLL_MS, resumableFrom } from "./resume";
 import { cardFor, cardIndex } from "./threadView";
 import {
@@ -310,6 +308,11 @@ export default function ChatPanel({
    * previous attempt's half-answer appearing under the next one. */
   const [streamed, setStreamed] = useState("");
   const [modelOpen, setModelOpen] = useState(false);
+  /* The picker's two pages: the main card, and the other makers' models. */
+  const [modelPage, setModelPage] = useState<"main" | "more">("main");
+  useEffect(() => {
+    if (modelOpen) setModelPage("main");
+  }, [modelOpen]);
   const [forkOpen, setForkOpen] = useState(false);
   /* The "this chat is getting long" suggestion. Said once, not left standing:
      it goes by itself after a few seconds, or with × or Fork, and the length
@@ -2466,23 +2469,13 @@ export default function ChatPanel({
                     setForkOpen(false);
                   }}
                   aria-expanded={modelOpen}
-                  aria-label="Choose a model"
+                  aria-label={`Model: ${chosen.name}. Choose a model`}
                   title={chosen.name}
-                  className={`${ghostChip} shrink`}
+                  /* The model's name on a filled pill, nothing else — the way
+                     the picker it opens names them. */
+                  className="flex h-8 min-w-0 shrink items-center rounded-full bg-layer/[0.09] px-3.5 text-[13.5px] font-medium tracking-tight text-ink/90 transition-colors hover:bg-layer/[0.13] hover:text-ink active:scale-[0.98]"
                 >
-                  {/* The maker actually answering. On Auto that is the model
-                      Auto runs, not the router's target symbol — the same rule
-                      the thinking indicator follows (providerOf). */}
-                  <span className="flex shrink-0">
-                    <ProviderMark provider={providerOf(model)} />
-                  </span>
-                  {/* Named from sm up; a phone shows the mark and the chevron. */}
-                  <span className="hidden min-w-0 max-w-[9rem] truncate font-medium tracking-tight sm:block">
-                    {shortModelName(chosen)}
-                  </span>
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 shrink-0 opacity-70 transition-transform ${modelOpen ? "rotate-180" : ""}`}
-                  />
+                  <span className="min-w-0 max-w-[9rem] truncate">{shortModelName(chosen)}</span>
                 </button>
 
                 <button
@@ -2695,125 +2688,54 @@ export default function ChatPanel({
                       {forking ? "Forking…" : "Create the fork"}
                     </button>
                   </Popover>
-                  {/* Hung off the chip on every size. The bar sits at the foot
-                      of the screen, so on a phone the list opens right above the
-                      thumb that asked for it rather than in the middle. */}
-                  <Popover
-                    open={modelOpen}
-                    onClose={() => setModelOpen(false)}
-                    title="Select model"
-                    align="right"
-                    side="top"
-                    width="w-[min(340px,100%)]"
-                    sheetOnMobile={false}
-                  >
-                    <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
-                      <Shuffle className="h-3.5 w-3.5 shrink-0" />
-                      Model changes apply from your next message
-                    </p>
-
-                    <div
-                      className="-mx-1.5 max-h-[52vh] overflow-y-auto overscroll-contain px-1.5"
-                      role="menu"
-                    >
-                      {groupedModels().map((group) => (
-                        <div key={group.provider}>
-                          {group.label && (
-                            <p className="px-2.5 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-                              {group.label}
-                            </p>
-                          )}
-                          {group.models.map((option) => {
-                            const selected = model === option.id;
-                            /* Shown either way, and for the same reason in
-                               both cases: a model that is greyed with a reason
-                               is information, and an absent one is not. One
-                               says "check back soon", the other names the plan
-                               that includes it — which is the only place in
-                               the product a person meets the difference
-                               between the tiers while actually wanting it. */
-                            /* One answer covering all three ways a model can
-                               be off the table — no credential, not on this
-                               plan, or not affordable on this balance. The
-                               third was missing, and its absence was worse
-                               than a grey row: the picker showed the model as
-                               ready, and the server, finding the balance
-                               short, silently ran a different one. See
-                               useModel. */
-                            const gate = reach(option);
-                            const ready = gate.ok;
-                            return (
-                              <button
-                                key={option.id}
-                                role="menuitem"
-                                disabled={!ready}
-                                title={gate.ok ? undefined : gate.label}
-                                onClick={() => {
-                                  setModel(option.id);
-                                  setModelOpen(false);
-                                }}
-                                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
-                                  ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
-                                } ${selected ? "bg-layer/[0.06]" : ""}`}
-                              >
-                                <span className="mt-0.5 shrink-0">
-                                  <ProviderMark provider={option.provider} />
-                                </span>
-
-                                <span className="min-w-0 flex-1">
-                                  <span className="flex items-center gap-2">
-                                    <span
-                                      className={`truncate text-[13px] font-medium ${
-                                        selected ? "text-accent" : "text-ink"
-                                      }`}
-                                    >
-                                      {option.name}
-                                    </span>
-                                    {option.badge && ready && (
-                                      <span className="shrink-0 rounded-full bg-warn/15 px-2 py-0.5 text-[10px] font-semibold text-warn">
-                                        {option.badge}
-                                      </span>
-                                    )}
-                                    {/* The reason, on the row, in the colour
-                                        the reason deserves: ours to fix is
-                                        grey, theirs to act on is the accent,
-                                        and a balance that is merely short is
-                                        amber rather than an error. */}
-                                    {!gate.ok && (
-                                      <span
-                                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                          gate.why === "unavailable"
-                                            ? "bg-layer/[0.08] text-muted"
-                                            : gate.why === "plan"
-                                              ? "bg-accent/15 text-accent"
-                                              : "bg-amber-500/15 text-amber-300"
-                                        }`}
-                                      >
-                                        {gate.why === "plan" ? gate.planName : gate.label}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
-                                    {option.blurb}
-                                    {option.note && (
-                                      <>
-                                        {" · "}
-                                        <span className="text-warn">{option.note}</span>
-                                      </>
-                                    )}
-                                  </span>
-                                </span>
-
-                                {selected && (
-                                  <Check className="mt-0.5 h-4 w-4 shrink-0 stroke-[2.5] text-accent" />
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </Popover>
+                  {/* The picker, as a sheet: Auto and the Claude models in the
+                      main card, every other maker's behind "More models". A
+                      model that cannot be picked says why on its badge — not
+                      on this plan, not affordable on this balance, or not
+                      available yet — rather than being left out. See useModel. */}
+                  {(() => {
+                    const toRow = (option: (typeof MODELS)[number]): ChoiceRow => {
+                      const gate = reach(option);
+                      return {
+                        id: option.id,
+                        title: shortModelName(option),
+                        subtitle: option.note ? `${option.blurb} · ${option.note}` : option.blurb,
+                        badge: gate.ok ? option.badge : gate.label,
+                        hint: gate.ok ? undefined : gate.label,
+                        selected: model === option.id,
+                        disabled: !gate.ok,
+                        onSelect: () => {
+                          setModel(option.id);
+                          setModelOpen(false);
+                        },
+                      };
+                    };
+                    const main = MODELS.filter((option) => option.provider === "auto" || option.provider === "claude");
+                    const others = MODELS.filter((option) => option.provider !== "auto" && option.provider !== "claude");
+                    const elsewhere = others.find((option) => option.id === model);
+                    return (
+                      <ChoiceSheet
+                        open={modelOpen}
+                        onClose={() => setModelOpen(false)}
+                        title={modelPage === "more" ? "More models" : "Select model"}
+                        onBack={modelPage === "more" ? () => setModelPage("main") : undefined}
+                        rows={(modelPage === "more" ? others : main).map(toRow)}
+                        links={
+                          modelPage === "main" && others.length > 0
+                            ? [
+                                {
+                                  id: "more",
+                                  label: "More models",
+                                  value: elsewhere ? shortModelName(elsewhere) : undefined,
+                                  onClick: () => setModelPage("more"),
+                                },
+                              ]
+                            : []
+                        }
+                        note="Model changes apply from your next message."
+                      />
+                    );
+                  })()}
             </div>
           </div>
         </div>

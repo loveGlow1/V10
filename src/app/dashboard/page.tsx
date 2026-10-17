@@ -26,6 +26,7 @@ import SupportChat from "./components/SupportChat";
 import ImportFromGitHub from "./components/ImportFromGitHub";
 import PhoneField from "./components/PhoneField";
 import { ComingSoonModal } from "./components/ComingSoon";
+import ChoiceSheet, { type ChoiceRow } from "./components/ChoiceSheet";
 import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
@@ -539,12 +540,16 @@ export default function DashboardPage() {
                     active
                       ? "border-line/[0.16] bg-layer/[0.05] text-ink md:bg-layer/[0.13] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                       : "border-transparent bg-layer/[0.09] text-muted hover:bg-layer/[0.07] hover:text-soft md:bg-layer/[0.045]"
-                  } ${soon ? "cursor-not-allowed opacity-60 hover:bg-layer/[0.09] hover:text-muted md:hover:bg-layer/[0.045]" : ""}`}
+                  } ${soon ? "cursor-not-allowed opacity-80 hover:bg-layer/[0.09] hover:text-muted md:hover:bg-layer/[0.045]" : ""}`}
                 >
                   {/* Thin and a size down on a phone, as Emergent draws them. */}
                   <PhoneIcon className={`h-[17px] w-[17px] shrink-0 md:hidden ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.5} />
                   <Icon className={`hidden h-4 w-4 shrink-0 md:block ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
-                  <span className={active ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
+                  {/* A phone names only the selected tab. A coming-soon tab is
+                      never selected, so it is named always — otherwise all a
+                      phone shows is an icon under "Soon", and "Soon" reads as
+                      the tab's name rather than as news about it. */}
+                  <span className={active || soon ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
                   {soon && (
                     <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-[4deg] rounded-[6px] bg-layer/[0.22] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-ink ring-1 ring-line/[0.25] md:static md:translate-x-0 md:rotate-0 md:ring-0">
                       Soon
@@ -808,111 +813,36 @@ export default function DashboardPage() {
                 be a different object depending on which screen it was reached
                 from. AnchoredPanel flips and clamps it into whatever room the
                 viewport has. */}
-            <Popover
+            <ChoiceSheet
               open={isModelPopoverOpen}
               onClose={() => setIsModelPopoverOpen(false)}
               title="Select agent"
-              align="left"
-              side="top"
-              width="w-[min(340px,100%)]"
-              sheetOnMobile={false}
-            >
-              <p className="-mx-3.5 -mt-3.5 mb-1.5 flex items-center justify-center gap-2 rounded-t-xl border-b border-line/[0.06] bg-layer/[0.02] px-3 py-2.5 text-center text-[12px] text-muted">
-                <Shuffle className="h-3.5 w-3.5 shrink-0" />
-                Agent changes apply from your next message
-              </p>
-
-              {/* ── The agents, which now name a model each ─────────────────
-               *
-               * This list was here before and was deleted, because choosing an
-               * agent set a label and nothing else: the build ran on a
-               * hardcoded "Q1" whatever the chip said, so somebody who chose
-               * Q2 got Q1 and nothing anywhere admitted it.
-               *
-               * It is back because each entry now names a real model and
-               * choosing one sets it — through the same provider the
-               * workspace composer and the settings panel read, so the three
-               * cannot disagree again. See ./agents.ts.
-               *
-               * The full model list has not gone anywhere; it is in the
-               * workspace composer, which is where somebody who wants to pick
-               * a specific model by name is working. This is the front door,
-               * and the front door offers the product's own vocabulary. */}
-              <div className="-mx-1.5 px-1.5" role="menu">
-                {AGENTS.map((agent) => {
-                  const runs = agent.model ? modelById(agent.model) : null;
-                  /* An agent on the roadmap, and one whose model this account
-                     cannot reach, are both unselectable and are NOT the same
-                     sentence: one is "not yet", the other names the plan or
-                     the balance that would fix it. See useModel's reach. */
-                  const gate = runs ? reach(runs) : null;
-                  const ready = !agent.soon && Boolean(runs) && (gate?.ok ?? false);
-                  const selected = Boolean(agent.model) && agent.model === model;
-
-                  return (
-                    <button
-                      key={agent.id}
-                      role="menuitem"
-                      disabled={!ready}
-                      title={agent.soon ? "Coming soon" : gate && !gate.ok ? gate.label : undefined}
-                      onClick={() => {
-                        if (!agent.model) return;
-                        setModel(agent.model);
-                        setIsModelPopoverOpen(false);
-                      }}
-                      className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors ${
-                        ready ? "hover:bg-layer/[0.05]" : "cursor-not-allowed opacity-45"
-                      } ${selected ? "bg-layer/[0.06]" : ""}`}
-                    >
-                      <span className="mt-0.5 shrink-0">
-                        <ProviderMark provider={runs?.provider ?? "auto"} />
-                      </span>
-
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2">
-                          <span
-                            className={`truncate text-[13px] font-medium ${
-                              selected ? "text-accent" : "text-ink"
-                            }`}
-                          >
-                            {agent.title}
-                          </span>
-                          {agent.soon && (
-                            <span className="shrink-0 rounded-full bg-layer/[0.10] px-2 py-0.5 text-[10px] font-semibold text-muted">
-                              Coming soon
-                            </span>
-                          )}
-                          {!agent.soon && gate && !gate.ok && (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                gate.why === "unavailable"
-                                  ? "bg-layer/[0.10] text-muted"
-                                  : "bg-accent/15 text-accent"
-                              }`}
-                            >
-                              {gate.label}
-                            </span>
-                          )}
-                        </span>
-                        <span className="mt-0.5 block text-[12px] leading-snug text-muted">
-                          {agent.subtitle}
-                        </span>
-                        {/* Named underneath rather than hidden. Q1 and Q2 are
-                            what somebody is choosing between; the model is
-                            what they are paying for, and concealing that from
-                            an account billed per build would be the other kind
-                            of dishonesty. */}
-                        {runs && (
-                          <span className="mt-0.5 block text-[11px] leading-snug text-muted/70">
-                            Runs on {runs.name}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </Popover>
+              rows={AGENTS.map((agent): ChoiceRow => {
+                const runs = agent.model ? modelById(agent.model) : null;
+                /* "Not yet" and "not on your plan or balance" are both
+                   unselectable and are not the same sentence: the badge says
+                   which. See useModel's reach. */
+                const gate = runs ? reach(runs) : null;
+                const ready = !agent.soon && Boolean(runs) && (gate?.ok ?? false);
+                return {
+                  id: agent.id,
+                  title: agent.title,
+                  /* The model named, not hidden: it is what each build is
+                     billed on. */
+                  subtitle: runs ? `${agent.subtitle} · Runs on ${runs.name}` : agent.subtitle,
+                  badge: agent.soon ? "Coming soon" : gate && !gate.ok ? gate.label : undefined,
+                  hint: agent.soon ? "Coming soon" : gate && !gate.ok ? gate.label : undefined,
+                  selected: Boolean(agent.model) && agent.model === model,
+                  disabled: !ready,
+                  onSelect: () => {
+                    if (!agent.model) return;
+                    setModel(agent.model);
+                    setIsModelPopoverOpen(false);
+                  },
+                };
+              })}
+              note="Agent changes apply from your next message."
+            />
           </div>
 
           {/* Starters, centred under the composer: one row, the selected tab's
