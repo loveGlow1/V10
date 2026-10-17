@@ -9,6 +9,8 @@ import { Loader2, Mail } from "lucide-react";
 
 type State = {
   configured: boolean;
+  /** Messages go to the QuickStark inbox rather than the owner's Supabase. */
+  inbox?: boolean;
   installed: boolean;
   enabled: boolean;
   email: string | null;
@@ -92,8 +94,8 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
       </div>
       <p className="mt-1 text-[12px] leading-relaxed text-muted">
         {state.enabled
-          ? `When someone sends your form, we email ${to}. Reply to it to answer them. Every message is also saved in your Supabase.`
-          : "Messages are saved in your Supabase. Turn this on to also get an email for each one — nothing to connect."}
+          ? `When someone sends your form, we email ${to}. Reply to it to answer them. Every message is also saved in ${state.inbox ? "your inbox below" : "your Supabase"}.`
+          : `Messages are saved in ${state.inbox ? "your inbox below" : "your Supabase"}. Turn this on to also get an email for each one — nothing to connect.`}
       </p>
 
       {state.enabled && (

@@ -103,6 +103,15 @@ has(token.length === 32 && !token.includes("203") && token === F.senderToken("20
   const route = read("src/app/api/build/route.ts");
   has(/forms: formsBriefText \|\| undefined/.test(route), "and the build route gives the inbox to projects with no database of their own");
 
+  /* Email settings work for the inbox too: on by default, as the submit route
+     behaves, and changeable without a Supabase to install anything into. */
+  const settings = read("src/app/api/projects/[id]/backend/notifications/route.ts");
+  has(/inbox: !own/.test(settings) && /enabled: row \? row\.enabled : !own/.test(settings), "inbox projects report emails as on until turned off");
+  has(!/Connect your Supabase first/.test(settings), "and turning emails on never asks an inbox project to connect Supabase");
+  has(/upsert\(\{ project_id: owned\.projectId[^)]*\}, \{ onConflict: "project_id" \}\)/.test(settings), "settings are upserted, so installing on an own Supabase cannot collide with them");
+  const panel = read("src/app/dashboard/components/workspace/BackendPanel.tsx");
+  has(/<FormInbox projectId=\{projectId\} \/>\s*\{[^}]*\}\s*\{!\(backend\?\.mode === "own" && backend\.url\) && <FormNotifications/.test(panel), "the Database panel shows the inbox's email settings beside it");
+
   const schema = read("supabase/schema.sql");
   has(/create table if not exists public\.form_submissions/.test(schema) && /revoke all on public\.form_submissions from anon, authenticated/.test(schema), "the table exists, and no browser role can write to it");
 }
