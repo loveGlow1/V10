@@ -76,9 +76,10 @@ export type ManagedProject = {
 export const QUOTA_REACHED = "QUOTA_REACHED" as const;
 export const QUOTA_MESSAGE = "Project limit reached on the hosting account. Please try again later or contact support.";
 
-/** 402, 403 or 429, or a refusal whose body says limit, quota or plan. */
+/** 402 or 429, or a refusal (a 403 included) whose body says limit, quota or
+ *  plan. A bare 403 is a token without permission, not a full account. */
 function isQuotaRefusal(status: number, body: unknown): boolean {
-  if (status === 402 || status === 403 || status === 429) return true;
+  if (status === 402 || status === 429) return true;
   if (status < 400) return false;
   let text = "";
   try {

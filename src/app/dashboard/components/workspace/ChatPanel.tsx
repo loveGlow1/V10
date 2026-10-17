@@ -2363,9 +2363,12 @@ export default function ChatPanel({
         {/* Home's composer, brought over whole: the orbiting highlight outside,
             the graphite glass inside. */}
         <div className="group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-          <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px]">
-            <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)]" />
+          {/* The edge light: a thin streak running round the border, and its
+              halo. Drawn over the box, on the border itself. See globals.css. */}
+          <div aria-hidden className="qs-edge-halo rounded-[26px]">
+            <div className="qs-edge-glow" />
           </div>
+          <div aria-hidden className="qs-edge-glow rounded-[26px]" />
 
           <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
             <div className="relative">
