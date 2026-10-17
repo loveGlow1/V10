@@ -1158,3 +1158,89 @@ body {
     box-shadow: none;
   }
 }
+
+/* ── The composer's edge light ──────────────────────────────────────────────
+ *
+ * A thin streak of light that runs round the composer's border without end,
+ * with a soft halo where it is, and the faint flicker of a filament.
+ *
+ * It used to be a large conic square rotating BEHIND the box, animated by a
+ * <style jsx> block on Home. The workspace composer copied the layer but not
+ * the block, so its light stood still; and on desktop Home's box paints over
+ * its own border, so even moving it was hidden there. So it is drawn ON the
+ * border now, in one place for both: a ring exactly as thick
+ * as the line, masked out of a conic gradient whose start angle is what
+ * animates. The light follows the box's own shape at an even pace, whatever is
+ * painted underneath.
+ *
+ * Without @property the angle cannot animate, and the ring stays as a still,
+ * faint highlight — never broken, only quieter. */
+@property --qs-edge-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.qs-edge-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--qs-edge-angle),
+    transparent 0deg,
+    transparent 230deg,
+    rgb(var(--ink) / 0.10) 290deg,
+    rgb(var(--ink) / 0.55) 335deg,
+    rgb(var(--ink) / 0.95) 352deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation:
+    qs-edge-orbit 6s linear infinite,
+    qs-edge-flicker 4.3s steps(1, end) infinite;
+}
+
+/* The same line, blurred: the light it throws just past the edge. The blur is
+   on a wrapper because a filter runs before a mask — on the ring itself the
+   glow would be cut back to the ring. */
+.qs-edge-halo {
+  position: absolute;
+  inset: -1px;
+  z-index: 39;
+  pointer-events: none;
+  border-radius: inherit;
+  filter: blur(5px);
+  opacity: 0.55;
+}
+
+.qs-edge-halo > .qs-edge-glow {
+  padding: 2.5px;
+}
+
+@keyframes qs-edge-orbit {
+  to {
+    --qs-edge-angle: 360deg;
+  }
+}
+
+/* Mostly steady, with two quick dips: a filament, not a strobe. */
+@keyframes qs-edge-flicker {
+  0%, 100% { opacity: 1; }
+  41% { opacity: 0.55; }
+  43% { opacity: 1; }
+  44% { opacity: 0.7; }
+  46% { opacity: 1; }
+  78% { opacity: 0.8; }
+  80% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-edge-glow {
+    animation: qs-edge-orbit 30s linear infinite;
+  }
+}

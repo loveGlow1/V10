@@ -550,10 +550,12 @@ export default function DashboardPage() {
 
           {/* Premium AI Chat Input Container with Exact Graphite Background & Continuous Orbiting Highlight */}
           <div className="qs-composer-shell group relative w-full overflow-visible rounded-[26px] p-0 shadow-[0_12px_40px_rgba(0,0,0,0.35)] md:rounded-[14px]">
-            {/* Continuously moving 360-degree white highlight orbiter */}
-            <div className="pointer-events-none absolute inset-0 z-25 overflow-hidden rounded-[26px] md:rounded-[14px]">
-              <div className="absolute -inset-[150%] animate-orbit-border bg-[conic-gradient(from_0deg_at_50%_50%,rgba(236,243,255,0.40)_0deg,rgba(236,243,255,0.12)_78deg,rgba(236,243,255,0.04)_128deg,rgba(236,243,255,0.34)_196deg,rgba(236,243,255,0.10)_268deg,rgba(236,243,255,0.04)_310deg,rgba(236,243,255,0.40)_360deg)] md:bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,transparent_310deg,rgba(232,232,232,0.4)_340deg,#FFFFFF_355deg,transparent_360deg)]" />
+            {/* The edge light: a thin streak running round the border, and its
+                halo. Drawn over the box, on the border itself. See globals.css. */}
+            <div aria-hidden className="qs-edge-halo rounded-[26px] md:rounded-[14px]">
+              <div className="qs-edge-glow" />
             </div>
+            <div aria-hidden className="qs-edge-glow rounded-[26px] md:rounded-[14px]" />
 
             {/* Inner Graphite Glass Box matching #26252A */}
             <div className="qs-composer relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
@@ -1178,25 +1180,6 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      {/* Keyframe animations for continuous 360-degree border orbiting highlight */}
-      <style jsx>{`
-        @keyframes borderOrbit {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
-        }
-        .animate-orbit-border {
-          animation: borderOrbit 2s linear infinite;
-        }
-        @media (max-width: 767px) {
-          .animate-orbit-border {
-            animation-duration: 7s;
-          }
-        }
-      `}</style>
     </div>
     </ProjectsProvider>
   );
