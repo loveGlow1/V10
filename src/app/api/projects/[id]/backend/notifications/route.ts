@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { resolveBackend } from "@/lib/builder/backend/connection";
-import { installFormNotifications, isEmailConfigured, validEmail } from "@/lib/builder/backend/form-notify";
+import {
+  installFormNotifications,
+  isEmailConfigured,
+  nextWindow,
+  sendEmail,
+  validEmail,
+} from "@/lib/builder/backend/form-notify";
 import { PAGE_TABLE } from "@/lib/builder/backend/page-data";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -12,6 +18,9 @@ import { ownedProject } from "../owned";
  *   GET    whether they are on, where they go, and whether they are set up.
  *   PATCH  { enabled?, email? } — email null or "" means the account email.
  *          Turning them on where the trigger is not installed yet installs it.
+ *   POST   { action: "test" } — sends a test email to where messages go now,
+ *          so the owner can see an address works. Counts toward the same
+ *          hourly cap as real messages, so it cannot be used to flood one.
  */
 
 export const runtime = "nodejs";
@@ -122,4 +131,69 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   }
 
   return NextResponse.json(await state(service, owned.projectId, owned.userId));
+}
+
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const got = await context(id);
+  if ("error" in got) return got.error;
+  const { owned, service } = got;
+
+  const body = (await request.json().catch(() => ({}))) as { action?: unknown };
+  if (body.action !== "test") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  if (!isEmailConfigured()) {
+    return NextResponse.json({ error: "Email sending isn't switched on for this deployment yet." }, { status: 503 });
+  }
+
+  const current = await state(service, owned.projectId, owned.userId);
+  const to = validEmail(current.email) ?? validEmail(current.accountEmail);
+  if (!to) return NextResponse.json({ error: "There's no email address to send to yet." }, { status: 400 });
+
+  const { data: row } = await service
+    .from("form_notifications")
+    .select("window_start, window_count")
+    .eq("project_id", owned.projectId)
+    .maybeSingle<{ window_start: string | null; window_count: number }>();
+  const window = nextWindow(row ?? { window_start: null, window_count: 0 }, new Date());
+  if (!window.send) {
+    return NextResponse.json({ error: "Too many emails this hour — try the test again later." }, { status: 429 });
+  }
+  await service
+    .from("form_notifications")
+    .upsert(
+      {
+        project_id: owned.projectId,
+        user_id: owned.userId,
+        ...(row ? {} : { enabled: current.enabled }),
+        window_start: window.window_start,
+        window_count: window.window_count,
+      },
+      { onConflict: "project_id" },
+    );
+
+  const { data: project } = await service
+    .from("projects")
+    .select("name")
+    .eq("id", owned.projectId)
+    .maybeSingle<{ name: string | null }>();
+  const site = project?.name?.trim() || "your site";
+
+  const sent = await sendEmail({
+    to,
+    subject: `Test: form messages from ${site} will arrive here`,
+    text: [
+      `This is a test from QuickStark.`,
+      "",
+      `When someone sends a form on ${site}, an email like this one arrives at ${to} with what they wrote.`,
+      "Reply to a real message to answer the person who sent it.",
+      "",
+      "Change the address or turn these emails off in the Database panel of your project.",
+    ].join("\n"),
+  });
+  if (!sent.ok) {
+    // eslint-disable-next-line no-console
+    console.error(`notifications: test to ${owned.projectId} failed: ${sent.reason}`);
+    return NextResponse.json({ error: "The test email couldn't be sent. Try again in a moment." }, { status: 502 });
+  }
+  return NextResponse.json({ ok: true, to });
 }

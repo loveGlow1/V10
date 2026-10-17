@@ -109,6 +109,9 @@ has(token.length === 32 && !token.includes("203") && token === F.senderToken("20
   has(/inbox: !own/.test(settings) && /enabled: row \? row\.enabled : !own/.test(settings), "inbox projects report emails as on until turned off");
   has(!/Connect your Supabase first/.test(settings), "and turning emails on never asks an inbox project to connect Supabase");
   has(/upsert\(\{ project_id: owned\.projectId[^)]*\}, \{ onConflict: "project_id" \}\)/.test(settings), "settings are upserted, so installing on an own Supabase cannot collide with them");
+  has(/body\.action !== "test"/.test(settings) && /nextWindow\(/.test(settings) && settings.indexOf("nextWindow(") < settings.indexOf("sendEmail("), "a test email goes to the saved address and counts toward the hourly cap");
+  const notify = read("src/app/dashboard/components/workspace/FormNotifications.tsx");
+  has(/Update email/.test(notify) && /Send test email/.test(notify) && /Emails go to/.test(notify), "the settings say where emails go, with Update email and Send test email");
   const panel = read("src/app/dashboard/components/workspace/BackendPanel.tsx");
   has(/<FormInbox projectId=\{projectId\} \/>\s*\{[^}]*\}\s*\{!\(backend\?\.mode === "own" && backend\.url\) && <FormNotifications/.test(panel), "the Database panel shows the inbox's email settings beside it");
 
