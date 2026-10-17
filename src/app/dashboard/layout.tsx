@@ -5,7 +5,8 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 import { ThemeProvider } from './components/ThemeProvider';
 import { CreditsProvider } from './useCredits';
-import { PLAN_ORDER, type CreditBalance, type PlanId } from './credits';
+import { PLAN_ORDER, modelPlanFor, type CreditBalance, type PlanId } from './credits';
+import { toppedUpCredits } from '@/lib/credits-server';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 import { ModelProvider } from './useModel';
 
@@ -55,6 +56,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
      the plan cannot reach, and a picker that renders every model unlocked and
      then corrects itself has already shown somebody a model they cannot use. */
   const planId: PlanId = PLAN_ORDER.find((id) => id === balanceRow?.plan_id) ?? 'free';
+  /* A Free account that has topped up a month of Standard picks models as
+     Standard does. Only read when it could change the answer. */
+  const modelPlanId: PlanId =
+    planId === 'free' ? modelPlanFor(planId, await toppedUpCredits(supabase)) : planId;
 
   return (
     <ThemeProvider>
@@ -62,7 +67,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         survive moving between them: a tab strip that reset on navigation would
         be a list of one. */}
     <WorkspaceTabsProvider>
-    <CreditsProvider initial={balance} initialPlan={planId}>
+    <CreditsProvider initial={balance} initialPlan={planId} initialModelPlan={modelPlanId}>
     {/* Inside the credits provider, which is not incidental: whether a model
         can be chosen depends on the plan AND on the balance, and both are read
         from there. Above everything, because the choice belongs to the person

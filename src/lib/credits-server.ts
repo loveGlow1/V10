@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { PLAN_ORDER, type PlanId } from "@/app/dashboard/credits";
+import { PLAN_ORDER, modelPlanFor, type PlanId } from "@/app/dashboard/credits";
 
 /* Taking payment for work that has already happened.
  *
@@ -119,6 +119,9 @@ export async function currentBalance(
      row already holds it and the caller that needs a balance is usually the
      caller that needs to know what the account is entitled to. */
   planId: PlanId;
+  /* The plan the model picker and the build route gate MODELS by: the real
+     plan, or Standard for a Free account whose top-ups reach a month of it. */
+  modelPlanId: PlanId;
 } | null> {
   const { data, error } = await service.rpc("ensure_credit_balance", { p_user_id: userId });
 
@@ -138,6 +141,7 @@ export async function currentBalance(
   /* Anything unrecognised reads as free — the safe direction, since the plan is
      what unlocks the expensive models. */
   const planId = PLAN_ORDER.find((id) => id === row.plan_id) ?? "free";
+  const modelPlanId = planId === "free" ? modelPlanFor(planId, await toppedUpCredits(service, userId)) : planId;
 
   return {
     daily: Number(row.daily ?? 0),
@@ -145,5 +149,23 @@ export async function currentBalance(
     monthly: Number(row.monthly ?? 0),
     topUp: Number(row.top_up ?? 0),
     planId,
+    modelPlanId,
   };
+}
+
+/**
+ * Every credit this account has ever bought as a top-up. The ledger records
+ * each purchase as a positive `topup` row — card and crypto alike — while the
+ * signup bonus and plan grants are `grant`, so they do not count.
+ *
+ * Works with either client: the service key reads any account, a person's own
+ * session reads only their own rows under RLS. A failed read counts as nothing
+ * bought, the safe direction since this unlocks the dearer models.
+ */
+export async function toppedUpCredits(client: SupabaseClient, userId?: string): Promise<number> {
+  let query = client.from("credit_ledger").select("credits").eq("action", "topup").gt("credits", 0);
+  if (userId) query = query.eq("user_id", userId);
+  const { data, error } = await query;
+  if (error || !data) return 0;
+  return data.reduce((sum, row) => sum + Number((row as { credits?: unknown }).credits ?? 0), 0);
 }

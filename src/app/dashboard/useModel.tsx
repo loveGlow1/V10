@@ -8,6 +8,7 @@ import {
   formatCredits,
   modelAllowedOnPlan,
   planRequiredFor,
+  PLANS,
   type PlanId,
 } from "./credits";
 import { DEFAULT_MODEL, MODELS, UNAVAILABLE_LABEL, isModelAvailable, modelById, type Model } from "./models";
@@ -90,7 +91,7 @@ function remembered(): string {
 }
 
 export function ModelProvider({ children }: { children: ReactNode }) {
-  const { planId, balance } = useCredits();
+  const { modelPlanId: planId, balance } = useCredits();
 
   /* DEFAULT_MODEL on the first render whatever is stored, and read from storage
      in an effect. Reading localStorage during render makes the server's HTML
@@ -119,8 +120,8 @@ export function ModelProvider({ children }: { children: ReactNode }) {
 
       if (!modelAllowedOnPlan(model, planId as PlanId)) {
         const plan = planRequiredFor(model);
-        const name = plan?.name ?? "a higher";
-        return { ok: false, why: "plan", label: `Included with ${name}`, planName: name };
+        const name = plan ? "Paid plans" : "a higher";
+        return { ok: false, why: "plan", label: `Any paid plan, or top up $${PLANS.standard.monthlyPriceUsd}`, planName: name };
       }
 
       /* The same call the server makes before it honours a picked model. A

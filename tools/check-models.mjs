@@ -163,16 +163,23 @@ try {
   is(models.creditMultiplierFor(models.AUTO_MODEL), 1, "the default model is the anchor at 1");
 
   /* ── Which plan may pick what ───────────────────────────────────────────
-     Free: Haiku and Sonnet. Standard adds Opus. Pro adds Fable. */
+     Free: Haiku and Sonnet. Every paid plan: everything. */
   const expected = {
     free: ["claude-haiku-4-5", "claude-sonnet-5"],
-    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"],
+    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"],
     pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-fable-5"],
   };
   for (const [plan, ids] of Object.entries(expected)) {
     const got = credits.modelsForPlan(plan).map((model) => model.id).sort();
     is(got.join(","), [...ids].sort().join(","), `${plan} may pick exactly its own models`);
   }
+
+  /* A Free account that has topped up a month of Standard is gated as paid;
+     one that has not stays on Free. */
+  is(credits.modelPlanFor("free", 0), "free", "an unpaid account is gated as Free");
+  is(credits.modelPlanFor("free", credits.modelUnlockTopUpCredits() - 1), "free", "just short of the unlock stays Free");
+  is(credits.modelPlanFor("free", credits.modelUnlockTopUpCredits()), "standard", "a month of top-ups unlocks every model");
+  is(credits.modelPlanFor("pro", 0), "pro", "a paid plan is its own model plan");
 
   /* The invariant that matters most: the DEFAULT has to be reachable by the
      cheapest plan. A gated AUTO_MODEL means a free account cannot build at

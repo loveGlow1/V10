@@ -10,9 +10,11 @@ import {
 } from "react";
 
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { toppedUpCredits } from "@/lib/credits-server";
 import {
   PLAN_ORDER,
   formatCredits,
+  modelPlanFor,
   totalCredits,
   type CreditBalance,
   type PlanId,
@@ -49,6 +51,9 @@ export type CreditsState = {
   /** Which plan this account is on. "free" until something says otherwise —
    *  the safe default, since the plan is what unlocks the dearer models. */
   planId: PlanId;
+  /** The plan models are gated by: the real plan, or Standard for a Free
+   *  account whose top-ups reach a month of it. See modelPlanFor. */
+  modelPlanId: PlanId;
   loading: boolean;
   /** Re-reads the balance — call after anything that spends. */
   refresh: () => Promise<void>;
@@ -63,16 +68,20 @@ const CreditsContext = createContext<CreditsState | null>(null);
 export function CreditsProvider({
   initial,
   initialPlan = "free",
+  initialModelPlan,
   children,
 }: {
   /** What the server read for this account, or null if it could not. */
   initial: CreditBalance | null;
   /** The plan the server read alongside it. */
   initialPlan?: PlanId;
+  /** The model plan the server read alongside it. Defaults to the plan. */
+  initialModelPlan?: PlanId;
   children: ReactNode;
 }) {
   const [balance, setBalance] = useState<CreditBalance | null>(initial);
   const [planId, setPlanId] = useState<PlanId>(initialPlan);
+  const [modelPlanId, setModelPlanId] = useState<PlanId>(initialModelPlan ?? initialPlan);
   const [loading, setLoading] = useState(initial === null);
 
   const refresh = useCallback(async () => {
@@ -81,7 +90,8 @@ export function CreditsProvider({
       return;
     }
 
-    const { data, error } = await createSupabaseBrowserClient()
+    const client = createSupabaseBrowserClient();
+    const { data, error } = await client
       .from("credit_balances")
       .select("daily, rollover, monthly, top_up, plan_id")
       .maybeSingle();
@@ -102,7 +112,11 @@ export function CreditsProvider({
     /* An upgrade taking effect is exactly the moment a refresh happens, so the
        plan is re-read with the buckets rather than left at whatever the page
        was rendered with. */
-    setPlanId(PLAN_ORDER.find((id) => id === data.plan_id) ?? "free");
+    const plan = PLAN_ORDER.find((id) => id === data.plan_id) ?? "free";
+    setPlanId(plan);
+    /* A top-up is the other moment a refresh happens, and it can unlock the
+       dearer models, so the purchase total is re-read with the plan. */
+    setModelPlanId(plan === "free" ? modelPlanFor(plan, await toppedUpCredits(client)) : plan);
   }, []);
 
   /* Only when the server could not supply one. A seeded balance was read a
@@ -116,6 +130,7 @@ export function CreditsProvider({
     label: balance ? formatCredits(totalCredits(balance)) : UNKNOWN,
     balance,
     planId,
+    modelPlanId,
     loading,
     refresh,
   };

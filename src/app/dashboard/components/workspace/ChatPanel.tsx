@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -18,7 +19,7 @@ import {
   MicOff,
   Paperclip,
   Shuffle,
-  SlidersHorizontal,
+  Settings2,
   ChevronRight,
   ListChecks,
   X,
@@ -330,6 +331,10 @@ export default function ChatPanel({
   /* The sliders button's sheet, and the one setting in it that changes what
      sending does: plan mode answers with a plan and touches nothing. */
   const [addOpen, setAddOpen] = useState(false);
+  /* The settings sheet portals into the body, which only exists once the
+     panel has hydrated. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [planMode, setPlanMode] = useState(false);
 
   /* Alt+P switches Build and Plan from anywhere in the workspace, the way the
@@ -2422,7 +2427,7 @@ export default function ChatPanel({
                   title="Upload file or assets"
                   className={ghost}
                 >
-                  <Paperclip className="h-4 w-4 -rotate-45" />
+                  <Paperclip className="h-[18px] w-[18px]" />
                 </button>
 
                 <button
@@ -2436,7 +2441,7 @@ export default function ChatPanel({
                   title="Settings"
                   className={`${addOpen ? `${ghost} bg-layer/[0.08]` : ghost} ${planMode ? "text-accent" : ""}`}
                 >
-                  <SlidersHorizontal className="h-4 w-4" />
+                  <Settings2 className="h-[18px] w-[18px]" />
                 </button>
 
                 {/* Every integration, unfiltered — the connectors. */}
@@ -2446,7 +2451,7 @@ export default function ChatPanel({
                   aria-label="Integrations"
                   className={ghost}
                 >
-                  <Cable className="h-4 w-4" />
+                  <Cable className="h-[18px] w-[18px]" />
                 </button>
               </div>
 
@@ -2530,86 +2535,133 @@ export default function ChatPanel({
                 </button>
               </div>
 
-              <Popover
-                open={addOpen}
-                onClose={() => setAddOpen(false)}
-                title="Settings"
-                align="left"
-                side="top"
-                width="w-[min(300px,100%)]"
-                sheetOnMobile={false}
-              >
-                <div className="-m-1.5 flex flex-col gap-1.5" role="menu">
-                  <p className="px-2.5 pb-0.5 pt-1 text-center text-[13.5px] font-semibold text-ink">
-                    Settings
-                  </p>
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setAddOpen(false);
-                      setModelOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.08]"
-                  >
-                    <span className="flex shrink-0">
-                      <ProviderMark provider={providerOf(model)} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11.5px] text-muted">Model</span>
-                      <span className="block truncate text-[13.5px] font-medium text-ink">
-                        {chosen.name}
-                      </span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
-                  </button>
-                  <button
-                    role="menuitemcheckbox"
-                    aria-checked={planMode}
-                    title="Switch modes with Alt+P"
-                    onClick={() => setPlanMode((on) => !on)}
-                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-layer/[0.08]"
-                  >
-                    <ListChecks className="h-4 w-4 shrink-0 text-muted" />
-                    <span className="flex-1 text-[13.5px] font-medium text-ink">Plan mode</span>
-                    {/* The switch itself — on means review before building. */}
-                    <span
-                      aria-hidden
-                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        planMode ? "bg-accent" : "bg-layer/[0.16]"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] ${
-                          planMode ? "left-[18px]" : "left-0.5"
-                        }`}
-                      />
-                    </span>
-                  </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setAddOpen(false);
-                      onOpenIntegrations();
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.08]"
-                  >
-                    <Github className="h-4 w-4 shrink-0 text-muted" />
-                    Save to GitHub
-                  </button>
-                  <button
-                    role="menuitem"
-                    disabled={!project}
-                    onClick={() => {
-                      setAddOpen(false);
-                      setForkOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl bg-layer/[0.05] px-3 py-2.5 text-left text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
-                  >
-                    <GitFork className="h-4 w-4 shrink-0 text-muted" />
-                    Fork
-                  </button>
-                </div>
-              </Popover>
+              {/* Settings, as a sheet that rises from the foot of the screen:
+                  a title with its close, then one card per row. Portalled so
+                  the panel's own clipping and scrolling cannot cut it off. */}
+              {mounted &&
+                createPortal(
+                  <AnimatePresence>
+                    {addOpen && (
+                      <motion.div
+                        key="settings-sheet"
+                        className="fixed inset-0 z-[80] flex items-end justify-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <button
+                          aria-label="Close settings"
+                          onClick={() => setAddOpen(false)}
+                          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        />
+                        <motion.div
+                          role="dialog"
+                          aria-modal="true"
+                          aria-label="Settings"
+                          initial={{ y: "100%" }}
+                          animate={{ y: 0 }}
+                          exit={{ y: "100%" }}
+                          transition={{ type: "spring", damping: 32, stiffness: 340 }}
+                          className="relative w-full max-w-lg rounded-t-[28px] border border-b-0 border-line/[0.10] bg-panel pb-[max(20px,env(safe-area-inset-bottom))] shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
+                        >
+                          <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-layer/[0.14]" />
+                          <div className="relative flex items-center justify-center border-b border-line/[0.08] px-5 pb-4 pt-3">
+                            <h3 className="text-[17px] font-semibold tracking-tight text-ink">Settings</h3>
+                            <button
+                              onClick={() => setAddOpen(false)}
+                              aria-label="Close"
+                              className="absolute right-4 flex h-9 w-9 items-center justify-center rounded-full bg-layer/[0.08] text-ink transition-colors hover:bg-layer/[0.12]"
+                            >
+                              <X className="h-[18px] w-[18px]" />
+                            </button>
+                          </div>
+
+                          <div className="flex flex-col gap-3 px-4 pt-4" role="menu">
+                            <button
+                              role="menuitem"
+                              onClick={() => {
+                                setAddOpen(false);
+                                setModelOpen(true);
+                              }}
+                              className="flex w-full items-center gap-4 rounded-2xl bg-layer/[0.06] px-5 text-left transition-colors hover:bg-layer/[0.09] active:bg-layer/[0.11] py-3.5"
+                            >
+                              <span className="flex shrink-0 scale-125">
+                                <ProviderMark provider={providerOf(model)} />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-[13px] text-ink/80">Model</span>
+                                <span className="block truncate text-[16px] text-ink">{chosen.name}</span>
+                              </span>
+                              <ChevronRight className="h-5 w-5 shrink-0 text-ink/80" />
+                            </button>
+
+                            <button
+                              role="menuitemcheckbox"
+                              aria-checked={planMode}
+                              title="Switch modes with Alt+P"
+                              onClick={() => setPlanMode((on) => !on)}
+                              className="flex w-full items-center gap-4 rounded-2xl bg-layer/[0.06] px-5 text-left transition-colors hover:bg-layer/[0.09] active:bg-layer/[0.11] py-4"
+                            >
+                              {/* A page with two lines on it — the plan. */}
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                className="h-5 w-5 shrink-0 text-ink"
+                                aria-hidden="true"
+                              >
+                                <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
+                                <path d="M8 9.5h8M8 14.5h4.5" />
+                              </svg>
+                              <span className="flex-1 text-[16px] font-semibold text-ink">Plan mode</span>
+                              <span
+                                aria-hidden
+                                className={`relative h-7 w-[46px] shrink-0 rounded-full transition-colors ${
+                                  planMode ? "bg-accent" : "bg-layer/[0.18]"
+                                }`}
+                              >
+                                <span
+                                  className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow transition-[left] ${
+                                    planMode ? "left-[21px]" : "left-[3px]"
+                                  }`}
+                                />
+                              </span>
+                            </button>
+
+                            <button
+                              role="menuitem"
+                              onClick={() => {
+                                setAddOpen(false);
+                                onOpenIntegrations();
+                              }}
+                              className="flex w-full items-center gap-4 rounded-2xl bg-layer/[0.06] px-5 text-left transition-colors hover:bg-layer/[0.09] active:bg-layer/[0.11] py-4 text-[16px] text-ink"
+                            >
+                              <Github className="h-6 w-6 shrink-0" />
+                              Save to GitHub
+                            </button>
+
+                            <button
+                              role="menuitem"
+                              disabled={!project}
+                              onClick={() => {
+                                setAddOpen(false);
+                                setForkOpen(true);
+                              }}
+                              className="flex w-full items-center gap-4 rounded-2xl bg-layer/[0.06] px-5 text-left transition-colors hover:bg-layer/[0.09] active:bg-layer/[0.11] py-4 text-[16px] text-ink disabled:cursor-not-allowed disabled:bg-layer/[0.04] disabled:text-ink/40"
+                            >
+                              <GitFork className="h-5 w-5 shrink-0" />
+                              Fork
+                            </button>
+                          </div>
+                        </motion.div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>,
+                  document.body,
+                )}
 
               {/* Anchored to the row rather than to the chip that opens it: a
                   panel hung off a control near the right edge has only the

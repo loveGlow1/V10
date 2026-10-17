@@ -137,7 +137,9 @@ export const PLAN_ORDER: PlanId[] = ["free", "standard", "pro"];
    somebody forgets to update. This is the half that knows what a plan IS.
 
    Haiku and Sonnet are unmarked, so every plan including Free can pick them.
-   Opus needs Standard, Fable needs Pro.
+   Opus and Fable need a paid plan — any paid plan, Standard included. A Free
+   account that has bought top-ups worth at least a month of Standard is
+   treated as paid for this purpose: see modelPlanFor below.
 
    The assignment below is the compile-time tie between the two files. Model's
    `minPlan` is written as a literal union rather than PlanId, because credits.ts
@@ -151,12 +153,29 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
   return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
 }
 
+/* What a Free account has to have spent on top-ups before every model opens
+   up: one month of Standard, so paying for credits outright and paying for
+   the plan reach the same models. Counted in purchased credits, because that
+   is what the ledger records, at the top-up pack's rate. */
+export function modelUnlockTopUpCredits(): number {
+  return Math.ceil((PLANS.standard.monthlyPriceUsd / TOP_UP_PACK.priceUsd) * TOP_UP_PACK.credits);
+}
+
+/** The plan to gate MODELS by. A paid plan is itself; a Free account whose
+ *  lifetime top-up purchases reach a month of Standard is gated as Standard.
+ *  Credits, refills and everything else still follow the real plan. */
+export function modelPlanFor(planId: PlanId, toppedUpCredits: number): PlanId {
+  if (planId !== "free") return planId;
+  return toppedUpCredits >= modelUnlockTopUpCredits() ? "standard" : "free";
+}
+
 /* The two monthly grants, named so the plan cards can quote them without a
    second copy going stale — "600 credits every month" sat on the Pro card for
    as long as Pro granted 300. A card that names a number the plan does not
    give is worse than a card that names none. */
 const STANDARD_CREDITS = 100;
-const PRO_CREDITS = 410;
+const STANDARD_PRICE_USD = 25;
+const PRO_CREDITS = 600;
 
 export const PLANS: Record<PlanId, Plan> = {
   free: {
@@ -187,13 +206,14 @@ export const PLANS: Record<PlanId, Plan> = {
          to answer, not one a person should hit mid-build. */
       "Credits do not refill — top up or upgrade to keep going",
       `Build with ${modelNames("free")}`,
+      `Top up $${STANDARD_PRICE_USD} or more to unlock every model`,
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
     ],
   },
   standard: {
     id: "standard",
     name: "Standard",
-    monthlyPriceUsd: 25,
+    monthlyPriceUsd: STANDARD_PRICE_USD,
     dailyCredits: 0,
     monthlyCredits: STANDARD_CREDITS,
     rolloverCycles: 1,
@@ -205,7 +225,7 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Priority support",
     features: [
       `${STANDARD_CREDITS} credits every month`,
-      `Everything on Free, plus ${addedModelNames("standard")}`,
+      `Every model, including ${addedModelNames("standard")}`,
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "GitHub integration",
@@ -216,23 +236,10 @@ export const PLANS: Record<PlanId, Plan> = {
     name: "Pro",
     monthlyPriceUsd: 150,
     dailyCredits: 0,
-    /* 410, which makes Pro an ACCESS tier rather than a volume tier, and that
-       is worth being explicit about because the per-credit arithmetic looks
-       wrong until you know it.
-     *
-     * $150 for 410 credits is about 37 cents a credit. Standard is 25 and a
-     * one-off top-up is 30 — so Pro is still the dearest credit on the menu,
-     * half again Standard's rate and above simply buying packs. Nobody should
-     * buy this plan for the credits.
-     *
-     * What it actually sells is Fable, which no other plan can reach at any
-     * balance, and which costs 5x a Sonnet turn to run — a twelve-section Fable
-     * build is 40 credits, so 410 is around ten of them. Read that way the
-     * price is a licence with an allowance attached rather than an allowance
-     * priced badly.
-     *
-     * If the intent was ever a volume tier, this is the line to move: 500
-     * credits would put Pro level with a top-up, 600 level with Standard. */
+    /* 600, which puts Pro at Standard's rate — 25 cents a credit. Every paid
+       plan reaches every model, so Pro is a volume tier: the same models as
+       Standard with six times the allowance, and never a worse rate than
+       Standard or a top-up. */
     monthlyCredits: PRO_CREDITS,
     rolloverCycles: 1,
     publishing: {
@@ -243,7 +250,7 @@ export const PLANS: Record<PlanId, Plan> = {
     support: "Priority support",
     features: [
       `${PRO_CREDITS} credits every month`,
-      `Everything on Standard, plus ${addedModelNames("pro")}`,
+      "Every model, with the largest monthly allowance",
       "Private repositories and custom domains",
       "Unused credits roll over one cycle",
       "Priority support",

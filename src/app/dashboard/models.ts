@@ -185,10 +185,9 @@ export const MODELS: Model[] = [
        the dearest thing on the menu. */
     creditMultiplier: 5,
     reasoning: "adaptive",
-    /* The dearest model on the menu, behind the dearest plan. At 10x a
-       twelve-section build is 80 credits — most of Standard's entire monthly
-       grant in one press, which is the other reason this is not sold there. */
-    minPlan: "pro",
+    /* Every paid plan reaches every model; only an account that has never
+       paid is held to Sonnet and Haiku. See modelPlanFor in credits.ts. */
+    minPlan: "standard",
     name: "Claude Fable 5",
     blurb: "Highest intelligence available",
     provider: "claude",
