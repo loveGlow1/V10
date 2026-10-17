@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { generateFalNanoBanana } from './providers/fal';
 import { chargeCredits } from '@/lib/credits-server';
 import { buildPrompt, NEGATIVE } from './prompt';
 import { providerChain, refsFor } from './router';
@@ -70,6 +71,9 @@ async function runProvider(p: Provider, req: FlyerRequest, n: number): Promise<G
       }
       break;
     }
+    case 'fal-nano-banana':
+      images = await generateFalNanoBanana({ prompt, format, n, refs });
+      break;
     case 'minimax-image':
       images = await generateMiniMaxImage({ prompt, format, n, large: req.stage === 'final' });
       break;

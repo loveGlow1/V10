@@ -13,7 +13,8 @@
  *   everything else  no frame — text-to-video
  *
  * The keyframe is made with Ideogram 3 (photoreal, exact aspect ratios),
- * then Gemini, then OpenAI, then MiniMax image-01 on the n8n usage credit —
+ * then Gemini, then OpenAI, then Nano Banana Pro on fal, then MiniMax image-01
+ * on the n8n usage credit —
  * whichever is connected first — and kept in video-assets
  * as a render asset of the version so a retry starts from the same face.
  *
@@ -91,6 +92,13 @@ async function openai(prompt: string, aspect: Aspect): Promise<Buffer | null> {
   return image ?? null;
 }
 
+async function falNanoBanana(prompt: string, aspect: Aspect): Promise<Buffer | null> {
+  const { generateFalNanoBanana } = await import("@/lib/flyers/providers/fal");
+  const format = aspect === "9:16" ? "story" : aspect === "1:1" ? "square" : aspect === "16:9" ? "landscape" : "portrait";
+  const [image] = await generateFalNanoBanana({ prompt, format, n: 1 });
+  return image ?? null;
+}
+
 async function n8nMinimax(prompt: string, aspect: Aspect): Promise<Buffer | null> {
   const format = aspect === "9:16" ? "story" : aspect === "1:1" ? "square" : aspect === "16:9" ? "landscape" : "portrait";
   const [image] = await generateN8nImage({ engine: "minimax", prompt, format, n: 1 });
@@ -112,6 +120,8 @@ export async function ensureKeyframe(
   if (process.env.IDEOGRAM_API_KEY) makers.push(() => ideogram(prompt, aspect));
   if (process.env.GEMINI_API_KEY) makers.push(() => gemini(prompt, aspect));
   if (process.env.OPENAI_API_KEY) makers.push(() => openai(prompt, aspect));
+  /* Nano Banana Pro on fal, on the FAL_KEY the production line already uses. */
+  if (process.env.FAL_KEY) makers.push(() => falNanoBanana(prompt, aspect));
   /* Last, and needing no key of our own: MiniMax image-01 on the n8n usage
      credit, through the Flier Image workflow. */
   if (n8nImagesConfigured()) makers.push(() => n8nMinimax(prompt, aspect));

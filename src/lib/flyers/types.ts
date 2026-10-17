@@ -6,7 +6,8 @@ export type Provider =
   | 'ideogram-v3'
   | 'minimax-image'
   | 'n8n-minimax'
-  | 'n8n-openai';
+  | 'n8n-openai'
+  | 'fal-nano-banana';
 
 export type FlyerFormat = 'portrait' | 'square' | 'landscape' | 'story';
 export type Stage = 'preview' | 'final';
