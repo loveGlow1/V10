@@ -127,7 +127,10 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
           /* An upsert, because installing just above creates the row: it
              only sets these columns, so the installed secret is kept. */
           .upsert({ project_id: owned.projectId, user_id: owned.userId, enabled: !backend, ...patch }, { onConflict: "project_id" });
-    if (error) return NextResponse.json({ error: `That couldn't be saved: ${error.message}` }, { status: 500 });
+    if (error) {
+      console.error("[notifications] save failed", error.message);
+      return NextResponse.json({ error: "That couldn't be saved. Try again in a moment." }, { status: 500 });
+    }
   }
 
   return NextResponse.json(await state(service, owned.projectId, owned.userId));
