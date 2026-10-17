@@ -797,6 +797,7 @@ async function handle(
       prompt,
       target: body.target,
       requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
+      origin: new URL(request.url).origin,
     });
     if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
     steps.mark("flier", "Started four versions", "the image models are working on them");

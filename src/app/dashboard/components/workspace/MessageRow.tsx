@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { Check, Database, Download, ExternalLink } from "lucide-react";
+import React, { useState } from "react";
+import { Check, Database, Download, ExternalLink, X } from "lucide-react";
 
 import {
   connectSupabasePath,
@@ -101,8 +101,10 @@ export default function MessageRow({
      Database panel to pick a project. Followed in this tab by its path, so it
      starts on the host they are signed in to. */
   const supabaseLink = message.links?.find((link) => isConnectSupabaseHref(link.href));
+  /* Images a reply carries — a flier's versions — drawn as pictures, not chips. */
+  const images = message.links?.filter((link) => link.label.startsWith("image:"));
   const chips = message.links?.filter(
-    (link) => link !== connectLink && link !== supabaseLink && link.label !== "Open it",
+    (link) => link !== connectLink && link !== supabaseLink && link.label !== "Open it" && !link.label.startsWith("image:"),
   );
 
   /* The card's buttons and these chips are two ways to the same two things, so
@@ -161,6 +163,8 @@ export default function MessageRow({
         {/* The reading type is set on the reply itself, not the column, so the
             chips, card and tracker below keep exactly the type they had. */}
         <ChatMarkdown text={message.text} className="text-[15px] leading-7 text-soft" />
+
+        {images && images.length > 0 && <ReplyImages images={images} />}
 
         {/* Said only where it is true: work that actually landed. "Applied" over
             a refusal or a failure would be the panel disagreeing with the
@@ -259,5 +263,58 @@ export default function MessageRow({
         )}
       </div>
     </div>
+  );
+}
+
+/* A reply's images, in the conversation: tap one to see it full size, and
+   Download saves exactly that image — the file route answers with it as an
+   attachment, so the browser saves a clean PNG and nothing else. */
+function ReplyImages({ images }: { images: { label: string; href: string }[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
+  return (
+    <>
+      <div className="mt-3 grid max-w-[520px] grid-cols-2 gap-2">
+        {images.map((image, index) => (
+          <div key={image.href} className="group/img relative overflow-hidden rounded-xl border border-line/[0.08] bg-layer/[0.04]">
+            <button type="button" onClick={() => setOpen(image.href)} aria-label={`See version ${index + 1} full size`} className="block w-full">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.href} alt={`Version ${index + 1}`} loading="lazy" className="block h-auto w-full" />
+            </button>
+            <a
+              href={download(image.href)}
+              download
+              aria-label={`Download version ${index + 1}`}
+              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white backdrop-blur transition-opacity hover:bg-black/80"
+            >
+              <Download className="h-4 w-4" />
+            </a>
+          </div>
+        ))}
+      </div>
+      {open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image, full size"
+          onClick={() => setOpen(null)}
+          className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-4 bg-black/90 p-4"
+        >
+          <button type="button" onClick={() => setOpen(null)} aria-label="Close" className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20">
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={open} alt="Full size" onClick={(event) => event.stopPropagation()} className="max-h-[78vh] w-auto max-w-full rounded-2xl" />
+          <a
+            href={download(open)}
+            download
+            onClick={(event) => event.stopPropagation()}
+            className="inline-flex h-11 items-center gap-2 rounded-full bg-accent px-5 text-[14px] font-semibold text-onSolid"
+          >
+            <Download className="h-4 w-4" /> Download
+          </a>
+        </div>
+      )}
+    </>
   );
 }

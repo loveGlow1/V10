@@ -181,6 +181,13 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           <p className="text-[12px] text-muted">{final ? "Final · Flier Studio" : "Flier Studio"}</p>
           <h1 className="truncate text-[20px] font-semibold text-ink">{job.headline || "Your flier"}</h1>
         </div>
+        {/* Changes are made in the workspace now, like a website's. */}
+        <Link
+          href={`/dashboard/fliers/${job.parentId ?? job.id}/open`}
+          className="flex h-9 items-center gap-1.5 rounded-full border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-ink hover:border-line/[0.2]"
+        >
+          <PenLine className="h-3.5 w-3.5" /> Open in workspace
+        </Link>
         <button
           type="button"
           onClick={() => void remove(null)}

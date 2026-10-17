@@ -319,7 +319,7 @@ export async function GET(
     });
   }
   if (owner?.intent === FLIER_INTENT && !wantsListing && wantsFile === null) {
-    return new Response(flierBoardHtml(await loadFlierBoard(supabase, projectId)), {
+    return new Response(flierBoardHtml(await loadFlierBoard(supabase, projectId, new URL(request.url).origin)), {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-downloads",
