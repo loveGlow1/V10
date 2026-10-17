@@ -54,9 +54,18 @@ const BUILDING = /\b(build|make|create|design|generate|turn (it|this) into|i wan
  * Answered with the two real options instead of being sent to the file picker,
  * which cannot succeed: there is no file in which a project's backend lives.
  */
+/* Wanting a database rather than connecting one: "I need a database", "add a
+   database", "use my Supabase". BUILDING reads "I need a" as the start of a
+   brief, so these were turned away; said on their own, with nothing to build
+   around them, they are asking for exactly this. */
+const WANTS_DATABASE =
+  /\b(?:need|want|add|use|get|integrate|plug in|hook up|turn on)\s+(?:a |an |my |our |the |some )?(?:database|db|supabase|postgres|backend)\b(?!\s+(?:tables?|columns?|rows?|fields?|records?|entr(?:y|ies)|schema|index|indexes|migrations?|quer(?:y|ies)|functions?|triggers?|polic(?:y|ies)))/i;
+const BRIEF_AROUND = /\b(?:site|website|web ?app|app|page|store|shop|portfolio|blog|dashboard)\s+(?:for|about|that|where|with)\b/i;
+
 export function asksToConnectBackend(message: string): boolean {
   const said = message.trim();
   if (said.length === 0 || said.length > 240) return false;
+  if (WANTS_DATABASE.test(said) && said.length <= 120 && !BRIEF_AROUND.test(said)) return true;
   if (BUILDING.test(said)) return false;
   return CONNECTING.test(said) && CONNECTABLE.test(said);
 }

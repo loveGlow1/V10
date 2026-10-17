@@ -3,7 +3,11 @@
 import React from "react";
 import { Check, Database, Download, ExternalLink } from "lucide-react";
 
-import { isConnectDatabaseHref } from "@/lib/builder/backend/connect-link";
+import {
+  connectSupabasePath,
+  isConnectDatabaseHref,
+  isConnectSupabaseHref,
+} from "@/lib/builder/backend/connect-link";
 
 import QMark from "../../../QMark";
 
@@ -92,7 +96,14 @@ export default function MessageRow({
      published site, which keeps the last published version until the next
      publish — so after a change it showed an older app than the one just
      built. "Preview" opens the newest, so it is the one kept. */
-  const chips = message.links?.filter((link) => link !== connectLink && link.label !== "Open it");
+  /* "Connect Supabase" goes straight to Supabase's sign-in — one press from
+     the chat to the account, and Supabase brings the person back to the
+     Database panel to pick a project. Followed in this tab by its path, so it
+     starts on the host they are signed in to. */
+  const supabaseLink = message.links?.find((link) => isConnectSupabaseHref(link.href));
+  const chips = message.links?.filter(
+    (link) => link !== connectLink && link !== supabaseLink && link.label !== "Open it",
+  );
 
   /* The card's buttons and these chips are two ways to the same two things, so
      only one of them is ever on offer. While the buttons are up they are the
@@ -176,6 +187,15 @@ export default function MessageRow({
          * Below `md` nothing hides at all: there is no pane on screen — chat and
          * preview are one at a time behind a toggle — so every chip here is the
          * only route from the thread to the page. */}
+        {supabaseLink && (
+          <a
+            href={connectSupabasePath(supabaseLink.href)}
+            className="mt-2.5 mr-2 inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-[13.5px] font-semibold text-black transition-opacity hover:opacity-90"
+          >
+            <Database className="h-4 w-4" />
+            {supabaseLink.label}
+          </a>
+        )}
         {connectLink && (
           <button
             type="button"

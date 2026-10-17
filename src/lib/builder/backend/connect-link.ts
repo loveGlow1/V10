@@ -24,3 +24,32 @@ export function isConnectDatabaseHref(href: string): boolean {
     return false;
   }
 }
+
+/* ── Straight to Supabase ────────────────────────────────────────────────
+ *
+ * The chat's connect button used to open the Database panel, where a second
+ * button started the sign-in. One press is simpler: this goes directly to
+ * Supabase's sign-in (the authorize route), and Supabase sends the person
+ * back to the panel to pick or create a project. Stored as a full address,
+ * because the thread drops anything that is not http(s); the chat follows it
+ * by its path, so the sign-in starts on the host the person is signed in to. */
+export const CONNECT_SUPABASE_LABEL = "Connect Supabase";
+
+export function connectSupabaseHref(projectId: string): string {
+  return `${SITE_URL}/api/integrations/supabase/authorize?projectId=${encodeURIComponent(projectId)}`;
+}
+
+/** The same address as a path, to follow on whatever host this page is on. */
+export function connectSupabasePath(href: string): string {
+  const url = new URL(href, "https://quickstark.invalid");
+  return `${url.pathname}${url.search}`;
+}
+
+/** Whether a stored link starts the Supabase sign-in. */
+export function isConnectSupabaseHref(href: string): boolean {
+  try {
+    return new URL(href, "https://quickstark.invalid").pathname === "/api/integrations/supabase/authorize";
+  } catch {
+    return false;
+  }
+}

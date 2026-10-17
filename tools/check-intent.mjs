@@ -47,7 +47,7 @@ try {
     { stdio: ["ignore", "ignore", "inherit"] },
   );
 
-  const { heuristicIntent, remainderAfterRevert } = await import(join(out, "intent.js"));
+  const { heuristicIntent, remainderAfterRevert, asksToConnectBackend } = await import(join(out, "intent.js"));
 
   let failed = 0;
   let totalDeferred = 0;
@@ -188,6 +188,42 @@ try {
       : `${attachedWrong} of ${ATTACHED.length} attachment cases wrong`,
   );
   if (attachedWrong > 0) failed += attachedWrong;
+
+  /* Asking to connect a database gets the one-press Connect Supabase reply.
+     Every way somebody says it must be caught; a brief that merely has a
+     database in it must not, because the build path asks about that itself. */
+  const CONNECT = [
+    ["connect a database", true],
+    ["connect my supabase", true],
+    ["I need a database", true],
+    ["add a database", true],
+    ["can you add a database to this?", true],
+    ["use my Supabase", true],
+    ["hook up a backend", true],
+    ["set up login and sign up", true],
+    ["link supabase", true],
+    ["I want to connect a database", true],
+    ["build a booking app for my salon with a database", false],
+    ["make a store that uses a database", false],
+    ["I need a website for my bakery", false],
+    ["make the header darker", false],
+    ["what database does this use?", false],
+    ["add a database table for bookings", false],
+    ["add a database column for phone numbers", false],
+    ["how do I connect a database?", true],
+  ];
+  let connectWrong = 0;
+  for (const [message, want] of CONNECT) {
+    if (asksToConnectBackend(message) === want) continue;
+    connectWrong += 1;
+    console.log(`FAIL  connect: ${JSON.stringify(message)} should ${want ? "" : "not "}offer Connect Supabase`);
+  }
+  console.log(
+    connectWrong === 0
+      ? `${CONNECT.length} database-connect phrasings read correctly`
+      : `${connectWrong} of ${CONNECT.length} database-connect phrasings wrong`,
+  );
+  if (connectWrong > 0) failed += connectWrong;
 
   if (failed > 0) {
     console.log("\nA wrong answer means the rules changed meaning, not just coverage.");
