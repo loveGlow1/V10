@@ -146,6 +146,39 @@ export async function newestStoredTree(
 }
 
 /**
+ * The files a project had as of one version: that build's own, or — for a build
+ * stored without files — the newest stored tree at or before it.
+ *
+ * What a restore of version N needs. newestStoredTree answers the same question
+ * about the present; this asks it about a point in the past, so version 3 is
+ * restored with version 3's source rather than whatever is newest.
+ */
+export async function storedTreeAsOf(
+  service: SupabaseClient,
+  projectId: string,
+  build: { id: string; createdAt: string },
+): Promise<{ tree: FileTree; buildId: string } | null> {
+  const own = await loadTree(service, build.id);
+  if (own.length > 0) return { tree: own, buildId: build.id };
+
+  const { data: earlier } = await service
+    .from("project_builds")
+    .select("id")
+    .eq("project_id", projectId)
+    .lte("created_at", build.createdAt)
+    .order("created_at", { ascending: false })
+    .limit(LOOK_BACK);
+
+  const ids = (earlier ?? []).map((row) => row.id as string).filter((id) => id !== build.id);
+  if (ids.length === 0) return null;
+
+  const { data: holding } = await service.from("project_files").select("build_id").in("build_id", ids);
+  const withFiles = new Set((holding ?? []).map((row) => row.build_id as string));
+  const found = ids.find((id) => withFiles.has(id));
+  return found ? { tree: await loadTree(service, found), buildId: found } : null;
+}
+
+/**
  * The current files of a project, whichever stack it was built with.
  *
  * The one function the rest of the app should call. A file-tree build answers

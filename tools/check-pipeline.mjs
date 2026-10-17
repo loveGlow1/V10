@@ -192,8 +192,8 @@ const at = (needle) => buildRoute.indexOf(needle);
    unchanged source from the build before — "Undo last change" reported success
    and changed nothing. */
 has(
-  /newestStoredTree\(service, project\.id, \{/.test(buildRoute),
-  "revert looks for the previous stored tree",
+  /storedTreeAsOf\(service, project\.id, \{/.test(buildRoute),
+  "revert looks for the stored tree of the version it restores",
   "rewinding the html column undoes a receipt, not a Next.js project",
 );
 has(
@@ -202,7 +202,7 @@ has(
   "a silent success is the same lie in a quieter voice",
 );
 has(
-  at("newestStoredTree(service, project.id, {") < at('key: "revert-no-source"'),
+  at("storedTreeAsOf(service, project.id, {") < at('key: "revert-no-source"'),
   "looking for it before deciding it cannot be done",
 );
 

@@ -94,6 +94,13 @@ const REVERT_LEADS =
    on the left", which is an ordinary move. */
 const REVERT_NAMED = /\bput (the |that )?(old|previous|original|former)\b.{0,24}\bback\b/i;
 
+/* Going to a particular version: "go back to version 3", "switch to the
+   original", "restore the second version", "take me back 2 versions". Naming
+   a version is what makes it a revert rather than an edit — "switch the
+   header" is a change, "switch to version 2" is not. See builder/versions.ts. */
+const VERSION_NAV =
+  /\b(?:go|take (?:me|it|us)|switch|jump|roll|return|revert|restore|bring (?:it |me )?back|change it back|reset|undo)\b[^.?!]{0,24}?\b(?:version\s*#?\s*\d+|v\s*\d+\b|(?:first|second|third|fourth|fifth|original|initial|very first|earlier|older|previous|latest|newest)\s+(?:version|one|draft|design)|versions?\s+(?:from|where|with|before|that)|\d+\s+(?:versions|changes|edits|steps)\s+(?:back|ago)|back\s+\d+\s+(?:versions|changes|edits|steps)\b|(?:version|one)\s+from\s+(?:yesterday|this morning|last night))/i;
+
 const REVERT_LAST =
   /\b(scrap|undo|drop|bin|forget)\s+(the\s+)?(last|previous)\s+(thing|change|edit|one|version)\b/i;
 
@@ -219,7 +226,8 @@ function score(m: string): Scores {
      an opening undo scores this — reverting is itself undoable, so leaning
      this way costs a keystroke and never costs work. */
   /* Before the discard rules, which share these verbs. */
-  if (REVERT_LAST.test(m) || REVERT_NAMED.test(m)) scores.revert += 6;
+  if (VERSION_NAV.test(m)) scores.revert += 7;
+  else if (REVERT_LAST.test(m) || REVERT_NAMED.test(m)) scores.revert += 6;
   else if (REVERT_LEADS.test(m)) scores.revert += 6;
   else if (REVERT.test(m)) scores.revert += 3;
 

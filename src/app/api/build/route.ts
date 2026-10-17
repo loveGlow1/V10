@@ -142,7 +142,17 @@ import { providerFromEnv } from "@/lib/builder/image-providers";
 import { searchContext } from "@/lib/builder/images";
 import { previouslyUsedPhotos } from "@/lib/builder/photo-memory";
 import { projectPhotoUrls } from "@/lib/builder/photo-memory";
-import { currentTree, newestStoredTree, storeTree } from "@/lib/builder/store-tree";
+import { currentTree, storeTree, storedTreeAsOf } from "@/lib/builder/store-tree";
+import {
+  describeVersions,
+  formatWhen,
+  listVersions,
+  parseTarget as parseVersionTarget,
+  readVersionRequest,
+  resolveTarget as resolveVersionTarget,
+  restorePrompt,
+  safeTimeZone,
+} from "@/lib/builder/versions";
 import { type FileTree, isSinglePage } from "@/lib/builder/tree";
 import { commonModulesFor, modulesFor, presetFor, publicationModulesFor, staffFor, uploadsBucket, withStaff } from "@/lib/builder/presets";
 import {
@@ -1122,8 +1132,15 @@ async function handle(
    *
    * See src/lib/builder/availability.ts for why this is a switch rather than
    * something the app tries to work out for itself. */
+  /* Moving through the project's versions — "go back to version 3", "show
+     versions" — is rules and stored rows, no model, so it is read before
+     anything that needs one and works while building is paused. See
+     lib/builder/versions.ts. */
+  const timeZone = safeTimeZone((body as { timeZone?: unknown }).timeZone);
+  const versionAsk = currentHtml ? readVersionRequest(prompt) : null;
+
   const availability = builderAvailability();
-  const worksWhilePaused = (currentHtml && wantsDownload(prompt)) || override === "revert";
+  const worksWhilePaused = (currentHtml && wantsDownload(prompt)) || override === "revert" || versionAsk !== null;
   if (availability.paused && !worksWhilePaused) {
     const stored = await deliver(availability.message, {
       kind: "build_failed",
@@ -1142,7 +1159,10 @@ async function handle(
     message: prompt,
     hasPage: Boolean(currentHtml),
     history: classifierHistory,
-    override,
+    /* A message that names a version to go to is a revert, whatever else it
+       looks like — "use the original" is not an edit to the page. */
+    override:
+      override ?? (versionAsk?.kind === "goto" ? "revert" : versionAsk?.kind === "list" ? "question" : null),
     /* Read before the words are. Somebody who attaches a file has said
        something the sentence often leaves out — "use this" and an empty box
        with a photograph in it are the same request — and routing that to a
@@ -1253,7 +1273,13 @@ async function handle(
   /* Both build on the project that is there rather than replacing it. */
   const addingTo = Boolean(featureBase || upgradeBase);
 
-  const intent: Intent = planOnly ? "question" : addingTo ? "new_project" : routedIntent;
+  const intent: Intent = planOnly
+    ? "question"
+    : versionAsk?.kind === "goto"
+      ? "revert"
+      : addingTo
+        ? "new_project"
+        : routedIntent;
   if (upgradeBase) {
     steps.mark(
       "upgrade",
@@ -1318,6 +1344,32 @@ async function handle(
   }
 
   const previewUrl = publishPreviewUrl(addressed);
+
+  // ── VERSION HISTORY ──────────────────────────────────────────────────────
+  /* "Show versions": the numbered list, newest first, from the stored rows.
+     No model and no charge. See lib/builder/versions.ts. */
+  if (versionAsk?.kind === "list" && service && !planOnly) {
+    const versions = await listVersions(service, project.id);
+    const said = describeVersions(versions, timeZone);
+    const stored = await deliver(said, { key: "versions" });
+    return NextResponse.json({
+      stored,
+      steps: steps.list(),
+      intent: "question",
+      build: {
+        ok: true,
+        requestId: "",
+        projectId: project.id,
+        intent: "webapp",
+        status: "Built",
+        links: { preview: previewUrl, repo: "", admin: "" },
+        configKeys: {},
+        artifacts: {},
+        message: said,
+      },
+      project: null,
+    });
+  }
 
   // ── REVERT ───────────────────────────────────────────────────────────────
   /* ── The database, asked directly ─────────────────────────────────────
@@ -1597,77 +1649,80 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   }
 
   if (intent === "revert") {
-    steps.begin("history", "Looking up the previous version", "reading back through what you've built…");
-    const { data: history2 } = await supabase
-      .from("project_builds")
-      .select("id, html, prompt")
-      .eq("project_id", project.id)
-      .order("created_at", { ascending: false })
-      .limit(2);
+    steps.begin("history", "Looking up your versions", "reading back through what you've built…");
 
-    const previous = (history2 ?? [])[1] as { html: string } | undefined;
+    /* ── WHICH VERSION ─────────────────────────────────────────────────
+     *
+     * Every change is a numbered row, oldest first, and none is ever deleted,
+     * so any of them can come back. A message may name one — "version 3", "the
+     * first version", "yesterday's", "before I added the footer" — and one
+     * that names none means a step back from what is showing now. A restore
+     * records the version it copied, so undoing twice goes two steps back
+     * rather than toggling. See lib/builder/versions.ts. */
+    const versions = service ? await listVersions(service, project.id) : [];
+    const target = parseVersionTarget(prompt, new Date(), timeZone);
+    const resolved = resolveVersionTarget(versions, target, timeZone);
 
-    if (!previous || !service) {
-      const message = previous
-        ? "That cannot be undone right now."
-        : "There is nothing to undo — this is the first version of the page.";
-      const stored = await deliver(message, { key: "revert-none" });
-      return NextResponse.json({
-        stored,
-        steps: steps.list(),
-        intent: "revert",
-        build: {
-          ok: false,
-          requestId: "",
-          projectId: project.id,
-          intent: "webapp",
-          status: "Built",
-          links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" },
-          configKeys: {},
-          artifacts: {},
-          message,
-        },
-        project: null,
-      });
+    const declined = (message: string, key: string) =>
+      deliver(message, { key }).then((stored) =>
+        NextResponse.json({
+          stored,
+          steps: steps.list(),
+          intent: "revert",
+          build: {
+            ok: false,
+            requestId: "",
+            projectId: project.id,
+            intent: "webapp",
+            status: "Built",
+            links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" },
+            configKeys: {},
+            artifacts: {},
+            message,
+          },
+          project: null,
+        }),
+      );
+
+    if (!service) return declined("That cannot be undone right now.", "revert-none");
+    if (!resolved.ok) return declined(resolved.message, "revert-none");
+
+    const chosen = resolved.version;
+    /* Already showing it: nothing to write, and saying so is the answer. */
+    if (resolved.content === resolved.current) {
+      return declined(
+        `You're already on version ${resolved.content}${chosen.number !== resolved.content ? "" : ` — "${chosen.label}"`}. Nothing to change.`,
+        "revert-same",
+      );
     }
+    /* Restored from the original row, so the new one records its real source. */
+    const source = versions[resolved.content - 1];
+    steps.mark("history", `Found version ${source.number}`, formatWhen(source.createdAt, timeZone));
+
+    const { data: sourceRow } = await service
+      .from("project_builds")
+      .select("id, html, created_at")
+      .eq("id", source.id)
+      .maybeSingle<{ id: string; html: string; created_at: string }>();
+
+    if (!sourceRow) return declined("That version couldn't be read just now. Nothing has changed — try again.", "revert-failed");
 
     /* ── UNDO HAS TO UNDO THE SOURCE ────────────────────────────────────
      *
-     * This inserted a build row carrying the previous `html` and stopped, and
-     * for a single-page project that IS the whole of it: the page is the html
-     * column. For a file-tree project it is not. That column holds the SUMMARY
-     * this platform writes for such a build, so the insert rewound a receipt
-     * and left every source file exactly as the edit had left it — and then
-     * currentTree, finding no files on the new row, recovered them from the
-     * build before it, which is the version being undone. "Undo last change"
-     * reported success and changed nothing anybody could see.
-     *
-     * So the files are restored too, through the same storeTree every other
-     * write uses. Which project this is gets read rather than assumed: a tree
-     * of one reconstituted page is a single-page build, not a project, and
-     * treating it as one would put this path on the stack it does not belong
-     * to. See currentTree and isSinglePage. */
-    steps.mark("history", "Read the last two versions");
-
+     * For a single-page project the page IS the html column. For a file-tree
+     * project that column holds a summary, and the files are what matter: the
+     * restore takes the files that version had — its own, or the newest stored
+     * at or before it — through the same storeTree every other write uses.
+     * Which kind of project this is gets read rather than assumed: a tree of
+     * one reconstituted page is a single-page build. */
     const live = await currentTree(service, project.id);
     const isTreeProject = live.tree.length > 0 && !isSinglePage(live.tree);
-
-    /* Looked for PAST the build the live source actually came from, which is
-       not always the newest row — a build can exist without files, and
-       currentTree says which one it really read. Excluding the newest row
-       instead would "restore" the version that is already running. */
     const restored = isTreeProject
-      ? await newestStoredTree(service, project.id, {
-          excluding: live.buildId ? [live.buildId] : [],
-        })
+      ? await storedTreeAsOf(service, project.id, { id: sourceRow.id, createdAt: sourceRow.created_at })
       : null;
 
     if (isTreeProject && !restored) {
-      /* Explicit rather than silent. Reaching here means this project's source
-         exists in exactly one version, so there is nothing behind it to go
-         back to — and saying "done" would be the same lie in a quieter voice. */
-      const message =
-        "I can't undo this one — there's only one version of this project's source saved, so there's nothing behind it to go back to.";
+      const message = `I can't restore version ${source.number} — its source files weren't saved, so there's nothing of it to bring back. Ask me to "show versions" to pick another.`;
       const stored = await deliver(message, { tone: "error", key: "revert-no-source" });
       return NextResponse.json(
         { error: message, stored, steps: steps.list(), intent: "revert", project: null },
@@ -1676,14 +1731,14 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
     }
 
     /* Restored by putting the old version back on top as a new one, never by
-       deleting the newer one. Undo should be undoable. */
+       deleting the newer ones. Every restore can itself be undone. */
     const { data: restoredBuild, error: revertError } = await service
       .from("project_builds")
       .insert({
         project_id: project.id,
         user_id: user.id,
-        prompt: `Reverted: ${prompt}`.slice(0, 500),
-        html: previous.html,
+        prompt: restorePrompt(source),
+        html: sourceRow.html,
         model: null,
         files_touched: restored ? restored.tree.length : 0,
       })
@@ -1691,7 +1746,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       .single<{ id: string }>();
 
     if (revertError || !restoredBuild) {
-      const message = "That couldn't be undone just now. Nothing has changed — try again.";
+      const message = "That couldn't be restored just now. Nothing has changed — try again.";
       const stored = await deliver(message, { tone: "error", key: "revert-failed" });
       return NextResponse.json(
         { error: message, stored, steps: steps.list(), intent: "revert", project: null },
@@ -1707,15 +1762,13 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
           restored.tree,
         );
       } catch (error) {
-        /* A build row claiming files it does not have is worse than no row —
-           the save route withdraws one for the same reason. Withdrawn here so
-           currentTree keeps resolving to the version that is really running
-           rather than to an empty row on top of it. */
+        /* A build row claiming files it does not have is worse than no row.
+           Withdrawn so currentTree keeps resolving to what is really running. */
         await service.from("project_builds").delete().eq("id", restoredBuild.id);
         // eslint-disable-next-line no-console
         console.error("revert: the restored files could not be stored:", error);
 
-        const message = "That couldn't be undone just now — the previous files wouldn't save. Nothing has changed.";
+        const message = "That couldn't be restored just now — the old files wouldn't save. Nothing has changed.";
         const stored = await deliver(message, { tone: "error", key: "revert-failed" });
         return NextResponse.json(
           { error: message, stored, steps: steps.list(), intent: "revert", project: null },
@@ -1730,17 +1783,22 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       .eq("id", project.id)
       .eq("user_id", user.id);
 
-    steps.mark("restore", "Put the previous version back on top");
+    const newNumber = versions.length + 1;
+    steps.mark("restore", `Restored version ${source.number}`, `saved as version ${newNumber}`);
 
     /* What else they asked for in the same breath, handed back rather than
-       dropped. The undo had to happen first — applying an edit to the version
-       being thrown away would be exactly wrong — but their second instruction
-       vanishing without a word is how somebody comes to believe the whole
-       message failed. */
+       dropped. The restore had to happen first — applying an edit to the
+       version being thrown away would be exactly wrong. */
     const remainder = remainderAfterRevert(prompt);
+    const which = resolved.note ? `, ${resolved.note}` : "";
+    const named =
+      chosen.number === source.number
+        ? `version ${source.number}`
+        : `version ${chosen.number} (the same as version ${source.number})`;
+    const restoredLine = `Restored ${named}${which} — "${source.label}", from ${formatWhen(source.createdAt, timeZone)}. It's saved as version ${newNumber}, so nothing is lost: say "undo" to step back further, or "go back to version ${versions.length}" to return to what you had.`;
     const revertMessage = remainder
-      ? `Put the previous version back. You also asked to ${remainder} — send that again and I'll make the change on this version.`
-      : "Put the previous version back.";
+      ? `${restoredLine} You also asked to ${remainder} — send that again and I'll make the change on this version.`
+      : restoredLine;
 
     const storedRevert = await deliver(revertMessage, { key: "revert" });
 

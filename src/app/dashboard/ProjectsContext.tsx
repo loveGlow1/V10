@@ -487,6 +487,15 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
           upgrade: options.upgrade === true,
           ...(options.confirmSql ? { confirmSql: true, sql: options.confirmSql } : {}),
           model: options.model ?? null,
+          /* So "yesterday's version" and "the one from 3pm" mean this
+             person's yesterday and 3pm. See lib/builder/versions.ts. */
+          timeZone: (() => {
+            try {
+              return Intl.DateTimeFormat().resolvedOptions().timeZone;
+            } catch {
+              return null;
+            }
+          })(),
         }),
       });
 
