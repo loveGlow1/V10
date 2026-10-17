@@ -113,6 +113,13 @@ has(/currentBalance/.test(flyersApi) && !/FLYERS_API_ENABLED === '1'/.test(flyer
 has(/Never invent facts/.test(briefSrc) && /heuristicRequest/.test(briefSrc), "the brief is read without inventing facts, with a fallback when the model is unavailable");
 const chain = Router.providerChain({ brand: { name: "x", colors: { primary: "#000000" } }, spec: { headline: "h", format: "square", textMode: "ai" }, stage: "preview" }, { OPENAI_API_KEY: "o" });
 has(chain.join() === "gpt-image-2", "only connected image models are tried", chain);
+const req = { brand: { name: "x", colors: { primary: "#000000" } }, spec: { headline: "h", format: "portrait", textMode: "ai" }, stage: "preview" };
+has(Router.providerChain(req, { MINIMAX_API_KEY: "m" }).join() === "minimax-image", "with only a MiniMax key, fliers are made by MiniMax image-01");
+has(Router.providerChain(req, { MINIMAX_API_KEY: "m", OPENAI_API_KEY: "o" }).join() === "gpt-image-2,minimax-image", "and it stands behind the models that set text more reliably");
+has(Router.providerChain(req, {}).length === 0, "with no key at all, there is no chain");
+has(/providerChain\(\{ \.\.\.body, stage \}\)\.length === 0[\s\S]{0,300}status: 503/.test(flyersApi), "and the flier is refused up front, before a job is made or anything is charged");
+const statusApi = readFileSync(join(root, "src/app/api/flyers/[id]/route.ts"), "utf8");
+has(/No image model is connected on this deployment yet/.test(statusApi) && /Nothing was charged/.test(statusApi), "a failed job says why, in words, and that nothing was charged");
 const review = readFileSync(join(root, "src/lib/builder/review-round.ts"), "utf8");
 const buildRoute = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
 has(/html\.ilike\.\*data-qs-flier\*/.test(review), "a flier is never given the website review round");
