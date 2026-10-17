@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -35,6 +35,7 @@ const L = await import(join(dir, "plan.js"));
 const E = await import(join(dir, "engines.js"));
 const R = await import(join(dir, "render.js"));
 const F = await import(join(dir, "fal.js"));
+const C = await import(join(dir, "clip-engines.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -147,8 +148,52 @@ has(/if \(!ready\.ready\)/.test(render), "render refuses rather than queue for e
 has(/currentBalance/.test(render) && /retryFailed/.test(render), "render checks credits first and can retry only what failed");
 const callback = readFileSync(join(root, "src/app/api/video/[id]/render/callback/route.ts"), "utf8");
 has(/hasWebhookToken\(request\.headers\)/.test(callback) && /verifyRender\(/.test(callback), "the callback checks the token AND the signature");
-has(/dedupeKey: `video-job:/.test(callback) && /if \(url\) \{\s*await chargeCredits/.test(callback), "charged once per delivered job, never for a failure");
-has(/video-assets/.test(callback), "media is copied into private storage (provider URLs expire)");
+const results = readFileSync(join(root, "src/lib/video/results.ts"), "utf8");
+has(/landResult\(/.test(callback), "the n8n callback lands its result like every other engine");
+has(/dedupeKey: `video-job:/.test(results) && /if \(delivered && output\) \{\s*await chargeCredits/.test(results), "charged once per delivered job, never for a failure");
+has(/clipCost\(landing\.engine/.test(results), "at the price of the engine that made it");
+has(/video-assets/.test(results), "media is copied into private storage (provider URLs expire)");
+
+console.log("\nthe clip router");
+const nothing = {};
+const mm = { MINIMAX_API_KEY: "k" };
+const hf = { HF_API_KEY_ID: "i", HF_API_KEY_SECRET: "s" };
+const every = { ...mm, ...hf, FAL_KEY: "f", N8N_WEBHOOK_URL: "https://n8n.example.com/webhook/x", N8N_WEBHOOK_TOKEN: "t" };
+const ugcScene = { pipeline: "ugc_influencer", aspect: "9:16", fromFrame: false };
+has(C.routeClip(ugcScene, every)[0] === "seedance", "UGC, best: Seedance 2.0 first");
+has(C.routeClip({ ...ugcScene, tier: "economy" }, every)[0] === "seedance", "economy never sends a vertical text-to-video scene to a landscape-only engine");
+has(C.routeClip({ ...ugcScene, fromFrame: true, tier: "economy" }, every)[0] === "minimax", "economy, from a frame: the free MiniMax credit first");
+has(C.routeClip(ugcScene, mm).length === 0, "MiniMax alone cannot make a vertical scene from text — no crop, it is left out");
+has(C.routeClip({ ...ugcScene, fromFrame: true }, mm)[0] === "minimax", "but can from a frame, where the frame decides the shape");
+has(C.routeClip({ pipeline: "photo_to_video", aspect: "9:16", fromFrame: true }, every)[0] === "minimax", "photo to video: MiniMax Hailuo image-to-video first");
+has(C.routeClip({ pipeline: "explainer", aspect: "16:9", fromFrame: false }, mm)[0] === "minimax", "a landscape explainer runs on the free credit alone");
+has(!C.routeClip({ pipeline: "trailer", aspect: "16:9", fromFrame: true }, { FAL_KEY: "f" }).includes("seedance-fal"), "fal's Seedance is never asked to start from a frame");
+has(C.routeClip(ugcScene, nothing).length === 0, "nothing connected, nothing routed");
+has(C.routeClip({ ...ugcScene, prefer: "seedance-fal" }, every)[0] === "seedance-fal", "an engine can be preferred, and only when it can make the scene");
+has(C.durationFor("minimax", 4) === 6 && C.durationFor("minimax", 8) === 10 && C.durationFor("minimax", 30) === 10, "MiniMax clips are 6s or 10s");
+has(C.durationFor("seedance", 7) === 7 && C.durationFor("seedance", 40) === 15 && C.durationFor("kling", 6) === 10, "Seedance 4–15s, Kling 5 or 10s");
+has(C.tierFrom({ VIDEO_QUALITY: "economy" }) === "economy" && C.tierFrom({}) === "best" && C.tierFrom({}, "Draft (fast)") === "economy", "quality comes from the video's answer, then VIDEO_QUALITY, else best");
+for (const engine of ["seedance", "kling", "minimax", "seedance-fal"]) {
+  const parsed = C.parseProvider(C.providerOf(engine, "abc-123"));
+  has(parsed?.engine === engine && parsed.id === "abc-123", `${engine}: its request is found again from the row`);
+}
+has(C.parseProvider("fal:xyz") === null && C.parseProvider("minimax:speech") === null && C.parseProvider("n8n:minimax") === null, "lip sync, music, compose and voice rows are never read as clips");
+has(E.engineHealth("video", mm) === "available" && E.engineHealth("voice", mm) === "available", "a MiniMax key alone renders clips and voices — no n8n needed");
+const vertical = { pipeline: "ugc_influencer", aspect: "9:16", music: "none", scenes: [{ n: 1, duration: 5, voiceover: "", engine: "video", visual: "", shot: "", onScreenText: "", motionPrompt: "x", sound: "" }] };
+has(E.renderCost(vertical, hf) === C.ENGINES.seedance.cost, "the price shown is the price of the engine that will make it");
+
+const clipRoute = readFileSync(join(root, "src/app/api/video/[id]/render/clip/route.ts"), "utf8");
+has(/verifyFalToken\(id, version, `clip:\$\{scene\}`/.test(clipRoute), "a clip webhook carries our token for this video, version and scene");
+has(/return NextResponse\.json\(\{ challenge: body\.challenge \}\)/.test(clipRoute), "MiniMax's address check is answered");
+has(/state = await clipStatus\(engine, current\.id\)/.test(clipRoute), "the result is asked of the engine itself, not read off the body");
+has(/verifyFalSignature/.test(clipRoute), "fal's deliveries are checked against fal's own signature");
+has(/current\.engine !== engine\) return NextResponse\.json\(\{ ok: true, ignored: true \}\)/.test(clipRoute), "a delivery the scene is no longer waiting on is ignored");
+has(/retryClip\(/.test(clipRoute), "a failed clip is handed to the next engine before it is called failed");
+has(/chain\.slice\(chain\.indexOf\(input\.failed\) \+ 1\)/.test(results), "the fallback chain only moves forward");
+has(/submitClip\(/.test(render) && /ensureKeyframe\(/.test(render) && /speak\(/.test(render), "render routes each clip, makes the UGC keyframe first, and voices lines direct");
+const providers = readFileSync(join(root, "src/lib/video/providers.ts"), "utf8");
+has(/generate_audio: false/.test(providers), "generated clips bring no audio of their own to fight the voice and music");
+has(!/console\.log/.test(providers) && /process\.env\.HF_API_KEY_SECRET/.test(providers) && !/HF_API_KEY_SECRET/.test(readFileSync(join(root, "src/lib/video/clip-engines.ts"), "utf8").replace(/env\.HF_API_KEY_SECRET/g, "")), "keys are read on the server and never logged");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

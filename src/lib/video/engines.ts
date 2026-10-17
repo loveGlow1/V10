@@ -1,9 +1,11 @@
 /* The generation engines behind the router — the Rendering layer.
  *
- *   video    MiniMax-H3 text-to-video (or image-to-video from your photo),
- *            through the n8n workflow "QuickStark.Ai — Video Render"
- *   image    rendered as an H3 motion clip from the same prompt
- *   voice    MiniMax speech, one line per scene, through n8n
+ *   video    the best connected clip engine for each scene — Seedance 2.0 or
+ *            Kling on Higgsfield, MiniMax Hailuo 2.3 on MiniMax's own API,
+ *            Seedance 1.5 on fal, or MiniMax through n8n. See clip-engines.ts.
+ *   image    rendered as a motion clip from the same prompt, the same way
+ *   voice    MiniMax speech, one line per scene — MiniMax's own API with
+ *            MINIMAX_API_KEY, otherwise through n8n
  *   avatar   fal.ai: lip sync on a fictional on-camera creator (sync-lipsync),
  *            or YOUR photo talking for a clone (OmniHuman)
  *   music    fal.ai Stable Audio 2.5
@@ -17,6 +19,7 @@
  * Pure apart from reading the environment, so tools/check-video.mjs can pass
  * its own. */
 
+import { type Aspect, anyClipEngine, clipCost, routeClip, tierFrom, voiceDirect } from "./clip-engines";
 import type { PipelineId } from "./pipelines";
 import type { ProductionPlan } from "./plan";
 
@@ -49,7 +52,12 @@ export const falConfigured = (env: Env = process.env) => Boolean(env.FAL_KEY);
 
 export function engineHealth(engine: EngineId, env: Env = process.env): EngineHealth {
   if (!ADAPTERS[engine]) return "no-adapter";
-  const ok = engine === "avatar" || engine === "music" || engine === "compose" ? falConfigured(env) : n8nConfigured(env);
+  const ok =
+    engine === "avatar" || engine === "music" || engine === "compose"
+      ? falConfigured(env)
+      : engine === "voice"
+        ? voiceDirect(env) || n8nConfigured(env)
+        : anyClipEngine(env);
   return ok ? "available" : "not-configured";
 }
 
@@ -77,13 +85,19 @@ export function enginesNeeded(plan: ProductionPlan): { engine: EngineId; require
 
 /* What a render costs when every job delivers — shown on the button, checked
    against the balance before anything is sent. */
-export function renderCost(plan: ProductionPlan, env: Env = process.env): number {
+/* The engine a scene's clip goes to first: where its price comes from. */
+export function firstEngineFor(plan: ProductionPlan, scene: { engine: string }, env: Env = process.env, quality?: string | null) {
+  const fromFrame = plan.pipeline === "photo_to_video" || (scene.engine === "avatar" && ["ugc_influencer", "commercial_ad", "social_video"].includes(plan.pipeline));
+  return routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame, tier: tierFrom(env, quality) }, env)[0] ?? null;
+}
+
+export function renderCost(plan: ProductionPlan, env: Env = process.env, quality?: string | null): number {
   const fal = falConfigured(env);
   let total = 0;
   for (const scene of plan.scenes) {
     const avatar = scene.engine === "avatar";
     const spoken = Boolean(scene.voiceover.trim());
-    if (!(avatar && isClone(plan.pipeline))) total += CLIP_COST;
+    if (!(avatar && isClone(plan.pipeline))) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality)) : CLIP_COST;
     if (spoken) total += VOICE_COST;
     if (avatar && fal && spoken) total += isClone(plan.pipeline) ? AVATAR_COST : LIPSYNC_COST;
   }

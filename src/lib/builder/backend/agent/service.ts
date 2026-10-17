@@ -16,6 +16,7 @@ import { generateSql } from "@/lib/builder/backend/database-ask";
 import { dataModelFor, type DataModel } from "@/lib/builder/schema";
 
 import { issueApproval, sha256 } from "./approval";
+import { AUTOPILOT_MARK, autoVerdict } from "./auto-verdict";
 import { type AnalysisReport, type DatabaseMap, analyze, describeMap } from "./db-map";
 import { type RlsFinding, type RlsTestTable, readRlsTest, rlsTestSql } from "./probe";
 import { type SurgeryPlan, BACKUP_DAYS, planSurgery, resolveTable, surgeryCard } from "./surgery";
@@ -337,19 +338,31 @@ async function setStatus(service: SupabaseClient, id: string, patch: Partial<Sur
 /**
  * Phase 4, steps 5–8, on the owner's click. The approval token is issued and
  * spent here, in the same request: the model has no path to this function.
+ *
+ * Or by the database autopilot (autopilot.ts), and then only for a plan the
+ * autopilot itself recorded, that is a migration, and that passes autoVerdict
+ * again here — on the plan as stored, not as it was handed over — so the
+ * guard cannot be skipped by calling this directly.
  */
 export async function approveSurgery(
   service: SupabaseClient,
-  input: { projectId: string; userId: string; surgeryId: string; confirmation?: string | null },
+  input: { projectId: string; userId: string; surgeryId: string; confirmation?: string | null; autopilot?: boolean },
 ): Promise<Applied | Failure | { ok: true; created: { ref: string }; message: string }> {
   const row = await loadSurgery(service, input.projectId, input.surgeryId);
   if (!row) return { ok: false, reason: "That change no longer exists." };
   if (row.status !== "planned") return { ok: false, reason: `That change is already ${row.status}.` };
+  if (input.autopilot) {
+    if (row.kind !== "migration" || !(row.request ?? "").startsWith(AUTOPILOT_MARK)) {
+      return { ok: false, reason: "Only a change the autopilot planned itself can be applied without your approval." };
+    }
+    const verdict = autoVerdict(row.plan as SurgeryPlan);
+    if (!verdict.auto) return { ok: false, reason: `It needs your approval: ${verdict.why}.` };
+  }
   if (row.confirmation && (input.confirmation ?? "").trim() !== row.confirmation) {
     return { ok: false, reason: `This change is destructive. Type ${row.confirmation} exactly to approve it.` };
   }
 
-  const got = await withTools(service, input.projectId, "user");
+  const got = await withTools(service, input.projectId, input.autopilot ? "agent" : "user");
   if (!got.ok) return got;
   const { tools } = got;
   if (tools.ref !== row.ref) {

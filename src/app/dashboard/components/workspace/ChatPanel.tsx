@@ -768,6 +768,8 @@ export default function ChatPanel({
     const preview = safeHttpUrl(finished?.preview_url);
 
     if (preview) {
+      /* A build landed: once this run ends, its review round may follow. */
+      reviewNext.current = true;
       phases.set({ id: "generate", label: "Page generated", state: "done" });
       say(
         {
@@ -1039,6 +1041,9 @@ export default function ChatPanel({
 
   /* `send` and `say` close over this render's state; the listener below is
      attached once per project, so it reaches them through a ref. */
+  /* Set when a build lands during a run; read once that run has ended. */
+  const reviewNext = useRef(false);
+
   const connectedRef = useRef<(name: string) => void>(() => undefined);
   connectedRef.current = (name: string) => {
     if (!project?.id) return;
@@ -1047,9 +1052,30 @@ export default function ChatPanel({
       from: "system",
       text: parked
         ? `✓ Connected to ${name}. Your app now runs on your own Supabase — building it there now.`
-        : `✓ Connected to ${name}. Your app now runs on your own Supabase, and the next build creates its tables there.`,
+        : `✓ Connected to ${name}. Your app now runs on your own Supabase — checking what it needs there now.`,
     });
-    if (!parked) return;
+    if (!parked) {
+      /* An app already built — "Full app, database later" — gets its tables
+         now rather than at the next build: the database agent scans, creates
+         what is purely additive, and plans the rest for Approve. Said only
+         when it did or planned something; "nothing to do" is not news. */
+      const projectId = project.id;
+      void fetch(`/api/projects/${projectId}/backend/agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "autopilot", trigger: "connect" }),
+      })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => ({}))) as { status?: string; message?: string; error?: string };
+          if (body.status === "applied" || body.status === "awaiting") say({ from: "system", text: body.message ?? "" });
+          else if (!response.ok && body.error) say({ from: "system", text: `I couldn't set up your database yet: ${body.error}` });
+          else if (body.status === "nothing" && body.message && !/doesn't use a database/.test(body.message)) {
+            say({ from: "system", text: body.message });
+          }
+        })
+        .catch(() => undefined);
+      return;
+    }
     clearParkedBuild();
     setAwaitingDatabase(null);
     void send(parked.text, {
@@ -1131,6 +1157,8 @@ export default function ChatPanel({
       /* An edit carrying on after the time limit: which round this is, and the
          request it is finishing. See CONTINUE_ROUNDS. */
       continuing?: { round: number; original: string };
+      /* The automatic review round — see reviewNext. */
+      review?: boolean;
     } = {},
   ) {
     const text = (prompt ?? draft).trim();
@@ -1266,6 +1294,7 @@ export default function ChatPanel({
         architecture: options.architecture ?? null,
         upgrade: options.upgrade === true,
         confirmSql: options.confirmSql ?? null,
+        review: options.review === true,
         /* The picker, honoured. This used to be state that nothing read: the
            chip drew whatever was chosen and every build ran on Opus regardless,
            which made the whole menu a decoration. It goes as the id the picker
@@ -1585,6 +1614,25 @@ export default function ChatPanel({
         attachments: next.attachments,
         continuing: { round: next.round, original: next.original },
       });
+      return;
+    }
+
+    /* ── Review, then fix ──────────────────────────────────────────────
+     *
+     * A build that just landed was inspected by the save step, and what it
+     * found is on the build row. When it found something, one more edit
+     * follows straight away: the builder reads its own work and fixes it.
+     * Asked first, read-only, so a clean build costs one small request and
+     * nothing more. The round itself is free and runs once per build; the
+     * server writes its prompt from the findings — see
+     * lib/builder/review-round.ts. The stop button ends it like any run. */
+    if (reviewNext.current && !options.review && project) {
+      reviewNext.current = false;
+      const id = project.id;
+      const due = (await fetch(`/api/projects/${id}/review`, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null)) as { due?: boolean } | null;
+      if (due?.due) void send("Review the build and fix what the review found.", { silent: true, intentOverride: "edit", review: true });
     }
   }
 

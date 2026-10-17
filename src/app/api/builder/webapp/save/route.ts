@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { contextSurcharge, creditCostOf, formatCredits, roundCredits } from "@/app/dashboard/credits";
@@ -10,6 +10,7 @@ import { fillImages, searchContext } from "@/lib/builder/images";
 import { ensureImageSources, fillTreeImages, upgradePlaceholders } from "@/lib/builder/tree-images";
 import { addPhotoCredits } from "@/lib/builder/photo-credits";
 import { providerFromEnv } from "@/lib/builder/image-providers";
+import { ART_COST, flierArtProvider, isFlier } from "@/lib/flyers/art";
 import { previouslyUsedPhotos, projectPhotoUrls, rememberPhotos } from "@/lib/builder/photo-memory";
 import type { ArchitectureManifest, Layer } from "@/lib/builder/architecture";
 import { envFor, resolveBackend } from "@/lib/builder/backend/connection";
@@ -47,6 +48,7 @@ import { shouldRedeploy } from "@/lib/publish/redeploy";
 import { existingVercelProject, recordDeployment } from "@/lib/publish/deployment-store";
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument, restoreImages, stashImages } from "@/lib/page-html";
+import { runAutopilot } from "@/lib/builder/backend/agent/autopilot";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
@@ -798,9 +800,21 @@ export async function POST(request: Request) {
    * pipeline. Best effort: a read that fails costs variety, not the build. */
   const usedBefore = await previouslyUsedPhotos(supabase, project.id as string);
 
+  /* A flier's art is made for it — Ideogram, gpt-image-2 or Gemini, with
+     Unsplash behind them — rather than searched for, and given the time a
+     generated picture takes. Its words stay HTML. See lib/flyers/art.ts. */
+  const flierArt = !synthesised && tree.length === 0 && isFlier(html) ? flierArtProvider(providerFromEnv()) : null;
   const pictures = synthesised
     ? { html, credits: [], filled: 0, skipped: 0, bytes: 0, used: [] as string[] }
-    : await fillImages(html, providerFromEnv(), {
+    : flierArt
+      ? await fillImages(html, flierArt, {
+          context: searchContext(str(body.prompt)),
+          seed: project.id as string,
+          exclude: usedBefore,
+          timeoutMs: 110_000,
+          deadline: Date.now() + 120_000,
+        })
+      : await fillImages(html, providerFromEnv(), {
         context: searchContext(str(body.prompt)),
         /* Stable for this project and different between projects — see
            `rotation`. Two bakeries asking for the same photograph used to be
@@ -811,6 +825,20 @@ export async function POST(request: Request) {
         deadline: photosBy,
       });
   html = pictures.html;
+
+  /* The art that was generated, priced per picture and charged once per
+     build; a library photograph costs nothing extra. */
+  const artMade = flierArt?.made() ?? 0;
+  if (artMade > 0) {
+    await chargeCredits(supabase, {
+      userId: claim.userId,
+      action: "generate",
+      cost: artMade * ART_COST,
+      description: `Flier art: ${artMade} ${artMade === 1 ? "picture" : "pictures"} for ${str(body.prompt).slice(0, 40) || "a flier"}`,
+      projectId: project.id,
+      dedupeKey: `flier-art:${claim.requestId || project.id}`,
+    });
+  }
 
   /* Who took them, in the page that publishes them.
    *
@@ -1602,6 +1630,27 @@ export async function POST(request: Request) {
     kind: "build_ready",
     dedupeKey: `ready:${claim.requestId || landedAt}`,
   });
+
+  /* ── Then the database, by itself where that is safe ─────────────────
+   *
+   * Once the build is in the thread, the connected database is brought in
+   * line with what the app needs: scanned read-only, compared with the app,
+   * and whatever is missing planned, dry-run, applied when it is purely
+   * additive, and verified — everything else waits as an Approve card. After
+   * the response, so a slow database never holds the build up; it says what
+   * it did in the thread. Skipped quietly where no database is connected. See
+   * lib/builder/backend/agent/autopilot.ts for the guardrails. */
+  if (tree.length > 0 && summaryArchitecture.database && !project.deleted_at) {
+    const projectForDb = project.id as string;
+    after(async () => {
+      try {
+        await runAutopilot(supabase, { projectId: projectForDb, userId: claim.userId, trigger: "build" });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error(`save: ${projectForDb} — the database autopilot failed:`, error);
+      }
+    });
+  }
 
   if (!announced) {
     // eslint-disable-next-line no-console

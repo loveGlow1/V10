@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { chargeCredits } from '@/lib/credits-server';
 import { buildPrompt, NEGATIVE } from './prompt';
 import { providerChain, refsFor } from './router';
 import { generateOpenAI } from './providers/openai';
@@ -18,6 +19,11 @@ const PREVIEW_NOTE =
   'The first reference image is the approved draft. Keep its layout, composition and hierarchy; refine it into a polished, high-resolution final flyer.';
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/* Credits per image delivered: a draft on Nano Banana 2 is cheap, a final at
+   full resolution is not. Charged once per job, for what arrived. */
+export const FLYER_IMAGE_COST = { preview: 1, final: 3 } as const;
+export const flyerJobCost = (stage: 'preview' | 'final', n: number) => FLYER_IMAGE_COST[stage] * n;
 
 /** A storage path inside this user's own folder, with no way out of it. */
 export function isOwnPreviewPath(path: unknown, userId: string): path is string {
@@ -94,6 +100,14 @@ export async function runFlyerJob(jobId: string, userId: string, input: FlyerReq
       if (error) throw error;
       outputs.push({ provider: result.provider, stage, path });
     }
+
+    await chargeCredits(admin(), {
+      userId,
+      action: 'generate',
+      cost: flyerJobCost(stage, outputs.length),
+      description: `Flyer ${stage}: ${outputs.length} ${outputs.length === 1 ? 'image' : 'images'} (${result.provider})`,
+      dedupeKey: `flyer:${jobId}`,
+    });
 
     await admin().from('flyer_jobs')
       .update({

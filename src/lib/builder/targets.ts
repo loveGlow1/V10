@@ -252,7 +252,7 @@ const CATEGORY_FOCUS: Record<Category, string[]> = {
     "THIS IS A FLIER, NOT A WEBSITE. The page is the artwork: one fixed-size canvas, centred on a neutral backdrop, at the exact pixel size and aspect ratio named below — no navigation, no footer, no sections to scroll, no lead form.",
     "The canvas keeps its aspect ratio at any window width (scale it down with CSS, never reflow it), so what is on screen is what will be exported.",
     "Poster layout: a strong grid, one dominant headline, high-contrast typography (contrast ratio of at least 7:1 for the key line), at most two typefaces, generous margins.",
-    "A background visual: use a resolved photograph or a rich CSS gradient/shape composition; in a code comment at the top, write a one-paragraph image-generation prompt for the background asset so it can be regenerated.",
+    "Mark the canvas element with the attribute data-qs-flier. Its key visual is ONE image slot inside the canvas, filling it behind the type: <img data-shot=\"…\" data-ratio=\"W/H\" data-weight=\"hero\" alt=\"…\"> positioned absolutely with object-fit: cover, where data-ratio is the canvas's own ratio and data-shot is real art direction for a designer — subject, composition, lighting, palette from the brand colours, and where the calm space is for the headline. Never ask for words, letters or logos in the picture: every word on the flier is HTML text layered above it, with a gradient or solid scrim behind the type so the key line keeps its 7:1 contrast.",
     "Under the canvas, outside the artwork, a small \"Download PNG\" button that renders the canvas to an image in the browser (html-to-image from a CDN, or an equivalent), and the canvas size printed beside it.",
   ],
   video: [
