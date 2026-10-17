@@ -4,7 +4,9 @@ export type Provider =
   | 'gpt-image-2'
   | 'gpt-image-1.5'
   | 'ideogram-v3'
-  | 'minimax-image';
+  | 'minimax-image'
+  | 'n8n-minimax'
+  | 'n8n-openai';
 
 export type FlyerFormat = 'portrait' | 'square' | 'landscape' | 'story';
 export type Stage = 'preview' | 'final';
