@@ -31,7 +31,7 @@ import {
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
-import { PreviewToolbar, VisualEditPrompt } from "./VisualEditOverlay";
+import { PreviewToolbar, TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
 import { CODE_CHANNEL } from "./CodeEditor";
 import VSCodeDialog from "./VSCodeDialog";
 import { usePreviewBridge } from "./preview-bridge";
@@ -472,7 +472,7 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState } = usePreviewBridge(frameRef, project?.id, !isDesktop);
 
   /* A save in the code editor (another tab) lands as a new build; pick it up
      at once rather than on the next refresh. */
@@ -1537,13 +1537,15 @@ export default function PreviewPanel({
                 allow="web-share"
                 className="min-h-0 flex-1 border-0 bg-white"
               />
-              {editMode && picked && picks.length > 0 && project?.id ? (
+              <TypingStatus typing={typing} saveState={saveState} onDone={stopTyping} docked={!isDesktop} />
+              {editMode && picked && picks.length > 0 && project?.id && !typing ? (
                 <VisualEditPrompt
                   projectId={project.id}
                   picked={picked}
                   picks={picks}
                   docked={!isDesktop}
                   onSelectParent={selectParent}
+                  onEditText={editText}
                   onSent={() => {
                     setPicked(null);
                     deselect();

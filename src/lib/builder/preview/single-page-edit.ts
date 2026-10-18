@@ -125,6 +125,8 @@ ${EDIT_MODE}
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
     if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
+    if (data.editText === true) { startTyping(selected); return; }
+    if (data.stopTyping === true) { stopTyping(true); return; }
     if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') previewChange(data.preview);

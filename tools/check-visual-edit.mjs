@@ -56,7 +56,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/da
   }
 }
 
-const { applyVisualEdit, applyClassChange, locateElement, describeChange } = await import(join(out, "lib/builder/visual-edit.js"));
+const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
 const parses = (source) => ts.createSourceFile("x.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX).parseDiagnostics.length === 0;
 
@@ -219,6 +219,25 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/-webkit-touch-callout:none/.test(runtimeSrc), "no long-press callout or text selection while picking on a phone");
   has(/props\.docked \? <VisualEditSheet/.test(overlaySrc) && /text-\[16px\]/.test(overlaySrc) && /visualViewport/.test(overlaySrc), "phones get a bottom sheet: 16px prompt (no iOS zoom), above the keyboard");
   has(/onSelectParent=\{selectParent\}/.test(sheetSrc) && /setEditMode\(false\);\s*onClose\(\);/.test(sheetSrc), "the sheet can pick the block around, and sending returns to the chat");
+}
+
+/* Typing straight into a single page. */
+{
+  const page = `<!doctype html>\n<html><body>\n  <header><h1 class="title">Fresh sourdough</h1>\n  <p>Open at <b>7</b>.</p><p>Fresh sourdough</p></header>\n</body></html>`;
+  const typed = applySinglePageText(page, { src: "index.html:3:11", tag: "h1", before: "Fresh sourdough", text: "Rye & spelt <today>" });
+  has(typed.ok && typed.source.includes('<h1 class="title">Rye &amp; spelt &lt;today&gt;</h1>') && typed.source.includes("<p>Fresh sourdough</p>"), "typed words replace exactly that element's text, escaped, nothing else");
+  const moved = applySinglePageText(page, { src: "index.html:3:2", tag: "h1", before: "Fresh sourdough", text: "Rye" });
+  has(moved.ok && moved.source.includes(">Rye</h1>"), "a column that moved still finds the one element on the line with the old words");
+  has(!applySinglePageText(page, { src: "index.html:4:3", tag: "p", before: "Open at 7.", text: "x" }).ok, "an element holding markup is refused, not flattened");
+  has(!applySinglePageText(page, { src: "index.html:3:11", tag: "h1", before: "Something else", text: "x" }).ok, "old words that are not there are refused, not guessed");
+  const { readFileSync: read2 } = await import("node:fs");
+  const rt = read2(new URL("../src/lib/builder/preview/runtime.ts", import.meta.url), "utf8");
+  const bridge = read2(new URL("../src/app/dashboard/components/workspace/preview-bridge.ts", import.meta.url), "utf8");
+  const route = read2(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
+  has(/element === selected && canType\(element\)\) \{ startTyping\(element\)/.test(rt) && /'plaintext-only'/.test(rt), "tapping the selected words again types into them in place");
+  has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
+  has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /else toAgent\(\)/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
+  has(/applySinglePageText\(html,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

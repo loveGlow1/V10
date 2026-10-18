@@ -9,7 +9,7 @@ import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 
 import { ManageMark } from "./panelMarks";
-import { VisualEditPrompt } from "./VisualEditOverlay";
+import { TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
 import { usePreviewBridge } from "./preview-bridge";
 
 /* The preview, over the whole screen, on a phone.
@@ -62,7 +62,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -239,13 +239,15 @@ export default function PreviewSheet({
                 />
                 {/* Over the frame rather than instead of it, so the frame is
                     already loading while this is on screen. */}
-                {editMode && projectId && picked && picks.length > 0 ? (
+                <TypingStatus typing={typing} saveState={saveState} onDone={stopTyping} docked />
+                {editMode && projectId && picked && picks.length > 0 && !typing ? (
                   <VisualEditPrompt
                     projectId={projectId}
                     picked={picked}
                   picks={picks}
                     docked
                     onSelectParent={selectParent}
+                    onEditText={editText}
                     onSent={() => {
                       setPicked(null);
                       deselect();

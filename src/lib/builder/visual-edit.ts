@@ -266,3 +266,64 @@ export function describeChange(edit: VisualEdit): string {
   if (edit.change.imageSrc) parts.push("image swapped");
   return `<${edit.tag}> in ${parseSrc(edit.src)?.path ?? "?"}: ${parts.join(", ")}`;
 }
+
+/* ── Typed straight into a single page ──────────────────────────────────
+ *
+ * A single-page build is one HTML document, tagged for the preview by
+ * tagSourceLines with `index.html:line:col` — col 1-based, at the element's
+ * `<`. Typing into a heading in the preview lands here: the element is found
+ * at exactly that place (or, if the page has moved under it, the one element
+ * of that tag on that line still holding the old words), its text — and only
+ * its text — is replaced, escaped for HTML. Refused rather than guessed when
+ * the element holds anything but text or the old words are not there. Pure. */
+const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+export function applySinglePageText(
+  html: string,
+  edit: { src: string; tag: string; before: string; text: string },
+): VisualResult {
+  const where = parseSrc(edit.src);
+  const tag = edit.tag.toLowerCase();
+  if (!where || !/^[a-z][a-z0-9-]*$/.test(tag)) return { ok: false, needsAi: true, reason: "the element could not be placed" };
+  const words = edit.text.replace(/ /g, " ").replace(/\s+/g, " ").trim();
+  if (!words) return { ok: false, needsAi: true, reason: "the text is empty" };
+
+  const lineStarts = [0];
+  for (let i = 0; i < html.length; i += 1) if (html.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  if (where.line < 1 || where.line > lineStarts.length) return { ok: false, needsAi: true, reason: "the page has changed" };
+  const lineStart = lineStarts[where.line - 1];
+  const lineEnd = where.line < lineStarts.length ? lineStarts[where.line] : html.length;
+
+  const opensHere = (at: number) => html.slice(at, at + tag.length + 2).toLowerCase().match(new RegExp(`^<${tag}[\\s>/]`)) !== null;
+  const textOf = (at: number) => {
+    const opening = readOpening(html, at);
+    if (!opening || opening.selfClosing) return null;
+    const close = html.toLowerCase().indexOf(`</${tag}`, opening.end + 1);
+    if (close < 0) return null;
+    const inner = html.slice(opening.end + 1, close);
+    if (inner.includes("<")) return null;
+    return { start: opening.end + 1, end: close, inner };
+  };
+  const before = squash(edit.before);
+  const matches = (found: { inner: string } | null) => found !== null && (!before || squash(found.inner) === before);
+
+  let found: ReturnType<typeof textOf> = null;
+  const exact = lineStart + where.col - 1;
+  if (opensHere(exact) && matches(textOf(exact))) found = textOf(exact);
+  if (!found) {
+    const candidates: NonNullable<ReturnType<typeof textOf>>[] = [];
+    for (let at = html.indexOf("<", lineStart); at >= 0 && at < lineEnd; at = html.indexOf("<", at + 1)) {
+      if (!opensHere(at)) continue;
+      const one = textOf(at);
+      if (one && matches(one)) candidates.push(one);
+    }
+    if (candidates.length !== 1) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
+    found = candidates[0];
+  }
+  if (!found) return { ok: false, needsAi: true, reason: "the element holds more than text" };
+
+  /* Keep the whitespace around the words exactly as it was written. */
+  const lead = found.inner.match(/^\s*/)?.[0] ?? "";
+  const trail = found.inner.match(/\s*$/)?.[0] ?? "";
+  return { ok: true, source: html.slice(0, found.start) + lead + escapeHtml(words) + trail + html.slice(found.end) };
+}

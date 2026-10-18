@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
-import { applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
+import { applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
@@ -68,6 +68,47 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (edits.length === 0) return NextResponse.json({ error: "There are no edits to apply." }, { status: 400 });
 
   const current = await currentTree(service, owned.projectId);
+
+  /* A single page: words typed into the preview, written into the one HTML
+     document, as a new version. Only text is done by hand here; anything
+     else goes back as needsAi. */
+  if (!current.sourceMissing && current.html && !current.tree.some((file) => /\.(?:tsx|jsx)$/.test(file.path))) {
+    let html = current.html;
+    const done: string[] = [];
+    const missed: { index: number; reason: string }[] = [];
+    edits.forEach((edit, index) => {
+      if (typeof edit.change.text !== "string" || edit.change.classes || edit.change.imageSrc) {
+        missed.push({ index, reason: "only typed text is applied by hand on a single page" });
+        return;
+      }
+      const result = applySinglePageText(html, { src: edit.src, tag: edit.tag, before: edit.text ?? "", text: edit.change.text });
+      if (!result.ok) {
+        missed.push({ index, reason: result.reason });
+        return;
+      }
+      if (result.source !== html) {
+        html = result.source;
+        done.push(describeChange(edit));
+      }
+    });
+    if (done.length === 0) return NextResponse.json({ applied: 0, needsAi: missed, buildId: current.buildId });
+    const { data: page, error: pageError } = await service
+      .from("project_builds")
+      .insert({
+        project_id: owned.projectId,
+        user_id: owned.userId,
+        prompt: `Visual edit: ${done.join("; ")}`.slice(0, 1000),
+        html,
+        model: "visual-edit",
+        files_touched: 1,
+      })
+      .select("id")
+      .single();
+    if (pageError || !page) return NextResponse.json({ error: "The edit could not be saved. Nothing was changed." }, { status: 500 });
+    await service.from("projects").update({ last_build_at: new Date().toISOString() }).eq("id", owned.projectId).eq("user_id", owned.userId);
+    return NextResponse.json({ applied: done.length, needsAi: missed, buildId: page.id });
+  }
+
   if (current.sourceMissing || current.tree.length === 0 || !current.tree.some((file) => /\.(?:tsx|jsx)$/.test(file.path))) {
     return NextResponse.json(
       { error: "Visual edits work on app projects. Describe this change in the chat instead." },
