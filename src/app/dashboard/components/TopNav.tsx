@@ -15,7 +15,6 @@ import {
   Repeat2,
   Settings,
   Sparkles,
-  Trophy,
   Users,
 } from "lucide-react";
 
@@ -114,7 +113,6 @@ export default function TopNav({ tabs, onUpgradeClick, onAccountSettingsClick, p
   const menuItems: { icon: typeof Gift; label: string; trailing?: "chevron" | "external"; onClick?: () => void }[] = [
     { icon: Gift, label: "Refer and Earn" },
     { icon: CreditCard, label: "Manage Plan", onClick: () => { setPanelOpen(false); onUpgradeClick(); } },
-    { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
     { icon: Settings, label: "Account Settings", onClick: () => { setPanelOpen(false); onAccountSettingsClick(); } },
     { icon: Globe, label: "Language", trailing: "chevron" },
     { icon: Github, label: "Connect to GitHub", trailing: "external", onClick: () => { window.location.assign(connectGitHubHref()); } },
