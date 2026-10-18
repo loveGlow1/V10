@@ -102,7 +102,7 @@ has(R.reviewPrompt("b1", lots).split("\n").filter((l) => l.startsWith("- ")).len
 const route = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
 has(/prompt = due\.prompt;/.test(route), "the build route takes the prompt from the build row, not the browser");
 has(!/await chargeCredits\(service,/.test(route.slice(route.indexOf("const bill: typeof chargeCredits"))), "every charge after it goes through bill, so the round is never billed");
-has(/!freeReview && !canAfford/.test(route), "and an empty balance does not stop the round");
+has(/!freeReview && [^\n]*!canAfford/.test(route), "and an empty balance does not stop the round");
 const panel = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
 has(/reviewNext\.current && !options\.review/.test(panel), "the workspace starts a round after a build, never after a round");
 

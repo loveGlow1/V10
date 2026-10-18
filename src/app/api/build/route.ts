@@ -889,7 +889,9 @@ async function handle(
      is not read as having nothing. */
   const balance = service ? await currentBalance(service, user.id) : null;
 
-  if (balance && !freeReview && !canAfford(balance, ENTRY_COST)) {
+  /* Undo is never charged — it puts back a version already paid for — so the
+     Undo button and the version list work on an empty balance too. */
+  if (balance && !freeReview && body.intentOverride !== "revert" && !canAfford(balance, ENTRY_COST)) {
     return NextResponse.json(
       {
         error: `Out of credits — ${formatCredits(ENTRY_COST)} is the least a change costs. Top up to keep building.`,
@@ -1541,10 +1543,10 @@ async function handle(
   {
     const confirmed = body.confirmSql === true && typeof body.sql === "string" ? body.sql : null;
     const pasted = confirmed || planOnly ? null : sqlFromMessage(prompt);
-    const asked = !confirmed && !pasted && !planOnly && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
+    const asked = !confirmed && !pasted && !planOnly && override !== "revert" && !pageDataAsk && !VISUAL_PICK.test(prompt) && isDatabaseAsk(prompt);
     /* "Analyze my database", "undo the last database change" and the rest of
        the database agent's commands. See lib/builder/backend/agent/commands.ts. */
-    const command = !confirmed && !pasted && !planOnly && !VISUAL_PICK.test(prompt) ? agentCommand(prompt) : null;
+    const command = !confirmed && !pasted && !planOnly && override !== "revert" && !VISUAL_PICK.test(prompt) ? agentCommand(prompt) : null;
 
     if (service && (confirmed || pasted || asked || command)) {
       const backend = await resolveBackend(service, project.id);

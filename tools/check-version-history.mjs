@@ -236,6 +236,21 @@ is(/1\. \*\*Version 37\*\*/.test(V.describeRecent(at38, TZ, AUR_NOW)), true, "an
 is(/looks the same as version 33/.test(V.describeVersions(at37, TZ, AUR_NOW)), false, "a recorded restore is labelled as a restore, not as a look-alike");
 is(/Version 14\*\* .* · fix the dashboard settings\n/.test(V.describeVersions(aureliaAt(16), TZ, AUR_NOW)), true, "versions that differ get no look-alike note");
 
+/* The Undo button and the version list send these exact words. */
+is(pickIn(at38, "Undo the last change"), pickIn(at38, "undo"), "the Undo button's words step back exactly as a typed undo does");
+is(pickIn(at37, "Go back to version 33"), 33, "a version picked from the list is that exact version");
+{
+  const { readFileSync } = await import("node:fs");
+  const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+  const build = read("src/app/api/build/route.ts");
+  const controls = read("src/app/dashboard/components/workspace/VersionControls.tsx");
+  const chat = read("src/app/dashboard/components/workspace/ChatPanel.tsx");
+  is(/body\.intentOverride !== "revert" && !canAfford\(balance, ENTRY_COST\)/.test(build), true, "undo works on an empty balance: it is never charged");
+  is(/intent: "revert"/.test(controls) && /intentOverride: detail\.intent/.test(chat), true, "the buttons go through the chat as an undo, so the thread and preview follow");
+  is(/\/api\/projects\/\$\{projectId\}\/versions/.test(controls) && /listVersions\(service, owned\.projectId\)/.test(read("src/app/api/projects/[id]/versions/route.ts")), true, "the list is read from the project's own history");
+  is(/<VersionControls/.test(read("src/app/dashboard/components/workspace/PreviewPanel.tsx")) && /<VersionControls/.test(read("src/app/dashboard/components/workspace/PreviewSheet.tsx")), true, "Undo and Versions are on desktop and phone");
+}
+
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} check${failed === 1 ? "" : "s"} failed.` : "\nAll version history checks passed.");
 process.exit(failed ? 1 : 0);

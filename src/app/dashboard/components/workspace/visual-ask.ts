@@ -10,7 +10,12 @@ export const VISUAL_ASK_EVENT = "quickstark:visual-ask";
 
 /* One message per file: an edit changes one file, so elements in two files
    are two requests, sent one after the other. */
-export type VisualAsk = { projectId: string; texts: string[] };
+export type VisualAsk = {
+  projectId: string;
+  texts: string[];
+  /* Sent as an undo rather than read: the Undo button and the version list. */
+  intent?: "revert";
+};
 
 export function askChat(ask: VisualAsk) {
   if (typeof window === "undefined") return;

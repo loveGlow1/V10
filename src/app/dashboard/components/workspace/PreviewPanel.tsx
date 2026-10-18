@@ -31,6 +31,7 @@ import {
 
 import { isProjectSummary } from "@/lib/builder/project-summary";
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
+import { VersionControls } from "./VersionControls";
 import { EditHint, PreviewToolbar, TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
 import { CODE_CHANNEL } from "./CodeEditor";
 import VSCodeDialog from "./VSCodeDialog";
@@ -1111,6 +1112,14 @@ export default function PreviewPanel({
             >
               <MousePointerClick className="h-3.5 w-3.5" />
             </button>
+            {project?.id ? (
+              <VersionControls
+                projectId={project.id}
+                lastBuildAt={project.last_build_at ?? null}
+                buttonClassName="shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] disabled:opacity-40"
+                iconClassName="h-3.5 w-3.5"
+              />
+            ) : null}
             <button
               onClick={() => setReloads((count) => count + 1)}
               aria-label="Reload the preview"
@@ -2112,6 +2121,11 @@ export default function PreviewPanel({
               <ExternalLink className="h-4 w-4" />
             </button>
           )}
+
+          {/* Undo, and every version, read from the project's history. */}
+          {project?.id ? (
+            <VersionControls projectId={project.id} lastBuildAt={project.last_build_at ?? null} buttonClassName={tile} />
+          ) : null}
 
           {/* A build writes to the same address, so the frame has to be told to
               look again. Disabled until there is something to look at, so it
