@@ -32,6 +32,7 @@ import Popover from "./components/workspace/Popover";
 import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
+import { fitComposer } from "@/lib/composer-height";
 import {
   CATEGORY_LABEL,
   CATEGORY_NOTE,
@@ -339,10 +340,11 @@ export default function DashboardPage() {
   /* The box grows with what is in it, up to a point, so a full template can
      be read and edited without scrolling a three-line window. */
   useEffect(() => {
-    const box = composerRef.current;
-    if (!box) return;
-    box.style.height = "";
-    if (transcript && box.scrollHeight > box.clientHeight) box.style.height = `${Math.min(box.scrollHeight, 300)}px`;
+    const fit = () => fitComposer(composerRef.current, Boolean(transcript));
+    fit();
+    /* And again when the keyboard opens or closes, which changes the room. */
+    window.visualViewport?.addEventListener("resize", fit);
+    return () => window.visualViewport?.removeEventListener("resize", fit);
   }, [transcript]);
 
   /* The tab follows the prompt until somebody clicks one. Only a confident
