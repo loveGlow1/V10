@@ -56,7 +56,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/da
   }
 }
 
-const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
+const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageRemove, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
 const parses = (source) => ts.createSourceFile("x.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX).parseDiagnostics.length === 0;
 
@@ -236,7 +236,7 @@ Changed: a bolder mark with a single vertical stroke.`;
   const route = read2(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
   has(/element === selected && canType\(element\)\) \{ startTyping\(element\)/.test(rt) && /'plaintext-only'/.test(rt), "tapping the selected words again types into them in place");
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
-  has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
+  has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(all\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
   has(/applySinglePageText\(next,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
 }
 
@@ -279,6 +279,55 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/const applyStyle = useCallback/.test(bridge4) && /onStyle=\{applyStyle\}/.test(sheet4) && /onStyle=\{applyStyle\}/.test(panel4), "the style bar is wired on the phone sheet and the desktop pill");
   has(/export function StyleBar/.test(overlay4) && /aria-label="Quick styles/.test(overlay4) && /"Ask AI"|>\s*Ask AI/.test(overlay4), "quick styles sit beside asking the AI, on both screens");
   has(/const HINT_KEY = "qs-visual-hint-seen"/.test(overlay4) && /<EditHint/.test(sheet4) && /<EditHint/.test(panel4), "the first time edit mode opens, it says how it works, once");
+}
+
+/* Removing what was picked: cut exactly, by hand — or handed on when
+   something still uses it. */
+{
+  const page = [
+    `<!doctype html>`,
+    `<html><body>`,
+    `  <p class="lead">`,
+    `    A long intro over`,
+    `    two lines.`,
+    `  </p>`,
+    `  <form id="start">`,
+    `    <label for="fullname" class="sr-only">Your name</label>`,
+    `    <input id="fullname" name="fullname"`,
+    `      class="w-full">`,
+    `    <input id="nick" class="w-full">`,
+    `    <button class="btn">Go</button>`,
+    `    <p id="formMsg">Free for 500 tasks</p>`,
+    `  </form>`,
+    `  <svg viewBox="0 0 10 10" class="art"><g><svg class="inner"><rect/></svg></g><path d="M0 0"/></svg>`,
+    `  <div class="x"><div class="y">nested</div></div><span>kept</span>`,
+    `<script>const msg = document.getElementById('formMsg'); form.querySelector('button').textContent = 'Sent';</script>`,
+    `</body></html>`,
+  ].join("\n");
+  const lead = applySinglePageRemove(page, { src: "index.html:3:3", tag: "p", className: "lead", text: "A long intro over two lines." });
+  has(lead.ok && !lead.source.includes("A long intro") && lead.source.includes("<html><body>\n  <form"), "a paragraph over several lines goes whole, with the lines it stood on");
+  const field = applySinglePageRemove(page, { src: "index.html:11:5", tag: "input", className: "w-full", text: "" });
+  has(field.ok && !field.source.includes('id="nick"') && field.source.includes('id="fullname"'), "a field goes on its own; the one beside it stays");
+  const named = applySinglePageRemove(page.replace("const msg = document.getElementById('formMsg'); ", ""), { src: "index.html:9:5", tag: "input", className: "w-full", text: "" });
+  has(named.ok && !named.source.includes('for="fullname"'), "a field's own label goes with it");
+  const art = applySinglePageRemove(page, { src: "index.html:15:3", tag: "svg", className: "art", text: "" });
+  has(art.ok && !art.source.includes("<svg") && !art.source.includes("</svg>"), "a picture with a picture inside it goes whole, nested close tags counted");
+  const outer = applySinglePageRemove(page, { src: "index.html:16:3", tag: "div", className: "x", text: "nested" });
+  has(outer.ok && outer.source.includes("  <span>kept</span>") && !outer.source.includes("nested"), "only the element goes when others share its line");
+  const msg = applySinglePageRemove(page, { src: "index.html:13:5", tag: "p", className: "", text: "Free for 500 tasks" });
+  has(!msg.ok && /#formMsg/.test(msg.reason), "an element a script still finds by id is handed to the agent, not cut");
+  const button = applySinglePageRemove(page, { src: "index.html:12:5", tag: "button", className: "btn", text: "Go" });
+  has(!button.ok && /<button>/.test(button.reason), "an element a script finds by its tag is handed on too");
+  has(!applySinglePageRemove(page, { src: "index.html:2:7", tag: "body", className: "", text: "" }).ok, "the page itself is never removed");
+  const { readFileSync: read5 } = await import("node:fs");
+  const route5 = read5(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
+  const bridge5 = read5(new URL("../src/app/dashboard/components/workspace/preview-bridge.ts", import.meta.url), "utf8");
+  const overlay5 = read5(new URL("../src/app/dashboard/components/workspace/VisualEditOverlay.tsx", import.meta.url), "utf8");
+  const build5 = read5(new URL("../src/app/api/build/route.ts", import.meta.url), "utf8");
+  has(/applySinglePageRemove\(html,/.test(route5) && /line\(b\.edit\) - line\(a\.edit\)/.test(route5), "removals are cut bottom-up, so each element is still at the line the preview reported");
+  has(/const removePicked = useCallback/.test(bridge5) && /REMOVE_FOR_AGENT/.test(bridge5) && /onRemove=\{removePicked\}/.test(read5(new URL("../src/app/dashboard/components/workspace/PreviewPanel.tsx", import.meta.url), "utf8")), "Remove is done by hand, and what cannot be is handed on with its clean-up");
+  has(/REMOVE_WORDS\.test\(/.test(overlay5), "typing “remove it” is a removal, not a request for the agent");
+  has(/steps\.begin\("tidy"/.test(build5) && /broke\.length === 0 \? `Next:/.test(build5), "an agent edit tidies its own loose ends, and does not say them twice");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

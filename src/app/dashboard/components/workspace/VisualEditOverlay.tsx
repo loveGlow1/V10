@@ -65,9 +65,14 @@ export function VisualEditPrompt(props: {
   onSelectParent?: () => void;
   onEditText?: () => void;
   onStyle?: StyleChange;
+  onRemove?: () => void;
 }) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
 }
+
+/* "Remove it", "delete these" — said in so many words, it is a removal the
+   editor does by hand rather than a request for the agent. */
+export const REMOVE_WORDS = /^(?:please\s+)?(?:remove|delete|take out|get rid of)(?:\s+(?:it|this|that|them|these|those|all(?: of (?:it|them|these|those))?|these elements|this element))?[.!\s]*$/i;
 
 /* ── Quick styles ────────────────────────────────────────────────────────
    One tap, no AI: the class for that group swapped on what was picked,
@@ -290,6 +295,7 @@ function VisualEditSheet({
   onSelectParent,
   onEditText,
   onStyle,
+  onRemove,
 }: {
   projectId: string;
   picked: Picked;
@@ -299,6 +305,7 @@ function VisualEditSheet({
   onSelectParent?: () => void;
   onEditText?: () => void;
   onStyle?: StyleChange;
+  onRemove?: () => void;
 }) {
   const [text, setText] = useState("");
   /* Ask the agent, or style it by hand. */
@@ -324,6 +331,10 @@ function VisualEditSheet({
   const send = (ask: string) => {
     const words = ask.trim();
     if (!words) return;
+    if (onRemove && REMOVE_WORDS.test(words)) {
+      setText("");
+      return onRemove();
+    }
     askChat({ projectId, texts: visualRequests(picks.length ? picks : [picked], words) });
     setText("");
     onSent();
@@ -480,6 +491,7 @@ function FloatingPrompt({
   onSent,
   onCancel,
   onStyle,
+  onRemove,
 }: {
   projectId: string;
   /* The newest pick, which the box sits beside. */
@@ -492,6 +504,7 @@ function FloatingPrompt({
   onSent: () => void;
   onCancel: () => void;
   onStyle?: StyleChange;
+  onRemove?: () => void;
 }) {
   const [text, setText] = useState("");
   const [styling, setStyling] = useState(false);
@@ -535,6 +548,10 @@ function FloatingPrompt({
     event?.preventDefault();
     const ask = text.trim();
     if (!ask) return;
+    if (onRemove && REMOVE_WORDS.test(ask)) {
+      setText("");
+      return onRemove();
+    }
     askChat({ projectId, texts: visualRequests(picks.length ? picks : [picked], ask) });
     setText("");
     onSent();

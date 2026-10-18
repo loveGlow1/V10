@@ -220,5 +220,20 @@ const unmet = (v) => v.unmet.map((c) => c.rule);
   has(describeVerification(v) === "", "and nothing to apologise for");
 }
 
+/* ── Elements picked in the visual editor to be removed ──────────────────── */
+
+{
+  const page = `<html><body>\n<p class="a">Neuralis Systems Intelligence is the automation layer</p>\n<p id="m">Free for 500 tasks/month. No card.</p>\n<span>SOC 2 Type II</span>\n</body></html>`;
+  const ask = `Change these exact elements (picked in the visual editor):\n1. <p> in index.html line 2 ("Neuralis Systems Intelligence is the automation la"): Remove it\n2. <p> in index.html line 3 ("Free for 500 tasks/month. No card."): Remove it\n3. <span> in index.html line 4 ("SOC 2 Type II"): Remove it`;
+  const partly = page.replace(/<p id="m">[^<]*<\/p>\n/, "").replace(/<span>[^<]*<\/span>\n/, "");
+  const v = verifyEdit({ message: ask, before: page, after: partly });
+  const removed = v.criteria.find((c) => c.rule === "removed" && /picked to be removed/.test(c.what));
+  has(removed && removed.met === false && !v.complete, "a picked element left on the page is caught, not reported as done", JSON.stringify(removed));
+  has(removed && /Neuralis Systems/.test(removed.detail ?? ""), "and named, so the repair knows which one", removed?.detail);
+  const all = partly.replace(/<p class="a">[^<]*<\/p>\n/, "");
+  const w = verifyEdit({ message: ask, before: page, after: all });
+  has(w.criteria.find((c) => /picked to be removed/.test(c.what))?.met === true, "all of them gone passes");
+}
+
 console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

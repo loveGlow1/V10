@@ -3846,7 +3846,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      * with enough in it to ask for the follow-up in one sentence. Refusing
      * would be the failure this codebase has had twice: a rule that is right in
      * principle and wrong about the documents it meets. */
-    const broke = verdict.ok ? regressions(readPage(currentHtml), readPage(edited.html)) : [];
+    let broke = verdict.ok ? regressions(readPage(currentHtml), readPage(edited.html)) : [];
 
     if (!verdict.ok) {
       /* Discarded, not stored. The previous version is still the working
@@ -4017,6 +4017,60 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
     }
 
 
+    /* ── Loose ends, tidied rather than offered ────────────────────────────
+     *
+     * A removal that left a script reaching for an id it took out, or a link
+     * pointing at a section that is gone, used to end the reply with "say the
+     * word and I'll tidy that up" — and then the model's own next step said
+     * the same thing again. The person asked for the elements to go; a form
+     * that now throws on submit is part of that job, not a second request.
+     * So the loose ends go straight back in as one more round, on the same
+     * clock and the same rules as the repair: kept only if it leaves fewer
+     * loose ends, still holds together, and takes nothing the request asked
+     * for back out. */
+    if (verdict.ok) broke = regressions(readPage(currentHtml), readPage(edited.html));
+    const loose = broke.filter((one) => /^a (?:script still reaches|link now points)/.test(one));
+    if (loose.length > 0 && editDeadline(requestStartedAt) - Date.now() > REPAIR_FLOOR_MS && !logoSwapped && !logoSizes) {
+      steps.begin("tidy", "Tidying up after the change", loose.join("; "));
+      try {
+        const tidy = await editPage(
+          [
+            "The last change removed elements that other parts of this page still use:",
+            ...loose.map((one) => `- ${one}`),
+            "Fix only these loose ends: remove or update the script code that used the removed elements so nothing throws (a form should still submit cleanly), and remove or repoint links to removed sections.",
+            "Do NOT add the removed elements back. Change nothing else.",
+          ].join("\n"),
+          edited.html,
+          [],
+          [],
+          narrate("tidy", "Tidying up after the change"),
+          landmarkBrief(edited.html),
+          edited.model,
+          editDeadline(requestStartedAt),
+        );
+        const tidied = autofix(tidy.html);
+        const candidate = tidied.applied.length > 0 ? tidied.html : tidy.html;
+        const holds = validatePage(currentHtml, candidate);
+        const left = holds.ok ? regressions(readPage(currentHtml), readPage(candidate)) : null;
+        const still = holds.ok ? verifyEdit({ message: editPrompt, plan, before: currentHtml, after: candidate }) : null;
+        if (left && still && left.length < broke.length && still.unmet.length <= verification.unmet.length) {
+          edited = {
+            ...edited,
+            html: candidate,
+            applied: edited.applied + tidy.applied,
+            outputTokens: edited.outputTokens + tidy.outputTokens,
+          };
+          broke = left;
+          verification = still;
+          steps.mark("tidy", left.length === 0 ? "Tidied up — nothing left pointing at what was removed" : "Tidied up most of it", left.join("; ") || undefined);
+        } else {
+          steps.mark("tidy", "Left the change as it was", holds.ok ? "the tidy-up was no better" : holds.problem);
+        }
+      } catch {
+        steps.mark("tidy", "Left the change as it was", "the tidy-up could not be made");
+      }
+    }
+
     steps.begin("version", "Saving the new version", "storing it so you can undo back to this…");
     await service.from("project_builds").insert({
       project_id: project.id,
@@ -4095,13 +4149,15 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       broke.length > 0
         ? `One thing to know: ${broke.join("; and ")}. Say the word and I'll tidy that up.`
         : null,
+      /* Not when something was knocked loose: the model's next step is then
+         almost always the same loose end in other words, said twice. */
       /* The model's own next step, when it had one. It came back on the
          edit call, so it costs nothing extra and it is about the page as it
          now stands rather than as it was. */
       /* Withheld when the request itself did not land. A next step offered on
          top of a change that is not in the page reads as the subject being
          changed, and the thing to do next is the thing that was asked for. */
-      edited.note && verification.complete ? `Next: ${edited.note}` : null,
+      edited.note && verification.complete && broke.length === 0 ? `Next: ${edited.note}` : null,
     ]
       .filter(Boolean)
       .join(" ");

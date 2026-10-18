@@ -18,7 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { liveJob } from "@/lib/jobs/store";
 
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
-import { applySinglePageClasses, applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
+import { applySinglePageClasses, applySinglePageRemove, applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
@@ -53,6 +53,7 @@ function readEdits(body: unknown): VisualEdit[] {
         text: typeof change.text === "string" ? change.text.slice(0, 2000) : undefined,
         classes: classes && classes.length > 0 ? classes : undefined,
         imageSrc: typeof change.imageSrc === "string" ? change.imageSrc.slice(0, 2000) : undefined,
+        remove: change.remove === true ? true : undefined,
       },
     });
   }
@@ -84,11 +85,13 @@ function typedSummary(edits: VisualEdit[]): string {
     .slice(0, 3)
     .map((edit) => {
       const what = names[edit.tag] ?? `the ${edit.tag}`;
+      if (edit.change.remove) return `${what} removed`;
       if (typeof edit.change.text === "string") return `${what} now reads “${edit.change.text.trim().slice(0, 80)}”`;
       const styles = (edit.change.classes ?? []).map((change) => styleWords[change.group] ?? change.group);
       return `${what}: ${styles.join(", ") || "style"} changed`;
     })
-    .join("; ");
+    .join("; ")
+    .concat(edits.length > 3 ? `; and ${edits.length - 3} more` : "");
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -121,12 +124,34 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!current.sourceMissing && current.html && !current.tree.some((file) => /\.(?:tsx|jsx)$/.test(file.path))) {
     let html = current.html;
     const done: string[] = [];
+    const doneEdits: VisualEdit[] = [];
     const missed: { index: number; reason: string }[] = [];
-    edits.forEach((edit, index) => {
+    /* Removals last and bottom-up: cutting an element shifts the lines
+       below it, so the ones further down the page go first and every other
+       element is still at the line the preview reported. */
+    const line = (edit: VisualEdit) => parseSrc(edit.src)?.line ?? 0;
+    const col = (edit: VisualEdit) => parseSrc(edit.src)?.col ?? 0;
+    const order = edits
+      .map((edit, index) => ({ edit, index }))
+      .sort((a, b) =>
+        Number(Boolean(a.edit.change.remove)) - Number(Boolean(b.edit.change.remove)) ||
+        (a.edit.change.remove ? line(b.edit) - line(a.edit) || col(b.edit) - col(a.edit) : a.index - b.index),
+      );
+    order.forEach(({ edit, index }) => {
+      if (edit.change.remove) {
+        const result = applySinglePageRemove(html, { src: edit.src, tag: edit.tag, className: edit.className ?? "", text: edit.text ?? "" });
+        if (!result.ok) missed.push({ index, reason: result.reason });
+        else {
+          html = result.source;
+          done.push(describeChange(edit));
+          doneEdits.push(edit);
+        }
+        return;
+      }
       const typed = typeof edit.change.text === "string";
       const styled = Boolean(edit.change.classes?.length);
       if ((!typed && !styled) || edit.change.imageSrc) {
-        missed.push({ index, reason: "only typed text and quick styles are applied by hand on a single page" });
+        missed.push({ index, reason: "only typed text, quick styles and removals are applied by hand on a single page" });
         return;
       }
       let next = html;
@@ -149,6 +174,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (next !== html) {
         html = next;
         done.push(describeChange(edit));
+        doneEdits.push(edit);
       }
     });
     if (done.length === 0) return NextResponse.json({ applied: 0, needsAi: missed, buildId: current.buildId });
@@ -172,7 +198,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       projectId: owned.projectId,
       userId: owned.userId,
       role: "system",
-      body: `Edited by hand in the preview — ${typedSummary(edits)}. Saved as a new version; no credits used.`,
+      body: `Edited by hand in the preview — ${typedSummary(doneEdits)}. Saved as a new version; no credits used.`,
       dedupeKey: `visual-edit:${page.id}`,
     });
     return NextResponse.json({ applied: done.length, needsAi: missed, buildId: page.id });
@@ -191,6 +217,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const needsAi: { index: number; reason: string }[] = [];
 
   edits.forEach((edit, index) => {
+    if (edit.change.remove) {
+      needsAi.push({ index, reason: "removing from an app's code is done by the agent" });
+      return;
+    }
     const path = parseSrc(edit.src)?.path ?? "";
     const source = files.get(path);
     if (source === undefined) {

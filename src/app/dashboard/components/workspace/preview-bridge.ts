@@ -71,8 +71,12 @@ type HandEdit = {
   tag: string;
   className: string;
   text: string;
-  change: { text?: string; classes?: { group: ClassGroup; value: string }[] };
+  change: { text?: string; classes?: { group: ClassGroup; value: string }[]; remove?: boolean };
 };
+
+/* What the agent is asked when a removal cannot be cut by hand — usually
+   because a script or a link still uses something inside the element. */
+const REMOVE_FOR_AGENT = "Remove it, and update any script, form handler or link that used it so nothing on the page breaks";
 
 /* What became of the last words typed into the page. */
 export type SaveState = null | "saving" | "saved" | "waiting" | "agent" | "conflict" | "error";
@@ -109,42 +113,56 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      agent is changing the page it is held and tried again once the agent
      has finished — on top of its change, never under it. The first try is
      what the chat waits for before sending (trackTypedSave). */
-  const saveHandEdit = useCallback(
-    (edit: HandEdit, forAgent: string) => {
-      if (!projectId) return;
-      const toAgent = () => {
-        const words = (edit.text ?? "").trim().slice(0, 60);
-        askChat({
-          projectId,
-          texts: [`Change these exact elements (picked in the visual editor):\n1. <${edit.tag}> in ${edit.src}${words ? ` ("${words}")` : ""}: ${forAgent}`],
-        });
+  const saveHandEdits = useCallback(
+    (edits: HandEdit[], forAgent: string[]) => {
+      if (!projectId || edits.length === 0) return;
+      const toAgent = (indices: number[]) => {
+        const lines = indices
+          .filter((i) => edits[i])
+          .map((i, n) => {
+            const edit = edits[i];
+            const words = (edit.text ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+            return `${n + 1}. <${edit.tag}> in ${edit.src}${words ? ` ("${words}")` : ""}: ${forAgent[i] ?? forAgent[0]}`;
+          });
+        if (!lines.length) return;
+        askChat({ projectId, texts: [`Change these exact elements (picked in the visual editor):\n${lines.join("\n")}`] });
         setSaveState("agent");
+      };
+      const all = edits.map((_, i) => i);
+      /* Saved by hand, with whatever could not be placed exactly handed on. */
+      const settle = (body: { applied?: number; needsAi?: { index: number }[] } | null, reload: boolean) => {
+        const missed = (body?.needsAi ?? []).map((one) => one.index);
+        if ((body?.applied ?? 0) > 0) {
+          if (reload) setReloadAfterSave((count) => count + 1);
+          if (missed.length) return toAgent(missed);
+          return setSaveState("saved");
+        }
+        return toAgent(missed.length ? missed : all);
       };
       setSaveState("saving");
       const post = () =>
         fetch(`/api/projects/${projectId}/visual-edit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ edits: [edit] }),
-        }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string } | null }));
+          body: JSON.stringify({ edits }),
+        }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string; needsAi?: { index: number }[] } | null }));
 
       const first = trackTypedSave(post().catch(() => null));
       void first.then(async (result) => {
-        if (!result) return setSaveState("error");
-        if (result.response.ok && (result.body?.applied ?? 0) > 0) return setSaveState("saved");
-        if (result.body?.code !== "agent_busy") return toAgent();
+        if (!result) {
+          setReloadAfterSave((count) => count + 1);
+          return setSaveState("error");
+        }
+        if (result.response.ok) return settle(result.body, false);
+        if (result.body?.code !== "agent_busy") return toAgent(all);
         setSaveState("waiting");
         const until = Date.now() + 10 * 60_000;
         while (Date.now() < until) {
           await new Promise((resolve) => setTimeout(resolve, 4000));
           const again = await post().catch(() => null);
           if (!again) continue;
-          if (again.response.ok && (again.body?.applied ?? 0) > 0) {
-            setSaveState("saved");
-            setReloadAfterSave((count) => count + 1);
-            return;
-          }
           if (again.body?.code === "agent_busy") continue;
+          if (again.response.ok && (again.body?.applied ?? 0) > 0) return settle(again.body, true);
           /* The agent changed this same element first: say so, rather than
              write over its change or hand the agent a second request. */
           setSaveState("conflict");
@@ -156,6 +174,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     },
     [projectId],
   );
+  const saveHandEdit = useCallback((edit: HandEdit, forAgent: string) => saveHandEdits([edit], [forAgent]), [saveHandEdits]);
   const saveRef = useRef(saveHandEdit);
   saveRef.current = saveHandEdit;
 
@@ -293,6 +312,22 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     [picks, picked, tellFrame, saveHandEdit],
   );
 
+  /* Remove everything picked: hidden in the frame at once, cut from the
+     source by hand — or, where a script or link still uses it, handed to the
+     agent to remove and tidy up after. */
+  const removePicked = useCallback(() => {
+    const targets = picks.length ? picks : picked ? [picked] : [];
+    if (!targets.length) return;
+    for (const target of targets) tellFrame({ preview: { src: target.src, hide: true } });
+    saveHandEdits(
+      targets.map((target) => ({ src: target.src, tag: target.tag, className: target.className, text: target.text ?? "", change: { remove: true } })),
+      targets.map(() => REMOVE_FOR_AGENT),
+    );
+    setPicked(null);
+    setPicks([]);
+    tellFrame({ deselect: true });
+  }, [picks, picked, tellFrame, saveHandEdits]);
+
   /* Type into the selected element in place. */
   const editText = useCallback(() => tellFrame({ editText: true }), [tellFrame]);
   const stopTyping = useCallback(() => tellFrame({ stopTyping: true }), [tellFrame]);
@@ -304,7 +339,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     return () => window.clearTimeout(timer);
   }, [saveState]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked };
 }
 
 /* The page held still while somebody is typing into it. A build landing
