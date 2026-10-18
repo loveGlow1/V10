@@ -62,8 +62,68 @@ export function VisualEditPrompt(props: {
   onSent: () => void;
   onCancel: () => void;
   onSelectParent?: () => void;
+  onEditText?: () => void;
 }) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
+}
+
+/* Typing in the page, and what became of it: a small pill over the preview —
+   above the keyboard on a phone. */
+export function TypingStatus({
+  typing,
+  saveState,
+  onDone,
+  docked = false,
+}: {
+  typing: boolean;
+  saveState: null | "saving" | "saved" | "agent" | "error";
+  onDone: () => void;
+  docked?: boolean;
+}) {
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    const viewport = docked && typeof window !== "undefined" ? window.visualViewport : null;
+    if (!viewport) return;
+    const update = () => setKeyboard(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [docked]);
+  if (!typing && !saveState) return null;
+  const said = typing
+    ? "Typing in the page"
+    : saveState === "saving"
+      ? "Saving…"
+      : saveState === "saved"
+        ? "✓ Saved"
+        : saveState === "agent"
+          ? "Sent to the agent to place"
+          : "Couldn't save — try again";
+  return (
+    <div
+      role="status"
+      style={docked ? { bottom: keyboard + 12 } : { bottom: 72 }}
+      className={`pointer-events-auto ${docked ? "fixed" : "absolute"} inset-x-0 z-[75] mx-auto flex w-fit items-center gap-2 rounded-full bg-[#1c1c1f] py-1.5 pl-4 pr-1.5 text-[13.5px] text-white shadow-[0_10px_28px_rgba(0,0,0,0.45)]`}
+    >
+      <span className={saveState === "error" ? "text-red-300" : ""}>{said}</span>
+      {typing ? (
+        <button
+          type="button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={onDone}
+          className="h-8 rounded-full bg-white px-3.5 text-[13px] font-semibold text-black"
+        >
+          Done
+        </button>
+      ) : (
+        <span className="w-2" />
+      )}
+    </div>
+  );
 }
 
 /* What a picked element is, in a word a person uses. */
@@ -96,6 +156,7 @@ function VisualEditSheet({
   onSent,
   onCancel,
   onSelectParent,
+  onEditText,
 }: {
   projectId: string;
   picked: Picked;
@@ -103,6 +164,7 @@ function VisualEditSheet({
   onSent: () => void;
   onCancel: () => void;
   onSelectParent?: () => void;
+  onEditText?: () => void;
 }) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -152,7 +214,10 @@ function VisualEditSheet({
         { label: "Remove", run: () => send("Remove it") },
       ]
     : [
-        ...(snippet ? [{ label: "Edit text", run: () => start(`Change the text to "${picked.text?.trim().slice(0, 120) ?? ""}"`) }] : []),
+        /* Words: typed straight into the page, saved as typed. */
+        ...(snippet
+          ? [{ label: "Edit text", run: () => (onEditText ? onEditText() : start(`Change the text to "${picked.text?.trim().slice(0, 120) ?? ""}"`)) }]
+          : []),
         { label: "Colour", run: () => start("Change the colour to ") },
         { label: "Bigger", run: () => send("Make it bigger") },
         { label: "Smaller", run: () => send("Make it smaller") },
@@ -173,7 +238,7 @@ function VisualEditSheet({
             {kind}
             {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
           </p>
-          {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}”</p>}
+          {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>}
         </div>
         {onSelectParent && (
           <button

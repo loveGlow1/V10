@@ -240,6 +240,74 @@ export const EDIT_MODE = `
     selectElement(parent);
   }
 
+  /* ── Typing straight into the page ─────────────────────────────────────
+     A picked element that holds only text can be typed into where it
+     stands: tap (or click) it again, or the workspace's "Edit text". The
+     words change as they are typed; Enter or tapping away saves them —
+     reported as 'typed' for the workspace to write into the source — and
+     Escape puts the old words back. Copies written at the same place (a
+     card in a list) follow. */
+  var typing = null;
+  var typingBefore = '';
+  function canType(element) { return Boolean(element) && onlyText(element); }
+  function startTyping(element) {
+    if (!editing || !canType(element)) return false;
+    if (typing === element) return true;
+    stopTyping(true);
+    typing = element;
+    typingBefore = element.textContent;
+    element.setAttribute('contenteditable', 'plaintext-only');
+    if (element.contentEditable !== 'plaintext-only') element.setAttribute('contenteditable', 'true');
+    element.setAttribute('spellcheck', 'true');
+    element.style.outline = '2px dashed #f97316';
+    element.style.outlineOffset = '3px';
+    element.style.cursor = 'text';
+    element.style.setProperty('-webkit-user-select', 'text', 'important');
+    element.style.setProperty('user-select', 'text', 'important');
+    element.addEventListener('keydown', onTypingKey);
+    element.addEventListener('blur', onTypingBlur);
+    element.focus();
+    try {
+      var range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      var chosen = window.getSelection();
+      chosen.removeAllRanges();
+      chosen.addRange(range);
+    } catch (ignored) {}
+    report('typing', { src: element.getAttribute('data-qs-src') });
+    return true;
+  }
+  function onTypingKey(event) {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); typing && typing.blur(); }
+    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); stopTyping(false); }
+  }
+  function onTypingBlur() { stopTyping(true); }
+  function stopTyping(save) {
+    if (!typing) return;
+    var element = typing;
+    typing = null;
+    element.removeEventListener('keydown', onTypingKey);
+    element.removeEventListener('blur', onTypingBlur);
+    element.removeAttribute('contenteditable');
+    element.removeAttribute('spellcheck');
+    element.style.outline = '';
+    element.style.outlineOffset = '';
+    element.style.cursor = '';
+    element.style.removeProperty('-webkit-user-select');
+    element.style.removeProperty('user-select');
+    var text = element.textContent.replace(/\u00a0/g, ' ');
+    var src = element.getAttribute('data-qs-src');
+    if (!save || !text.trim() || text.trim() === typingBefore.trim()) {
+      element.textContent = typingBefore;
+      report('typed', { src: src, changed: false });
+      return;
+    }
+    var copies = sameSource(src);
+    for (var i = 0; i < copies.length; i += 1) if (copies[i] !== element && onlyText(copies[i])) copies[i].textContent = text;
+    report('typed', { src: src, tag: element.tagName.toLowerCase(), className: element.getAttribute('class') || '', before: typingBefore, text: text, changed: true });
+  }
+
   /* A finger, not a mouse. iOS sends no click for a tap on plain text, a
      picture or a box — only on links and buttons — so on a touch screen the
      pick is taken from the tap itself: a touch that ends where it began,
@@ -254,6 +322,7 @@ export const EDIT_MODE = `
   }
   function onTouchUp(event) {
     if (!editing || !touchStart || event.pointerType === 'mouse') return;
+    if (typing && typing.contains(event.target)) { touchStart = null; return; }
     var moved = Math.abs(event.clientX - touchStart.x) + Math.abs(event.clientY - touchStart.y);
     var quick = Date.now() - touchStart.t < 700;
     touchStart = null;
@@ -264,6 +333,7 @@ export const EDIT_MODE = `
 
   function onPick(event) {
     if (!editing) return;
+    if (typing && typing.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
@@ -275,6 +345,8 @@ export const EDIT_MODE = `
     var element = taggedFrom(target);
     if (!element) return;
     var at = picks.indexOf(element);
+    /* The selected one, tapped again: type into it, when it is words. */
+    if (at >= 0 && element === selected && canType(element)) { startTyping(element); return; }
     if (at >= 0) {
       /* Clicked again: let go of that one, and the newest left is the one the
          prompt sits beside. */
@@ -293,6 +365,7 @@ export const EDIT_MODE = `
 
   /* Escape lets go of the selection, in the frame as in the workspace. */
   function onKey(event) {
+    if (typing) return;
     if (!editing || event.key !== 'Escape' || !selected) return;
     clearPicks();
     selected = null;
@@ -315,6 +388,7 @@ export const EDIT_MODE = `
 
   function setEditing(on) {
     if (on === editing) return;
+    if (!on) stopTyping(true);
     editing = on;
     if (!hoverBox) { hoverBox = overlay('rgba(59,130,246,0.7)', 1); selectBox = overlay('#2563eb', 2); selectLabel = label(); }
     if (on) {
@@ -581,6 +655,8 @@ export const PREVIEW_RUNTIME = `
     var data = event.data;
     if (!data || data.source !== 'quickstark-workspace') return;
     if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
+    if (data.editText === true) { startTyping(selected); return; }
+    if (data.stopTyping === true) { stopTyping(true); return; }
     if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }

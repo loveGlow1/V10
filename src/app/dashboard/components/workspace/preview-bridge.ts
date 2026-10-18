@@ -18,6 +18,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 
 import { rememberAuthWrite } from "@/lib/builder/preview/auth-seed";
 
+import { askChat } from "./visual-ask";
+
 /* Where the selected element sits in the frame's viewport, in CSS pixels,
    with the viewport's own size so the workspace can place a prompt beside it. */
 export type PickedRect = {
@@ -65,6 +67,11 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      request covers them all. */
   const [picks, setPicks] = useState<Picked[]>([]);
   const [tokens, setTokens] = useState<Record<string, string>>({});
+  /* Typing straight into the page: whether it is happening, and how the last
+     words typed were kept — written into the source by hand, or handed to
+     the agent when they could not be placed exactly. */
+  const [typing, setTyping] = useState(false);
+  const [saveState, setSaveState] = useState<null | "saving" | "saved" | "agent" | "error">(null);
   const editModeRef = useRef(false);
   editModeRef.current = editMode;
 
@@ -128,6 +135,51 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
         return;
       }
 
+      if (data.state === "typing") {
+        setTyping(true);
+        setSaveState(null);
+        return;
+      }
+
+      /* Words typed into the page: written into the source by hand (no model,
+         no charge, a new version), or — when they cannot be placed exactly —
+         sent to the agent naming the element, so the change still happens. */
+      if (data.state === "typed") {
+        setTyping(false);
+        const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; changed?: unknown } | null;
+        if (!projectId || !typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
+        const edit = {
+          src: typed.src,
+          tag: typeof typed.tag === "string" ? typed.tag : "span",
+          className: typeof typed.className === "string" ? typed.className : "",
+          text: typeof typed.before === "string" ? typed.before : "",
+          change: { text: typed.text },
+        };
+        const toAgent = () => {
+          const before = edit.text.trim().slice(0, 60);
+          askChat({
+            projectId,
+            texts: [
+              `Change these exact elements (picked in the visual editor):\n1. <${edit.tag}> in ${edit.src}${before ? ` ("${before}")` : ""}: change the text to "${edit.change.text.trim()}"`,
+            ],
+          });
+          setSaveState("agent");
+        };
+        setSaveState("saving");
+        void fetch(`/api/projects/${projectId}/visual-edit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ edits: [edit] }),
+        })
+          .then(async (response) => {
+            const body = (await response.json().catch(() => null)) as { applied?: number } | null;
+            if (response.ok && (body?.applied ?? 0) > 0) setSaveState("saved");
+            else toAgent();
+          })
+          .catch(() => setSaveState("error"));
+        return;
+      }
+
       /* The selected element moved — a scroll, a picture loading above it. */
       if (data.state === "rect") {
         const rect = rectFrom(data.detail);
@@ -169,6 +221,16 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     tellFrame({ deselect: true });
   }, [tellFrame]);
   const selectParent = useCallback(() => tellFrame({ selectParent: true }), [tellFrame]);
+  /* Type into the selected element in place. */
+  const editText = useCallback(() => tellFrame({ editText: true }), [tellFrame]);
+  const stopTyping = useCallback(() => tellFrame({ stopTyping: true }), [tellFrame]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent };
+  /* "Saved" says itself and goes. */
+  useEffect(() => {
+    if (saveState !== "saved" && saveState !== "agent" && saveState !== "error") return;
+    const timer = window.setTimeout(() => setSaveState(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
+
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState };
 }
