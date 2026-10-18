@@ -42,9 +42,41 @@ export type Version = {
 const RESTORED = /^Restored version (\d+)\b/i;
 const LEGACY_REVERT = /^Reverted:/i;
 
-/** The prompt a restore row is written with, so restoredFrom can be read back. */
-export function restorePrompt(target: Version): string {
-  return `Restored version ${target.number}: ${target.label}`.slice(0, 500);
+/** The prompt a restore row is written with, so restoredFrom can be read back.
+    An undo or a redo says so, which is what Redo reads to know what to put back. */
+export function restorePrompt(target: Version, how?: "undo" | "redo"): string {
+  return `Restored version ${target.number}${how ? ` (${how})` : ""}: ${target.label}`.slice(0, 500);
+}
+
+/* ── Redo ─────────────────────────────────────────────────────────────────
+ *
+ * Undo steps back; Redo puts back what the undos took away, newest first —
+ * the stack every editor keeps. Read from the history itself: each undo row
+ * pushes what was showing before it, each redo row pops one, and anything
+ * else — a new change, or a version picked by name — clears it, so a redo
+ * never lands on a version a newer change has replaced. */
+const HOW = /^Restored version \d+ \((undo|redo)\)/i;
+
+/** "Redo", "redo that", "redo the last undo" — and nothing longer: "redo the
+    header" is a change to make, not a step forward. */
+export const REDO_ASK = /^\s*(?:please\s+)?redo(?:\s+(?:it|that|this|the last undo|my last undo|the undo|the last change))?[.!\s]*$/i;
+
+/** The version a redo puts back, or null when there is nothing to redo. */
+export function redoTarget(versions: Version[]): number | null {
+  const stack: number[] = [];
+  let showing = 0;
+  for (const version of versions) {
+    const how = HOW.exec(version.prompt)?.[1]?.toLowerCase();
+    if (how === "undo") {
+      if (showing) stack.push(showing);
+    } else if (how === "redo") {
+      stack.pop();
+    } else {
+      stack.length = 0;
+    }
+    showing = contentOf(versions, version.number);
+  }
+  return stack.length ? stack[stack.length - 1] : null;
 }
 
 function labelOf(prompt: string, restoredFrom: number | null): string {

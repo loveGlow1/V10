@@ -1,6 +1,6 @@
 "use client";
 
-/* Undo, and every version — in the preview's header.
+/* Undo, Redo, and every version — in the preview's header.
  *
  * Both are sent to the chat as an undo (askChat with intent "revert"), never
  * done beside it: the restore is the same one a typed "undo" or "go back to
@@ -12,7 +12,7 @@
  * each time it opens, and a pick names its exact version number. */
 
 import { useEffect, useRef, useState } from "react";
-import { History, Loader2, Undo2 } from "lucide-react";
+import { History, Loader2, Redo2, Undo2 } from "lucide-react";
 
 import { askChat } from "./visual-ask";
 
@@ -45,18 +45,23 @@ export function VersionControls({
   const [showing, setShowing] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
+  /* The version Redo would put back, or null when there is nothing to redo. */
+  const [redoTo, setRedoTo] = useState<number | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  /* Read on arrival and after every build (an undo is a build), so Redo is
+     on exactly when there is something to redo. */
   useEffect(() => {
-    if (!open) return;
+    if (!lastBuildAt) return;
     let live = true;
     setFailed(false);
     fetch(`/api/projects/${projectId}/versions`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((body: { versions: Row[]; showing: number | null }) => {
+      .then((body: { versions: Row[]; showing: number | null; redo: number | null }) => {
         if (!live) return;
         setRows(body.versions);
         setShowing(body.showing);
+        setRedoTo(body.redo ?? null);
       })
       .catch(() => live && setFailed(true));
     return () => {
@@ -103,6 +108,19 @@ export function VersionControls({
         className={buttonClassName}
       >
         <Undo2 className={iconClassName} />
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          restore("Redo", `Redoing — back to version ${redoTo}…`);
+          setRedoTo(null);
+        }}
+        disabled={!lastBuildAt || redoTo === null}
+        title={redoTo === null ? "Nothing to redo" : `Redo — put back version ${redoTo}`}
+        aria-label="Redo"
+        className={buttonClassName}
+      >
+        <Redo2 className={iconClassName} />
       </button>
       <button
         type="button"

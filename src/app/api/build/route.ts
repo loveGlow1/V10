@@ -156,6 +156,8 @@ import {
   readVersionRequest,
   recentDistinct,
   resolveTarget as resolveVersionTarget,
+  REDO_ASK,
+  redoTarget,
   restorePrompt,
   safeTimeZone,
   termsOf,
@@ -1928,7 +1930,22 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
      * records the version it copied, so undoing twice goes two steps back
      * rather than toggling. See lib/builder/versions.ts. */
     const versions = service ? await listVersions(service, project.id) : [];
-    const target = parseVersionTarget(prompt, new Date(), timeZone);
+    /* Redo: forward through the undos, newest first — what the last undo
+       took away. Read from the history, so it is the exact version. */
+    const redo = REDO_ASK.test(prompt);
+    const redoTo = redo ? redoTarget(versions) : null;
+    if (redo && redoTo === null && service) {
+      const message = "There's nothing to redo. Redo puts back what Undo took away, and nothing has been undone since your last change. To go to any version, open Versions or say \"go back to version 5\".";
+      const stored = await deliver(message, { key: "redo-none" });
+      return NextResponse.json({
+        stored,
+        steps: steps.list(),
+        intent: "revert",
+        build: { ok: false, requestId: "", projectId: project.id, intent: "webapp", status: "Built", links: { preview: currentHtml ? previewUrl : "", repo: "", admin: "" }, configKeys: {}, artifacts: {}, message },
+        project: null,
+      });
+    }
+    const target = redoTo !== null ? { kind: "number" as const, number: redoTo } : parseVersionTarget(prompt, new Date(), timeZone);
     /* "When it had the rent and buy": which versions showed those words in a
        place the current version does not. Searched against what is showing,
        newest first. */
@@ -2015,7 +2032,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       .insert({
         project_id: project.id,
         user_id: user.id,
-        prompt: restorePrompt(source),
+        prompt: restorePrompt(source, redo ? "redo" : target === null || target.kind === "back" ? "undo" : undefined),
         html: sourceRow.html,
         model: null,
         files_touched: restored ? restored.tree.length : 0,
@@ -2073,7 +2090,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       chosen.number === source.number
         ? `version ${source.number}`
         : `version ${chosen.number} (the same as version ${source.number})`;
-    const restoredLine = `Restored ${named}${which} — "${source.label}", from ${formatWhen(source.createdAt, timeZone)}. It's saved as version ${newNumber}, so nothing is lost: say "undo" to step back further, or "go back to version ${versions.length}" to return to what you had.`;
+    const restoredLine = `${redo ? "Redone — r" : "R"}estored ${named}${which} — "${source.label}", from ${formatWhen(source.createdAt, timeZone)}. It's saved as version ${newNumber}, so nothing is lost: say "undo" to step back further, or "go back to version ${versions.length}" to return to what you had.`;
     /* The three most recent others, in case this was not the one meant. */
     const others = recentDistinct(versions, 3, [chosen.number, source.number]);
     const otherLine = others.length
