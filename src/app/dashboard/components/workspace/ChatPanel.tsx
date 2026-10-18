@@ -1114,7 +1114,7 @@ export default function ChatPanel({
       const detail = (event as CustomEvent<VisualAsk>).detail;
       if (detail?.projectId !== id) return;
       for (const text of detail.texts) {
-        if (text.trim()) await sendRef.current(text);
+        if (text.trim()) await sendRef.current(text, detail.intent ? { intentOverride: detail.intent } : undefined);
       }
     }
     const listener = (event: Event) => void onAsk(event);

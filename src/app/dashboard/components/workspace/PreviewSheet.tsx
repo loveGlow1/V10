@@ -9,6 +9,7 @@ import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { isProjectSummary } from "@/lib/builder/project-summary";
 
 import { ManageMark } from "./panelMarks";
+import { VersionControls } from "./VersionControls";
 import { EditHint, TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
 import { useHeldWhileTyping, usePreviewBridge } from "./preview-bridge";
 
@@ -196,6 +197,13 @@ export default function PreviewSheet({
                 >
                   <MousePointerClick className="h-4 w-4" />
                 </button>
+              ) : null}
+              {projectId ? (
+                <VersionControls
+                  projectId={projectId}
+                  lastBuildAt={lastBuildAt ?? null}
+                  buttonClassName="flex h-9 w-9 items-center justify-center rounded-full bg-layer/[0.08] text-ink transition-colors hover:bg-layer/[0.12] disabled:opacity-40"
+                />
               ) : null}
               {/* Before the two that leave: managing the app is the one thing
                   here you stay for. */}
