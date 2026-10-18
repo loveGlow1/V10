@@ -118,6 +118,7 @@ import { loadReferencedProjects, referenceText } from "@/lib/builder/project-ref
 import { FLIER_INTENT, isFlierTarget, startFlierTurn } from "@/lib/flyers/workspace";
 import { VIDEO_INTENT, startVideoTurn } from "@/lib/video/workspace";
 import { moveVideoVersion } from "@/lib/video/versions";
+import { moveFlierVersion } from "@/lib/flyers/versions";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
@@ -790,18 +791,32 @@ async function handle(
    * after it a change, and each makes four new versions. It answers the way a
    * full build does — Building now, the preview when the images land. See
    * lib/flyers/workspace.ts. */
-  /* Undo on a flier is not a brief: every version a flier has made is kept
-     in the preview and in Your fliers, so the button says where they are
-     rather than designing four new ones (and charging for them). */
-  if (project.intent === FLIER_INTENT && body.intentOverride === "revert") {
-    const message = "Every version of this flier is kept — scroll the preview to see them all, or open Your fliers. Nothing was changed and nothing was charged.";
-    return NextResponse.json({
-      stored: false,
-      steps: steps.list(),
-      intent: "revert",
-      build: { ok: false, requestId: "", projectId: project.id, intent: FLIER_INTENT, status: "Built", links: { preview: "", repo: "", admin: "" }, configKeys: {}, artifacts: {}, message },
-      project: null,
+  /* Undo, Redo, "go back to version 2" on a flier: a move between sets
+     already made — instant and free — never a brief, which would design four
+     new ones and charge for them. See lib/flyers/versions.ts. */
+  if (project.intent === FLIER_INTENT && service) {
+    const moved = await moveFlierVersion({
+      service,
+      userId: user.id,
+      projectId: project.id as string,
+      prompt,
+      explicit: body.intentOverride === "revert",
+      requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
     });
+    if (moved) {
+      const { data: row } = await supabase
+        .from("projects")
+        .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+        .eq("id", project.id)
+        .maybeSingle();
+      return NextResponse.json({
+        stored: true,
+        steps: steps.list(),
+        intent: "revert",
+        build: { ok: moved.ok, requestId: "", projectId: project.id, intent: FLIER_INTENT, status: "Built", links: { preview: "", repo: "", admin: "" }, configKeys: {}, artifacts: {}, message: moved.message },
+        project: row ?? null,
+      });
+    }
   }
 
   if (project.intent === FLIER_INTENT || (isFlierTarget(body.target) && !project.intent)) {

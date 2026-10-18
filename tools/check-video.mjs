@@ -307,7 +307,7 @@ has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServ
   has(build.indexOf("await moveVideoVersion(") > 0 && build.indexOf("await moveVideoVersion(") < build.indexOf("const turn = await startVideoTurn("), "the build route moves between cuts before anything reaches the director");
   has(/Math\.max\(video\.current_version \?\? 0, \(newestRow\?\.version/.test(planner), "a change after Undo is saved as the newest number — never over a cut that exists");
   has(/versions\?\.find\(\(row\) => row\.version === video\.current_version\)/.test(state), "the preview plays the cut that is current, not just the newest");
-  has(/project\.intent === FLIER_INTENT && body\.intentOverride === "revert"/.test(build), "Undo on a flier designs nothing and charges nothing");
+  has(/project\.intent === FLIER_INTENT && service\) \{\s*const moved = await moveFlierVersion\(/.test(build), "Undo on a flier moves between its sets — it designs nothing and charges nothing");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

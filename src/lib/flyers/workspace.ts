@@ -31,6 +31,7 @@ import { requestFromBrief, reviseRequest } from "./brief";
 import { providerChain } from "./router";
 import { flyerJobCost, runFlyerJob } from "./run";
 import { liveOutputs, type Output } from "./trash";
+import { numberSets } from "./versions";
 import type { FlyerRequest } from "./types";
 
 export const FLIER_INTENT = "flier";
@@ -62,7 +63,7 @@ export async function startFlierTurn(input: {
 }): Promise<FlierTurn> {
   const { supabase, service, userId, project, prompt } = input;
 
-  const { data: latest } = await supabase
+  const { data: newest } = await supabase
     .from("flyer_jobs")
     .select("id, request")
     .eq("site_id", project.id)
@@ -71,6 +72,18 @@ export async function startFlierTurn(input: {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<{ id: string; request: FlyerRequest | null }>();
+  /* The change is made from the set showing — after Undo, an earlier one
+     than the newest (projects.flier_current_job; see versions.ts). */
+  const { data: pointed } = await supabase.from("projects").select("flier_current_job").eq("id", project.id).maybeSingle<{ flier_current_job: string | null }>();
+  const { data: showing } = pointed?.flier_current_job
+    ? await supabase
+        .from("flyer_jobs")
+        .select("id, request")
+        .eq("id", pointed.flier_current_job)
+        .is("deleted_at", null)
+        .maybeSingle<{ id: string; request: FlyerRequest | null }>()
+    : { data: null };
+  const latest = showing ?? newest;
 
   const subtype = typeof input.target === "string" ? input.target.split(":")[1] ?? null : null;
   const request = latest?.request ? await reviseRequest(latest.request, prompt) : await requestFromBrief(prompt.slice(0, 3000), subtype);
@@ -101,6 +114,8 @@ export async function startFlierTurn(input: {
     .update({
       status: "Building",
       intent: FLIER_INTENT,
+      /* The new set is the one showing once it lands. */
+      flier_current_job: null,
       prompt: prompt.slice(0, 2000),
       ...(named && request.spec.headline ? { name: `Flier: ${request.spec.headline}`.slice(0, 80) } : {}),
     })
@@ -149,6 +164,8 @@ export async function startFlierTurn(input: {
 
 export type BoardVersion = {
   jobId: string;
+  /* Its version number (oldest first), once it has images. */
+  number?: number;
   status: string;
   headline: string;
   format: string;
@@ -160,19 +177,29 @@ const escape = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;"
 const fileName = (headline: string, n: number) =>
   `${(headline || "flier").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "flier"}-${n}.png`;
 
-/** The flier's versions, newest first, with freshly signed image URLs. */
+/** The flier's versions with freshly signed image URLs: the set showing first, then the others newest first. */
 export async function loadFlierBoard(supabase: SupabaseClient, projectId: string, origin: string): Promise<BoardVersion[]> {
-  const { data: jobs } = await supabase
-    .from("flyer_jobs")
-    .select("id, status, request, outputs, created_at, error")
-    .eq("site_id", projectId)
-    .eq("stage", "preview")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(12)
-    .returns<Job[]>();
+  const [{ data: all }, { data: pointed }] = await Promise.all([
+    supabase
+      .from("flyer_jobs")
+      .select("id, status, request, outputs, created_at, error")
+      .eq("site_id", projectId)
+      .eq("stage", "preview")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(500)
+      .returns<Job[]>(),
+    supabase.from("projects").select("flier_current_job").eq("id", projectId).maybeSingle<{ flier_current_job: string | null }>(),
+  ]);
+  const numbers = new Map(numberSets(all ?? []).map((version) => [version.jobId, version.number]));
+  /* The set showing goes first — unless a newer set is being made, which
+     shows its progress there instead. */
+  const rows = all ?? [];
+  const making = rows[0] && (rows[0].status === "queued" || rows[0].status === "running");
+  const shown = !making && pointed?.flier_current_job ? rows.find((job) => job.id === pointed.flier_current_job) : undefined;
+  const jobs = (shown ? [shown, ...rows.filter((job) => job.id !== shown.id)] : rows).slice(0, 12);
   return Promise.all(
-    (jobs ?? []).map(async (job) => {
+    jobs.map(async (job) => {
       const headline = job.request?.spec?.headline ?? "";
       const images = await Promise.all(
         liveOutputs(job.outputs).map(async (output, index) => {
@@ -182,6 +209,7 @@ export async function loadFlierBoard(supabase: SupabaseClient, projectId: string
       );
       return {
         jobId: job.id,
+        number: numbers.get(job.id),
         status: job.status,
         headline,
         format: job.request?.spec?.format ?? "portrait",
@@ -200,7 +228,7 @@ export function flierBoardHtml(versions: BoardVersion[]): string {
   const body = !current
     ? `<p class="empty">Describe your flier in the chat and four versions appear here.</p>`
     : `
-<header><p class="eyebrow">Flier · ${current.images.length || 4} versions</p><h1>${escape(current.headline || "Your flier")}</h1>
+<header><p class="eyebrow">${current.number ? `Version ${current.number} · ` : "Flier · "}${current.images.length || 4} images</p><h1>${escape(current.headline || "Your flier")}</h1>
 <p class="hint">${working ? "Designing four versions — usually 20–40 seconds…" : current.status === "failed" ? "These could not be made. Try again from the chat." : "Tap a version to see it full size and save it. Ask in the chat for any change."}</p></header>
 <section class="grid">${
         current.images.length
@@ -209,11 +237,11 @@ export function flierBoardHtml(versions: BoardVersion[]): string {
       }</section>
 ${
   earlier.some((version) => version.images.length)
-    ? `<h2>Earlier versions</h2>${earlier
+    ? `<h2>Other versions</h2>${earlier
         .filter((version) => version.images.length)
         .map(
           (version) =>
-            `<p class="sub">${escape(version.headline)}</p><section class="grid small">${version.images
+            `<p class="sub">${version.number ? `Version ${version.number} · ` : ""}${escape(version.headline)}</p><section class="grid small">${version.images
               .map((image, i) => card(image, RATIO[version.format] ?? "2 / 3", `Earlier version ${i + 1}`))
               .join("")}</section>`,
         )

@@ -48,7 +48,7 @@ export function VersionControls({
   /* The version Redo would put back, or null when there is nothing to redo. */
   const [redoTo, setRedoTo] = useState<number | null>(null);
   /* A page's versions or a video's cuts; a flier keeps its own and has none. */
-  const [kind, setKind] = useState<"page" | "video" | null>("page");
+  const [kind, setKind] = useState<"page" | "video" | "flier" | null>("page");
   const boxRef = useRef<HTMLDivElement>(null);
 
   /* Read on arrival and after every build (an undo is a build), so Redo is
@@ -59,7 +59,7 @@ export function VersionControls({
     setFailed(false);
     fetch(`/api/projects/${projectId}/versions`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((body: { versions: Row[]; showing: number | null; redo: number | null; supported?: boolean; kind?: "page" | "video" }) => {
+      .then((body: { versions: Row[]; showing: number | null; redo: number | null; supported?: boolean; kind?: "page" | "video" | "flier" }) => {
         if (!live) return;
         setKind(body.supported === false ? null : body.kind ?? "page");
         setRows(body.versions);
@@ -156,6 +156,8 @@ export function VersionControls({
             <p className="mt-0.5 text-[12px] leading-snug text-muted">
               {kind === "video"
                 ? "Pick a cut to play it. Every cut is kept, switching is instant, and nothing is rendered again — it's free."
+                : kind === "flier"
+                ? "Pick a set to show it. Every set is kept, switching is instant, and nothing is designed again — it's free."
                 : "Pick one to go back to it. It's restored as a new version, so nothing is lost — and it's free."}
             </p>
           </div>
@@ -172,8 +174,8 @@ export function VersionControls({
               rows.map((row) => {
                 /* A page: the newest row is what shows. A video: the cut
                    playing, which after Undo is an earlier one. */
-                const current = kind === "video" ? row.number === showing : row.number === rows[0].number;
-                const looksSame = kind !== "video" && !current && (row.restoredFrom ?? row.number) === showing;
+                const current = kind === "page" ? row.number === rows[0].number : row.number === showing;
+                const looksSame = kind === "page" && !current && (row.restoredFrom ?? row.number) === showing;
                 return (
                   <button
                     key={row.number}
