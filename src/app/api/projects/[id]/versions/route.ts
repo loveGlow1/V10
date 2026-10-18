@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { contentOf, listVersions, redoTarget } from "@/lib/builder/versions";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { videoVersions } from "@/lib/video/versions";
+import { flierVersions } from "@/lib/flyers/versions";
 
 import { ownedProject } from "../backend/owned";
 
@@ -28,8 +29,24 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const { data: project } = await service.from("projects").select("intent").eq("id", owned.projectId).maybeSingle<{ intent: string | null }>();
 
-  /* A flier keeps every version it made in its own preview: no list here. */
-  if (project?.intent === "flier") return NextResponse.json({ supported: false, versions: [], showing: null, redo: null });
+  /* A flier's versions are its sets of images, oldest first; the one showing
+     is projects.flier_current_job — see lib/flyers/versions.ts. */
+  if (project?.intent === "flier") {
+    const flier = await flierVersions(service, owned.projectId);
+    const showing = flier.showing?.number ?? null;
+    return NextResponse.json({
+      supported: true,
+      kind: "flier",
+      showing,
+      redo: showing === null ? null : flier.versions.find((version) => version.number > showing)?.number ?? null,
+      versions: [...flier.versions].reverse().map((version) => ({
+        number: version.number,
+        label: `${version.headline ? `"${version.headline}"` : "Flier"} · ${version.images} images`,
+        createdAt: version.createdAt,
+        restoredFrom: null,
+      })),
+    });
+  }
 
   /* A video's versions are its cuts (video_versions), and the one playing is
      its current_version — see lib/video/versions.ts. */

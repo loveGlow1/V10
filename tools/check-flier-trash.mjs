@@ -21,7 +21,7 @@ writeFileSync(config, JSON.stringify({
     skipLibCheck: true, strict: true, types: ["node"], typeRoots: [join(root, "node_modules", "@types")],
     baseUrl: root, paths: { "@/*": ["src/*"] },
   },
-  files: [join(root, "src/lib/flyers/trash.ts")],
+  files: [join(root, "src/lib/flyers/trash.ts"), join(root, "src/lib/flyers/versions.ts")],
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -100,6 +100,27 @@ has(/\.is\('deleted_at', null\)/.test(list) && /trash'\) === '1'/.test(list), "Y
 has(/CRON_SECRET/.test(cron) && /purgeFlyerTrash/.test(cron) && /\/api\/cron\/flyer-trash/.test(vercel), "the daily purge is scheduled and gated");
 has(/Delete this version/.test(studio) && /Delete this flier/.test(studio), "the studio can delete a version or the whole flier");
 has(/Recently deleted/.test(gallery) && /forever=1/.test(gallery) && /restore: true/.test(gallery), "Recently deleted can restore or delete now");
+
+/* Undo, Redo and Versions on a flier: a move between sets already made. */
+{
+  const V = await import(join(out, "lib/flyers/versions.js"));
+  const img = (n) => Array.from({ length: n }, (_, i) => ({ provider: "x", stage: "preview", path: `p${i}` }));
+  const job = (id, minute, status = "done", outputs = img(4)) => ({ id, status, request: { spec: { headline: `H${id}` } }, outputs, created_at: new Date(Date.UTC(2026, 9, 18, 10, minute)).toISOString() });
+  const jobs = [job("c", 3), job("a", 1), job("f", 2, "failed", []), job("b", 2), job("t", 4, "done", img(4).map((o) => ({ ...o, trashed: true }))), job("d", 5, "done", img(2))];
+  const sets = V.numberSets(jobs);
+  has(JSON.stringify(sets.map((s) => [s.number, s.jobId])) === JSON.stringify([[1, "a"], [2, "b"], [3, "c"], [4, "d"]]), "sets are numbered oldest first; failed and fully deleted ones are not versions", sets);
+  has(sets[3].images === 2, "a set's count is its images still showing");
+  has(V.showingSet(sets, null)?.number === 4, "nothing pointed at: the newest set shows");
+  has(V.showingSet(sets, "b")?.number === 2, "after Undo: the set pointed at shows");
+  has(V.showingSet(sets, "t")?.number === 4, "a pointer to a set that is no longer a version falls back to the newest");
+  const read = (path) => readFileSync(join(root, path), "utf8");
+  const ws = read("src/lib/flyers/workspace.ts");
+  const build = read("src/app/api/build/route.ts");
+  has(/const latest = showing \?\? newest;/.test(ws) && /flier_current_job: null,/.test(ws), "a change is made from the set showing, and the new set becomes the one showing");
+  has(build.indexOf("await moveFlierVersion(") > 0 && build.indexOf("await moveFlierVersion(") < build.indexOf("const turn = await startFlierTurn("), "Undo, Redo and versions are moves before anything is designed or charged");
+  has(/shown \? \[shown, \.\.\.rows\.filter/.test(ws), "the preview shows the current set first");
+  has(/if \(found\.making\) return say\(false/.test(read("src/lib/flyers/versions.ts")), "no move while a new set is being made, so it is never hidden when it lands");
+}
 
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier trash checks passed.");

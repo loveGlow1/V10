@@ -18,58 +18,17 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { parseTarget, readVersionRequest, REDO_ASK } from "@/lib/builder/versions";
 import { recordMessage } from "@/lib/thread-server";
+import { isVersionMove, resolveMove, type Move } from "@/lib/version-moves";
 
-/* A bare "undo" — the one phrasing parseTarget leaves to its caller. */
-const UNDO_ASK = /^\s*(?:please\s+)?(?:undo|revert)(?:\s+(?:it|that|this|the last change|the last edit|my last change))?[.!\s]*$/i;
-
-export type VideoMove =
-  | { kind: "go"; to: number; how: "undo" | "redo" | "pick" }
-  | { kind: "list" }
-  | { kind: "refuse"; message: string };
+export type VideoMove = Move;
 
 /** Whether a message on a video is a move between versions rather than a change. Pure. */
-export function isVideoVersionAsk(prompt: string, explicit: boolean): boolean {
-  return explicit || REDO_ASK.test(prompt) || UNDO_ASK.test(prompt) || readVersionRequest(prompt) !== null;
-}
+export const isVideoVersionAsk = isVersionMove;
 
 /** Where a version move goes, given the version playing and every version there is. Pure. */
-export function resolveVideoMove(prompt: string, current: number, versions: number[]): VideoMove {
-  const all = [...new Set(versions)].sort((a, b) => a - b);
-  if (!all.length) return { kind: "refuse", message: "This video has no versions yet — describe it and it will be planned." };
-  const newest = all[all.length - 1];
-
-  if (REDO_ASK.test(prompt)) {
-    const next = all.find((version) => version > current);
-    return next === undefined
-      ? { kind: "refuse", message: `There's nothing to redo — version ${current} is the newest cut. To pick any version, open Versions.` }
-      : { kind: "go", to: next, how: "redo" };
-  }
-  if (readVersionRequest(prompt)?.kind === "list") return { kind: "list" };
-
-  const target = UNDO_ASK.test(prompt) ? { kind: "back" as const, steps: 1 } : parseTarget(prompt, new Date(), "UTC");
-  let to: number | null = null;
-  let how: "undo" | "pick" = "pick";
-  if (!target || target.kind === "back") {
-    const steps = target?.kind === "back" ? target.steps : 1;
-    const earlier = all.filter((version) => version < current);
-    if (earlier.length === 0) return { kind: "refuse", message: `There's nothing to undo — version ${current} is the first cut of this video.` };
-    to = earlier[Math.max(0, earlier.length - steps)];
-    how = "undo";
-  } else if (target.kind === "number") {
-    if (!all.includes(target.number)) {
-      return { kind: "refuse", message: `There's no version ${target.number} — this video has versions ${all[0]}–${newest}. Open Versions to see them all.` };
-    }
-    to = target.number;
-  } else if (target.kind === "latest") {
-    to = newest;
-  } else {
-    return { kind: "refuse", message: 'For a video, name the version — say "go back to version 2", or open Versions and pick one.' };
-  }
-  if (to === current) return { kind: "refuse", message: `Version ${current} is already the one playing.` };
-  return { kind: "go", to, how };
-}
+export const resolveVideoMove = (prompt: string, current: number, versions: number[]): Move =>
+  resolveMove(prompt, current, versions, { one: "cut", thing: "video" });
 
 type VersionRow = { version: number; note: string | null; created_at: string };
 
