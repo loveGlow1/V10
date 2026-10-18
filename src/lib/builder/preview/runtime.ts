@@ -187,6 +187,8 @@ export const EDIT_MODE = `
     };
   }
 
+  var touchStyle = null;
+
   function onHover(event) {
     if (!editing) return;
     hovered = touchLayout ? null : taggedFrom(event.target);
@@ -238,12 +240,39 @@ export const EDIT_MODE = `
     selectElement(parent);
   }
 
+  /* A finger, not a mouse. iOS sends no click for a tap on plain text, a
+     picture or a box — only on links and buttons — so on a touch screen the
+     pick is taken from the tap itself: a touch that ends where it began,
+     quickly. One that moved was a scroll and picks nothing. The click that
+     may follow is still swallowed (it would follow a link) but picks
+     nothing twice. */
+  var touchStart = null;
+  var tappedAt = 0;
+  function onTouchDown(event) {
+    if (!editing || event.pointerType === 'mouse') { touchStart = null; return; }
+    touchStart = { x: event.clientX, y: event.clientY, t: Date.now() };
+  }
+  function onTouchUp(event) {
+    if (!editing || !touchStart || event.pointerType === 'mouse') return;
+    var moved = Math.abs(event.clientX - touchStart.x) + Math.abs(event.clientY - touchStart.y);
+    var quick = Date.now() - touchStart.t < 700;
+    touchStart = null;
+    if (moved > 12 || !quick) return;
+    tappedAt = Date.now();
+    pickAt(document.elementFromPoint(event.clientX, event.clientY) || event.target);
+  }
+
   function onPick(event) {
     if (!editing) return;
-    var element = taggedFrom(event.target);
     event.preventDefault();
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+    if (Date.now() - tappedAt < 800) return;
+    pickAt(event.target);
+  }
+
+  function pickAt(target) {
+    var element = taggedFrom(target);
     if (!element) return;
     var at = picks.indexOf(element);
     if (at >= 0) {
@@ -291,20 +320,32 @@ export const EDIT_MODE = `
     if (on) {
       window.addEventListener('mousemove', onHover, true);
       window.addEventListener('click', onPick, true);
+      window.addEventListener('pointerdown', onTouchDown, true);
+      window.addEventListener('pointerup', onTouchUp, true);
       window.addEventListener('submit', onBlock, true);
       window.addEventListener('keydown', onKey, true);
       window.addEventListener('scroll', follow, true);
       window.addEventListener('resize', follow);
-      document.documentElement.style.cursor = 'crosshair';
+      document.documentElement.style.cursor = touchLayout ? 'pointer' : 'crosshair';
+      /* While picking on a phone: no text-selection or picture callout on a
+         long press, no grey tap flash — the outline is the feedback. */
+      if (touchLayout && !touchStyle) {
+        touchStyle = document.createElement('style');
+        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}';
+        document.head.appendChild(touchStyle);
+      }
       if (!following) following = window.requestAnimationFrame(tick);
     } else {
       window.removeEventListener('mousemove', onHover, true);
       window.removeEventListener('click', onPick, true);
+      window.removeEventListener('pointerdown', onTouchDown, true);
+      window.removeEventListener('pointerup', onTouchUp, true);
       window.removeEventListener('submit', onBlock, true);
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', follow, true);
       window.removeEventListener('resize', follow);
       document.documentElement.style.cursor = '';
+      if (touchStyle) { touchStyle.remove(); touchStyle = null; }
       selected = null;
       hovered = null;
       if (following) { window.cancelAnimationFrame(following); following = 0; }

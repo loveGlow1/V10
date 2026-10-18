@@ -62,7 +62,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -245,9 +245,14 @@ export default function PreviewSheet({
                     picked={picked}
                   picks={picks}
                     docked
+                    onSelectParent={selectParent}
                     onSent={() => {
                       setPicked(null);
                       deselect();
+                      /* Back to the chat, where the change is being made —
+                         its progress, and then the new preview. */
+                      setEditMode(false);
+                      onClose();
                     }}
                     onCancel={deselect}
                   />

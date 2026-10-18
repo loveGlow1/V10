@@ -208,5 +208,18 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(landed.applied === 1 && parses(landed.html) && landed.html.includes("M24 13 L24 27"), "a reply naming those lines lands, and the file still parses");
 }
 
+/* On a phone: taps pick, and the editor is a sheet fitted to the screen. */
+{
+  const { readFileSync: read } = await import("node:fs");
+  const runtimeSrc = read(new URL("../src/lib/builder/preview/runtime.ts", import.meta.url), "utf8");
+  const overlaySrc = read(new URL("../src/app/dashboard/components/workspace/VisualEditOverlay.tsx", import.meta.url), "utf8");
+  const sheetSrc = read(new URL("../src/app/dashboard/components/workspace/PreviewSheet.tsx", import.meta.url), "utf8");
+  has(/addEventListener\('pointerup', onTouchUp, true\)/.test(runtimeSrc) && /moved > 12 \|\| !quick/.test(runtimeSrc), "a tap picks on a touch screen (iOS sends no click for plain text), a scroll does not");
+  has(/Date\.now\(\) - tappedAt < 800\) return;/.test(runtimeSrc), "the click after a tap does not pick twice, and is still swallowed");
+  has(/-webkit-touch-callout:none/.test(runtimeSrc), "no long-press callout or text selection while picking on a phone");
+  has(/props\.docked \? <VisualEditSheet/.test(overlaySrc) && /text-\[16px\]/.test(overlaySrc) && /visualViewport/.test(overlaySrc), "phones get a bottom sheet: 16px prompt (no iOS zoom), above the keyboard");
+  has(/onSelectParent=\{selectParent\}/.test(sheetSrc) && /setEditMode\(false\);\s*onClose\(\);/.test(sheetSrc), "the sheet can pick the block around, and sending returns to the chat");
+}
+
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
