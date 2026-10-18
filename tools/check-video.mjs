@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -283,5 +283,32 @@ has(/label: "video:1", href: finalVideoUrl\(/.test(announce) && /dedupe_key: `vi
 has(/await announceFinal\(service, \{ videoId, version, origin/.test(localCut) && /if \(media\) await announceFinal\(/.test(falRoute), "whichever way the cut was made — here or on fal");
 has(/<ReplyVideos videos=\{videos\} \/>/.test(msgRow) && /<video[\s\S]{0,80}controls[\s\S]{0,40}playsInline/.test(msgRow), "the chat plays it");
 has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServerClient/.test(fileRoute) && /\.eq\("engine", "compose"\)/.test(fileRoute), "Download saves the MP4 itself — the owner's, under their session");
+/* Undo, Redo and Versions on a video: a move between cuts already made —
+   never a brief for the director, which would plan and render it all again. */
+{
+  const VV = await import(join(dir, "versions.js"));
+  const go = (prompt, current, versions = [1, 2, 3, 4]) => {
+    const move = VV.resolveVideoMove(prompt, current, versions);
+    return move.kind === "go" ? `${move.how}:${move.to}` : move.kind;
+  };
+  has(go("Undo the last change", 4) === "undo:3" && go("undo", 3) === "undo:2", "Undo plays the cut before the one playing");
+  has(go("Undo the last change", 1) === "refuse", "and stops at the first cut, no loop");
+  has(go("Redo", 2) === "redo:3" && go("Redo", 4) === "refuse", "Redo plays the next cut, and stops at the newest");
+  has(go("Go back to version 2", 4) === "pick:2" && go("Go back to version 9", 4) === "refuse", "a named version is that exact cut — one that does not exist is said so");
+  has(go("Go back to version 4", 4) === "refuse", "the cut already playing is not switched to again");
+  has(go("show me my versions", 4) === "list", "asking for the versions lists them");
+  has(VV.isVideoVersionAsk("undo", false) && VV.isVideoVersionAsk("redo", false) && VV.isVideoVersionAsk("go back to version 2", false), "typed undo / redo / version are moves");
+  has(!VV.isVideoVersionAsk("make the intro shorter", false) && !VV.isVideoVersionAsk("put the old voice back", false), "a change is still a brief for the director");
+  has(VV.isVideoVersionAsk("Undo the last change", true), "the Undo button is always a move");
+  has(VV.statusOf([{ engine: "compose", status: "done" }]) === "ready" && VV.statusOf([{ engine: "video", status: "running" }]) === "rendering" && VV.statusOf([]) === "planned", "a cut switched to says what it is: made, rendering, or only planned");
+  const build = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+  const planner = readFileSync(join(process.cwd(), "src/lib/video/plan-video.ts"), "utf8");
+  const state = readFileSync(join(process.cwd(), "src/lib/video/state.ts"), "utf8");
+  has(build.indexOf("await moveVideoVersion(") > 0 && build.indexOf("await moveVideoVersion(") < build.indexOf("const turn = await startVideoTurn("), "the build route moves between cuts before anything reaches the director");
+  has(/Math\.max\(video\.current_version \?\? 0, \(newestRow\?\.version/.test(planner), "a change after Undo is saved as the newest number — never over a cut that exists");
+  has(/versions\?\.find\(\(row\) => row\.version === video\.current_version\)/.test(state), "the preview plays the cut that is current, not just the newest");
+  has(/project\.intent === FLIER_INTENT && body\.intentOverride === "revert"/.test(build), "Undo on a flier designs nothing and charges nothing");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

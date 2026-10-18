@@ -47,6 +47,8 @@ export function VersionControls({
   const [sent, setSent] = useState<string | null>(null);
   /* The version Redo would put back, or null when there is nothing to redo. */
   const [redoTo, setRedoTo] = useState<number | null>(null);
+  /* A page's versions or a video's cuts; a flier keeps its own and has none. */
+  const [kind, setKind] = useState<"page" | "video" | null>("page");
   const boxRef = useRef<HTMLDivElement>(null);
 
   /* Read on arrival and after every build (an undo is a build), so Redo is
@@ -57,8 +59,9 @@ export function VersionControls({
     setFailed(false);
     fetch(`/api/projects/${projectId}/versions`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((body: { versions: Row[]; showing: number | null; redo: number | null }) => {
+      .then((body: { versions: Row[]; showing: number | null; redo: number | null; supported?: boolean; kind?: "page" | "video" }) => {
         if (!live) return;
+        setKind(body.supported === false ? null : body.kind ?? "page");
         setRows(body.versions);
         setShowing(body.showing);
         setRedoTo(body.redo ?? null);
@@ -96,6 +99,8 @@ export function VersionControls({
     setSent(note);
     setOpen(false);
   };
+
+  if (kind === null) return null;
 
   return (
     <div ref={boxRef} className="relative flex items-center gap-1.5">
@@ -149,7 +154,9 @@ export function VersionControls({
           <div className="border-b border-line/[0.08] px-4 py-3">
             <p className="text-[14px] font-semibold text-ink">Versions</p>
             <p className="mt-0.5 text-[12px] leading-snug text-muted">
-              Pick one to go back to it. It&apos;s restored as a new version, so nothing is lost — and it&apos;s free.
+              {kind === "video"
+                ? "Pick a cut to play it. Every cut is kept, switching is instant, and nothing is rendered again — it's free."
+                : "Pick one to go back to it. It's restored as a new version, so nothing is lost — and it's free."}
             </p>
           </div>
           <div className="max-h-[52vh] overflow-y-auto py-1">
@@ -163,8 +170,10 @@ export function VersionControls({
               <p className="px-4 py-3 text-[13px] text-muted">No versions yet.</p>
             ) : (
               rows.map((row) => {
-                const current = row.number === rows[0].number;
-                const looksSame = !current && (row.restoredFrom ?? row.number) === showing;
+                /* A page: the newest row is what shows. A video: the cut
+                   playing, which after Undo is an earlier one. */
+                const current = kind === "video" ? row.number === showing : row.number === rows[0].number;
+                const looksSame = kind !== "video" && !current && (row.restoredFrom ?? row.number) === showing;
                 return (
                   <button
                     key={row.number}
@@ -178,7 +187,7 @@ export function VersionControls({
                       <span className="line-clamp-2 text-[13px] leading-snug text-ink">{row.label}</span>
                       <span className="mt-0.5 block text-[11.5px] text-muted">
                         {when(row.createdAt)}
-                        {current ? " · showing now" : looksSame ? " · same as now" : ""}
+                        {current ? (kind === "video" ? " · playing now" : " · showing now") : looksSame ? " · same as now" : ""}
                       </span>
                     </span>
                   </button>

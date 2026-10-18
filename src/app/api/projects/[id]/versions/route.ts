@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 
 import { contentOf, listVersions, redoTarget } from "@/lib/builder/versions";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { videoVersions } from "@/lib/video/versions";
 
 import { ownedProject } from "../backend/owned";
 
@@ -25,9 +26,36 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Versions are unavailable right now." }, { status: 503 });
 
+  const { data: project } = await service.from("projects").select("intent").eq("id", owned.projectId).maybeSingle<{ intent: string | null }>();
+
+  /* A flier keeps every version it made in its own preview: no list here. */
+  if (project?.intent === "flier") return NextResponse.json({ supported: false, versions: [], showing: null, redo: null });
+
+  /* A video's versions are its cuts (video_versions), and the one playing is
+     its current_version — see lib/video/versions.ts. */
+  if (project?.intent === "video") {
+    const video = await videoVersions(service, owned.projectId);
+    const numbers = (video?.versions ?? []).map((row) => row.version);
+    const next = numbers.filter((n) => n > (video?.current ?? 0)).sort((a, b) => a - b)[0] ?? null;
+    return NextResponse.json({
+      supported: true,
+      kind: "video",
+      showing: video?.current ?? null,
+      redo: next,
+      versions: (video?.versions ?? []).map((row) => ({
+        number: row.version,
+        label: row.note?.trim() || (row.version === 1 ? "First cut" : "A change"),
+        createdAt: row.created_at,
+        restoredFrom: null,
+      })),
+    });
+  }
+
   const versions = await listVersions(service, owned.projectId);
   const newest = versions[versions.length - 1];
   return NextResponse.json({
+    supported: true,
+    kind: "page",
     /* The number of what is showing: the newest row, or for a restore the
        version it copied. */
     showing: newest ? contentOf(versions, newest.number) : null,

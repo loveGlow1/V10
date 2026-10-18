@@ -81,7 +81,11 @@ export async function planVideo(
     note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 300) : video.current_version ? "Planned again" : "First plan";
   }
 
-  const version = (video.current_version ?? 0) + 1;
+  /* The newest number, not the one after the version playing: after Undo
+     the version playing is an earlier one, and the next plan must not land
+     on a number that is already taken. */
+  const { data: newestRow } = await supabase.from("video_versions").select("version").eq("video_id", id).order("version", { ascending: false }).limit(1).maybeSingle();
+  const version = Math.max(video.current_version ?? 0, (newestRow?.version as number | undefined) ?? 0) + 1;
   const { error: saveError } = await supabase.from("video_versions").insert({ video_id: id, user_id: userId, version, plan, issues, note });
   if (saveError) return NextResponse.json({ error: "The plan was made but could not be saved. Try again." }, { status: 500 });
   await supabase.from("video_projects").update({ current_version: version, status: "planned", title: plan.title.slice(0, 160) }).eq("id", id);
