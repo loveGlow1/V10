@@ -18,7 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { liveJob } from "@/lib/jobs/store";
 
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
-import { applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
+import { applySinglePageClasses, applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
@@ -79,10 +79,15 @@ async function agentBusy(service: SupabaseClient, projectId: string): Promise<bo
 /* "the heading now reads “…”" — what was typed, in words. */
 function typedSummary(edits: VisualEdit[]): string {
   const names: Record<string, string> = { h1: "the heading", h2: "the heading", h3: "the heading", p: "the paragraph", a: "the link", button: "the button", li: "the list item" };
+  const styleWords: Record<string, string> = { textColor: "text colour", background: "background", fontSize: "size", fontWeight: "weight", align: "alignment", padding: "spacing", radius: "corners" };
   return edits
-    .filter((edit) => typeof edit.change.text === "string")
     .slice(0, 3)
-    .map((edit) => `${names[edit.tag] ?? `the ${edit.tag}`} now reads “${(edit.change.text ?? "").trim().slice(0, 80)}”`)
+    .map((edit) => {
+      const what = names[edit.tag] ?? `the ${edit.tag}`;
+      if (typeof edit.change.text === "string") return `${what} now reads “${edit.change.text.trim().slice(0, 80)}”`;
+      const styles = (edit.change.classes ?? []).map((change) => styleWords[change.group] ?? change.group);
+      return `${what}: ${styles.join(", ") || "style"} changed`;
+    })
     .join("; ");
 }
 
@@ -118,17 +123,31 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const done: string[] = [];
     const missed: { index: number; reason: string }[] = [];
     edits.forEach((edit, index) => {
-      if (typeof edit.change.text !== "string" || edit.change.classes || edit.change.imageSrc) {
-        missed.push({ index, reason: "only typed text is applied by hand on a single page" });
+      const typed = typeof edit.change.text === "string";
+      const styled = Boolean(edit.change.classes?.length);
+      if ((!typed && !styled) || edit.change.imageSrc) {
+        missed.push({ index, reason: "only typed text and quick styles are applied by hand on a single page" });
         return;
       }
-      const result = applySinglePageText(html, { src: edit.src, tag: edit.tag, before: edit.text ?? "", text: edit.change.text });
-      if (!result.ok) {
-        missed.push({ index, reason: result.reason });
-        return;
+      let next = html;
+      if (typed) {
+        const result = applySinglePageText(next, { src: edit.src, tag: edit.tag, before: edit.text ?? "", text: edit.change.text as string });
+        if (!result.ok) {
+          missed.push({ index, reason: result.reason });
+          return;
+        }
+        next = result.source;
       }
-      if (result.source !== html) {
-        html = result.source;
+      if (styled) {
+        const result = applySinglePageClasses(next, { src: edit.src, tag: edit.tag, className: edit.className ?? "", classes: edit.change.classes ?? [] });
+        if (!result.ok) {
+          missed.push({ index, reason: result.reason });
+          return;
+        }
+        next = result.source;
+      }
+      if (next !== html) {
+        html = next;
         done.push(describeChange(edit));
       }
     });

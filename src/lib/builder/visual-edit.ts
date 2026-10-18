@@ -337,3 +337,67 @@ export function applySinglePageText(
   const trail = found.inner.match(/\s*$/)?.[0] ?? "";
   return { ok: true, source: html.slice(0, found.start) + lead + escapeHtml(words) + trail + html.slice(found.end) };
 }
+
+/* ── A style picked in the preview, on a single page ────────────────────
+ *
+ * Colour, size, weight, alignment chosen from the editor's quick controls:
+ * one class per group swapped in the element's class attribute (Tailwind,
+ * which single pages are built with), or a class attribute added where there
+ * is none. Found the way typed words are — at its line and column, else the
+ * one element of that tag on the line (then anywhere) with the same classes
+ * — and refused rather than guessed. Pure. */
+export function applySinglePageClasses(
+  html: string,
+  edit: { src: string; tag: string; className: string; classes: { group: ClassGroup; value: string }[] },
+): VisualResult {
+  const where = parseSrc(edit.src);
+  const tag = edit.tag.toLowerCase();
+  if (!where || !/^[a-z][a-z0-9-]*$/.test(tag)) return { ok: false, needsAi: true, reason: "the element could not be placed" };
+  if (!edit.classes.length) return { ok: true, source: html };
+
+  const lineStarts = [0];
+  for (let i = 0; i < html.length; i += 1) if (html.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  if (where.line < 1 || where.line > lineStarts.length) return { ok: false, needsAi: true, reason: "the page has changed" };
+  const lineStart = lineStarts[where.line - 1];
+  const lineEnd = where.line < lineStarts.length ? lineStarts[where.line] : html.length;
+
+  const norm = (value: string) => value.split(/\s+/).filter(Boolean).sort().join(" ");
+  const want = norm(edit.className);
+  const opensHere = (at: number) => new RegExp(`^<${tag}[\\s>/]`, "i").test(html.slice(at, at + tag.length + 2));
+  const read = (at: number) => {
+    const opening = readOpening(html, at);
+    if (!opening) return null;
+    const attr = readAttribute(html, at, opening.end, "class");
+    if (attr === "expression") return null;
+    return { at, end: opening.end, attr };
+  };
+  const fits = (one: ReturnType<typeof read>) => one !== null && norm(one.attr ? one.attr.value : "") === want;
+
+  let found: ReturnType<typeof read> = null;
+  const exact = lineStart + where.col - 1;
+  if (opensHere(exact) && fits(read(exact))) found = read(exact);
+  if (!found) {
+    const scan = (from: number, to: number) => {
+      const out: NonNullable<ReturnType<typeof read>>[] = [];
+      for (let at = html.indexOf("<", from); at >= 0 && at < to; at = html.indexOf("<", at + 1)) {
+        if (!opensHere(at)) continue;
+        const one = read(at);
+        if (one && fits(one)) out.push(one);
+        if (out.length > 1) break;
+      }
+      return out;
+    };
+    let candidates = scan(lineStart, lineEnd);
+    if (candidates.length === 0 && want) candidates = scan(0, html.length);
+    if (candidates.length !== 1) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
+    found = candidates[0];
+  }
+  if (!found) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
+
+  let value = found.attr ? found.attr.value : "";
+  for (const change of edit.classes) value = applyClassChange(value, change.group, change.value);
+  if (/["'<>]/.test(value)) return { ok: false, needsAi: true, reason: "the new class would break the page" };
+  if (found.attr) return { ok: true, source: html.slice(0, found.attr.valueStart) + value + html.slice(found.attr.valueEnd) };
+  const afterTag = found.at + 1 + tag.length;
+  return { ok: true, source: html.slice(0, afterTag) + ` class="${value}"` + html.slice(afterTag) };
+}

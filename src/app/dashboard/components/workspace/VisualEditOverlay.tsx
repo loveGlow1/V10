@@ -16,9 +16,9 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, ArrowUpLeft, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Type, X } from "lucide-react";
 
-import { parseSrc } from "@/lib/builder/visual-edit";
+import { parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
 import type { Picked, SaveState } from "./preview-bridge";
 import { askChat } from "./visual-ask";
@@ -53,6 +53,7 @@ export function visualRequests(picks: Picked[], ask: string): string[] {
 const PROMPT_WIDTH = 340;
 const PROMPT_HEIGHT = 44;
 const GAP = 8;
+const STYLE_PANEL_HEIGHT = 150;
 
 export function VisualEditPrompt(props: {
   projectId: string;
@@ -63,8 +64,135 @@ export function VisualEditPrompt(props: {
   onCancel: () => void;
   onSelectParent?: () => void;
   onEditText?: () => void;
+  onStyle?: StyleChange;
 }) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
+}
+
+/* ── Quick styles ────────────────────────────────────────────────────────
+   One tap, no AI: the class for that group swapped on what was picked,
+   shown at once and saved by hand (preview-bridge applyStyle). Tailwind's
+   own scale and palette, so the page keeps one design language. */
+export type StyleChange = (group: ClassGroup, value: string, words: string) => void;
+
+const SIZES = ["text-xs", "text-sm", "text-base", "text-lg", "text-xl", "text-2xl", "text-3xl", "text-4xl", "text-5xl", "text-6xl"];
+const SIZE_PX = [12, 14, 16, 18, 20, 24, 30, 36, 48, 60];
+const TEXT_COLOURS: [string, string][] = [
+  ["text-white", "#ffffff"], ["text-black", "#000000"], ["text-gray-500", "#6b7280"], ["text-red-500", "#ef4444"], ["text-orange-500", "#f97316"],
+  ["text-amber-400", "#fbbf24"], ["text-green-600", "#16a34a"], ["text-blue-600", "#2563eb"], ["text-violet-600", "#7c3aed"], ["text-pink-500", "#ec4899"],
+];
+const FILL_COLOURS: [string, string][] = [
+  ["bg-transparent", "transparent"], ["bg-white", "#ffffff"], ["bg-black", "#000000"], ["bg-gray-100", "#f3f4f6"], ["bg-red-500", "#ef4444"],
+  ["bg-orange-500", "#f97316"], ["bg-amber-300", "#fcd34d"], ["bg-green-600", "#16a34a"], ["bg-blue-600", "#2563eb"], ["bg-violet-600", "#7c3aed"],
+];
+
+/* Where the size steps start: the size class, else the computed size. */
+function sizeIndex(picked: Picked): number {
+  const named = picked.className.split(/\s+/).find((name) => SIZES.includes(name));
+  if (named) return SIZES.indexOf(named);
+  const px = parseFloat(picked.fontSize ?? "");
+  if (!Number.isFinite(px)) return 2;
+  let best = 0;
+  for (let i = 1; i < SIZE_PX.length; i += 1) if (Math.abs(SIZE_PX[i] - px) < Math.abs(SIZE_PX[best] - px)) best = i;
+  return best;
+}
+
+export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onStyle: StyleChange; dark?: boolean }) {
+  const at = sizeIndex(picked);
+  const bold = /(^|\s)font-(bold|extrabold|black|semibold)(\s|$)/.test(picked.className);
+  const button = `flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-[13px] ${dark ? "bg-white/[0.08] text-white/90 active:bg-white/[0.18] hover:bg-white/[0.14]" : ""}`;
+  const dot = (colour: string, label: string, onClick: () => void) => (
+    <button
+      key={label}
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="h-7 w-7 shrink-0 rounded-full border border-white/25 shadow-inner"
+      style={colour === "transparent" ? { background: "linear-gradient(135deg,#fff 45%,#ef4444 47%,#ef4444 53%,#fff 55%)" } : { background: colour }}
+    />
+  );
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="button" className={button} disabled={at <= 0} onClick={() => onStyle("fontSize", SIZES[Math.max(0, at - 1)], "make it smaller")} aria-label="Smaller text">
+          <Type className="h-3 w-3" />−
+        </button>
+        <button type="button" className={button} disabled={at >= SIZES.length - 1} onClick={() => onStyle("fontSize", SIZES[Math.min(SIZES.length - 1, at + 1)], "make it bigger")} aria-label="Bigger text">
+          <Type className="h-4 w-4" />+
+        </button>
+        <button type="button" aria-pressed={bold} className={`${button} ${bold ? "!bg-white !text-black" : ""}`} onClick={() => onStyle("fontWeight", bold ? "font-normal" : "font-bold", bold ? "make it not bold" : "make it bold")} aria-label="Bold">
+          <Bold className="h-4 w-4" />
+        </button>
+        <span className="mx-1 h-5 w-px bg-white/15" />
+        <button type="button" className={button} onClick={() => onStyle("align", "text-left", "align it left")} aria-label="Align left"><AlignLeft className="h-4 w-4" /></button>
+        <button type="button" className={button} onClick={() => onStyle("align", "text-center", "centre it")} aria-label="Centre"><AlignCenter className="h-4 w-4" /></button>
+        <button type="button" className={button} onClick={() => onStyle("align", "text-right", "align it right")} aria-label="Align right"><AlignRight className="h-4 w-4" /></button>
+      </div>
+      <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+        <span className="w-12 shrink-0 text-[11.5px] text-white/55">Text</span>
+        {TEXT_COLOURS.map(([value, colour]) => dot(colour, `Text ${value.slice(5)}`, () => onStyle("textColor", value, `make the text ${value.slice(5).replace("-", " ")}`)))}
+      </div>
+      <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+        <span className="w-12 shrink-0 text-[11.5px] text-white/55">Fill</span>
+        {FILL_COLOURS.map(([value, colour]) => dot(colour, value === "bg-transparent" ? "No fill" : `Fill ${value.slice(3)}`, () => onStyle("background", value, value === "bg-transparent" ? "remove its background colour" : `make its background ${value.slice(3).replace("-", " ")}`)))}
+      </div>
+    </div>
+  );
+}
+
+/* The first time edit mode opens: the three ways to change the page, once.
+   Remembered in this browser only — it is a convenience, so a blocked or
+   cleared store just shows it again. */
+const HINT_KEY = "qs-visual-hint-seen";
+
+export function EditHint({ docked = false }: { docked?: boolean }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    try {
+      setShow(window.localStorage.getItem(HINT_KEY) !== "1");
+    } catch {
+      setShow(true);
+    }
+  }, []);
+  if (!show) return null;
+  const done = () => {
+    setShow(false);
+    try {
+      window.localStorage.setItem(HINT_KEY, "1");
+    } catch {
+      /* Not stored; it shows again next time. */
+    }
+  };
+  const verb = docked ? "Tap" : "Click";
+  const steps = [
+    `${verb} anything in the page to select it`,
+    `${verb} the selected text again to type into it — saved as you finish`,
+    docked ? "Or open Style for size and colour, or Ask AI to describe a change" : "Or press Aa for size and colour, or describe a change for the AI",
+  ];
+  return (
+    <div
+      role="dialog"
+      aria-label="How visual edit works"
+      className={`pointer-events-auto absolute z-30 rounded-2xl border border-white/[0.12] bg-[#1c1c1f] p-4 text-white shadow-[0_12px_32px_rgba(0,0,0,0.45)] ${
+        docked ? "inset-x-3 bottom-20" : "bottom-16 left-1/2 w-[340px] -translate-x-1/2"
+      }`}
+    >
+      <p className="text-[14px] font-semibold">Edit the page directly</p>
+      <ol className="mt-2.5 space-y-2">
+        {steps.map((step, i) => (
+          <li key={step} className="flex gap-2.5 text-[13px] leading-snug text-white/80">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.12] text-[11px] font-semibold text-white">{i + 1}</span>
+            {step}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2.5 text-[11.5px] text-white/50">Your own edits and styles use no credits.</p>
+      <button type="button" onClick={done} className="mt-3 h-9 w-full rounded-full bg-white text-[13.5px] font-semibold text-black hover:bg-white/90">
+        Got it
+      </button>
+    </div>
+  );
 }
 
 /* Typing in the page, and what became of it: a small pill over the preview —
@@ -161,6 +289,7 @@ function VisualEditSheet({
   onCancel,
   onSelectParent,
   onEditText,
+  onStyle,
 }: {
   projectId: string;
   picked: Picked;
@@ -169,8 +298,11 @@ function VisualEditSheet({
   onCancel: () => void;
   onSelectParent?: () => void;
   onEditText?: () => void;
+  onStyle?: StyleChange;
 }) {
   const [text, setText] = useState("");
+  /* Ask the agent, or style it by hand. */
+  const [mode, setMode] = useState<"ask" | "style">("ask");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [keyboard, setKeyboard] = useState(0);
 
@@ -263,6 +395,30 @@ function VisualEditSheet({
         </button>
       </div>
 
+      {onStyle && (
+        <div role="tablist" aria-label="How to change it" className="mt-3 flex rounded-full bg-white/[0.06] p-1">
+          {(["ask", "style"] as const).map((one) => (
+            <button
+              key={one}
+              type="button"
+              role="tab"
+              aria-selected={mode === one}
+              onClick={() => setMode(one)}
+              className={`h-8 flex-1 rounded-full text-[13px] font-medium ${mode === one ? "bg-white text-black" : "text-white/70"}`}
+            >
+              {one === "ask" ? "Ask AI" : "Style"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mode === "style" && onStyle ? (
+        <div className="mt-3 pb-1">
+          <StyleBar picked={picked} onStyle={onStyle} />
+          <p className="mt-2.5 text-[11.5px] text-white/45">Applied instantly and saved as a new version — no credits.</p>
+        </div>
+      ) : (
+      <>
       <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
         {chips.map((chip) => (
           <button
@@ -310,6 +466,8 @@ function VisualEditSheet({
           <ArrowUp className="h-4 w-4 stroke-[2.5]" />
         </button>
       </form>
+      </>
+      )}
     </div>
   );
 }
@@ -321,6 +479,7 @@ function FloatingPrompt({
   docked = false,
   onSent,
   onCancel,
+  onStyle,
 }: {
   projectId: string;
   /* The newest pick, which the box sits beside. */
@@ -332,11 +491,13 @@ function FloatingPrompt({
   docked?: boolean;
   onSent: () => void;
   onCancel: () => void;
+  onStyle?: StyleChange;
 }) {
   const [text, setText] = useState("");
+  const [styling, setStyling] = useState(false);
   const boxRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [place, setPlace] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [place, setPlace] = useState<{ top: number; left: number; width: number; room: number } | null>(null);
 
   /* Each new click puts the cursor back in the box; what was typed stays, so
      clipping one more element does not lose the request. */
@@ -367,7 +528,7 @@ function FloatingPrompt({
     let top = roomy ? rect.top * scaleY + GAP : (rect.top + rect.height) * scaleY + GAP;
     if (top + PROMPT_HEIGHT > bounds.height - GAP) top = rect.top * scaleY - PROMPT_HEIGHT - GAP;
     top = Math.max(GAP, Math.min(top, bounds.height - PROMPT_HEIGHT - GAP));
-    setPlace({ top, left, width });
+    setPlace({ top, left, width, room: bounds.height });
   }, [picked.rect, docked]);
 
   function submit(event?: React.FormEvent) {
@@ -385,7 +546,27 @@ function FloatingPrompt({
       ? { top: place.top, left: place.left, width: place.width }
       : { visibility: "hidden" };
 
+  /* The quick styles open under the pill — over it when the frame has no
+     room below. */
+  const below = place ? place.top + PROMPT_HEIGHT + STYLE_PANEL_HEIGHT + GAP * 2 <= place.room : true;
+  const panel: React.CSSProperties | null =
+    styling && place
+      ? below
+        ? { top: place.top + PROMPT_HEIGHT + GAP, left: place.left, width: Math.max(place.width, 340) }
+        : { top: Math.max(GAP, place.top - STYLE_PANEL_HEIGHT - GAP), left: place.left, width: Math.max(place.width, 340) }
+      : null;
+
   return (
+    <>
+    {panel && onStyle && (
+      <div
+        style={panel}
+        className="pointer-events-auto absolute z-30 rounded-2xl border border-white/[0.12] bg-[#1c1c1f] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      >
+        <StyleBar picked={picked} onStyle={onStyle} />
+        <p className="mt-2 text-[11.5px] text-white/50">Applied instantly and saved as a new version — no credits.</p>
+      </div>
+    )}
     <form
       ref={boxRef}
       onSubmit={submit}
@@ -406,6 +587,20 @@ function FloatingPrompt({
         aria-label={picks.length > 1 ? `Describe a change to these ${picks.length} elements` : `Describe a change to this ${picked.tag}`}
         className="min-w-0 flex-1 bg-transparent text-[14px] text-white placeholder:text-white/45 outline-none"
       />
+      {onStyle && (
+        <button
+          type="button"
+          onClick={() => setStyling((open) => !open)}
+          aria-pressed={styling}
+          aria-label="Quick styles — size, bold, colour"
+          title="Quick styles — no AI, no credits"
+          className={`flex h-8 shrink-0 items-center justify-center rounded-full px-2.5 text-[12.5px] font-semibold transition-colors ${
+            styling ? "bg-white text-black" : "bg-white/[0.10] text-white/85 hover:bg-white/[0.18]"
+          }`}
+        >
+          Aa
+        </button>
+      )}
       <button
         type="submit"
         disabled={!text.trim()}
@@ -417,6 +612,7 @@ function FloatingPrompt({
         <ArrowUp className="h-4 w-4 stroke-[2.5]" />
       </button>
     </form>
+    </>
   );
 }
 

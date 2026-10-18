@@ -56,7 +56,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/da
   }
 }
 
-const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
+const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
 const parses = (source) => ts.createSourceFile("x.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX).parseDiagnostics.length === 0;
 
@@ -237,7 +237,7 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/element === selected && canType\(element\)\) \{ startTyping\(element\)/.test(rt) && /'plaintext-only'/.test(rt), "tapping the selected words again types into them in place");
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
   has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
-  has(/applySinglePageText\(html,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
+  has(/applySinglePageText\(next,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
 }
 
 /* Hand edits and the agent take turns: neither writes over the other. */
@@ -257,6 +257,28 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/Edited by hand in the preview — /.test(route3), "a hand edit is told in the thread, so chat and versions agree");
   const later = applySinglePageText(`<html>\n<body>\n<section><p>New intro from the agent</p></section>\n<h1>Fresh sourdough</h1>\n</body></html>`, { src: "index.html:3:1", tag: "h1", before: "Fresh sourdough", text: "Rye" });
   has(later.ok && later.source.includes("<h1>Rye</h1>") && later.source.includes("New intro from the agent"), "typing saved after the agent's change finds its words where they moved, keeping the agent's change");
+}
+
+/* Quick styles: one tap swaps a class, no AI. */
+{
+  const page = `<!doctype html>\n<html><body>\n  <h1 class="text-2xl text-white font-bold">Fresh sourdough</h1>\n  <p>Open at 7</p>\n</body></html>`;
+  const bigger = applySinglePageClasses(page, { src: "index.html:3:3", tag: "h1", className: "font-bold text-white text-2xl", classes: [{ group: "fontSize", value: "text-3xl" }] });
+  has(bigger.ok && bigger.source.includes('class="text-white font-bold text-3xl"'), "a size step swaps only the size class, keeping the colour and weight");
+  const red = applySinglePageClasses(page, { src: "index.html:3:3", tag: "h1", className: "text-2xl text-white font-bold", classes: [{ group: "textColor", value: "text-red-500" }] });
+  has(red.ok && red.source.includes("text-red-500") && !red.source.includes("text-white") && red.source.includes("text-2xl"), "a colour swaps the colour class, not the size class that shares its prefix");
+  const fill = applySinglePageClasses(page, { src: "index.html:4:3", tag: "p", className: "", classes: [{ group: "background", value: "bg-amber-300" }] });
+  has(fill.ok && fill.source.includes('<p class="bg-amber-300">Open at 7</p>'), "an element with no class attribute gets one");
+  has(!applySinglePageClasses(page, { src: "index.html:3:3", tag: "h1", className: "text-2xl", classes: [{ group: "fontSize", value: 'x" onclick="y' }] }).ok, "a value that could break out of the attribute is refused");
+  const { readFileSync: read4 } = await import("node:fs");
+  const overlay4 = read4(new URL("../src/app/dashboard/components/workspace/VisualEditOverlay.tsx", import.meta.url), "utf8");
+  const bridge4 = read4(new URL("../src/app/dashboard/components/workspace/preview-bridge.ts", import.meta.url), "utf8");
+  const route4 = read4(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
+  const sheet4 = read4(new URL("../src/app/dashboard/components/workspace/PreviewSheet.tsx", import.meta.url), "utf8");
+  const panel4 = read4(new URL("../src/app/dashboard/components/workspace/PreviewPanel.tsx", import.meta.url), "utf8");
+  has(/applySinglePageClasses\(/.test(route4), "single pages take style changes by hand too");
+  has(/const applyStyle = useCallback/.test(bridge4) && /onStyle=\{applyStyle\}/.test(sheet4) && /onStyle=\{applyStyle\}/.test(panel4), "the style bar is wired on the phone sheet and the desktop pill");
+  has(/export function StyleBar/.test(overlay4) && /aria-label="Quick styles/.test(overlay4) && /"Ask AI"|>\s*Ask AI/.test(overlay4), "quick styles sit beside asking the AI, on both screens");
+  has(/const HINT_KEY = "qs-visual-hint-seen"/.test(overlay4) && /<EditHint/.test(sheet4) && /<EditHint/.test(panel4), "the first time edit mode opens, it says how it works, once");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
