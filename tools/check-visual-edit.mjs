@@ -236,8 +236,27 @@ Changed: a bolder mark with a single vertical stroke.`;
   const route = read2(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
   has(/element === selected && canType\(element\)\) \{ startTyping\(element\)/.test(rt) && /'plaintext-only'/.test(rt), "tapping the selected words again types into them in place");
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
-  has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /else toAgent\(\)/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
+  has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
   has(/applySinglePageText\(html,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
+}
+
+/* Hand edits and the agent take turns: neither writes over the other. */
+{
+  const { readFileSync: read3 } = await import("node:fs");
+  const route3 = read3(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
+  const bridge3 = read3(new URL("../src/app/dashboard/components/workspace/preview-bridge.ts", import.meta.url), "utf8");
+  const ask3 = read3(new URL("../src/app/dashboard/components/workspace/visual-ask.ts", import.meta.url), "utf8");
+  const chat3 = read3(new URL("../src/app/dashboard/components/workspace/ChatPanel.tsx", import.meta.url), "utf8");
+  const sheet3 = read3(new URL("../src/app/dashboard/components/workspace/PreviewSheet.tsx", import.meta.url), "utf8");
+  const panel3 = read3(new URL("../src/app/dashboard/components/workspace/PreviewPanel.tsx", import.meta.url), "utf8");
+  has(/if \(await agentBusy\(service, owned\.projectId\)\)/.test(route3) && /code: "agent_busy"/.test(route3), "a hand edit is refused while the agent is changing the page, never written under it");
+  has(/leased \|\| recent/.test(route3), "a stale job left by a killed request cannot lock hand edits out for good");
+  has(/setSaveState\("waiting"\)/.test(bridge3) && /setSaveState\("conflict"\)/.test(bridge3), "typing waits for the agent, then lands on top of its change — or says the agent changed those words first");
+  has(/await settleTypedEdits\(\);\s*const reply = await build\(/.test(chat3) && /export async function settleTypedEdits/.test(ask3), "the chat waits for a typed save before the agent reads the page");
+  has(/useHeldWhileTyping\(/.test(sheet3) && /useHeldWhileTyping\(/.test(panel3) && /usingDocument \? "doc" : `addr:/.test(sheet3), "a build landing mid-typing does not replace the page under the fingers");
+  has(/Edited by hand in the preview — /.test(route3), "a hand edit is told in the thread, so chat and versions agree");
+  const later = applySinglePageText(`<html>\n<body>\n<section><p>New intro from the agent</p></section>\n<h1>Fresh sourdough</h1>\n</body></html>`, { src: "index.html:3:1", tag: "h1", before: "Fresh sourdough", text: "Rye" });
+  has(later.ok && later.source.includes("<h1>Rye</h1>") && later.source.includes("New intro from the agent"), "typing saved after the agent's change finds its words where they moved, keeping the agent's change");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

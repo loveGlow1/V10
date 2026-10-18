@@ -29,3 +29,28 @@ export function askChatFromAnotherTab(ask: VisualAsk) {
   channel.close();
   return true;
 }
+
+/* ── Words typed into the page, and the agent: one at a time ────────────
+ *
+ * A word typed into the preview is saved straight into the source; a message
+ * to the agent changes the source too. If the agent started from the page as
+ * it was a moment before the typing was saved, its version would come back
+ * without the typing. So a save in flight is tracked here, and the chat waits
+ * for it before it sends anything — the agent always starts from the page
+ * with the typing in it. (The other way round — typing while the agent is
+ * working — is held by the save itself until the agent has finished; see
+ * preview-bridge.ts.) */
+let pendingSaves: Promise<unknown>[] = [];
+
+export function trackTypedSave<T>(save: Promise<T>): Promise<T> {
+  pendingSaves.push(save);
+  void save.finally(() => {
+    pendingSaves = pendingSaves.filter((one) => one !== save);
+  });
+  return save;
+}
+
+/** Resolves once every typed edit sent so far has been saved (or given up on). */
+export async function settleTypedEdits(): Promise<void> {
+  while (pendingSaves.length) await Promise.allSettled([...pendingSaves]);
+}

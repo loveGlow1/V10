@@ -20,7 +20,7 @@ import { ArrowUp, ArrowUpLeft, ChevronDown, ChevronUp, Maximize2, Minimize2, Mon
 
 import { parseSrc } from "@/lib/builder/visual-edit";
 
-import type { Picked } from "./preview-bridge";
+import type { Picked, SaveState } from "./preview-bridge";
 import { askChat } from "./visual-ask";
 
 /* Where the element was written, in words the edit path reads. */
@@ -76,7 +76,7 @@ export function TypingStatus({
   docked = false,
 }: {
   typing: boolean;
-  saveState: null | "saving" | "saved" | "agent" | "error";
+  saveState: SaveState;
   onDone: () => void;
   docked?: boolean;
 }) {
@@ -102,14 +102,18 @@ export function TypingStatus({
         ? "✓ Saved"
         : saveState === "agent"
           ? "Sent to the agent to place"
-          : "Couldn't save — try again";
+          : saveState === "waiting"
+            ? "The agent is working — your text saves when it finishes"
+            : saveState === "conflict"
+              ? "The agent changed that text first — yours wasn't applied"
+              : "Couldn't save — try again";
   return (
     <div
       role="status"
       style={docked ? { bottom: keyboard + 12 } : { bottom: 72 }}
       className={`pointer-events-auto ${docked ? "fixed" : "absolute"} inset-x-0 z-[75] mx-auto flex w-fit items-center gap-2 rounded-full bg-[#1c1c1f] py-1.5 pl-4 pr-1.5 text-[13.5px] text-white shadow-[0_10px_28px_rgba(0,0,0,0.45)]`}
     >
-      <span className={saveState === "error" ? "text-red-300" : ""}>{said}</span>
+      <span className={saveState === "error" || saveState === "conflict" ? "text-amber-300" : ""}>{said}</span>
       {typing ? (
         <button
           type="button"
