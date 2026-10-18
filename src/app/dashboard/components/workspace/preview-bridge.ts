@@ -18,6 +18,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 
 import { rememberAuthWrite } from "@/lib/builder/preview/auth-seed";
 
+import { applyClassChange, type ClassGroup } from "@/lib/builder/visual-edit";
+
 import { askChat, trackTypedSave } from "./visual-ask";
 
 /* Where the selected element sits in the frame's viewport, in CSS pixels,
@@ -38,6 +40,9 @@ export type Picked = {
   className: string;
   text: string | null;
   imageSrc: string | null;
+  /* The computed size, e.g. "18px" — where the size steps start from when no
+     size class says. */
+  fontSize?: string;
   repeated: number;
   rect: PickedRect | null;
   /* Which click this was, so two elements written at the same place (a card
@@ -59,6 +64,15 @@ function rectFrom(value: unknown): PickedRect | null {
     viewportHeight: r.viewportHeight as number,
   };
 }
+
+/* A change made by hand, as the visual-edit route takes it. */
+type HandEdit = {
+  src: string;
+  tag: string;
+  className: string;
+  text: string;
+  change: { text?: string; classes?: { group: ClassGroup; value: string }[] };
+};
 
 /* What became of the last words typed into the page. */
 export type SaveState = null | "saving" | "saved" | "waiting" | "agent" | "conflict" | "error";
@@ -87,6 +101,63 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     },
     [frameRef],
   );
+
+  /* ── Saving a change made by hand — typed words or a quick style ──────
+     Written straight into the source by /api/projects/[id]/visual-edit: no
+     model, no charge, a new version. When it cannot be placed exactly it
+     goes to the agent naming the element, so it still happens. While the
+     agent is changing the page it is held and tried again once the agent
+     has finished — on top of its change, never under it. The first try is
+     what the chat waits for before sending (trackTypedSave). */
+  const saveHandEdit = useCallback(
+    (edit: HandEdit, forAgent: string) => {
+      if (!projectId) return;
+      const toAgent = () => {
+        const words = (edit.text ?? "").trim().slice(0, 60);
+        askChat({
+          projectId,
+          texts: [`Change these exact elements (picked in the visual editor):\n1. <${edit.tag}> in ${edit.src}${words ? ` ("${words}")` : ""}: ${forAgent}`],
+        });
+        setSaveState("agent");
+      };
+      setSaveState("saving");
+      const post = () =>
+        fetch(`/api/projects/${projectId}/visual-edit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ edits: [edit] }),
+        }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string } | null }));
+
+      const first = trackTypedSave(post().catch(() => null));
+      void first.then(async (result) => {
+        if (!result) return setSaveState("error");
+        if (result.response.ok && (result.body?.applied ?? 0) > 0) return setSaveState("saved");
+        if (result.body?.code !== "agent_busy") return toAgent();
+        setSaveState("waiting");
+        const until = Date.now() + 10 * 60_000;
+        while (Date.now() < until) {
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+          const again = await post().catch(() => null);
+          if (!again) continue;
+          if (again.response.ok && (again.body?.applied ?? 0) > 0) {
+            setSaveState("saved");
+            setReloadAfterSave((count) => count + 1);
+            return;
+          }
+          if (again.body?.code === "agent_busy") continue;
+          /* The agent changed this same element first: say so, rather than
+             write over its change or hand the agent a second request. */
+          setSaveState("conflict");
+          setReloadAfterSave((count) => count + 1);
+          return;
+        }
+        setSaveState("error");
+      });
+    },
+    [projectId],
+  );
+  const saveRef = useRef(saveHandEdit);
+  saveRef.current = saveHandEdit;
 
   useEffect(() => {
     tellFrame({ editMode, touch });
@@ -120,6 +191,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
             className: typeof detail.className === "string" ? detail.className : "",
             text: typeof detail.text === "string" ? detail.text : null,
             imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
+            fontSize: typeof detail.fontSize === "string" ? detail.fontSize : undefined,
             repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
             rect: rectFrom((detail as { rect?: unknown }).rect),
             pickId: typeof detail.pickId === "number" ? detail.pickId : 0,
@@ -153,63 +225,13 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       if (data.state === "typed") {
         setTyping(false);
         const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; changed?: unknown } | null;
-        if (!projectId || !typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
-        const edit = {
-          src: typed.src,
-          tag: typeof typed.tag === "string" ? typed.tag : "span",
-          className: typeof typed.className === "string" ? typed.className : "",
-          text: typeof typed.before === "string" ? typed.before : "",
-          change: { text: typed.text },
-        };
-        const toAgent = () => {
-          const before = edit.text.trim().slice(0, 60);
-          askChat({
-            projectId,
-            texts: [
-              `Change these exact elements (picked in the visual editor):\n1. <${edit.tag}> in ${edit.src}${before ? ` ("${before}")` : ""}: change the text to "${edit.change.text.trim()}"`,
-            ],
-          });
-          setSaveState("agent");
-        };
-        setSaveState("saving");
-        const post = () =>
-          fetch(`/api/projects/${projectId}/visual-edit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ edits: [edit] }),
-          }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string } | null }));
-
-        /* The first try is what the chat waits for before it sends anything
-           (trackTypedSave), so the agent never starts from the page without
-           these words. */
-        const first = trackTypedSave(post().catch(() => null));
-        void first.then(async (result) => {
-          if (!result) return setSaveState("error");
-          if (result.response.ok && (result.body?.applied ?? 0) > 0) return setSaveState("saved");
-          if (result.body?.code !== "agent_busy") return toAgent();
-
-          /* The agent is changing the page: hold the words and try again when
-             it has finished — on top of its change, never under it. */
-          setSaveState("waiting");
-          const until = Date.now() + 10 * 60_000;
-          while (Date.now() < until) {
-            await new Promise((resolve) => setTimeout(resolve, 4000));
-            const again = await post().catch(() => null);
-            if (!again) continue;
-            if (again.response.ok && (again.body?.applied ?? 0) > 0) {
-              setSaveState("saved");
-              setReloadAfterSave((count) => count + 1);
-              return;
-            }
-            if (again.body?.code === "agent_busy") continue;
-            /* The agent changed these same words first: say so, rather than
-               write over its change or hand the agent a second request. */
-            setSaveState("conflict");
-            setReloadAfterSave((count) => count + 1);
-            return;
-          }
-          setSaveState("error");
-        });
+        if (!typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
+        const tag = typeof typed.tag === "string" ? typed.tag : "span";
+        const before = typeof typed.before === "string" ? typed.before : "";
+        saveRef.current(
+          { src: typed.src, tag, className: typeof typed.className === "string" ? typed.className : "", text: before, change: { text: typed.text } },
+          `change the text to "${typed.text.trim()}"`,
+        );
         return;
       }
 
@@ -254,6 +276,23 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     tellFrame({ deselect: true });
   }, [tellFrame]);
   const selectParent = useCallback(() => tellFrame({ selectParent: true }), [tellFrame]);
+  /* A quick style — colour, size, weight, alignment — on everything picked:
+     shown in the frame at once, then saved by hand like typed words. */
+  const applyStyle = useCallback(
+    (group: ClassGroup, value: string, words: string) => {
+      const targets = picks.length ? picks : picked ? [picked] : [];
+      for (const target of targets) {
+        const className = applyClassChange(target.className, group, value);
+        tellFrame({ preview: { src: target.src, className } });
+        saveHandEdit({ src: target.src, tag: target.tag, className: target.className, text: target.text ?? "", change: { classes: [{ group, value }] } }, words);
+      }
+      const restyled = (one: Picked) => (targets.some((t) => t.pickId === one.pickId && t.src === one.src) ? { ...one, className: applyClassChange(one.className, group, value) } : one);
+      setPicks((current) => current.map(restyled));
+      setPicked((current) => (current ? restyled(current) : current));
+    },
+    [picks, picked, tellFrame, saveHandEdit],
+  );
+
   /* Type into the selected element in place. */
   const editText = useCallback(() => tellFrame({ editText: true }), [tellFrame]);
   const stopTyping = useCallback(() => tellFrame({ stopTyping: true }), [tellFrame]);
@@ -265,7 +304,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     return () => window.clearTimeout(timer);
   }, [saveState]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle };
 }
 
 /* The page held still while somebody is typing into it. A build landing
