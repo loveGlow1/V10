@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 
-import { contentOf, listVersions } from "@/lib/builder/versions";
+import { contentOf, listVersions, redoTarget } from "@/lib/builder/versions";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { ownedProject } from "../backend/owned";
@@ -31,6 +31,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     /* The number of what is showing: the newest row, or for a restore the
        version it copied. */
     showing: newest ? contentOf(versions, newest.number) : null,
+    /* What Redo would put back — null when nothing has been undone since
+       the last change, which is when the Redo button is off. */
+    redo: redoTarget(versions),
     versions: versions
       .map((version) => ({
         number: version.number,

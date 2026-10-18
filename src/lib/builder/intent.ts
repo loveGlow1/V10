@@ -110,6 +110,11 @@ const REVERT_NAMED = /\bput (the |that )?(old|previous|original|former)\b.{0,24}
 const VERSION_NAV =
   /\b(?:go|take (?:me|it|us)|switch|jump|roll|return|revert|restore|bring (?:it |me )?back|change it back|reset|undo)\b[^.?!]{0,24}?\b(?:version\s*#?\s*\d+|v\s*\d+\b|(?:first|second|third|fourth|fifth|original|initial|very first|earlier|older|previous|latest|newest)\s+(?:version|one|draft|design)|versions?\s+(?:from|where|with|before|that)|\d+\s+(?:versions|changes|edits|steps)\s+(?:back|ago)|back\s+\d+\s+(?:versions|changes|edits|steps)\b|(?:version|one)\s+from\s+(?:yesterday|this morning|last night))/i;
 
+/* "Redo" on its own — the same words as REDO_ASK in builder/versions.ts,
+   kept here because this file is compiled alone (check:version-history
+   holds the two equal). */
+const REDO_ASK = /^\s*(?:please\s+)?redo(?:\s+(?:it|that|this|the last undo|my last undo|the undo|the last change))?[.!\s]*$/i;
+
 const REVERT_LAST =
   /\b(scrap|undo|drop|bin|forget)\s+(the\s+)?(last|previous)\s+(thing|change|edit|one|version)\b/i;
 
@@ -235,7 +240,9 @@ function score(m: string): Scores {
      an opening undo scores this — reverting is itself undoable, so leaning
      this way costs a keystroke and never costs work. */
   /* Before the discard rules, which share these verbs. */
-  if (VERSION_NAV.test(m)) scores.revert += 7;
+  /* "Redo" on its own is a step forward through the undos, not a change. */
+  if (REDO_ASK.test(m)) scores.revert += 8;
+  else if (VERSION_NAV.test(m)) scores.revert += 7;
   else if (REVERT_LAST.test(m) || REVERT_NAMED.test(m)) scores.revert += 6;
   else if (REVERT_LEADS.test(m)) scores.revert += 6;
   else if (REVERT.test(m)) scores.revert += 3;

@@ -236,6 +236,42 @@ is(/1\. \*\*Version 37\*\*/.test(V.describeRecent(at38, TZ, AUR_NOW)), true, "an
 is(/looks the same as version 33/.test(V.describeVersions(at37, TZ, AUR_NOW)), false, "a recorded restore is labelled as a restore, not as a look-alike");
 is(/Version 14\*\* .* · fix the dashboard settings\n/.test(V.describeVersions(aureliaAt(16), TZ, AUR_NOW)), true, "versions that differ get no look-alike note");
 
+/* Redo: forward through the undos, newest first; a new change or a
+   version picked by name clears it. Driven the way /api/build drives it. */
+{
+  const t0 = Date.parse("2026-10-18T10:00:00Z");
+  const run = (actions) => {
+    const rows = [];
+    const add = (prompt) => rows.push({ id: `r${rows.length + 1}`, prompt, created_at: new Date(t0 + rows.length * 60000).toISOString() });
+    for (let i = 1; i <= 5; i += 1) add(`change ${i}`);
+    const showing = () => { const v = V.versionsFromRows(rows, null); return V.contentOf(v, v.length); };
+    const seen = [];
+    for (const text of actions) {
+      if (text === "EDIT") { add("a new change"); seen.push(showing()); continue; }
+      const v = V.versionsFromRows(rows, null);
+      const redo = V.REDO_ASK.test(text);
+      const to = redo ? V.redoTarget(v) : null;
+      if (redo && to === null) { seen.push("none"); continue; }
+      const target = to !== null ? { kind: "number", number: to } : V.parseTarget(text, new Date(t0), "UTC");
+      const r = V.resolveTarget(v, target, "UTC", new Date(t0));
+      if (!r.ok || r.alreadyShowing) { seen.push("stay"); continue; }
+      add(V.restorePrompt(v[r.content - 1], redo ? "redo" : target === null || target.kind === "back" ? "undo" : undefined));
+      seen.push(showing());
+    }
+    return seen;
+  };
+  is(run(["Undo", "Undo", "Undo", "Redo", "Redo", "Redo", "Redo"]), [4, 3, 2, 3, 4, 5, "none"], "redo walks forward through the undos, then stops — no loop");
+  is(run(["Undo", "Undo", "EDIT", "Redo"]), [4, 3, 8, "none"], "a new change after undoing clears redo, as in any editor");
+  is(run(["Undo", "Redo", "Undo", "Redo", "Redo"]), [4, 5, 4, 5, "none"], "undo and redo alternate cleanly");
+  is(run(["Undo", "Undo", "Go back to version 1", "Redo"]), [4, 3, 1, "none"], "a version picked by name clears redo too");
+  {
+    const { readFileSync } = await import("node:fs");
+    const intentSrc = readFileSync(new URL("../src/lib/builder/intent.ts", import.meta.url), "utf8");
+    is(intentSrc.includes(`const REDO_ASK = ${V.REDO_ASK.toString()};`), true, "the intent reader knows \"redo\" in the same words as the version history");
+  }
+  is(V.REDO_ASK.test("redo") && V.REDO_ASK.test("Redo that") && !V.REDO_ASK.test("redo the header"), true, "\"redo\" is a step forward; \"redo the header\" is a change");
+}
+
 /* The Undo button and the version list send these exact words. */
 is(pickIn(at38, "Undo the last change"), pickIn(at38, "undo"), "the Undo button's words step back exactly as a typed undo does");
 is(pickIn(at37, "Go back to version 33"), 33, "a version picked from the list is that exact version");
