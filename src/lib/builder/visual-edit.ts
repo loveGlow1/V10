@@ -46,6 +46,8 @@ export function applyClassChange(className: string, group: ClassGroup, value: st
 
 export type VisualChange = {
   text?: string;
+  /* Take the element out altogether. */
+  remove?: boolean;
   classes?: { group: ClassGroup; value: string }[];
   imageSrc?: string;
 };
@@ -264,6 +266,7 @@ export function describeChange(edit: VisualEdit): string {
   if (edit.change.text !== undefined) parts.push(`text → "${edit.change.text.slice(0, 40)}"`);
   for (const change of edit.change.classes ?? []) parts.push(`${change.group} → ${change.value || "none"}`);
   if (edit.change.imageSrc) parts.push("image swapped");
+  if (edit.change.remove) parts.push("removed");
   return `<${edit.tag}> in ${parseSrc(edit.src)?.path ?? "?"}: ${parts.join(", ")}`;
 }
 
@@ -400,4 +403,141 @@ export function applySinglePageClasses(
   if (found.attr) return { ok: true, source: html.slice(0, found.attr.valueStart) + value + html.slice(found.attr.valueEnd) };
   const afterTag = found.at + 1 + tag.length;
   return { ok: true, source: html.slice(0, afterTag) + ` class="${value}"` + html.slice(afterTag) };
+}
+
+/* ── Removing what was picked, on a single page ─────────────────────────
+ *
+ * "Remove it" is not a request a model needs to interpret: the element is
+ * known to the line and column. Its whole extent — opening tag to the
+ * matching close, nested elements of the same tag counted — is cut, and the
+ * lines it stood on go with it when nothing else was written on them.
+ *
+ * Refused (needsAi, so the agent does it and tidies up) when something left
+ * on the page still uses an id inside it — a script's getElementById, a
+ * selector, a link to it — because cutting it by hand would break that
+ * silently. Also refused for the page's frame (html, head, body) and for
+ * anything holding a script. Pure. */
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/* Where the element that opens at `start` ends (exclusive), or null. */
+function elementEnd(html: string, start: number, tag: string): number | null {
+  const opening = readOpening(html, start);
+  if (!opening) return null;
+  if (opening.selfClosing || VOID_TAGS.has(tag)) return opening.end + 1;
+  const pattern = new RegExp(`<(/?)${tag}(?=[\\s>/])`, "gi");
+  pattern.lastIndex = opening.end + 1;
+  let depth = 1;
+  for (let match = pattern.exec(html); match; match = pattern.exec(html)) {
+    if (match[1]) {
+      depth -= 1;
+      if (depth === 0) {
+        const close = html.indexOf(">", match.index);
+        return close < 0 ? null : close + 1;
+      }
+    } else {
+      const inner = readOpening(html, match.index);
+      if (inner && !inner.selfClosing) depth += 1;
+      if (inner) pattern.lastIndex = inner.end + 1;
+    }
+  }
+  return null;
+}
+
+/** Ids inside `fragment` that something in `rest` still uses. Pure. */
+export function idsStillUsed(fragment: string, rest: string): string[] {
+  const ids = [...fragment.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1]);
+  const scripts = [...rest.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]).join("\n");
+  const esc = (id: string) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return ids.filter((id) => {
+    const e = esc(id);
+    return (
+      new RegExp(`getElementById\\(\\s*["'\`]${e}["'\`]`).test(scripts) ||
+      new RegExp(`#${e}(?![\\w-])`).test(scripts) ||
+      new RegExp(`href\\s*=\\s*["']#${e}["']`, "i").test(rest)
+    );
+  });
+}
+
+export function applySinglePageRemove(
+  html: string,
+  edit: { src: string; tag: string; className: string; text: string },
+): VisualResult {
+  const where = parseSrc(edit.src);
+  const tag = edit.tag.toLowerCase();
+  if (!where || !/^[a-z][a-z0-9-]*$/.test(tag)) return { ok: false, needsAi: true, reason: "the element could not be placed" };
+  if (tag === "html" || tag === "head" || tag === "body") return { ok: false, needsAi: true, reason: "that is the page itself" };
+
+  const lineStarts = [0];
+  for (let i = 0; i < html.length; i += 1) if (html.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  if (where.line < 1 || where.line > lineStarts.length) return { ok: false, needsAi: true, reason: "the page has changed" };
+  const lineStart = lineStarts[where.line - 1];
+  const lineEnd = where.line < lineStarts.length ? lineStarts[where.line] : html.length;
+
+  const norm = (value: string) => value.split(/\s+/).filter(Boolean).sort().join(" ");
+  const want = norm(edit.className);
+  const words = squash(edit.text).slice(0, 40);
+  const opensHere = (at: number) => new RegExp(`^<${tag}[\\s>/]`, "i").test(html.slice(at, at + tag.length + 2));
+  const read = (at: number) => {
+    const opening = readOpening(html, at);
+    if (!opening) return null;
+    const end = elementEnd(html, at, tag);
+    if (end === null) return null;
+    const attr = readAttribute(html, at, opening.end, "class");
+    if (attr === "expression") return null;
+    return { at, end, className: attr ? attr.value : "" };
+  };
+  const fits = (one: ReturnType<typeof read>) => {
+    if (!one || norm(one.className) !== want) return false;
+    if (!words) return true;
+    return squash(html.slice(one.at, one.end).replace(/<[^>]*>/g, " ")).startsWith(words);
+  };
+
+  let found: ReturnType<typeof read> = null;
+  const exact = lineStart + where.col - 1;
+  if (opensHere(exact) && fits(read(exact))) found = read(exact);
+  if (!found) {
+    const scan = (from: number, to: number) => {
+      const out: NonNullable<ReturnType<typeof read>>[] = [];
+      for (let at = html.indexOf("<", from); at >= 0 && at < to; at = html.indexOf("<", at + 1)) {
+        if (!opensHere(at)) continue;
+        const one = read(at);
+        if (one && fits(one)) out.push(one);
+        if (out.length > 1) break;
+      }
+      return out;
+    };
+    let candidates = scan(lineStart, lineEnd);
+    if (candidates.length === 0 && (want || words)) candidates = scan(0, html.length);
+    if (candidates.length !== 1) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
+    found = candidates[0];
+  }
+  if (!found) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
+
+  const fragment = html.slice(found.at, found.end);
+  if (/<script\b/i.test(fragment)) return { ok: false, needsAi: true, reason: "it holds a script" };
+
+  /* Whole lines when the element had them to itself. */
+  let cutStart = found.at;
+  let cutEnd = found.end;
+  const before = html.lastIndexOf("\n", cutStart - 1) + 1;
+  const afterNewline = html.indexOf("\n", cutEnd);
+  const after = afterNewline < 0 ? html.length : afterNewline + 1;
+  if (/^[ \t]*$/.test(html.slice(before, cutStart)) && /^[ \t]*\r?\n?$/.test(html.slice(cutEnd, after))) {
+    cutStart = before;
+    cutEnd = after;
+  }
+  const rest = html.slice(0, cutStart) + html.slice(cutEnd);
+  const used = idsStillUsed(fragment, rest);
+  /* A script that finds it by its tag alone — form.querySelector('button')
+     — would break as silently as one that finds it by id. */
+  const scripts = [...rest.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]).join("\n");
+  if (new RegExp(`querySelector(?:All)?\\(\\s*["'\`]${tag}["'\`]\\s*\\)|getElementsByTagName\\(\\s*["'\`]${tag}["'\`]`, "i").test(scripts)) used.push(tag);
+  if (used.length) return { ok: false, needsAi: true, reason: `a script or link on the page still uses ${used.map((id) => (id === tag ? `<${tag}>` : `#${id}`)).join(", ")}` };
+  /* A field's own label goes with it, rather than labelling nothing. */
+  let source = rest;
+  for (const match of fragment.matchAll(/\sid\s*=\s*["']([^"']+)["']/gi)) {
+    const id = match[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    source = source.replace(new RegExp(`(^|\\n)[ \\t]*<label\\b[^>]*\\sfor\\s*=\\s*["']${id}["'][^>]*>[^<]*</label>[ \\t]*(?=\\r?\\n|$)\\r?\\n?`, "i"), "$1");
+  }
+  return { ok: true, source };
 }

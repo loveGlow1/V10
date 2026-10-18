@@ -303,6 +303,34 @@ export function verifyEdit(input: VerifyInput): Verification {
       ),
     );
 
+    /* ── Elements picked in the visual editor to be removed ─────────────
+     *
+     * "Change these exact elements … <p> in index.html line 105 ("Free for
+     * 500 tasks"): Remove it" names each element with its first words. Each
+     * one whose words were on the page is counted: still there as often as
+     * before means it was not removed. Elements without words (a field, a
+     * picture) cannot be counted this way and are left unchecked. */
+    const textOf = (html: string) =>
+      html.replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+    const picked = [...message.matchAll(/^\d+\. <[a-z0-9-]+> in \S+(?: line \d+)?[^\n]*?\("([^"\n]{8,})"\): (?:remove|delete)\b/gim)];
+    if (picked.length > 0) {
+      const beforeText = textOf(before);
+      const afterText = textOf(after);
+      const count = (text: string, words: string) => text.split(words).length - 1;
+      const left = picked
+        .map((match) => match[1].replace(/\s+/g, " ").trim())
+        .filter((words) => count(beforeText, words) > 0 && count(afterText, words) >= count(beforeText, words));
+      criteria.push(
+        criterion(
+          "removed",
+          "the elements picked to be removed are gone",
+          "error",
+          left.length === 0,
+          left.length ? `still on the page: ${left.map((words) => `“${words.slice(0, 40)}”`).join(", ")}` : null,
+        ),
+      );
+    }
+
     /* ── And the part of it that was named ──────────────────────────────
      *
      * The check that separates "something changed" from "the thing you asked

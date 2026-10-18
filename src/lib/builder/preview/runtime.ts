@@ -440,6 +440,7 @@ export const EDIT_MODE = `
       if (typeof change.className === 'string') element.setAttribute('class', change.className);
       if (typeof change.text === 'string' && onlyText(element)) element.textContent = change.text;
       if (typeof change.imageSrc === 'string' && element.tagName === 'IMG') element.setAttribute('src', change.imageSrc);
+      if (change.hide === true) element.style.setProperty('display', 'none', 'important');
     }
     follow();
   }
