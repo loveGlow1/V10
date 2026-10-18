@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -34,7 +34,7 @@ import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { PreviewToolbar, TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
 import { CODE_CHANNEL } from "./CodeEditor";
 import VSCodeDialog from "./VSCodeDialog";
-import { usePreviewBridge } from "./preview-bridge";
+import { useHeldWhileTyping, usePreviewBridge } from "./preview-bridge";
 import { avatarFor } from "../../projectColours";
 import { creditCostOf, formatCredits } from "../../credits";
 import { isPublished, useProjects, type Project } from "../../ProjectsContext";
@@ -472,7 +472,11 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  useEffect(() => {
+    if (reloadAfterSave > 0) setReloads((count) => count + 1);
+  }, [reloadAfterSave]);
+  const bumpReload = useCallback(() => setReloads((count) => count + 1), []);
 
   /* A save in the code editor (another tab) lands as a new build; pick it up
      at once rather than on the next refresh. */
@@ -655,6 +659,9 @@ export default function PreviewPanel({
   const framedRef = useRef<string | null>(null);
   framedRef.current = framedHtml;
   const staging = framedHtml !== null && shownHtml !== null && framedHtml !== shownHtml;
+
+  /* Held still while words are being typed into it; see useHeldWhileTyping. */
+  const heldHtml = useHeldWhileTyping((shownHtml ?? framedHtml) ?? "", typing, saveState, bumpReload);
 
   useEffect(() => {
     setShownHtml(null);
@@ -1527,7 +1534,7 @@ export default function PreviewPanel({
               <iframe
                 key={`${previewUrl}#${reloads}`}
                 ref={frameRef}
-                srcDoc={(shownHtml ?? framedHtml) ?? ""}
+                srcDoc={heldHtml}
                 title={`${project?.name ?? "App"} preview`}
                 /* No allow-same-origin, deliberately: this document was written by
                    a model from someone's prompt, and it runs its own scripts. An

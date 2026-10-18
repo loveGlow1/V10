@@ -13,6 +13,9 @@
  * element's location — never guessed at here. */
 
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { liveJob } from "@/lib/jobs/store";
 
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import { applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
@@ -56,6 +59,33 @@ function readEdits(body: unknown): VisualEdit[] {
   return edits;
 }
 
+/* A change by the agent in flight on this project: a live build job (an
+   edit or a build) still holding its lease or started in the last few
+   minutes, or a full build the project row still says is running. A job left
+   behind by a killed request stops counting once its lease and a grace
+   period have passed, so a stale row cannot lock hand edits out for good. */
+async function agentBusy(service: SupabaseClient, projectId: string): Promise<boolean> {
+  const now = Date.now();
+  const job = await liveJob(service, projectId);
+  if (job) {
+    const leased = job.lockedUntil ? Date.parse(job.lockedUntil) > now : false;
+    const recent = now - Date.parse(job.createdAt) < 5 * 60_000;
+    if (leased || recent) return true;
+  }
+  const { data: project } = await service.from("projects").select("status, updated_at").eq("id", projectId).maybeSingle<{ status: string | null; updated_at: string | null }>();
+  return project?.status === "Building" && project.updated_at !== null && now - Date.parse(project.updated_at) < 15 * 60_000;
+}
+
+/* "the heading now reads “…”" — what was typed, in words. */
+function typedSummary(edits: VisualEdit[]): string {
+  const names: Record<string, string> = { h1: "the heading", h2: "the heading", h3: "the heading", p: "the paragraph", a: "the link", button: "the button", li: "the list item" };
+  return edits
+    .filter((edit) => typeof edit.change.text === "string")
+    .slice(0, 3)
+    .map((edit) => `${names[edit.tag] ?? `the ${edit.tag}`} now reads “${(edit.change.text ?? "").trim().slice(0, 80)}”`)
+    .join("; ");
+}
+
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const owned = await ownedProject(id);
@@ -66,6 +96,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const edits = readEdits(await request.json().catch(() => null));
   if (edits.length === 0) return NextResponse.json({ error: "There are no edits to apply." }, { status: 400 });
+
+  /* One writer at a time. While the agent is changing this project, a hand
+     edit saved now would be overwritten by the agent's version (made from
+     the page before it). The workspace holds the edit and tries again once
+     the agent has finished, on top of the agent's change. */
+  if (await agentBusy(service, owned.projectId)) {
+    return NextResponse.json(
+      { error: "The agent is changing this page right now. Your text is saved as soon as it finishes.", code: "agent_busy" },
+      { status: 409 },
+    );
+  }
 
   const current = await currentTree(service, owned.projectId);
 
@@ -106,6 +147,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       .single();
     if (pageError || !page) return NextResponse.json({ error: "The edit could not be saved. Nothing was changed." }, { status: 500 });
     await service.from("projects").update({ last_build_at: new Date().toISOString() }).eq("id", owned.projectId).eq("user_id", owned.userId);
+    /* In the thread too, so the conversation and the version history tell
+       the same story: this version was typed by hand, not made by the agent. */
+    await recordMessage(service, {
+      projectId: owned.projectId,
+      userId: owned.userId,
+      role: "system",
+      body: `Edited by hand in the preview — ${typedSummary(edits)}. Saved as a new version; no credits used.`,
+      dedupeKey: `visual-edit:${page.id}`,
+    });
     return NextResponse.json({ applied: done.length, needsAi: missed, buildId: page.id });
   }
 

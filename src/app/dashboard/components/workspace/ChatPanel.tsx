@@ -59,7 +59,7 @@ import {
 } from "./database-connect";
 import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
-import { ASK_CHANNEL, VISUAL_ASK_EVENT, askChat, type VisualAsk } from "./visual-ask";
+import { ASK_CHANNEL, VISUAL_ASK_EVENT, askChat, type VisualAsk, settleTypedEdits } from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
@@ -1277,6 +1277,10 @@ export default function ChatPanel({
          could not have told us. */
       let picked = false;
       setStreamed("");
+
+      /* Words just typed into the preview are saved before the agent reads
+         the page, so its change is made on top of them, never over them. */
+      await settleTypedEdits();
 
       const reply = await build(project.id, text, {
         intentOverride: planActive ? null : options.intentOverride ?? (mode === "auto" ? null : mode),

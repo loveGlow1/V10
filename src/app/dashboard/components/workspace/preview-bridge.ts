@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 
 import { rememberAuthWrite } from "@/lib/builder/preview/auth-seed";
 
-import { askChat } from "./visual-ask";
+import { askChat, trackTypedSave } from "./visual-ask";
 
 /* Where the selected element sits in the frame's viewport, in CSS pixels,
    with the viewport's own size so the workspace can place a prompt beside it. */
@@ -60,6 +60,9 @@ function rectFrom(value: unknown): PickedRect | null {
   };
 }
 
+/* What became of the last words typed into the page. */
+export type SaveState = null | "saving" | "saved" | "waiting" | "agent" | "conflict" | "error";
+
 export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, projectId: string | null | undefined, touch = false) {
   const [editMode, setEditMode] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
@@ -71,7 +74,10 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      words typed were kept — written into the source by hand, or handed to
      the agent when they could not be placed exactly. */
   const [typing, setTyping] = useState(false);
-  const [saveState, setSaveState] = useState<null | "saving" | "saved" | "agent" | "error">(null);
+  const [saveState, setSaveState] = useState<SaveState>(null);
+  /* Bumped when typing was saved after the agent's change landed: the frame
+     then shows the agent's page without the typing, so it is reloaded. */
+  const [reloadAfterSave, setReloadAfterSave] = useState(0);
   const editModeRef = useRef(false);
   editModeRef.current = editMode;
 
@@ -166,17 +172,44 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
           setSaveState("agent");
         };
         setSaveState("saving");
-        void fetch(`/api/projects/${projectId}/visual-edit`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ edits: [edit] }),
-        })
-          .then(async (response) => {
-            const body = (await response.json().catch(() => null)) as { applied?: number } | null;
-            if (response.ok && (body?.applied ?? 0) > 0) setSaveState("saved");
-            else toAgent();
-          })
-          .catch(() => setSaveState("error"));
+        const post = () =>
+          fetch(`/api/projects/${projectId}/visual-edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ edits: [edit] }),
+          }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string } | null }));
+
+        /* The first try is what the chat waits for before it sends anything
+           (trackTypedSave), so the agent never starts from the page without
+           these words. */
+        const first = trackTypedSave(post().catch(() => null));
+        void first.then(async (result) => {
+          if (!result) return setSaveState("error");
+          if (result.response.ok && (result.body?.applied ?? 0) > 0) return setSaveState("saved");
+          if (result.body?.code !== "agent_busy") return toAgent();
+
+          /* The agent is changing the page: hold the words and try again when
+             it has finished — on top of its change, never under it. */
+          setSaveState("waiting");
+          const until = Date.now() + 10 * 60_000;
+          while (Date.now() < until) {
+            await new Promise((resolve) => setTimeout(resolve, 4000));
+            const again = await post().catch(() => null);
+            if (!again) continue;
+            if (again.response.ok && (again.body?.applied ?? 0) > 0) {
+              setSaveState("saved");
+              setReloadAfterSave((count) => count + 1);
+              return;
+            }
+            if (again.body?.code === "agent_busy") continue;
+            /* The agent changed these same words first: say so, rather than
+               write over its change or hand the agent a second request. */
+            setSaveState("conflict");
+            setReloadAfterSave((count) => count + 1);
+            return;
+          }
+          setSaveState("error");
+        });
         return;
       }
 
@@ -227,10 +260,29 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
 
   /* "Saved" says itself and goes. */
   useEffect(() => {
-    if (saveState !== "saved" && saveState !== "agent" && saveState !== "error") return;
-    const timer = window.setTimeout(() => setSaveState(null), 3500);
+    if (saveState !== "saved" && saveState !== "agent" && saveState !== "error" && saveState !== "conflict") return;
+    const timer = window.setTimeout(() => setSaveState(null), saveState === "conflict" ? 7000 : 3500);
     return () => window.clearTimeout(timer);
   }, [saveState]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave };
+}
+
+/* The page held still while somebody is typing into it. A build landing
+   mid-typing would otherwise replace the frame under their fingers and the
+   words with it. The newer page is shown once typing ends — and, when one
+   arrived meanwhile, the frame is reloaded after the words are saved, so it
+   shows the agent's change and the typing together. */
+export function useHeldWhileTyping(html: string, typing: boolean, saveState: SaveState, reload: () => void): string {
+  const held = useRef(html);
+  const arrived = useRef(false);
+  if (!typing) held.current = html;
+  else if (html !== held.current) arrived.current = true;
+  useEffect(() => {
+    if (saveState === "saved" && arrived.current) {
+      arrived.current = false;
+      reload();
+    }
+  }, [saveState, reload]);
+  return typing ? held.current : html;
 }

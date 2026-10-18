@@ -317,6 +317,16 @@ export function applySinglePageText(
       const one = textOf(at);
       if (one && matches(one)) candidates.push(one);
     }
+    /* The page moved under it — the agent changed something above, say: the
+       one element of that tag anywhere still holding the old words. */
+    if (candidates.length === 0 && before) {
+      for (let at = html.indexOf("<"); at >= 0; at = html.indexOf("<", at + 1)) {
+        if (!opensHere(at)) continue;
+        const one = textOf(at);
+        if (one && matches(one)) candidates.push(one);
+        if (candidates.length > 1) break;
+      }
+    }
     if (candidates.length !== 1) return { ok: false, needsAi: true, reason: "the element could not be found as it was" };
     found = candidates[0];
   }

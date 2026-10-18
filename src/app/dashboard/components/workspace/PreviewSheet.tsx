@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, MousePointerClick, RotateCw, X } from "lucide-react";
@@ -10,7 +10,7 @@ import { isProjectSummary } from "@/lib/builder/project-summary";
 
 import { ManageMark } from "./panelMarks";
 import { TypingStatus, VisualEditPrompt } from "./VisualEditOverlay";
-import { usePreviewBridge } from "./preview-bridge";
+import { useHeldWhileTyping, usePreviewBridge } from "./preview-bridge";
 
 /* The preview, over the whole screen, on a phone.
 
@@ -62,7 +62,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -103,9 +103,18 @@ export default function PreviewSheet({
     return withAuthSeed(page, store, projectId);
   }, [page, projectId]);
   const usingDocument = Boolean(projectId) && !byAddress;
+  /* Held still while words are being typed into it; see useHeldWhileTyping. */
+  const bumpNonce = useCallback(() => setNonce((value) => value + 1), []);
+  const heldFramed = useHeldWhileTyping(framed ?? "", typing, saveState, bumpNonce);
   /* Never built (a project just opened from New project): there is nothing to
      load, so say so rather than framing the address's not-found page. */
   const unbuilt = byAddress && !lastBuildAt;
+
+  /* Typing held while the agent worked, then saved on top of its change: the
+     frame is showing the agent's page, so reload it. */
+  useEffect(() => {
+    if (reloadAfterSave > 0) setNonce((value) => value + 1);
+  }, [reloadAfterSave]);
 
   /* Closing the sheet closes the editor with it. */
   useEffect(() => {
@@ -224,9 +233,12 @@ export default function PreviewSheet({
             {(usingDocument || url) && !unbuilt ? (
               <>
                 <iframe
-                  key={`${url}:${nonce}:${usingDocument ? "doc" : "addr"}:${lastBuildAt ?? ""}`}
+                  /* The page itself updates the document frame (held while
+                     someone is typing into it); only the address frame needs
+                     the build stamp to reload. */
+                  key={`${url}:${nonce}:${usingDocument ? "doc" : `addr:${lastBuildAt ?? ""}`}`}
                   ref={frameRef}
-                  {...(usingDocument ? { srcDoc: framed ?? "" } : { src: url ?? undefined })}
+                  {...(usingDocument ? { srcDoc: heldFramed } : { src: url ?? undefined })}
                   title={`${title} preview`}
                   onLoad={() => {
                     if (!usingDocument || framed) setLoaded(true);
