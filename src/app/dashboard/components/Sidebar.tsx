@@ -21,7 +21,6 @@ import {
   Repeat2,
   Settings,
   Sparkles,
-  Trophy,
   Users,
 } from "lucide-react";
 import Q3DCanvas from "../../Q3DCanvas";
@@ -288,7 +287,6 @@ export default function Sidebar({
           },
         ]
       : []),
-    { icon: Trophy, label: "Builders Contest", trailing: "chevron" },
     ...(onAccountSettings
       ? [
           {

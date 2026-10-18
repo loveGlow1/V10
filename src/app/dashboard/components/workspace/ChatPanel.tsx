@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { fitComposer } from "@/lib/composer-height";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -289,6 +291,14 @@ export default function ChatPanel({
   const [attached, setAttached] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState("");
+  /* The box grows with a long message, like Home's — see composer-height. */
+  const draftRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const fit = () => fitComposer(draftRef.current, Boolean(draft));
+    fit();
+    window.visualViewport?.addEventListener("resize", fit);
+    return () => window.visualViewport?.removeEventListener("resize", fit);
+  }, [draft]);
   const [isRecording, setIsRecording] = useState(false);
   /* From the provider rather than from here. Two useStates — one on Home, one
      in this composer — meant a model chosen in either place was discarded by
@@ -2428,6 +2438,7 @@ export default function ChatPanel({
           <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
             <div className="relative">
               <textarea
+                ref={draftRef}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
