@@ -472,7 +472,7 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent } = usePreviewBridge(frameRef, project?.id, !isDesktop);
 
   /* A save in the code editor (another tab) lands as a new build; pick it up
      at once rather than on the next refresh. */
@@ -1543,6 +1543,7 @@ export default function PreviewPanel({
                   picked={picked}
                   picks={picks}
                   docked={!isDesktop}
+                  onSelectParent={selectParent}
                   onSent={() => {
                     setPicked(null);
                     deselect();

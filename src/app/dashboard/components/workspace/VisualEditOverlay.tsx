@@ -16,7 +16,7 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone } from "lucide-react";
+import { ArrowUp, ArrowUpLeft, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, X } from "lucide-react";
 
 import { parseSrc } from "@/lib/builder/visual-edit";
 
@@ -54,7 +54,198 @@ const PROMPT_WIDTH = 340;
 const PROMPT_HEIGHT = 44;
 const GAP = 8;
 
-export function VisualEditPrompt({
+export function VisualEditPrompt(props: {
+  projectId: string;
+  picked: Picked;
+  picks: Picked[];
+  docked?: boolean;
+  onSent: () => void;
+  onCancel: () => void;
+  onSelectParent?: () => void;
+}) {
+  return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
+}
+
+/* What a picked element is, in a word a person uses. */
+function kindOf(picked: Picked): string {
+  const tag = picked.tag.toLowerCase();
+  if (/^h[1-6]$/.test(tag)) return "Heading";
+  if (tag === "img" || tag === "picture" || tag === "svg") return "Image";
+  if (tag === "a") return "Link";
+  if (tag === "button") return "Button";
+  if (tag === "input" || tag === "textarea" || tag === "select") return "Field";
+  if (tag === "li") return "List item";
+  if (tag === "nav") return "Navigation";
+  if (tag === "header") return "Header";
+  if (tag === "footer") return "Footer";
+  if (["p", "span", "strong", "em", "small", "label", "blockquote"].includes(tag)) return "Text";
+  if (tag === "form") return "Form";
+  return "Section";
+}
+
+/* The phone's editor: a sheet along the bottom of the screen, the way phone
+ * builders do it — what was tapped, named; a way out to the block around it
+ * (a finger rarely hits the exact thing); the common changes one tap away;
+ * and a prompt at 16px, so iOS does not zoom, that rides above the keyboard
+ * rather than under it. The tapped element is scrolled up above the sheet by
+ * the frame (runtime.ts reveal). */
+function VisualEditSheet({
+  projectId,
+  picked,
+  picks,
+  onSent,
+  onCancel,
+  onSelectParent,
+}: {
+  projectId: string;
+  picked: Picked;
+  picks: Picked[];
+  onSent: () => void;
+  onCancel: () => void;
+  onSelectParent?: () => void;
+}) {
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [keyboard, setKeyboard] = useState(0);
+
+  /* The keyboard's height, from the visual viewport: the sheet sits on top of
+     it rather than behind it. */
+  useEffect(() => {
+    const viewport = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!viewport) return;
+    const update = () => setKeyboard(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  const send = (ask: string) => {
+    const words = ask.trim();
+    if (!words) return;
+    askChat({ projectId, texts: visualRequests(picks.length ? picks : [picked], words) });
+    setText("");
+    onSent();
+  };
+  /* A tap on a chip is a user gesture, so focusing here opens the keyboard. */
+  const start = (words: string) => {
+    setText(words);
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(words.length, words.length);
+    });
+  };
+
+  const kind = kindOf(picked);
+  const image = kind === "Image" || Boolean(picked.imageSrc);
+  const snippet = picked.text?.replace(/\s+/g, " ").trim().slice(0, 48);
+  const chips: { label: string; run: () => void }[] = image
+    ? [
+        { label: "Replace image", run: () => start("Replace this image with ") },
+        { label: "Bigger", run: () => send("Make it bigger") },
+        { label: "Smaller", run: () => send("Make it smaller") },
+        { label: "Remove", run: () => send("Remove it") },
+      ]
+    : [
+        ...(snippet ? [{ label: "Edit text", run: () => start(`Change the text to "${picked.text?.trim().slice(0, 120) ?? ""}"`) }] : []),
+        { label: "Colour", run: () => start("Change the colour to ") },
+        { label: "Bigger", run: () => send("Make it bigger") },
+        { label: "Smaller", run: () => send("Make it smaller") },
+        { label: "Remove", run: () => send("Remove it") },
+      ];
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Change what you picked"
+      style={{ bottom: keyboard }}
+      className="pointer-events-auto fixed inset-x-0 z-[70] rounded-t-[22px] border-t border-white/[0.1] bg-[#161618] px-4 pt-2.5 shadow-[0_-16px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:max(14px,env(safe-area-inset-bottom))]"
+    >
+      <div aria-hidden className="mx-auto mb-2.5 h-1 w-9 rounded-full bg-white/20" />
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-white">
+            {kind}
+            {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
+          </p>
+          {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}”</p>}
+        </div>
+        {onSelectParent && (
+          <button
+            type="button"
+            onClick={onSelectParent}
+            className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[13px] text-white/85 active:bg-white/[0.16]"
+          >
+            <ArrowUpLeft className="h-3.5 w-3.5" /> Parent
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Let go of what you picked"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.08] text-white/85 active:bg-white/[0.16]"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        {chips.map((chip) => (
+          <button
+            key={chip.label}
+            type="button"
+            onClick={chip.run}
+            className="h-9 shrink-0 rounded-full border border-white/[0.12] px-3.5 text-[13.5px] text-white/90 active:bg-white/[0.12]"
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          send(text);
+        }}
+        className="mt-3 flex items-end gap-2 rounded-[18px] border border-white/[0.12] bg-white/[0.05] p-1.5 pl-3.5"
+      >
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={picks.length > 1 ? `Describe a change to these ${picks.length}…` : "Describe a change…"}
+          aria-label="Describe a change"
+          enterKeyHint="send"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              send(text);
+            }
+          }}
+          className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent py-[7px] text-[16px] leading-snug text-white placeholder:text-white/45 outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!text.trim()}
+          aria-label="Send the change"
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+            text.trim() ? "bg-white text-black" : "bg-white/[0.12] text-white/45"
+          }`}
+        >
+          <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function FloatingPrompt({
   projectId,
   picked,
   picks,
