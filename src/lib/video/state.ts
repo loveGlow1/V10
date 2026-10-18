@@ -113,7 +113,8 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     }),
   );
 
-  const latest = versions?.[0] ?? null;
+  /* The version playing — after Undo an earlier one than the newest. */
+  const latest = versions?.find((row) => row.version === video.current_version) ?? versions?.[0] ?? null;
   return NextResponse.json({
     video: { ...video, status },
     latest,

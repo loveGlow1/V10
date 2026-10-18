@@ -117,6 +117,7 @@ import { referenceEditBrief } from "@/lib/builder/reference";
 import { loadReferencedProjects, referenceText } from "@/lib/builder/project-reference";
 import { FLIER_INTENT, isFlierTarget, startFlierTurn } from "@/lib/flyers/workspace";
 import { VIDEO_INTENT, startVideoTurn } from "@/lib/video/workspace";
+import { moveVideoVersion } from "@/lib/video/versions";
 import { authorSchema, withAuthored } from "@/lib/builder/app-schema";
 import { ensureBackendFor, envFor, resolveBackend } from "@/lib/builder/backend/connection";
 import { offered as managedOffered } from "@/lib/builder/backend/managed";
@@ -789,6 +790,20 @@ async function handle(
    * after it a change, and each makes four new versions. It answers the way a
    * full build does — Building now, the preview when the images land. See
    * lib/flyers/workspace.ts. */
+  /* Undo on a flier is not a brief: every version a flier has made is kept
+     in the preview and in Your fliers, so the button says where they are
+     rather than designing four new ones (and charging for them). */
+  if (project.intent === FLIER_INTENT && body.intentOverride === "revert") {
+    const message = "Every version of this flier is kept — scroll the preview to see them all, or open Your fliers. Nothing was changed and nothing was charged.";
+    return NextResponse.json({
+      stored: false,
+      steps: steps.list(),
+      intent: "revert",
+      build: { ok: false, requestId: "", projectId: project.id, intent: FLIER_INTENT, status: "Built", links: { preview: "", repo: "", admin: "" }, configKeys: {}, artifacts: {}, message },
+      project: null,
+    });
+  }
+
   if (project.intent === FLIER_INTENT || (isFlierTarget(body.target) && !project.intent)) {
     steps.begin("flier", "Designing your flier", "reading what you asked for…");
     const turn = await startFlierTurn({
@@ -829,6 +844,43 @@ async function handle(
    * renders it again. The clips land in the preview on their own. See
    * lib/video/workspace.ts. */
   if (project.intent === VIDEO_INTENT) {
+    /* Undo, Redo, "go back to version 2": a move between cuts already made —
+       instant and free — never a brief for the director, which would plan
+       and render a whole new version. See lib/video/versions.ts. */
+    const moved = service
+      ? await moveVideoVersion({
+          service,
+          userId: user.id,
+          projectId: project.id as string,
+          prompt,
+          explicit: body.intentOverride === "revert",
+          requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
+        })
+      : null;
+    if (moved) {
+      const { data: row } = await supabase
+        .from("projects")
+        .select("id, name, status, updated_at, intent, preview_url, repo_url, admin_url, last_build_at, slug, published_at")
+        .eq("id", project.id)
+        .maybeSingle();
+      return NextResponse.json({
+        stored: true,
+        steps: steps.list(),
+        intent: "revert",
+        build: {
+          ok: moved.ok,
+          requestId: "",
+          projectId: project.id,
+          intent: VIDEO_INTENT,
+          status: "Built",
+          links: { preview: "", repo: "", admin: "" },
+          configKeys: {},
+          artifacts: {},
+          message: moved.message,
+        },
+        project: row ?? null,
+      });
+    }
     steps.begin("video", "Working on your video", "reading what you asked for…");
     const turn = await startVideoTurn({
       supabase,
