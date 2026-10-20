@@ -167,6 +167,7 @@ export default function ChatPanel({
   initialPrompt,
   initialKind,
   initialTarget,
+  initialStack,
   onBuildSettled,
   onPublish,
   alone = false,
@@ -194,6 +195,9 @@ export default function ChatPanel({
      first ("a site, or software?") must not lose it — then dropped, for the
      same reason initialKind is. */
   initialTarget?: string | null;
+  /* The template picked in Home's Advanced Controls. Like initialKind it goes
+     with the opening message only — it was chosen for that build. */
+  initialStack?: "standalone-html" | "nextjs" | null;
   /** Called once a build has finished, win or lose — a build spends credits. */
   onBuildSettled?: () => void;
   /** Asks the preview half for its publish flow. See Workspace. */
@@ -608,7 +612,11 @@ export default function ChatPanel({
     } catch {
       /* No storage: the message goes without them. */
     }
-    void send(initialPrompt, { buildKind: initialKind ?? null, attachments: fromHome });
+    void send(initialPrompt, {
+      buildKind: initialKind ?? null,
+      attachments: fromHome,
+      stack: initialStack ?? undefined,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, initialPrompt, initialKind, threadLoaded]);
 
