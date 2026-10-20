@@ -202,6 +202,8 @@ import {
   appFeatureFor,
   featureBrief,
   featureFor,
+  restyleBrief,
+  restyleFor,
   upgradeBrief,
   upgradeOffer,
 } from "@/lib/builder/feature";
@@ -1483,15 +1485,20 @@ async function handle(
    * A single page keeps the edit path, which can add sections to one document
    * and keep form input in the owner's database (page-data). A new project is
    * still asked for in so many words — see FEATURE_NOUN in intent.ts. */
-  let featureBase: { ask: FeatureAsk; tree: FileTree; buildId: string } | null = null;
+  /* `restyle`: a redesign of the project that is there, which travels this
+     same path — handed the project, returning only the files it changes,
+     merged over it and priced on what it wrote — with a brief that restyles
+     rather than adds. See restyleFor. */
+  let featureBase: { ask: FeatureAsk; tree: FileTree; buildId: string; restyle?: boolean } | null = null;
   /* Not for elements picked in the visual editor: those name the exact place
      and are edited there, even when the words ("turn this into a carousel")
      would read as a new area. */
   if (routedIntent === "edit" && service && !stageAsk && !pageDataAsk && !VISUAL_PICK.test(prompt)) {
     const existing = await currentTree(service, project.id);
     if (existing.buildId && existing.tree.length > 0 && !isSinglePage(existing.tree)) {
-      const ask = featureFor(prompt, existing.tree);
-      if (ask) featureBase = { ask, tree: existing.tree, buildId: existing.buildId };
+      const restyle = restyleFor(prompt, existing.tree);
+      const ask = restyle ?? featureFor(prompt, existing.tree);
+      if (ask) featureBase = { ask, tree: existing.tree, buildId: existing.buildId, restyle: Boolean(restyle) };
     }
   }
 
@@ -1525,6 +1532,9 @@ async function handle(
 
   /* Both build on the project that is there rather than replacing it. */
   const addingTo = Boolean(featureBase || upgradeBase);
+  /* A redesign keeps what the project is made of and asks nothing about it:
+     its database, accounts and integrations are what it was told to keep. */
+  const restyling = Boolean(featureBase?.restyle);
 
   const intent: Intent = planOnly
     ? "question"
@@ -1553,8 +1563,10 @@ async function handle(
   if (featureBase) {
     steps.mark(
       "feature",
-      `Adding ${featureBase.ask.areas.join(", ")} to your project`,
-      "every existing page is kept — only the new files and the ones that link to them are written",
+      restyling ? "Redesigning your project" : `Adding ${featureBase.ask.areas.join(", ")} to your project`,
+      restyling
+        ? "every page, form and integration is kept — only the files the new design changes are written"
+        : "every existing page is kept — only the new files and the ones that link to them are written",
     );
   }
 
@@ -4816,7 +4828,11 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       ]
     : [];
   const architecture =
-    addingTo && (knownArchitecture || upgradeBase)
+    restyling
+      ? /* What the project is made of, unchanged — never raised by a brief that
+           mentions accounts or bookings only to say "keep them". */
+        { ...answeredArchitecture, manifest: knownArchitecture ?? decided.manifest, needsProject: true, certain: true }
+      : addingTo && (knownArchitecture || upgradeBase)
       ? (() => {
           const raised = raiseArchitecture(
             knownArchitecture ?? answeredArchitecture.manifest,
@@ -4934,7 +4950,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   const decidedBackend = wouldUseData && service ? await resolveBackend(service, project.id) : null;
   const backendUndecided = wouldUseData && (!decidedBackend || decidedBackend.mode === "shared");
 
-  if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE) {
+  if ((backendUndecided || !architecture.certain) && ASK_WHEN_UNSURE && !restyling) {
     const asked = architectureQuestion(kind.kind, architecture.manifest, canOfferManaged);
     const stored = await deliver(asked, { key: "which-architecture" });
 
@@ -5443,7 +5459,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   /* A feature wears the project's own design; choosing again could hand a new
      page a different system from the pages beside it. */
   const design =
-    addingTo && knownDesign
+    addingTo && knownDesign && !restyling
       ? { dna: knownDesign, reason: "kept from the project it is added to" }
       : decideDesign(plan.direction.register, kind.kind, brief.text);
   steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
@@ -5581,7 +5597,9 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
        create or change". See featureBrief. */
     const asFeature = (base: string) =>
       featureBase
-        ? featureBrief(base, featureBase.ask, prompt, featureBase.tree)
+        ? restyling
+          ? restyleBrief(base, prompt, featureBase.tree)
+          : featureBrief(base, featureBase.ask, prompt, featureBase.tree)
         : upgradeBase
           ? upgradeBrief(base, prompt, upgradeBase.areas, stashImages(upgradeBase.html).lean)
           : base;
@@ -5773,7 +5791,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         version: projectContextRow?.version ?? 1,
         state: {
           ...(projectContextRow?.state ?? {}),
-          feature: { requestId, baseBuildId: featureBase.buildId, areas: featureBase.ask.areas },
+          feature: { requestId, baseBuildId: featureBase.buildId, areas: featureBase.ask.areas, restyle: restyling },
         },
         cache: projectContextRow?.cache ?? {},
       });

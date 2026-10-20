@@ -160,6 +160,15 @@ const WHOLE_SITE_FOR =
 const EXPLICIT_NEW =
   /\b(?:new|another|separate|different|second|fresh) (?:project|site|website|web ?app|app|application|store|shop|platform|landing page)\b/i;
 
+/* Throwing the project away, narrowly: DISCARD also catches "replace this",
+   which a redesign brief says of a section ("replace this section with…"). */
+const START_OVER =
+  /\b(?:scrap|ditch|throw (?:it|this) away|start over|start again|from scratch)\b|^\s*(?:new project|new page|new site)\b/i;
+
+/* Changing the project that exists, in so many words — see heuristicIntent. */
+const EDIT_EXISTING =
+  /\b(?:edit|redesign|restyle|reskin|revamp|refresh|modernis[ez]e|transform|upgrade|rework|overhaul)\s+(?:the\s+|this\s+|my\s+|our\s+)?(?:existing|current)\b|\b(?:do not|don'?t|never)\s+(?:rebuild|recreate|start (?:over|again|from scratch)|build (?:it|a new one) from scratch)\b/i;
+
 /* "for my bakery", "for a law firm" — a brief names who it is for. */
 const FOR_WHOM = /\bfor (my|a|an|our)\b/i;
 /* "with a hero, a menu and a contact form" — a brief lists what goes in it. */
@@ -459,6 +468,19 @@ export function heuristicIntent(
   if (hasAttachment && hasPage && m.length > 0) {
     const asking = ENDS_QUESTION.test(m) || WH_LEADS.test(m) || ASK_LEADS.test(m);
     if (!asking) return { intent: "edit", confidence: 0.85, source: "heuristic" };
+  }
+
+  /* Changing the project that exists, said outright: "edit the existing site",
+     "redesign the current page", "do not rebuild it from scratch". A long brief
+     of sections and colours looks like a new build to every rule below, and is
+     not one when it says so — the person asked to keep what they have. Kept in
+     step with REDESIGN_EXISTING in feature.ts, which sends it down the
+     redesign path once it is an edit. */
+  /* Read for "start over" with the refusals taken out: "do not rebuild the
+     project from scratch" contains "from scratch" and means the opposite. */
+  const affirmed = m.replace(/\b(?:do not|don'?t|never)\b[^.!?\n]*/gi, " ");
+  if (hasPage && EDIT_EXISTING.test(m) && !START_OVER.test(affirmed) && !EXPLICIT_NEW.test(affirmed)) {
+    return { intent: "edit", confidence: 0.95, source: "heuristic" };
   }
 
   /* An empty message with a file attached is the shortest way to say "use

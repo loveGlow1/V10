@@ -53,7 +53,8 @@ export type ContextState = {
      added to. Set by /api/build when it sends one, read by the save route to
      merge the returned files over that build instead of replacing it, and gone
      once the save route writes the state again. See lib/builder/feature.ts. */
-  feature?: { requestId: string; baseBuildId: string; areas: string[] };
+  /* `restyle`: a redesign of the project rather than an addition to it. */
+  feature?: { requestId: string; baseBuildId: string; areas: string[]; restyle?: boolean };
   /* A single page being upgraded into a project: which request, and the build
      holding the page it reproduces. The save route reads the page back from
      that build to put its embedded pictures where the generator kept their

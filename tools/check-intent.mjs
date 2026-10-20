@@ -225,6 +225,34 @@ try {
   );
   if (connectWrong > 0) failed += connectWrong;
 
+  /* Changing the project that exists, said outright. A long redesign brief —
+     sections, colours, "replace this section" — looks like a new build to
+     every other rule, and is an edit when it says it is one. Must be answered,
+     not deferred: a deferral goes to the model, which read these as new
+     builds and sent somebody round a loop of "start over?". */
+  const EXISTING = [
+    ["EDIT EXISTING HEALTHCARE WEBSITE — PREMIUM MODERN REDESIGN\n\nRedesign the existing healthcare landing page. Do not rebuild the project from scratch.\n\n**8. Patient Feedback:** If none exist, replace this section with clinic values. Create a premium website for a clinic with a hero, services and a footer.", true, "edit"],
+    ["Redesign the current site with a navy and mint palette, a new hero and a refined footer", true, "edit"],
+    ["Don't start over — restyle the existing pages with bigger type", true, "edit"],
+    ["Revamp my existing website for a law firm with a hero, practice areas and contact", true, "edit"],
+    ["Scrap the existing site and start from scratch with a bakery page", true, "new_project"],
+    ["Build a new site for my gym — forget the existing one", true, "new_project"],
+  ];
+  let existingWrong = 0;
+  for (const [message, hasPage, want] of EXISTING) {
+    const got = heuristicIntent(message, hasPage)?.intent ?? null;
+    if (got !== want && !(want === "new_project" && got === null)) {
+      existingWrong++;
+      console.log(`  wrong: ${JSON.stringify(message.slice(0, 70))} → ${got} (want ${want})`);
+    }
+  }
+  console.log(
+    existingWrong === 0
+      ? `${EXISTING.length} edit-the-existing phrasings read correctly`
+      : `${existingWrong} of ${EXISTING.length} edit-the-existing phrasings wrong`,
+  );
+  if (existingWrong > 0) failed += existingWrong;
+
   if (failed > 0) {
     console.log("\nA wrong answer means the rules changed meaning, not just coverage.");
     process.exit(1);

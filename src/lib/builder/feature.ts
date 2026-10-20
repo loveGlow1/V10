@@ -105,6 +105,98 @@ function hasRoute(tree: FileTree, routes: RegExp): boolean {
   );
 }
 
+/* ── Redesigning the project that is there ────────────────────────────────
+ *
+ * "Redesign the existing site — new palette, new hero, refine the services,
+ * upgrade the footer". An edit can only change one file, and a site's look
+ * lives in the tokens, the layout and every section component at once; a new
+ * build would throw the project away. So a redesign goes the way a feature
+ * does — the build path, handed the project, returning only the files it
+ * changes, merged over what is there and priced on what it wrote — with a
+ * brief that says restyle rather than add (see restyleBrief).
+ *
+ * Read from what the person said about the project as it stands: they named
+ * it ("the existing", "the current"), told us not to start over, or asked for
+ * a redesign of the whole of it. */
+
+/* Changing the project that exists, in so many words. */
+export const REDESIGN_EXISTING =
+  /\b(?:edit|redesign|restyle|reskin|revamp|refresh|modernis[ez]e|transform|upgrade|rework|overhaul)\s+(?:the\s+|this\s+|my\s+|our\s+)?(?:existing|current)\b|\b(?:do not|don'?t|never)\s+(?:rebuild|recreate|start (?:over|again|from scratch)|build (?:it|a new one) from scratch)\b/i;
+
+/* A redesign of the whole, rather than of one part. */
+const REDESIGN_WORDS =
+  /\b(?:re-?design|restyle|reskin|revamp|make ?over|visual (?:upgrade|overhaul|refresh)|new look|complete (?:visual )?(?:upgrade|refresh)|full (?:visual )?(?:upgrade|refresh))\b/i;
+const WHOLE_SCOPE =
+  /\b(?:whole|entire|full|all (?:the )?(?:pages|sections)|every (?:page|section)|(?:the|my|our|this) (?:site|website|app|web ?app|project|landing page))\b/i;
+
+/* Sentences that keep something or turn something down. */
+const KEPT_OR_REFUSED =
+  /\b(?:preserve|preserving|maintain|maintaining|keep|keeping|retain|without|never|do not|don'?t|avoid|no (?:need|login|sign))\b/i;
+
+function withoutKeptOrRefused(message: string): string {
+  return message
+    .split(/(?<=[.!?\n])\s+|\n+/)
+    .filter((sentence) => !KEPT_OR_REFUSED.test(sentence))
+    .join(" ");
+}
+
+/**
+ * A redesign of the project that is there, or null. Only for a project of
+ * files — a single page is one document, and the edit path restyles it whole.
+ */
+export function restyleFor(message: string, tree: FileTree): FeatureAsk | null {
+  const m = message.trim();
+  if (!m || tree.length === 0) return null;
+  const said = m.match(REDESIGN_EXISTING) ?? (REDESIGN_WORDS.test(m) && WHOLE_SCOPE.test(m) ? m.match(REDESIGN_WORDS) : null);
+  return said ? { areas: ["a redesign of the existing site"], because: said[0] } : null;
+}
+
+/* A larger allowance than a feature's: a redesign changes the files it is
+   shown, so it has to be shown the ones it will change. */
+const RESTYLE_BUDGET = 160_000;
+
+/** The instruction for a redesign: the file-tree brief, turned into a restyle. */
+export function restyleBrief(base: string, request: string, tree: FileTree): string {
+  const listing = tree.map((file) => `- ${file.path}`).join("\n");
+  const source = tree.filter(
+    (file) => /\.(?:tsx|ts|jsx|js|css)$/.test(file.path) && !/(?:^|\/)(?:next|postcss)\.config\.|tsconfig|database\.types\.ts$/.test(file.path),
+  );
+  const shown: string[] = [];
+  let budget = RESTYLE_BUDGET;
+  for (const file of source) {
+    if (budget <= 0) {
+      shown.push(`--- ${file.path}\n/* not shown — leave it as it is unless the redesign cannot work without changing it */`);
+      continue;
+    }
+    const body = file.content.length > budget ? `${file.content.slice(0, budget)}\n/* …cut for length */` : file.content;
+    shown.push(`--- ${file.path}\n${body}`);
+    budget -= body.length;
+  }
+
+  return `${base}
+
+════════════════════════════════════════
+THIS IS A REDESIGN OF AN EXISTING PROJECT — NOT A NEW ONE
+════════════════════════════════════════
+
+The person asked: ${request.trim()}
+
+The project below already exists and is live for its owner. Change how it LOOKS and FEELS as the request describes — design tokens, typography, colours, layout, sections, copy and motion — and keep everything it DOES. Treat the WRITE THESE list above as the shape a complete project has, not as files to produce: return ONLY the existing files you change (and a new file only if the redesign genuinely needs one, such as a new section component), each in FULL.
+
+Keep, exactly:
+- every route, page and link that is there now — never remove one;
+- every form, its fields, validation, handlers, submission and states, and every API route, data call, Supabase client and integration — restyle them, never replace them with mock data;
+- the framework, file structure and the components it imports (restyle a component in place rather than writing a duplicate).
+
+Whatever you leave out is kept exactly as it is, and whatever you return replaces it. Never invent facts, people, reviews, credentials or claims the project does not already have.
+
+THE PROJECT AS IT IS — every file:
+${listing}
+
+ITS SOURCE:
+${shown.join("\n\n")}`;
+}
+
 /**
  * What new area this message asks a multi-file project to gain, or null when
  * it is an ordinary change to something already there.
@@ -116,10 +208,16 @@ function hasRoute(tree: FileTree, routes: RegExp): boolean {
 export function featureFor(message: string, tree: FileTree): FeatureAsk | null {
   const m = message.trim();
   if (!m || tree.length === 0 || !ADDS.test(m)) return null;
+  /* A redesign of what is there is not an addition, however many areas it
+     names on the way: it is restyleFor's. */
+  if (REDESIGN_EXISTING.test(m)) return null;
 
   const areas: string[] = [];
   let because = "";
-  let claimed = m;
+  /* Read only the sentences that ask for something. "Preserve the current
+     authentication" and "without creating an account or logging in" name
+     sign-in, and are the opposite of asking for it. */
+  let claimed = withoutKeptOrRefused(m);
 
   for (const area of AREAS) {
     const said = claimed.match(area.says);
