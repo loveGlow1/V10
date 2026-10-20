@@ -23,7 +23,12 @@ interface AccountSettingsModalProps {
       takes the default. Read each time the panel is opened, so the pane you
       asked for is the pane you get. */
   initialSection?: SectionId;
+  /** Which tab of the Agents pane opens — Home's "Select MCP Tools" asks for
+      "mcp". Absent leaves the tab where it was. */
+  initialAgentTab?: AgentTab;
 }
+
+export type AgentTab = "main" | "sub" | "mcp";
 
 /* The panel holds two settings that happen to share a window: the project you
    are in, and the account that owns it. The rail keeps them apart under their
@@ -153,7 +158,14 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
   );
 }
 
-export default function AccountSettingsModal({ open, onClose, onUpgradeClick, credits, initialSection }: AccountSettingsModalProps) {
+export default function AccountSettingsModal({
+  open,
+  onClose,
+  onUpgradeClick,
+  credits,
+  initialSection,
+  initialAgentTab,
+}: AccountSettingsModalProps) {
   /* Read here rather than passed in, and that is the point of the change.
    *
      This list used to be the four "agents" — Q1, Q2, Prototype, Mobile — with
@@ -181,7 +193,7 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   const [supportCode, setSupportCode] = useState<string | null>(null);
   /* Hidden until asked for, and hidden again whenever the panel is reopened. */
   const [emailRevealed, setEmailRevealed] = useState(false);
-  const [agentTab, setAgentTab] = useState<"main" | "sub" | "mcp">("main");
+  const [agentTab, setAgentTab] = useState<AgentTab>(initialAgentTab ?? "main");
   const [mcpEnabled, setMcpEnabled] = useState<string[]>([]);
   const [mcpCustom, setMcpCustom] = useState<{ server_id: string; name: string; url: string }[]>([]);
   const [configuring, setConfiguring] = useState<McpDraft | null>(null);
@@ -198,9 +210,10 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
   useEffect(() => {
     if (!open) return;
     setSection(initialSection ?? "account");
+    if (initialAgentTab) setAgentTab(initialAgentTab);
     setConfirmingDelete(false);
     setProjectError(null);
-  }, [open, initialSection]);
+  }, [open, initialSection, initialAgentTab]);
 
   // The field follows the project until it is being edited, so switching
   // projects with the panel open cannot leave another one's name in the box.

@@ -48,6 +48,10 @@ export default function Workspace({ projectId }: { projectId: string }) {
   /* And ?target=… for the tab it was asked under — validated the same way. */
   const askedTarget = parseTarget(search.get("target"));
   const initialTarget = askedTarget ? formatTarget(askedTarget) : null;
+  /* And ?stack=… for the template picked in Advanced Controls — one of the
+     two values /api/build accepts, or nothing. */
+  const askedStack = search.get("stack");
+  const initialStack = askedStack === "nextjs" || askedStack === "standalone-html" ? askedStack : null;
   /* "?view=preview" is how the apps list says "they wanted to look at it", and
      "?view=manage" is how it says "they wanted to work on it" — the second is
      what gives every list of apps a way into the Manage pane without each menu
@@ -335,6 +339,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               initialPrompt={initialPrompt}
               initialKind={initialKind}
               initialTarget={initialTarget}
+              initialStack={initialStack}
               onBuildSettled={refreshCredits}
               onPublish={requestPublish}
             />

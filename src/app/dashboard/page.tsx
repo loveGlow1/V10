@@ -6,8 +6,13 @@ import TopNav from "./components/TopNav";
 import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import BillingModal from "./components/billing/BillingModal";
-import AccountSettingsModal, { type SectionId as SettingsSection } from "./components/AccountSettingsModal";
+import AccountSettingsModal, {
+  type AgentTab as SettingsAgentTab,
+  type SectionId as SettingsSection,
+} from "./components/AccountSettingsModal";
 import {
+  MODELS,
+  isModelAvailable,
   modelById,
   shortModelName,
 } from "./models";
@@ -171,12 +176,23 @@ type TabCategory = (typeof categoryTabs)[number]["id"];
 const _everyCategoryHasATab: [Exclude<Category, TabCategory>] extends [never] ? true : ["no tab for:", Exclude<Category, TabCategory>] = true;
 void _everyCategoryHasATab;
 
+/* The template in Advanced Controls: whether the first build is one page or a
+   full project. Labels a person reads; the ids are the `stack` /api/build
+   takes. */
+type StackChoice = "auto" | "standalone-html" | "nextjs";
+const STACK_CHOICES: Record<StackChoice, { title: string; subtitle: string }> = {
+  auto: { title: "Automatic", subtitle: "Decided from what you describe — a page, or a full app when it needs one" },
+  "standalone-html": { title: "Single Page Template", subtitle: "One fast page: previews instantly, no sign-in or saved data" },
+  nextjs: { title: "Full Stack Template", subtitle: "A Next.js app with routes, sign-in and a database" },
+};
+
 export default function DashboardPage() {
   const [billingOpen, setBillingOpen] = useState(false);
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   /* Which pane the settings panel opens on. The account menu wants its own; the
      project switcher wants the project's. */
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("account");
+  const [settingsAgentTab, setSettingsAgentTab] = useState<SettingsAgentTab | undefined>(undefined);
   /* Website until the person says otherwise — and "says" includes the
      prompt: until a tab is clicked, the tab follows what is typed. A clicked
      tab is a choice and stays. The sub-type is null while it is read from the
@@ -242,8 +258,44 @@ export default function DashboardPage() {
 
   // Advanced Controls Modal State & Data
   const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
-  const [maxxEnabled, setMaxxEnabled] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("Auto");
+  /* The full model list, opened from Advanced Controls. The chip in the
+     composer opens the agents; this is every model, the same list and the
+     same gates as the workspace's picker. */
+  const [isAllModelsOpen, setIsAllModelsOpen] = useState(false);
+  const [isTemplateOpen, setIsTemplateOpen] = useState(false);
+  /* Maxx is not a setting of its own — it IS the most capable model this
+     deployment can call, so whether it is on is read off the model in force
+     rather than kept beside it, where the two could disagree. Turning it off
+     goes back to whatever was picked before it was turned on. */
+  const maxxModel = MODELS.find((option) => option.provider !== "auto" && isModelAvailable(option)) ?? null;
+  const maxxOn = Boolean(maxxModel) && model === maxxModel?.id;
+  const maxxGate = maxxModel ? reach(maxxModel) : null;
+  const beforeMaxx = useRef<string | null>(null);
+  function toggleMaxx() {
+    if (!maxxModel) return;
+    if (maxxOn) {
+      const back = beforeMaxx.current && beforeMaxx.current !== maxxModel.id ? beforeMaxx.current : "auto";
+      setModel(back);
+      beforeMaxx.current = null;
+      return;
+    }
+    if (!maxxGate?.ok) return;
+    beforeMaxx.current = model;
+    setModel(maxxModel.id);
+  }
+  /* What the first build is made as. "auto" leaves it to the brief — see
+     src/lib/builder/stack.ts — and is what nearly everybody should keep. The
+     other two are sent with the first message as `stack`, which /api/build
+     already takes as the answer and stops asking. */
+  const [stackChoice, setStackChoice] = useState<StackChoice>("auto");
+  useEffect(() => {
+    if (!isAdvancedModalOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsAdvancedModalOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isAdvancedModalOpen]);
 
   // File Upload Popover & Hidden Inputs State
   /* Pictures picked on Home, held here until the app they belong to exists;
@@ -473,13 +525,17 @@ export default function DashboardPage() {
       <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
       <AccountSettingsModal
         open={accountSettingsOpen}
-        onClose={() => setAccountSettingsOpen(false)}
+        onClose={() => {
+          setAccountSettingsOpen(false);
+          setSettingsAgentTab(undefined);
+        }}
         onUpgradeClick={() => {
           setAccountSettingsOpen(false);
           setBillingOpen(true);
         }}
         credits={credits}
         initialSection={settingsSection}
+        initialAgentTab={settingsAgentTab}
       />
       <SupportChat />
       <ImportFromGitHub open={importOpen} onClose={() => setImportOpen(false)} onUpgrade={() => setBillingOpen(true)} />
@@ -776,6 +832,9 @@ export default function DashboardPage() {
                         : null
                     }
                     files={files}
+                    /* Fliers and videos are not built as a page or a project,
+                       so the template only travels with a site or an app. */
+                    stack={stackChoice === "auto" || videoMode || activeCategory === "fliers" ? null : stackChoice}
                     blockedReason={
                       !videoMode
                         ? null
@@ -1034,18 +1093,27 @@ export default function DashboardPage() {
       {/* Advanced Controls Modal Sheet */}
       <AnimatePresence>
         {isAdvancedModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl p-4">
+          <div
+            className="fixed inset-0 z-50 flex justify-center overflow-y-auto overscroll-contain bg-black/70 backdrop-blur-xl p-4"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setIsAdvancedModalOpen(false);
+            }}
+          >
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Advanced controls"
               initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-5"
+              className="my-auto w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-5"
             >
               <div className="flex items-center justify-between pb-1">
                 <h3 className="text-base font-semibold text-ink tracking-tight">Advanced Controls</h3>
                 <button
                   onClick={() => setIsAdvancedModalOpen(false)}
+                  aria-label="Close"
                   className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
                 >
                   <X className="w-4 h-4" />
@@ -1053,20 +1121,34 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-layer/[0.05] flex items-center justify-center text-ink">
+                <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="w-7 h-7 shrink-0 rounded-full bg-layer/[0.05] flex items-center justify-center text-ink">
                       <Bot className="w-4 h-4 text-accent" />
                     </div>
-                    <span className="text-sm font-semibold text-ink flex items-center gap-1">
-                      Maxx <Sparkles className="w-3.5 h-3.5 text-accent" />
-                    </span>
+                    <div className="min-w-0">
+                      <span id="maxx-label" className="text-sm font-semibold text-ink flex items-center gap-1">
+                        Maxx <Sparkles className="w-3.5 h-3.5 text-accent" />
+                      </span>
+                      <span className="block text-xs text-muted">
+                        {!maxxModel
+                          ? "No model is available right now"
+                          : maxxGate && !maxxGate.ok && !maxxOn
+                            ? `${shortModelName(maxxModel)} · ${maxxGate.label}`
+                            : `Runs on ${shortModelName(maxxModel)}${maxxModel.note ? ` · ${maxxModel.note}` : ""}`}
+                      </span>
+                    </div>
                   </div>
                   <button
-                    onClick={() => setMaxxEnabled(!maxxEnabled)}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-0.5 ${maxxEnabled ? "bg-accent" : "bg-layer/20"}`}
+                    role="switch"
+                    aria-checked={maxxOn}
+                    aria-labelledby="maxx-label"
+                    onClick={toggleMaxx}
+                    disabled={!maxxModel || (!maxxOn && !maxxGate?.ok)}
+                    title={!maxxOn && maxxGate && !maxxGate.ok ? maxxGate.label : undefined}
+                    className={`w-11 h-6 shrink-0 rounded-full transition-colors relative p-0.5 disabled:cursor-not-allowed disabled:opacity-45 ${maxxOn ? "bg-accent" : "bg-layer/20"}`}
                   >
-                    <div className={`w-5 h-5 rounded-full bg-black transition-transform ${maxxEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                    <div className={`w-5 h-5 rounded-full bg-black transition-transform ${maxxOn ? "translate-x-5" : "translate-x-0"}`} />
                   </button>
                 </div>
 
@@ -1074,13 +1156,19 @@ export default function DashboardPage() {
                   <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     Select Model
                   </span>
-                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
-                    <div className="flex items-center gap-3">
-                      <Cpu className="w-4 h-4 text-muted" />
-                      <span className="text-sm font-semibold text-ink">{selectedModel}</span>
+                  <button
+                    onClick={() => {
+                      setIsAdvancedModalOpen(false);
+                      setIsAllModelsOpen(true);
+                    }}
+                    className="w-full p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] flex items-center justify-between text-left transition-all"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Cpu className="w-4 h-4 shrink-0 text-muted" />
+                      <span className="truncate text-sm font-semibold text-ink">{shortModelName(chosenModel)}</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted" />
-                  </div>
+                    <ChevronRight className="w-4 h-4 shrink-0 text-muted" />
+                  </button>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1092,48 +1180,117 @@ export default function DashboardPage() {
                       New
                     </span>
                   </div>
-                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
+                  {/* MCP connections belong to the account, and are kept in
+                      Account Settings → Agents → MCP. This opens that tab
+                      rather than a second, disagreeing list here. */}
+                  <button
+                    onClick={() => {
+                      setIsAdvancedModalOpen(false);
+                      setSettingsSection("agents");
+                      setSettingsAgentTab("mcp");
+                      setAccountSettingsOpen(true);
+                    }}
+                    className="w-full p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] flex items-center justify-between text-left transition-all"
+                  >
                     <div className="flex items-center gap-3">
                       <Paperclip className="w-4 h-4 text-muted" />
                       <span className="text-sm font-semibold text-ink">Select MCP Tools</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-muted" />
-                  </div>
+                  </button>
                 </div>
 
                 <div className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     GitHub
                   </span>
-                  <div
+                  <button
                     onClick={() => {
                       setIsAdvancedModalOpen(false);
                       setImportOpen(true);
                     }}
-                    className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all"
+                    className="w-full p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] flex items-center justify-between text-left transition-all"
                   >
                     <div className="flex items-center gap-3">
                       <Github className="w-4 h-4 text-muted" />
                       <span className="text-sm font-semibold text-ink">Import from GitHub</span>
                     </div>
                     <ChevronRight className="w-4 h-4 text-muted" />
-                  </div>
+                  </button>
                 </div>
 
                 <div className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wider text-muted px-1">
                     Select Template
                   </span>
-                  <div className="p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] cursor-pointer flex items-center justify-between transition-all">
-                    <span className="text-sm font-semibold text-ink">Full Stack Template</span>
-                    <ChevronRight className="w-4 h-4 text-muted" />
-                  </div>
+                  <button
+                    onClick={() => {
+                      setIsAdvancedModalOpen(false);
+                      setIsTemplateOpen(true);
+                    }}
+                    className="w-full p-4 rounded-[18px] bg-layer/[0.035] border border-line/[0.05] hover:border-line/[0.1] flex items-center justify-between text-left transition-all"
+                  >
+                    <span className="text-sm font-semibold text-ink">{STACK_CHOICES[stackChoice].title}</span>
+                    <ChevronRight className="w-4 h-4 shrink-0 text-muted" />
+                  </button>
                 </div>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Every model, with the same gates as the workspace's picker: a model
+          that cannot be picked says why on its badge. */}
+      <ChoiceSheet
+        open={isAllModelsOpen}
+        onClose={() => setIsAllModelsOpen(false)}
+        onBack={() => {
+          setIsAllModelsOpen(false);
+          setIsAdvancedModalOpen(true);
+        }}
+        title="Select model"
+        rows={MODELS.map((option): ChoiceRow => {
+          const gate = reach(option);
+          return {
+            id: option.id,
+            title: shortModelName(option),
+            subtitle: option.note ? `${option.blurb} · ${option.note}` : option.blurb,
+            badge: gate.ok ? option.badge : gate.label,
+            hint: gate.ok ? undefined : gate.label,
+            selected: model === option.id,
+            disabled: !gate.ok,
+            onSelect: () => {
+              setModel(option.id);
+              setIsAllModelsOpen(false);
+              setIsAdvancedModalOpen(true);
+            },
+          };
+        })}
+        note="Model changes apply from your next message."
+      />
+
+      <ChoiceSheet
+        open={isTemplateOpen}
+        onClose={() => setIsTemplateOpen(false)}
+        onBack={() => {
+          setIsTemplateOpen(false);
+          setIsAdvancedModalOpen(true);
+        }}
+        title="Select template"
+        rows={(Object.keys(STACK_CHOICES) as StackChoice[]).map((id): ChoiceRow => ({
+          id,
+          title: STACK_CHOICES[id].title,
+          subtitle: STACK_CHOICES[id].subtitle,
+          selected: stackChoice === id,
+          onSelect: () => {
+            setStackChoice(id);
+            setIsTemplateOpen(false);
+            setIsAdvancedModalOpen(true);
+          },
+        }))}
+        note="Applies to the next Website or Web App you start here."
+      />
 
     </div>
     </ProjectsProvider>

@@ -93,6 +93,7 @@ export default function StartBuildButton({
   disabled = false,
   blockedReason = null,
   files = [],
+  stack = null,
   ref,
 }: {
   prompt: string;
@@ -127,6 +128,10 @@ export default function StartBuildButton({
   /* Pictures picked on Home. Uploaded once the app (or video) exists, and
      carried into its first message. */
   files?: File[];
+  /* The template chosen in Advanced Controls, when one was: the first build is
+     made as a single page or a full project without asking. Null leaves it to
+     the brief. */
+  stack?: "standalone-html" | "nextjs" | null;
   /* React 19 passes ref as an ordinary prop, so there is no forwardRef here. */
   ref?: React.Ref<StartBuildHandle>;
 }) {
@@ -225,7 +230,7 @@ export default function StartBuildButton({
       if (failed) onError(failed);
     }
 
-    const query = `${kind ? `&kind=${encodeURIComponent(kind)}` : ""}${target ? `&target=${encodeURIComponent(target)}` : ""}`;
+    const query = `${kind ? `&kind=${encodeURIComponent(kind)}` : ""}${target ? `&target=${encodeURIComponent(target)}` : ""}${stack ? `&stack=${stack}` : ""}`;
     /* The context rides in the brief rather than in a parameter of its own.
        The blueprint's requirements are conditional on what the brief says — a
        web app gets sign-in "when the product has user accounts, saved data or
