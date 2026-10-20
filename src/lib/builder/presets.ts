@@ -583,6 +583,173 @@ export const PRESETS: Preset[] = [
     },
   },
 
+  /* ── The site types with a blueprint of their own ─────────────────────
+   *
+   * Picked by kind and never by words (see presetFor; `says` matches
+   * nothing), because the kind already read the brief: a site classified as a
+   * courier's IS a courier's whether or not it said "shipments", and "my
+   * consulting agency" is a business site, not a portfolio. Every table here has a user_id owner
+   * and row-level security; public forms use `submitted`, so a visitor can
+   * add a row and never read one back. */
+  {
+    id: "saas",
+    label: "SaaS product",
+    says: /$^/,
+    tables: () => [
+      {
+        name: "leads",
+        what: "Demo requests and sales enquiries from the site.",
+        columns: [...base(), owner(true), text("name"), text("email"), text("company", true), text("team_size", true), text("message", true), status(["new", "contacted", "qualified", "won", "lost"], "new")],
+        indexes: [{ on: ["status"] }, { on: ["created_at"] }],
+        policies: submitted("leads"),
+      },
+      {
+        name: "waitlist",
+        what: "People waiting for access or a launch, in the order they joined.",
+        columns: [...base(), owner(true), { name: "email", type: "text", unique: true }, text("source", true), text("referred_by", true), status(["waiting", "invited", "joined"], "waiting")],
+        indexes: [{ on: ["status"] }, { on: ["created_at"] }],
+        policies: submitted("waitlist"),
+      },
+    ],
+  },
+
+  {
+    id: "portfolio",
+    label: "portfolio and agency",
+    says: /$^/,
+    tables: () => [
+      catalogue("projects", "The case studies shown on the site.", [
+        text("title"), slug(), text("client", true), text("discipline", true), { name: "year", type: "integer", nullable: true },
+        text("summary"), text("body", true), text("result", true), text("cover_url", true), count("position"),
+      ], [["position"]]),
+      inquiries([text("company", true), text("budget", true), text("timeline", true)]),
+    ],
+  },
+
+  {
+    id: "fintech",
+    label: "fintech",
+    says: /$^/,
+    tables: () => [
+      {
+        name: "accounts",
+        what: "Each customer's own accounts — current, savings, wallet or loan — and their balances.",
+        columns: [
+          ...base(), owner(), text("name"),
+          { name: "kind", type: "text", default: "'current'", check: "kind in ('current', 'savings', 'wallet', 'loan', 'investment')" },
+          text("currency"), { name: "balance", type: "numeric", default: "0" }, text("account_number", true),
+          status(["active", "frozen", "closed"], "active"),
+        ],
+        indexes: [{ on: ["user_id"] }],
+        /* A customer reads their own accounts and names them; money moves only
+           through transactions, never by editing a balance from the browser. */
+        policies: [...personal("accounts", []), ownerManages("accounts")],
+      },
+      {
+        name: "transactions",
+        what: "Money in and out of each customer's accounts.",
+        columns: [
+          ...base(), owner(), ref("account_id", "accounts"), text("description"),
+          { name: "amount", type: "numeric" }, text("currency"),
+          { name: "direction", type: "text", check: "direction in ('credit', 'debit')" },
+          text("category", true), text("counterparty", true), when("posted_at"),
+          status(["pending", "posted", "failed", "reversed"], "posted"),
+        ],
+        indexes: [{ on: ["user_id"] }, { on: ["account_id"] }, { on: ["posted_at"] }],
+        policies: [...personal("transactions", []), ownerManages("transactions")],
+      },
+      {
+        name: "kyc_verifications",
+        what: "Each customer's identity check — what they submitted and where review stands.",
+        columns: [
+          ...base(), owner(), text("legal_name"), when("date_of_birth", true), text("country", true),
+          { name: "document_type", type: "text", nullable: true, check: "document_type is null or document_type in ('passport', 'national_id', 'drivers_licence', 'voters_card')" },
+          text("document_path", true),
+          status(["not_started", "submitted", "in_review", "approved", "rejected"], "not_started"),
+          text("review_note", true), when("reviewed_at", true),
+        ],
+        indexes: [{ on: ["user_id"] }, { on: ["status"] }],
+        /* A customer submits and corrects their own, and can never mark it
+           approved: the database refuses any status but the two that are
+           theirs to set. Only staff decide. */
+        policies: [
+          ...personal("kyc_verifications", []),
+          {
+            name: "kyc_verifications_insert_own",
+            for: "insert",
+            to: ["authenticated"],
+            check: "user_id = auth.uid() and status in ('not_started', 'submitted')",
+            why: "A customer starts their own check, and cannot start it already approved.",
+          },
+          {
+            name: "kyc_verifications_update_own",
+            for: "update",
+            to: ["authenticated"],
+            using: "user_id = auth.uid() and status in ('not_started', 'submitted', 'rejected')",
+            check: "user_id = auth.uid() and status in ('not_started', 'submitted')",
+            why: "A customer may correct and resubmit their own check while it is theirs to change; deciding it is staff's alone.",
+          },
+          ownerManages("kyc_verifications"),
+        ],
+      },
+    ],
+  },
+
+  {
+    id: "logistics",
+    label: "logistics and delivery",
+    says: /$^/,
+    tables: () => [
+      {
+        name: "shipments",
+        what: "Each customer's shipments, found publicly by tracking number through track_shipment().",
+        columns: [
+          ...base(), owner(), { name: "tracking_number", type: "text", unique: true },
+          text("origin"), text("destination"), text("recipient_name", true), text("service", true),
+          { name: "weight_kg", type: "numeric", nullable: true, check: "weight_kg is null or weight_kg > 0" },
+          when("estimated_delivery", true), when("delivered_at", true),
+          status(["booked", "picked_up", "in_transit", "at_hub", "out_for_delivery", "delivered", "exception"], "booked"),
+        ],
+        indexes: [{ on: ["user_id"] }, { on: ["status"] }],
+        /* A customer books their own, as booked; status and delivery are
+           dispatch's. */
+        policies: [
+          ...personal("shipments", []),
+          {
+            name: "shipments_insert_own",
+            for: "insert",
+            to: ["authenticated"],
+            check: "user_id = auth.uid() and status = 'booked'",
+            why: "A customer books a shipment in their own name, and it starts as booked — only dispatch moves it on.",
+          },
+          ownerManages("shipments"),
+        ],
+      },
+      {
+        name: "shipment_events",
+        what: "The tracking timeline: each scan, hand-over and delivery attempt on a shipment. user_id is the shipment's owner, so they can read it.",
+        columns: [
+          ...base(), owner(), ref("shipment_id", "shipments"), text("status"), text("location", true), text("note", true), when("occurred_at"),
+        ],
+        indexes: [{ on: ["shipment_id"] }, { on: ["occurred_at"] }],
+        /* Written by dispatch only; the shipment's owner reads them. */
+        policies: [...personal("shipment_events", []), ownerManages("shipment_events")],
+      },
+      {
+        name: "quotes",
+        what: "Quote requests from the site, answered by the team.",
+        columns: [
+          ...base(), owner(true), text("name"), text("email"), text("phone", true), text("origin"), text("destination"),
+          text("package_type", true), { name: "weight_kg", type: "numeric", nullable: true, check: "weight_kg is null or weight_kg > 0" },
+          when("pickup_date", true), money("indicative_price", true), money("quoted_price", true),
+          status(["new", "quoted", "accepted", "declined"], "new"),
+        ],
+        indexes: [{ on: ["status"] }, { on: ["created_at"] }],
+        policies: submitted("quotes"),
+      },
+    ],
+  },
+
   {
     id: "crm",
     label: "CRM",
@@ -775,6 +942,9 @@ export const PRESETS: Preset[] = [
  */
 export function presetFor(text: string, kind: BuildKind): Preset | null {
   if (kind === "ecommerce" || kind === "blog" || kind === "news") return null;
+  /* A site type with its own preset has it, whatever words it used. */
+  const own = PRESETS.find((preset) => preset.id === kind);
+  if (own) return own;
   const match = PRESETS.find((preset) => preset.says.test(text));
   if (match) return match;
   return kind === "landing" ? (PRESETS.find((preset) => preset.id === "business") ?? null) : null;
@@ -892,24 +1062,38 @@ const comments = (): Table => ({
   ],
 });
 
+/* Newsletter sign-ups. Anybody subscribes; only the editors read the list,
+   because a list of readers' emails is not something a reader may browse. */
+const subscribers = (): Table => ({
+  name: "subscribers",
+  what: "People who signed up to the newsletter.",
+  columns: [...base(), owner(true), { name: "email", type: "text", unique: true }, text("name", true), text("source", true), status(["subscribed", "unsubscribed"], "subscribed")],
+  indexes: [{ on: ["status"] }, { on: ["created_at"] }],
+  policies: submitted("subscribers"),
+});
+
+const NEWSLETTER = /\b(newsletters?|subscrib\w*|mailing list|email list|digest)\b/i;
+
 const PUBLICATION_MODULES: Record<"blog" | "news", Preset> = {
   blog: {
     id: "blog",
     label: "blog",
     says: /$^/,
-    tables: () => [authors(), comments()],
+    tables: () => [authors(), comments(), subscribers()],
     optional: {
       authors: or(/\b(authors?|writers?|contributors?|bylines?|team|multi[- ]author|guest posts?)\b/i),
       comments: or(/\b(comments?|discussions?|replies|reader (?:feedback|responses?))\b/i),
+      subscribers: or(NEWSLETTER),
     },
   },
   news: {
     id: "news",
     label: "newsroom",
     says: /$^/,
-    tables: () => [authors(), comments()],
+    tables: () => [authors(), comments(), subscribers()],
     optional: {
       comments: or(/\b(comments?|discussions?|replies|reader (?:feedback|responses?))\b/i),
+      subscribers: or(NEWSLETTER),
     },
   },
 };

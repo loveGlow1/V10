@@ -113,6 +113,10 @@ const KIND_TERMS: Record<BuildKind, string> = {
   blog: "editorial documentary photography",
   news: "press photography reportage",
   webapp: "workspace technology minimal",
+  saas: "modern workplace technology",
+  fintech: "people managing money mobile phone",
+  logistics: "delivery logistics warehouse",
+  portfolio: "studio design work editorial",
 };
 
 /**
@@ -209,6 +213,10 @@ const CONTAMINATION: Record<BuildKind, Contamination[]> = {
   ecommerce: [SOFTWARE],
   blog: [FAKERY],
   news: [FAKERY],
+  saas: [RETAIL_AND_FOOD, OCCASIONS],
+  fintech: [RETAIL_AND_FOOD, OCCASIONS],
+  logistics: [OCCASIONS],
+  portfolio: [FAKERY],
 };
 
 /**

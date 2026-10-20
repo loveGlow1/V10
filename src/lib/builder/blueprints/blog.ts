@@ -31,6 +31,8 @@ export const blog: Blueprint = {
     "The article itself — a complete, readable piece on the site's subject, laid out properly: a measure of 65 to 75 characters, a clear type scale, a standfirst, subheadings, at least one pull quote, at least one list or captioned figure, and eight hundred words or more of real writing that says something. This is what the whole build is judged on. It can open in place from any card, or sit below the grid as the current story.",
     "Author card — an SVG monogram, a real name, two sentences of biography, and links to anchors on the page.",
     "Category and tag navigation — the publication's real sections, each filtering the articles already in the markup, with a count beside each name.",
+    "Search — a field in the masthead that filters every article in the markup by headline, excerpt, author and tag as it is typed, and says plainly when nothing matches.",
+    "Table of contents — on the article, the subheadings listed as links that jump to them, with the current one marked while reading.",
     "Related content — three further reads under the article, chosen to make sense beside it.",
     "Newsletter — one honest pitch, what you get and how often, an email field that validates in-page and answers with a success state.",
     "A sidebar or equivalent band — most-read list, an about block, and the archive by month.",
@@ -39,7 +41,6 @@ export const blog: Blueprint = {
   ],
 
   optionalFeatures: [
-    "A search field over the articles in the markup.",
     "A comments thread under the article, with three or four real-sounding comments and a form that validates.",
     "A dark-mode toggle, when the design earns one.",
     "A reading-progress indicator on the article.",
@@ -64,6 +65,15 @@ export const blog: Blueprint = {
   ],
 
   conditionalRequirements: [
+    {
+      when: "the brief is for research, documentation, a knowledge base or technical writing",
+      require:
+        "a docs layout: a sidebar of sections and pages, the table of contents fixed beside the article, code blocks set in a monospace face with a copy button that works, and previous/next links at the foot of each page",
+    },
+    {
+      when: "the brief names Algolia, full-text search or search across a large archive",
+      require: "the search declared as a full-text search socket (Postgres pg_trgm or Algolia once connected) that today searches what is in the page",
+    },
     {
       when: "the brief names WordPress",
       require:

@@ -53,7 +53,7 @@
  * project's layers and tools/check-architecture.mjs compiles it on its own.
  */
 
-import type { BuildKind } from "./kinds";
+import { familyOf, type BuildKind } from "./kinds";
 import { asksForPage, type StackNeeds } from "./stack";
 import { type Commerce, decideCommerce, needsDatabase, noCommerce } from "./commerce";
 
@@ -201,6 +201,25 @@ const DEFAULTS: Record<BuildKind, Partial<Record<Layer, true>>> = {
     storage: true,
   },
   webapp: {},
+  /* A product's marketing site and a portfolio are pages: their waitlist and
+     their enquiries are kept the way any page keeps a form (see
+     backend/page-data.ts), and a database is theirs only when asked for. */
+  saas: {},
+  portfolio: {},
+  /* Customers sign in to a bank to see their accounts, and to a courier to
+     see their shipments: both are the site, not an extra. */
+  fintech: {
+    backend: true,
+    database: true,
+    authentication: true,
+    admin: true,
+  },
+  logistics: {
+    backend: true,
+    database: true,
+    authentication: true,
+    admin: true,
+  },
 };
 
 /* Why each kind's defaults are what they are, in the words that go in the step
@@ -209,6 +228,8 @@ const DEFAULT_REASON: Partial<Record<BuildKind, string>> = {
   ecommerce: "a store has a merchant behind it — products, orders and stock are managed, not typed into the page",
   blog: "a blog is written and edited by somebody, so the posts live in a database rather than in the markup",
   news: "a publication is edited by somebody, so the articles live in a database rather than in the markup",
+  fintech: "customers sign in to see their own accounts and transactions, which only a database behind row-level security can keep private",
+  logistics: "a shipment has to be trackable by its number and its owner, so shipments and their events live in a database",
 };
 
 /* ── Signals ───────────────────────────────────────────────────────────────
@@ -415,13 +436,17 @@ export function decideArchitecture(
        * brief rather than the kind. The catalogue half is untouched: a
        * project filed as ecommerce still gets its storage, because pictures
        * of the range are the point of it. */
-      if (layer === "authentication" && !commerce.customerAccounts) continue;
-      if (layer === "admin" && !commerce.admin) continue;
-      if (layer === "database" && !needsDatabase(commerce)) continue;
+      /* Not for a bank or a courier: their accounts are not a shop's, and
+         reading them off the brief's commerce would switch off the sign-in
+         that is the reason they have defaults at all. */
+      const shopShaped = familyOf(kind) !== "site";
+      if (shopShaped && layer === "authentication" && !commerce.customerAccounts) continue;
+      if (shopShaped && layer === "admin" && !commerce.admin) continue;
+      if (shopShaped && layer === "database" && !needsDatabase(commerce)) continue;
       manifest[layer] = true;
     }
     const reason = DEFAULT_REASON[kind];
-    if (reason && commerce.checkout) why.push(reason);
+    if (reason && (commerce.checkout || familyOf(kind) === "site")) why.push(reason);
   }
 
   /* What stack.ts already read off the brief, rather than read again. Its two
@@ -559,7 +584,13 @@ export function architectureQuestion(
 ): string {
   const thing = kind === "ecommerce" ? "store" : kind === "news" ? "publication" : "site";
   const managed =
-    kind === "ecommerce" ? "products, stock and orders" : "posts, categories and media";
+    kind === "ecommerce"
+      ? "products, stock and orders"
+      : kind === "fintech"
+        ? "customers, accounts and verification"
+        : kind === "logistics"
+          ? "shipments, tracking updates and quotes"
+          : "posts, categories and media";
   const options = architectureOptions(kind, managedOffered);
 
   const ours = managedOffered
@@ -582,7 +613,7 @@ ${ownLine}
 ${laterLine}
 
 **The front of it** — the ${thing} exactly as a visitor sees it, with the ${
-      kind === "ecommerce" ? "catalogue" : "writing"
+      kind === "ecommerce" ? "catalogue" : familyOf(kind) === "site" ? "content" : "writing"
     } built into the page. Faster, and right if what you want now is the design. Its contact forms still work: messages go to your QuickStark inbox.
 
 Which one?`;
@@ -591,7 +622,7 @@ Which one?`;
   return `Four ways to build this ${thing}.
 
 ${ours}**The front of it** — the ${thing} exactly as a visitor sees it, with the ${
-    kind === "ecommerce" ? "catalogue" : "writing"
+    kind === "ecommerce" ? "catalogue" : familyOf(kind) === "site" ? "content" : "writing"
   } built into the page. Faster, and right if what you want now is the design.
 
 ${ownLine}

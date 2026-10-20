@@ -231,5 +231,40 @@ console.log("\nThe live database check:");
   has(readLiveCheck([{ result: "nonsense" }]) === null && readLiveCheck([]) === null, "an unreadable answer is not a pass");
 }
 
+console.log("\nThe site types with a blueprint of their own");
+{
+  const WANT = {
+    saas: ["leads", "waitlist"],
+    portfolio: ["projects", "contact_inquiries"],
+    fintech: ["accounts", "transactions", "kyc_verifications"],
+    logistics: ["shipments", "shipment_events", "quotes"],
+  };
+  for (const [kind, want] of Object.entries(WANT)) {
+    const preset = presetFor("anything at all", kind);
+    has(preset?.id === kind, `${kind}: the kind picks its own preset, whatever the words`);
+    const tables = modulesFor(preset, "").tables;
+    has(same(tables.map((t) => t.name), want), `${kind}: ${want.join(", ")}`, tables.map((t) => t.name).join(", "));
+    /* Owned: by the person whose rows they are (user_id), or — for what the
+       site shows, like a portfolio's case studies — by the site's owner alone. */
+    const ownerOnly = (t) => t.policies.every((p) => p.for === "select" || /is_admin\(\)/.test(`${p.using ?? ""} ${p.check ?? ""}`));
+    const unowned = tables.filter((t) => !(t.columns.some((c) => c.name === "user_id") || ownerOnly(t)) || !t.columns.some((c) => c.name === "id" && c.type === "uuid") || !t.columns.some((c) => c.name === "created_at"));
+    has(unowned.length === 0, `${kind}: every table has a uuid id, created_at and an owner`, unowned.map((t) => t.name).join(", "));
+    const open = tables.filter((t) => t.policies.length === 0);
+    has(open.length === 0, `${kind}: every table has row-level security policies`, open.map((t) => t.name).join(", "));
+    const verdict = readProposal({ tables, why: kind });
+    has(verdict.ok, `${kind}: a valid schema`, verdict.reason);
+  }
+  /* Nobody may read somebody else's money, or list strangers' shipments. */
+  for (const kind of ["fintech", "logistics"]) {
+    const leaky = modulesFor(presetFor("", kind), "").tables.filter((t) => t.policies.some((p) => p.to.includes("anon") && (p.for === "select" || p.for === "all")));
+    has(leaky.length === 0, `${kind}: no table is readable without signing in`, leaky.map((t) => t.name).join(", "));
+  }
+  const kyc = modulesFor(presetFor("", "fintech"), "").tables.find((t) => t.name === "kyc_verifications");
+  const selfApprove = kyc.policies.filter((p) => (p.for === "insert" || p.for === "update") && !/is_admin\(\)/.test(p.check ?? "") && !/status in \('not_started', 'submitted'\)/.test(p.check ?? ""));
+  has(selfApprove.length === 0, "fintech: a customer cannot approve their own identity check", selfApprove.map((p) => p.name).join(", "));
+  const balance = modulesFor(presetFor("", "fintech"), "").tables.find((t) => t.name === "accounts");
+  has(!balance.policies.some((p) => (p.for === "update" || p.for === "insert") && !/is_admin\(\)/.test(p.check ?? "")), "fintech: a customer cannot write their own balance");
+}
+
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

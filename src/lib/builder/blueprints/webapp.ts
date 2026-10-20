@@ -53,7 +53,7 @@ export const webapp: Blueprint = {
       "All of them built. A navigation of six items where four do nothing is the tell.",
       "Enough seeded content to look used rather than new: for a records product, twenty or more rows with varied names, dates spread over months, several statuses and realistic amounts; for a tool, enough worked examples and history to show what it does.",
       "The primary workflow deep enough to be judged on: not one screen, but the sequence a real use of it takes.",
-      "Depth appropriate to the product asked for. A team platform is bigger than a personal utility, and neither should be padded to look like the other.",
+      "Depth fits the product asked for: a team platform is bigger than a personal utility, and neither is padded to look like the other.",
     ],
   },
 
@@ -94,7 +94,7 @@ export const webapp: Blueprint = {
     {
       when: "the product has admins, team members, different access levels, or actions only some people may take",
       require:
-        "roles on the seeded people, and permissions enforced where the action is carried out rather than by hiding the button — a viewer who cannot delete gets a refusal, not a missing control",
+        "roles on the seeded people, and permissions enforced where the action is carried out rather than by hiding the button — a viewer who cannot delete gets a refusal, not a missing control. Teams: organisations, memberships with roles, invites; each organisation's records private",
     },
     {
       when: "the product holds structured data that persists between uses",
@@ -141,11 +141,11 @@ export const webapp: Blueprint = {
     {
       when: "the product is a calculator, converter, generator, editor, single-purpose AI tool or other lightweight utility",
       require:
-        "NONE of the four requirements above. No sign-in, no tables, no api layer, no schema. Build the tool itself properly instead: the input, the work, the result, the history of what has been done in this session, and the states around all of it. Forcing a CRM's architecture onto a utility is the failure this rule exists to prevent",
+        "NONE of the four requirements above. No sign-in, no tables, no api layer, no schema. Build the tool itself properly instead: the input, the work, the result, the history of this session and the states around it.",
     },
     {
-      when: "the product is analytics, reporting or monitoring",
-      require: "charts drawn as inline SVG from the seeded data, with real axes and real values — never a charting library, never a decorative shape",
+      when: "the product is a dashboard, analytics, reporting or monitoring",
+      require: "a sidebar shell, stat cards from the seeded data, a sortable, filterable table, and charts drawn as inline SVG from the same rows, with real axes and values — never a library or a decorative shape",
     },
     {
       when: "the product involves scheduling, bookings or a calendar",

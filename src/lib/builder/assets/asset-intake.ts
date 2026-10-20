@@ -68,6 +68,13 @@ const BY_KIND: Record<BuildKind, AssetType | "reference"> = {
   blog: "article-cover",
   news: "article-cover",
   webapp: "reference",
+  /* A SaaS site's uploads are screenshots of the product, which are shown
+     rather than copied — see the product-demo section in blueprints/saas.ts. */
+  saas: "editorial",
+  fintech: "editorial",
+  logistics: "editorial",
+  /* A portfolio's photographs ARE the work. */
+  portfolio: "gallery",
 };
 
 export type Intake = {

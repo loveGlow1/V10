@@ -356,6 +356,34 @@ console.log("\nLeftover patch markers");
   else pass("======= inside a string is left alone");
 }
 
+console.log("\nEvery nav link resolves to a page");
+{
+  const page = (path, content = "export default function P() { return null; }") => ({ path, content });
+  const nav = page(
+    "app/layout.tsx",
+    'export default function L({ children }) { return <><nav><Link href="/">Home</Link><Link href="/pricing">Pricing</Link><Link href="/work/brand-refresh">Case</Link><a href="/careers">Careers</a><a href={"/blog?page=2"}>Blog</a><a href="/logo.svg">Logo</a><a href="/api/health">x</a><a href="https://example.com/x">Out</a><a href="/#faq">FAQ</a></nav>{children}</>; }',
+  );
+  const tree = [nav, page("app/page.tsx"), page("app/pricing/page.tsx"), page("app/(marketing)/work/[slug]/page.tsx")];
+  for (const [label, over] of [["a SaaS site", { type: "saas" }], ["a project with no manifest", null]]) {
+    const result = await qa.runQa({ html: CLEAN, tree, manifest: over && manifest(over), design: CRAFT });
+    const issue = qa.allIssues(result).find((i) => i.rule === "functional/broken-routes");
+    if (!issue || issue.severity !== "error" || !issue.message.includes("/careers") || !issue.message.includes("/blog")) {
+      fail("functional/broken-routes", `${label}: links to pages that were never written passed (${issue?.message ?? "no issue"})`);
+    } else if (/\/pricing|\/work|logo\.svg|\/api|example\.com|"\/"/.test(issue.message)) {
+      fail("functional/broken-routes", `${label}: a link that resolves was reported — ${issue.message}`);
+    } else if (result.status === "passed" || result.passed === true) {
+      fail("functional/broken-routes", `${label}: QA passed with a nav link that 404s`);
+    } else pass(`${label}: /careers and /blog are reported; routes, groups, dynamic segments, files, the API and external links are not`);
+  }
+  const whole = [...tree, page("app/careers/page.tsx"), page("app/blog/page.tsx")];
+  const clean = await qa.runQa({ html: CLEAN, tree: whole, manifest: manifest({ type: "portfolio" }), design: CRAFT });
+  if (qa.allIssues(clean).some((i) => i.rule === "functional/broken-routes")) fail("functional/broken-routes", "a project whose every link resolves was flagged");
+  else pass("a project whose every link resolves is left alone");
+  const redirect = qa.allIssues(await qa.runQa({ html: CLEAN, tree: [page("app/login/page.tsx", 'function s(){ window.location.href = "/somewhere"; }')], manifest: manifest(), design: CRAFT }));
+  if (redirect.some((i) => i.rule === "functional/broken-routes")) fail("functional/broken-routes", "a script redirect was read as a nav link");
+  else pass("a script redirect is not a nav link");
+}
+
 console.log("\nSign-up that ignores email confirmation");
 {
   const blind = { path: "app/login/page.tsx", content: 'async function s(){ const { error } = await supabase.auth.signUp({ email, password }); if (error) return; window.location.href = "/"; }' };

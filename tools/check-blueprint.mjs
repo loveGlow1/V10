@@ -273,6 +273,13 @@ try {
        distinction from a blog. The others are the usual bleed. */
     news: ["equal cards", "marketing hero", "pricing", "cart", "dashboard"],
     webapp: ["marketing hero", "storefront", "fake dashboard", "demo credentials"],
+    /* The site types with a blueprint of their own: a SaaS site is not the
+       app it sells, a portfolio is not a shop, and neither a bank nor a
+       courier is a storefront — or a place to invent licences and API keys. */
+    saas: ["application behind a sign-in", "cart", "blog index", "gradients"],
+    portfolio: ["cart", "sign-in", "blog archive", "invented clients"],
+    fintech: ["cart", "licence", "promise of returns", "another"],
+    logistics: ["cart", "gps", "api keys"],
   };
 
   /* ── AN APP OPENS INTO THE APP ─────────────────────────────────────────

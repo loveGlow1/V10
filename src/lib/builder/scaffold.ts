@@ -1005,6 +1005,13 @@ const ROUTES: Record<BuildKind, string[]> = {
    * does was the other half of this. */
   webapp: [],
   news: ["app/[section]/page.tsx", "app/article/[slug]/page.tsx"],
+  /* The site types with a blueprint of their own. Each list is the pages the
+     blueprint's required sections need a home for, and no more: the rest of
+     the sections live on the home page. */
+  saas: ["app/pricing/page.tsx", "app/changelog/page.tsx", "app/contact/page.tsx"],
+  fintech: ["app/security/page.tsx", "app/pricing/page.tsx", "app/contact/page.tsx"],
+  logistics: ["app/track/page.tsx", "app/services/page.tsx", "app/quote/page.tsx"],
+  portfolio: ["app/work/page.tsx", "app/work/[slug]/page.tsx", "app/contact/page.tsx"],
 };
 
 /* The back office, when the manifest says there is one.
@@ -1028,6 +1035,10 @@ const ADMIN_ROUTES: Partial<Record<BuildKind, string[]>> = {
   blog: ["app/admin/page.tsx", "app/admin/posts/page.tsx", "app/admin/media/page.tsx"],
   news: ["app/admin/page.tsx", "app/admin/posts/page.tsx", "app/admin/media/page.tsx"],
   webapp: ["app/admin/page.tsx"],
+  /* Compliance reviews identity checks; nobody else sees them. */
+  fintech: ["app/admin/page.tsx", "app/admin/customers/page.tsx", "app/admin/kyc/page.tsx"],
+  /* Dispatch adds the tracking events customers read, and answers quotes. */
+  logistics: ["app/admin/page.tsx", "app/admin/shipments/page.tsx", "app/admin/quotes/page.tsx"],
 };
 
 /* What each kind's customer-facing account area is. Only reached when the
@@ -1035,6 +1046,8 @@ const ADMIN_ROUTES: Partial<Record<BuildKind, string[]>> = {
    different things: a shopper's order history is not a reader's profile. */
 const ACCOUNT_ROUTES: Partial<Record<BuildKind, string[]>> = {
   ecommerce: ["app/account/page.tsx", "app/account/orders/page.tsx"],
+  fintech: ["app/account/page.tsx", "app/account/transactions/page.tsx", "app/account/verify/page.tsx"],
+  logistics: ["app/account/page.tsx", "app/account/shipments/page.tsx"],
 };
 
 /**

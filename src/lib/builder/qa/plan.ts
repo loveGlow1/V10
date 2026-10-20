@@ -143,6 +143,26 @@ const BY_KIND: Partial<Record<BuildKind, Expectation[]>> = {
     { rule: "landing/action", what: "there is something to do", markup: /<(button|a)\b[^>]*>/i },
   ],
   webapp: [],
+  /* The section each of these site types exists for. Soft where the word
+     could reasonably be phrased another way; firm where its absence means
+     the site is not the thing — a courier's site with nowhere to type a
+     tracking number. */
+  saas: [
+    { rule: "saas/pricing", what: "the product's pricing is shown", markup: /\bpric(e|ing)\b|[£$€₦]\s?\d/i, paths: /app\/pricing\// },
+    { rule: "saas/faq", what: "buyers' questions are answered", markup: /<details\b|\bFAQ\b|frequently asked/i, soft: true },
+  ],
+  fintech: [
+    { rule: "fintech/security", what: "how money and data are protected is explained", markup: /\bsecur(e|ity)\b|\bencrypt/i, paths: /app\/security\// },
+    { rule: "fintech/rates", what: "fees or rates are stated", markup: /\b(fees?|rates?|apr|interest)\b/i, soft: true },
+  ],
+  logistics: [
+    { rule: "logistics/tracking", what: "a shipment can be tracked by its number", markup: /\btrack(ing)?\b/i, paths: /app\/track\// },
+    { rule: "logistics/quote", what: "a quote can be requested", markup: /\bquote\b/i, paths: /app\/quote\//, soft: true },
+  ],
+  portfolio: [
+    { rule: "portfolio/work", what: "there is work to see", markup: /\b(case stud(y|ies)|our work|selected work|projects?)\b/i, paths: /app\/work\// },
+    { rule: "portfolio/contact", what: "there is a way to get in touch", markup: /<form\b|mailto:/i, soft: true },
+  ],
 };
 
 export type QaPlan = {

@@ -25,10 +25,15 @@ Reply with ONLY raw JSON, no markdown fences and no preamble:
 {"kind":"landing","confidence":0.0}
 
 kind is exactly one of:
-- "landing": one page with one audience and one action. Marketing pages, product launches, waitlists, portfolios, restaurant and event pages, anything whose job is to explain an offer and get one response.
+- "landing": one page with one audience and one action. Marketing pages, product launches, waitlists, restaurant and event pages, anything whose job is to explain an offer and get one response.
+- "saas": the marketing site of a software or AI product — the product shown working, features, pricing, FAQ and a waitlist or trial sign-up. Not the software itself.
+- "portfolio": a person's or an agency's work — case studies, services, process, testimonials and a way to hire them.
+- "fintech": a bank, lender, wallet, payments or investment company's site — trust, security, rates, and customer accounts behind a sign-in.
+- "logistics": a courier, freight, delivery or shipping company's site — tracking a shipment by number, services, and a quote request.
 - "ecommerce": a storefront. A catalogue of things for sale, a cart, and a checkout. The commerce is the product, not a mention.
 - "blog": a publication. Articles, categories, an archive, an author. WordPress content sites belong here.
-- "webapp": software people sign into. Accounts, their own data, several views, a back end behind it.
+- "news": a news publication — a ranked front page, beats and breaking stories.
+- "webapp": software people sign into. Accounts, their own data, several views, a back end behind it. A dashboard, a CRM or an internal tool is "webapp" whatever industry it serves.
 
 You are only asked when a fast rule-based pass could not decide, so these are the hard ones. What that pass finds hard:
 

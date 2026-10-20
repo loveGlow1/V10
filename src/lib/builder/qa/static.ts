@@ -318,9 +318,17 @@ export function functionalGate(
       }]
     : [];
 
-  if (!plan.derivable) return markerIssue.length ? { ran: true, passed: false, issues: markerIssue } : emptyGate(false);
+  /* Every link in the navigation has to lead somewhere that exists, on any
+     project, which is why it is read before the plan is: a project with no
+     manifest still cannot ship a nav item that 404s. */
+  const routeIssue = brokenRoutes(tree);
 
-  const issues: Issue[] = [...markerIssue];
+  if (!plan.derivable) {
+    const early = [...markerIssue, ...routeIssue];
+    return early.length ? { ran: true, passed: false, issues: early } : emptyGate(false);
+  }
+
+  const issues: Issue[] = [...markerIssue, ...routeIssue];
   const markup = markupOf(html);
   const paths = tree.map((file) => file.path).join("\n");
 
@@ -483,6 +491,73 @@ export function functionalGate(
     passed: !issues.some((issue) => issue.severity === "error"),
     issues,
   };
+}
+
+/* ── Every nav link resolves to a page ─────────────────────────────────────
+ *
+ * The anchor check above covers a single page. A project of files fails the
+ * same way one level up: a header linking to /pricing, /about and /careers
+ * when only app/pricing/page.tsx was written. Nothing renders the missing two
+ * until somebody clicks them, and then it is a 404 on a site they paid for.
+ *
+ * Read from the files, not a browser: the routes are the page files, and the
+ * links are the internal hrefs written in the code. Dynamic segments match
+ * anything ([slug] matches /work/brand-refresh), route groups are invisible,
+ * and links to files (/logo.svg), the API and _next are not pages. */
+const PAGE_FILE = /^app\/(?:(.*)\/)?page\.(?:tsx|jsx|ts|js|mdx)$/;
+/* An href attribute, not `location.href = …`: a script redirect is not a nav
+   link, and the dot in front of it is how the two are told apart. */
+const INTERNAL_HREF = /(?<![.\w$])href\s*=\s*(?:\{\s*)?["'`](\/[^"'`\s]*)["'`]/g;
+
+function routePatterns(tree: FileTree): RegExp[] {
+  return tree.flatMap((file) => {
+    const match = PAGE_FILE.exec(file.path);
+    if (!match) return [];
+    const segments = (match[1] ?? "")
+      .split("/")
+      .filter((segment) => segment && !/^\(.*\)$/.test(segment) && !segment.startsWith("@"));
+    const source = segments
+      .map((segment) => {
+        if (/^\[\[\.\.\.[^\]]+\]\]$/.test(segment)) return "(?:/.*)?";
+        if (/^\[\.\.\.[^\]]+\]$/.test(segment)) return "/.+";
+        if (/^\[[^\]]+\]$/.test(segment)) return "/[^/]+";
+        return `/${segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`;
+      })
+      .join("");
+    return [new RegExp(`^${source || "/"}$`, "i")];
+  });
+}
+
+export function unresolvedLinks(tree: FileTree): string[] {
+  const routes = routePatterns(tree);
+  if (routes.length === 0) return [];
+
+  const links = new Set<string>();
+  for (const file of tree) {
+    if (!/\.(?:tsx|jsx|ts|js|mdx)$/.test(file.path)) continue;
+    for (const [, raw] of file.content.matchAll(INTERNAL_HREF)) {
+      if (raw.includes("${") || raw.startsWith("//")) continue;
+      const path = raw.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+      if (/^\/(?:api|_next|auth\/callback)(?:\/|$)/i.test(path)) continue;
+      if (/\.[a-z0-9]{2,5}$/i.test(path)) continue;
+      links.add(path);
+    }
+  }
+
+  return [...links].filter((link) => !routes.some((route) => route.test(link)));
+}
+
+function brokenRoutes(tree: FileTree): Issue[] {
+  const missing = unresolvedLinks(tree);
+  if (missing.length === 0) return [];
+  return [
+    {
+      gate: "functional",
+      severity: "error",
+      rule: "functional/broken-routes",
+      message: `${missing.length} link${missing.length === 1 ? " leads" : "s lead"} to a page that does not exist: ${missing.slice(0, 6).join(", ")}.`,
+    },
+  ];
 }
 
 /* ── The visual findings a document can carry ──────────────────────────────
