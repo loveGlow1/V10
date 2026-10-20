@@ -35,7 +35,7 @@ execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 /* feature.ts imports only a type, which tsc erases, so the output loads as is. */
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 
-const { featureFor, featureBrief, mergeFeature, appFeatureFor, upgradeOffer, upgradeBrief } = await import(
+const { featureFor, featureBrief, mergeFeature, appFeatureFor, upgradeOffer, upgradeBrief, restyleFor, restyleBrief } = await import(
   join(out, "lib/builder/feature.js")
 );
 
@@ -117,6 +117,33 @@ has(upgrade.startsWith("BASE RULES"), "the upgrade keeps every rule of a project
 has(/REPRODUCE THE PAGE FAITHFULLY/.test(upgrade) && /word for word/.test(upgrade), "the page is reproduced, copy word for word");
 has(/Keep that exact token as the src/.test(upgrade) && upgrade.includes("stashed-image-0"), "and its pictures are kept by their tokens");
 has(/Do not invent pages the site did not have/.test(upgrade), "and no pages are invented that the site never had");
+
+console.log("\nA redesign of what is there, rather than an addition:");
+const clinic = [
+  "app/page.tsx", "app/contact/page.tsx", "app/layout.tsx", "app/tokens.css", "components/Nav.tsx", "components/BookingSection.tsx",
+  "components/AppointmentForm.tsx", "components/HeroSection.tsx", "components/Footer.tsx",
+].map((path) => ({ path, content: full }));
+const redesign = [
+  "EDIT EXISTING HEALTHCARE WEBSITE — PREMIUM MODERN REDESIGN",
+  "Redesign the existing healthcare landing page. Do not rebuild the project from scratch.",
+  "Create an elegant white booking panel against a deep-navy background.",
+  "Patients must be able to submit requests without creating an account or logging in.",
+  "- Preserve the current framework, routing, API integrations, authentication, and working form handlers.",
+].join("\n");
+has(restyleFor(redesign, clinic)?.areas.join() === "a redesign of the existing site", "a brief that says edit the existing site is a redesign");
+has(featureFor(redesign, clinic) === null, "and not an addition of sign-in or bookings it never asked for");
+has(restyleFor("redesign the whole site in navy and mint", clinic) !== null, "a redesign of the whole site is one too");
+has(restyleFor("make the header darker", clinic) === null, "an ordinary change is not a redesign");
+has(restyleFor("add a dashboard for users", clinic) === null && ask("add a dashboard for users to see their saved properties") !== null, "and adding a dashboard is still a feature");
+has(
+  featureFor("add a blog for our news. Keep the existing contact form without changes.", project)?.areas.join() === "a blog",
+  "a sentence that keeps something does not hide one that asks",
+);
+has(featureFor("add a pricing page. Patients must be able to book without logging in.", project)?.areas.join() === "a pricing page", "\"without logging in\" is not a request for sign-in");
+const restyled = restyleBrief("BASE RULES", redesign, clinic);
+has(restyled.startsWith("BASE RULES") && /THIS IS A REDESIGN OF AN EXISTING PROJECT/.test(restyled), "the redesign brief keeps every rule of a project build");
+has(/never remove one/.test(restyled) && /never replace them with mock data/.test(restyled), "and keeps every route, form and integration");
+has(restyled.includes("--- components/BookingSection.tsx"), "and is shown the files it will change");
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

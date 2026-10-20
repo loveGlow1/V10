@@ -428,7 +428,7 @@ export async function POST(request: Request) {
    * the build it was added to instead, and priced on the files it wrote.
    * Matched on the signed request id, so a stale marker can never turn an
    * ordinary rebuild into a merge. See lib/builder/feature.ts. */
-  let featureLanded: { created: string[]; changed: string[]; areas: string[] } | null = null;
+  let featureLanded: { created: string[]; changed: string[]; areas: string[]; restyle: boolean } | null = null;
   let upgradeLanded: { areas: string[] } | null = null;
 
   if (body.files !== undefined && body.files !== null) {
@@ -468,7 +468,7 @@ export async function POST(request: Request) {
         if (base.length > 0) {
           const merged = mergeFeature(base, returned);
           returned = merged.tree;
-          featureLanded = { created: merged.created, changed: merged.changed, areas: marker.areas };
+          featureLanded = { created: merged.created, changed: merged.changed, areas: marker.areas, restyle: marker.restyle === true };
         }
       }
 
@@ -1604,7 +1604,19 @@ export async function POST(request: Request) {
     /* A feature says what it added and what it touched, in that order: the
        new pages are the news, and the existing files it changed are what
        somebody checks to see their site was left alone. */
-    body: featureLanded
+    body: featureLanded?.restyle
+      ? [
+          `Redesigned your project — every page, form and integration is kept.`,
+          featureLanded.changed.length > 0
+            ? `Updated: ${featureLanded.changed.slice(0, 12).join(", ")}${featureLanded.changed.length > 12 ? ` and ${featureLanded.changed.length - 12} more` : ""}.`
+            : "",
+          featureLanded.created.length > 0
+            ? `New: ${featureLanded.created.slice(0, 8).join(", ")}${featureLanded.created.length > 8 ? ` and ${featureLanded.created.length - 8} more` : ""}.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : featureLanded
       ? [
           `Added ${featureLanded.areas.join(", ")} to your project — everything that was there is kept.`,
           featureLanded.created.length > 0
@@ -1718,7 +1730,7 @@ export async function POST(request: Request) {
        request and the workflow forwarded — not a browser's word for it. */
     cost: roundCredits(pageCost + contextCost),
     description:
-      (featureLanded ? "Feature: " : upgradeLanded ? "Upgrade to app: " : "Build: ") +
+      (featureLanded?.restyle ? "Redesign: " : featureLanded ? "Feature: " : upgradeLanded ? "Upgrade to app: " : "Build: ") +
       (contextCost > 0
         ? `${str(body.prompt).slice(0, 40) || "new page"} — ${formatCredits(pageCost)} + ${formatCredits(contextCost)} context`
         : `${str(body.prompt).slice(0, 60) || "new page"}`),
