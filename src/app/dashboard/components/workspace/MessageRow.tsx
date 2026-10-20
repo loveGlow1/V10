@@ -279,15 +279,28 @@ export default function MessageRow({
    attachment, so the browser saves a clean PNG and nothing else. */
 function ReplyImages({ images }: { images: { label: string; href: string }[] }) {
   const [open, setOpen] = useState<string | null>(null);
+  /* An image that will not load was deleted by its owner (Recently deleted
+     keeps it 15 days): said in its place rather than left a broken box. */
+  const [gone, setGone] = useState<Set<string>>(() => new Set());
   const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
   return (
     <>
       <div className="mt-3 grid max-w-[520px] grid-cols-2 gap-2">
-        {images.map((image, index) => (
+        {images.map((image, index) => gone.has(image.href) ? (
+          <div key={image.href} className="flex aspect-[2/3] items-center justify-center rounded-xl border border-dashed border-line/[0.14] p-3 text-center text-[12px] leading-snug text-muted">
+            Version {index + 1} was deleted. It stays in Recently deleted in Your fliers for 15 days.
+          </div>
+        ) : (
           <div key={image.href} className="group/img relative overflow-hidden rounded-xl border border-line/[0.08] bg-layer/[0.04]">
             <button type="button" onClick={() => setOpen(image.href)} aria-label={`See version ${index + 1} full size`} className="block w-full">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image.href} alt={`Version ${index + 1}`} loading="lazy" className="block h-auto w-full" />
+              <img
+                src={image.href}
+                alt={`Version ${index + 1}`}
+                loading="lazy"
+                onError={() => setGone((current) => new Set(current).add(image.href))}
+                className="block h-auto w-full"
+              />
             </button>
             <a
               href={download(image.href)}
@@ -331,15 +344,21 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
    saves the MP4 itself — the file route answers with it as an attachment. */
 function ReplyVideos({ videos }: { videos: { label: string; href: string }[] }) {
   const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
+  const [gone, setGone] = useState<Set<string>>(() => new Set());
   return (
     <div className="mt-3 flex max-w-[520px] flex-col gap-3">
-      {videos.map((video, index) => (
+      {videos.map((video, index) => gone.has(video.href) ? (
+        <div key={video.href} className="rounded-xl border border-dashed border-line/[0.14] px-4 py-3 text-[12.5px] text-muted">
+          This video couldn&apos;t be loaded just now. Open the preview, or try again in a moment.
+        </div>
+      ) : (
         <div key={video.href} className="overflow-hidden rounded-xl border border-line/[0.08] bg-black">
           <video
             src={video.href}
             controls
             playsInline
             preload="metadata"
+            onError={() => setGone((current) => new Set(current).add(video.href))}
             aria-label={videos.length > 1 ? `Video ${index + 1}` : "Your video"}
             className="block max-h-[70vh] w-full bg-black"
           />

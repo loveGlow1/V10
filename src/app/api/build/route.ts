@@ -801,6 +801,7 @@ async function handle(
       projectId: project.id as string,
       prompt,
       explicit: body.intentOverride === "revert",
+          origin: new URL(request.url).origin,
       requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
     });
     if (moved) {
@@ -869,6 +870,7 @@ async function handle(
           projectId: project.id as string,
           prompt,
           explicit: body.intentOverride === "revert",
+          origin: new URL(request.url).origin,
           requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
         })
       : null;

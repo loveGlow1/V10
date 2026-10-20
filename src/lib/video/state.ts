@@ -10,6 +10,7 @@ import { parseProvider } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
 import { clipStatus } from "@/lib/video/providers";
 import { advance } from "@/lib/video/production";
+import { announceFinal } from "@/lib/video/announce";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
@@ -114,6 +115,15 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
   );
 
   /* The version playing — after Undo an earlier one than the newest. */
+  /* A cut that is made but was never put in the chat — made outside the
+     usual path, or before announcing existed — is put there now, once. */
+  const finalRow = renders.find((row) => row.engine === "compose" && row.status === "done");
+  if (service && finalRow && video.project_id) {
+    const key = `video-final:${id}:${video.current_version}`;
+    const { data: told } = await service.from("project_messages").select("id").eq("project_id", video.project_id).eq("dedupe_key", key).limit(1).maybeSingle();
+    if (!told) await announceFinal(service, { videoId: id, version: video.current_version as number, origin });
+  }
+
   const latest = versions?.find((row) => row.version === video.current_version) ?? versions?.[0] ?? null;
   return NextResponse.json({
     video: { ...video, status },

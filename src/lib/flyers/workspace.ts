@@ -30,15 +30,14 @@ import { recordMessage } from "@/lib/thread-server";
 import { requestFromBrief, reviseRequest } from "./brief";
 import { providerChain } from "./router";
 import { flyerJobCost, runFlyerJob } from "./run";
+import { imageUrl } from "./links";
 import { liveOutputs, type Output } from "./trash";
 import { numberSets } from "./versions";
 import type { FlyerRequest } from "./types";
 
 export const FLIER_INTENT = "flier";
 
-/** A flier image on this app's own file route; with download, saved as a clean PNG. Pure. */
-export const imageUrl = (origin: string, jobId: string, path: string, download = false) =>
-  `${origin}/api/flyers/${jobId}/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+export { imageUrl } from "./links";
 
 /** Whether a message from the composer is for a flier: the Fliers tab's target. Pure. */
 export const isFlierTarget = (target: unknown) => typeof target === "string" && /^fliers(:|$)/.test(target);

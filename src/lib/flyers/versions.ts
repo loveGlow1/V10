@@ -17,10 +17,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { recordMessage } from "@/lib/thread-server";
 import { isVersionMove, resolveMove } from "@/lib/version-moves";
 
+import { imageUrl } from "./links";
 import { liveOutputs, type Output } from "./trash";
 import type { FlyerRequest } from "./types";
 
-export type FlierVersion = { number: number; jobId: string; headline: string; images: number; createdAt: string };
+export type FlierVersion = { number: number; jobId: string; headline: string; images: number; paths: string[]; createdAt: string };
 
 type JobRow = { id: string; status: string; request: FlyerRequest | null; outputs: Output[] | null; created_at: string };
 
@@ -34,6 +35,7 @@ export function numberSets(jobs: JobRow[]): FlierVersion[] {
       jobId: job.id,
       headline: job.request?.spec?.headline ?? "",
       images: liveOutputs(job.outputs).length,
+      paths: liveOutputs(job.outputs).map((output) => output.path),
       createdAt: job.created_at,
     }));
 }
@@ -83,14 +85,16 @@ export async function moveFlierVersion(input: {
   prompt: string;
   explicit: boolean;
   requestId: string;
+  /** This app's address, for the images' links in the thread. */
+  origin: string;
 }): Promise<{ ok: boolean; message: string } | null> {
   const { service, userId, projectId, prompt, requestId } = input;
   if (!isVersionMove(prompt, input.explicit)) return null;
   const found = await flierVersions(service, projectId);
 
   await recordMessage(service, { projectId, userId, role: "you", body: prompt, dedupeKey: `you:${requestId}` });
-  const say = async (ok: boolean, message: string) => {
-    await recordMessage(service, { projectId, userId, role: "system", body: message, dedupeKey: `flier-version:${requestId}` });
+  const say = async (ok: boolean, message: string, links?: { label: string; href: string }[]) => {
+    await recordMessage(service, { projectId, userId, role: "system", body: message, links, dedupeKey: `flier-version:${requestId}` });
     return { ok, message };
   };
 
@@ -122,5 +126,7 @@ export async function moveFlierVersion(input: {
   return say(
     true,
     `${lead} — now showing version ${target.number}, "${target.headline || "your flier"}" (${target.images} images). Nothing was designed again and no credits were used. Version ${found.showing.number} is still saved: Redo or "go back to version ${found.showing.number}" brings it back. Ask for a change and it's made from this version.`,
+    /* The set's images, in the chat with Download, as when it was made. */
+    target.paths.map((path, index) => ({ label: `image:${index + 1}`, href: imageUrl(input.origin, target.jobId, path) })),
   );
 }

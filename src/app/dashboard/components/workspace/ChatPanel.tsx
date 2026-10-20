@@ -517,12 +517,61 @@ export default function ChatPanel({
             : {}),
         })),
       );
+      followedTo.current = thread.reduce((latest, message) => Math.max(latest, message.at), 0);
       setThreadLoaded(true);
     });
     return () => {
       cancelled = true;
     };
   }, [project?.id]);
+
+  /* ── Following the thread ─────────────────────────────────────────────
+     A video's finished MP4, a flier's images, the answer to Undo on either —
+     the server writes these into the thread after the reply this panel
+     waited for, sometimes minutes after. So while a video or a flier is open
+     the thread is read again every few seconds and what arrived since is
+     added: a message already on screen is not added twice, and if it comes
+     back carrying images or a video it is given them. */
+  const followedTo = useRef(0);
+  const projectIntent = project?.intent ?? null;
+  useEffect(() => {
+    const id = project?.id;
+    if (!id || (projectIntent !== "video" && projectIntent !== "flier")) return;
+    let busy = false;
+    const follow = async () => {
+      if (busy || document.visibilityState !== "visible") return;
+      busy = true;
+      try {
+        const thread = await loadThread(id);
+        const fresh = thread.filter((message) => message.at > followedTo.current);
+        if (!fresh.length) return;
+        followedTo.current = Math.max(followedTo.current, ...fresh.map((message) => message.at));
+        setMessages((current) => {
+          const next = [...current];
+          for (const message of fresh) {
+            const same = (shown: (typeof next)[number]) => shown.from === message.from && shown.text.trim() === message.text.trim();
+            let at = -1;
+            for (let i = next.length - 1; i >= 0; i -= 1) if (same(next[i])) { at = i; break; }
+            if (at >= 0) {
+              if (message.links?.length && !next[at].links?.length) next[at] = { ...next[at], links: message.links };
+              continue;
+            }
+            next.push({ id: nextId.current++, ...message });
+          }
+          return next;
+        });
+      } finally {
+        busy = false;
+      }
+    };
+    const timer = window.setInterval(() => void follow(), 12_000);
+    const onVisible = () => void follow();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [project?.id, projectIntent]);
 
   /* The prompt Home arrived with, sent once. Guarded by a ref rather than by
      the message list: a re-render while the build is in flight would otherwise

@@ -18,6 +18,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { finalVideoUrl } from "@/lib/video/announce";
 import { recordMessage } from "@/lib/thread-server";
 import { isVersionMove, resolveMove, type Move } from "@/lib/version-moves";
 
@@ -74,6 +75,8 @@ export async function moveVideoVersion(input: {
   prompt: string;
   explicit: boolean;
   requestId: string;
+  /** This app's address, for the cut's link in the thread. */
+  origin: string;
 }): Promise<{ ok: boolean; message: string } | null> {
   const { service, userId, projectId, prompt, requestId } = input;
   if (!isVideoVersionAsk(prompt, input.explicit)) return null;
@@ -81,8 +84,8 @@ export async function moveVideoVersion(input: {
   if (!found) return null;
 
   await recordMessage(service, { projectId, userId, role: "you", body: prompt, dedupeKey: `you:${requestId}` });
-  const say = async (ok: boolean, message: string) => {
-    await recordMessage(service, { projectId, userId, role: "system", body: message, dedupeKey: `video-version:${requestId}` });
+  const say = async (ok: boolean, message: string, links?: { label: string; href: string }[]) => {
+    await recordMessage(service, { projectId, userId, role: "system", body: message, links, dedupeKey: `video-version:${requestId}` });
     return { ok, message };
   };
 
@@ -102,6 +105,9 @@ export async function moveVideoVersion(input: {
   await service.from("projects").update({ status: "Built", last_build_at: new Date().toISOString() }).eq("id", projectId);
 
   const row = found.versions.find((version) => version.version === move.to);
+  /* Its MP4, when it has one: played and downloaded right in the chat. */
+  const madeCut = ((renders ?? []) as { engine: string; status: string }[]).some((r) => r.engine === "compose" && r.status === "done");
+  const links = madeCut ? [{ label: "video:1", href: finalVideoUrl(input.origin, found.videoId, move.to) }] : undefined;
   const lead = move.how === "undo" ? "Undone" : move.how === "redo" ? "Redone" : "Switched";
   const state =
     status === "ready"
@@ -112,5 +118,6 @@ export async function moveVideoVersion(input: {
   return say(
     true,
     `${lead} — now playing version ${move.to}${describe(row)}. ${state} Version ${found.current} is still saved: Redo or "go back to version ${found.current}" brings it back. Ask for a change and it's made from this version.`,
+    links,
   );
 }
