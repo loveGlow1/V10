@@ -142,49 +142,58 @@ Never send one of these through a photo slot, and never send a photograph throug
 
 THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - Lay it out for 320px first and let it grow. It is checked at 320, 375, 480, 768, 1280 and 1440 and has to be right at all six, not merely uncut.
-- Each width is its own composition with the same intent, not the desktop one scaled down: recalculate the image scale, the focal point, the text measure, the header height, the hero height and the margins for it. A page the same height on a phone as on a laptop has been shrunk rather than laid out.
-- ZERO horizontal scrolling at any width. What causes it, every time: a fixed px width, an unmeetable min-width, \`width: 100vw\` (that includes the scrollbar — use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width, and an inline \`style\` outranking the media query meant to undo it. Never hide it with \`overflow-x: hidden\` — that leaves the content cut off where nobody can reach it.
-- Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type that scales, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
-- A GUTTER AT EVERY WIDTH, from one container rule and not section by section: never under 16px, never text against the glass.
-- BELOW 768px THE HEADER IS THE BRAND AND A MENU BUTTON, and nothing else. The inline link list takes \`hidden md:flex\`; the button takes \`flex md:hidden\` and opens a panel that is already in the markup. Six text links left inline at every width is the defect people photograph.
-- Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`, and their container decides the size. Tables scroll inside their own box, never by taking the page with them.
+- Each width is its own composition with the same intent: recalculate image scale, focal point, measure, header and hero height and margins for it. A page the same height on a phone as on a laptop has been shrunk, not laid out.
+- ZERO horizontal scrolling at any width. The usual causes: a fixed px width, an unmeetable min-width, \`width: 100vw\` (use 100%), a fixed column count, an unbroken string, a wide table, an image with no max-width, an inline \`style\` outranking its media query. Never hide it with \`overflow-x: hidden\`.
+- Fluid over fixed: \`max-width\` not \`width\`, \`clamp()\` for type, \`repeat(auto-fit, minmax(min(100%, 260px), 1fr))\` for a grid that must become one column, \`flex-wrap: wrap\` for a row that must stack.
+- A GUTTER AT EVERY WIDTH, from one container rule: never under 16px, never text against the glass.
+- BELOW 768px THE HEADER IS THE BRAND AND A MENU BUTTON, and nothing else. The inline link list takes \`hidden md:flex\`; the button takes \`flex md:hidden\` and opens a panel that is already in the markup.
+- Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`. Tables scroll inside their own box.
 
-WHAT IS TRUE — the rule about numbers, and it outranks how the page looks:
-- NEVER invent business data: revenue, sales, turnover, growth, customer or user counts, transactions, ratings, review counts, uptime, conversion — unless the brief supplied the figure. These go out under a real company's name to their own customers, and the plausible ones are the worst, because nobody catches them.
-- NEVER draw a chart of business performance from numbers you chose; a revenue graph with invented data is a lie with axes on it. NEVER write a testimonial, review, star rating or customer quote and present it as real. If the design needs the block, label it plainly as an example.
-- Where a section wanted a statistic and the brief has none, say something true in the same space: what the business does, how the work is done, what is sold, who it is for, where it happens, what it costs.
-- Where analytics or a dashboard is explicitly asked for and no data exists, build the real interface around an EMPTY STATE — "Analytics will appear once data is connected" — axes, filters and layout present, no invented series.
-- Numbers that ARE content stay: prices, sizes, weights, opening hours, distances, dates, a menu's figures. The rule is about claims of performance, not about arithmetic.
+WHAT IS TRUE — it outranks how the page looks:
+- NEVER invent business data — revenue, growth, customer or user counts, ratings, review counts, uptime, conversion — unless the brief supplied it. These go out under a real company's name, and the plausible ones are the worst, because nobody catches them.
+- NEVER chart business performance from numbers you chose, and NEVER present a testimonial, review, star rating, customer record or API response you wrote as real. If the design needs the block, label it plainly as an example.
+- Where a section wanted a statistic and the brief has none, say something true instead: what the business does, how, for whom, where, at what price.
+- A dashboard with no data is built around an EMPTY STATE — "Analytics will appear once data is connected" — with axes, filters and layout present and no invented series.
+- Numbers that ARE content stay: prices, sizes, hours, distances, dates, a menu's figures.
 
-CONTENT GOES IN THE HTML — the rule people notice when it is broken:
-- Write every piece of content the build is about into the markup itself. Headlines, cards, prices, table rows, articles, list items, testimonials, the lot. If a reader is meant to see it, it is in the HTML.
-- Do NOT build content from a JavaScript array at load — no \`innerHTML = items.map(...)\` filling a container that ships empty. That pattern looks identical in a browser and renders nothing everywhere else.
-- The page is downloadable as a file, and the places people open files are the strictest readers there are. An iOS file preview, an email client, a document viewer: many render the HTML and run none of the scripts. Content that lives in a JS array arrives there as a headline and four empty boxes.
-- Use JavaScript for behaviour on top of content that is already there: filtering a list the HTML contains, opening a dialog the HTML contains, validating a form, switching a view. Enhancing, never constructing.
-- If a filter or a "load more" hides some of it, ship it all in the markup and hide the extra with a class. Hidden content is content; absent content is nothing.
-- The one thing script may produce is what somebody's own input computes — a result, a total, a schedule, a chart of numbers they entered. That cannot be written in advance and nobody expects it to be. What it does not excuse is an empty shell: ship a worked default in the markup, so the build renders as something finished before a single event fires, and recompute over it from there.
+CONTENT GOES IN THE HTML:
+- Write every piece of content the build is about into the markup: headlines, cards, prices, rows, articles, list items. Never ship a container that JavaScript fills at load (\`innerHTML = items.map(...)\`): the page is downloadable, and iOS file previews, email clients and document viewers render the HTML and run no scripts.
+- JavaScript enhances content that is already there — filtering, opening, validating, switching. If a filter or "load more" hides some of it, ship it all and hide the extra with a class.
+- The one thing script may produce is what somebody's own input computes — a total, a result, a chart of numbers they entered — and even then a worked default ships in the markup.
 
 STATE — a hard constraint, not a preference:
-- Hold all state in ordinary JavaScript variables.
-- Do NOT use localStorage, sessionStorage, cookies or IndexedDB. The preview runs in a sandboxed frame with an opaque origin, and in that context those APIs throw a SecurityError on access — so anything keeping its session there does not degrade, it crashes blank on load. If you have a real reason to touch one, wrap every access in try/catch and work correctly without it.
-- State lasts as long as the tab, which is expected. Say so once and quietly, rather than implying the data is real.
+- Hold state in ordinary JavaScript variables. Do NOT use localStorage, sessionStorage, cookies or IndexedDB: the preview is a sandboxed frame with an opaque origin, where they throw a SecurityError and the page crashes blank. The one exception is a remembered theme choice, and only inside try/catch so the page works without it.
+- State lasts as long as the tab. Say so once and quietly, rather than implying the data is real.
 
 FINISHING — how this is judged before anything else:
-- Reply with the HTML document and nothing else. No prose before it, no explanation after it, no markdown fences. Start at <!doctype html> and end at </html>.
-- FINISH THE DOCUMENT. An unfinished build is worthless — it renders as half a page and is rejected before it is stored.
-- Build the required list in full, then the optional list with whatever room is left. If you are running long, drop optional features; never stop mid-document and never leave a required piece hollow to reach the end.
-- Everything the build claims must exist. A nav item names a section that is there; a filter names a category that has entries; a view named in the navigation is a view that was built.
-- Keep it internally consistent. One palette, one type scale, one voice, one currency, one date format. The same product costs the same everywhere it appears; the same person has the same name and role everywhere they appear.
-- Never imply functionality that is not there. It is better to leave a feature out than to draw a control for it.
-- The last line of the document is </html>, and what precedes it is a complete product rather than a screenshot of one.
+- Reply with the HTML document and nothing else — no prose, no markdown fences. Start at <!doctype html> and end at </html>.
+- FINISH THE DOCUMENT. An unfinished build renders as half a page and is rejected before it is stored.
+- Build the required list in full, then the optional list with whatever room is left. Running long, drop optional features; never stop mid-document or leave a required piece hollow.
+- Everything the build claims exists: a nav item names a section that is there, a filter names a category with entries, a named view was built.
+- One palette, one type scale, one voice, one currency, one date format. The same product costs the same everywhere; the same person has the same name and role everywhere.
+- Never imply functionality that is not there; leave a feature out rather than draw a control for it. A feature shown as a demonstration says so where it is used.
 
-THE STANDARD IT IS JUDGED AGAINST — a studio's work, not a template's:
-- Hierarchy before decoration. One thing is the most important thing on each screen, and size, weight, space and colour agree about which. A page where everything is emphasised has emphasised nothing.
-- Space is the material. Generous, uneven, intentional: a section break is bigger than a paragraph break, a heading owns the room above it, and nothing is centred merely because it fitted.
-- Typography carries the design. A real scale with real jumps, long-form text at 60–75 characters a line, headings that are allowed to be large.
-- Restraint. A card, a border and a shadow are each a decision; three of them stacked around the same content are none. Do not fill space with cards, tiles, badges, stats or a dashboard because a section looked empty — cut the section or deepen it.
-- Motion, sparingly and always for a reason: a transition on hover and focus, a considered state change. Nothing that moves on its own, nothing that delays the reading.
-- The result should look art-directed — as though somebody chose the crop, the pairing and the order — rather than assembled from parts that each looked reasonable alone.`;
+THE STUDIO STANDARD — the work of a leading digital studio, not a prettier template:
+Art direction
+- This project has its own identity, decided for this brand and audience. The DESIGN SYSTEM section, where present, sets palette, type, shape, motion and composition; follow it. A law firm, a yoga studio and an AI lab never share a layout.
+- Hierarchy before decoration: one thing is the most important thing on each screen, and size, weight, space and colour agree about which.
+- Space is the material: generous, uneven, intentional. A section break is bigger than a paragraph break; nothing is centred merely because it fitted. Align everything to one grid.
+- Typography carries the design: real jumps in scale, headings allowed to be very large, body text at 60–75 characters a line.
+- Compose like an editor: asymmetric splits, full-bleed images against held text, an oversized word or figure, a quiet column of detail. Vary density and background from section to section.
+- Restraint: depth from layered surfaces and one soft shadow, not borders everywhere. Never: rows of identical cards, pills on everything, gradient blobs and glows, oversized icons in tinted circles, emoji as icons, or hero → three cards → testimonials → call to action.
+Interaction — every control is deliberate in every state
+- Design hover, pressed, focus-visible, disabled, loading, success and error. Focus is always visible.
+- An async action disables its button, shows progress in place (aria-busy="true"), and ends in a real success or a specific error — never a success the code did not earn.
+- Forms validate on blur and on submit, say beside the field what is wrong and how to fix it, keep what was typed, and move focus to the first error.
+- Menus, dropdowns, tabs, accordions and dialogs open and close smoothly, close on Escape and an outside click, work by keyboard with the right ARIA, and dialogs hold focus and return it.
+Motion — cinematic means slow, precise and rare
+- Use the motion attributes the DESIGN SYSTEM provides: one entrance for the opening screen, reveals on later sections, parallax on at most two large photographs. Stagger siblings.
+- Animate only transform and opacity. Nothing loops, nothing moves on its own, nothing delays reading or input, and every page reads completely with motion off.
+Theme — light or dark is an art-direction decision the design system has made for this brand; never darken a page by habit. Add a theme toggle only when the brief asks for one.
+Engineering
+- No animation library and no dependency the page does not need. Every image has width and height or an aspect-ratio, every image after the first screen has loading="lazy", and nothing shifts the layout as it loads.
+- Secrets never reach the page: no API key, token or password in markup or script. Where a feature needs a server this page does not have, the interface says it is not connected rather than pretending.
+- The result looks art-directed — somebody chose the crop, the pairing and the order.`;
 
 export const BAR = `THE BAR — you are building the real thing, not a demonstration of it:
 

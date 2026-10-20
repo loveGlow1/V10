@@ -358,6 +358,8 @@ export default {
         line: "var(--line)",
         accent: "var(--accent)",
         "accent-ink": "var(--accent-ink)",
+        success: "var(--success)",
+        danger: "var(--danger)",
       },
       borderRadius: {
         sm: "var(--radius-sm)",

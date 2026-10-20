@@ -29,8 +29,9 @@
  * defensible and slightly wrong every time — the greys go muddy, the accent
  * fights the photographs, the type scale has no rhythm. These are written by
  * hand, each one internally coherent, each one a look somebody would recognise.
- * Six of them, because six distinct systems that are all good beats an infinite
- * space that is mostly not.
+ * Nine of them, because nine distinct systems that are all good beats an
+ * infinite space that is mostly not — and each now carries an art direction,
+ * a motion personality and a hand-written alternate theme, not only values.
  *
  * Pure on purpose, like kinds.ts, market.ts, stack.ts and architecture.ts: no
  * SDK import, so the browser can read it and tools/check-design.mjs can compile
@@ -55,6 +56,12 @@ export type Palette = {
   accent: string;
   /** Text ON the accent. Must clear 4.5:1 against it. */
   accentInk: string;
+  /* The two states a form and an async action end in. Text colours, so they
+     clear 4.5:1 on the ground and the surface like `muted` does — a success
+     message nobody can read is not feedback. Never the only signal: the state
+     is said in words beside the colour. */
+  success: string;
+  danger: string;
 };
 
 export type Typography = {
@@ -79,6 +86,25 @@ export type Typography = {
   displayWeight: number;
 };
 
+/* What makes a system an art direction rather than a palette.
+ *
+ * Colour and type are values and live in the stylesheet. These are decisions
+ * about arrangement, and they are what stopped every project landing on the
+ * same hero, the same three cards and the same rounded buttons in a different
+ * colour: two systems with different tokens and the same composition still
+ * read as one template. Each is written for its register, as an instruction a
+ * designer would give, and handed to the model verbatim in designBrief. */
+export type ArtDirection = {
+  /** How pages are laid out: the grid, the rhythm, where the weight sits. */
+  composition: string;
+  /** The visual language of components: shapes, edges, buttons, labels. */
+  components: string;
+  /** What the photographs and illustrations are, and what they never are. */
+  imagery: string;
+  /** What earns belief in this register, and how the page asks for action. */
+  trust: string;
+};
+
 export type DesignDNA = {
   /** What this system is called, for the step line and for the record. */
   name: string;
@@ -95,7 +121,32 @@ export type DesignDNA = {
   shadow: { sm: string; md: string };
   /** Max content width. */
   container: string;
-  motion: { fast: string; base: string; ease: string };
+  motion: {
+    /** Hovers and small state changes. */
+    fast: string;
+    /** Anything that opens, closes or moves. */
+    base: string;
+    /** Entrances and scroll reveals — the expensive, deliberate kind. */
+    slow: string;
+    /** For state changes. */
+    ease: string;
+    /** For things arriving: fast out of the gate, a long settle. */
+    easeOut: string;
+    /** The delay between siblings that enter together. */
+    stagger: string;
+    /** How far a revealed element travels. Short travel reads as expensive. */
+    distance: string;
+    /** How this register moves, in one line. */
+    personality: string;
+  };
+  art: ArtDirection;
+  /* The same system in the other light, for a project that offers a theme
+     toggle. Hand-written for the same reason the primary palettes are: an
+     inverted palette is muddy greys and a fluorescent accent. Held to the same
+     contrast floors, and switched by `data-theme` on <html> — see tokensCss.
+     A project shows ONE theme unless the brief asks for a toggle; which one is
+     the system's decision, not the visitor's default. */
+  inverse: Palette;
 };
 
 /* ── The systems ───────────────────────────────────────────────────────────
@@ -136,12 +187,45 @@ const EDITORIAL: DesignDNA = {
     line: "#E3DFD5",
     accent: "#1F1D16",
     accentInk: "#FBFAF8",
+    success: "#2F6B3A",
+    danger: "#A3271F",
   },
   space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 160],
   radius: { sm: "0px", md: "0px", lg: "0px", pill: "999px" },
   shadow: { sm: "none", md: "0 1px 2px rgba(20,18,12,.06)" },
   container: "1200px",
-  motion: { fast: "140ms", base: "260ms", ease: "cubic-bezier(.2,.6,.2,1)" },
+  motion: {
+    fast: "140ms",
+    base: "260ms",
+    slow: "900ms",
+    ease: "cubic-bezier(.2,.6,.2,1)",
+    easeOut: "cubic-bezier(.16,1,.3,1)",
+    stagger: "90ms",
+    distance: "24px",
+    personality:
+      "Slow and assured: long fades over short travel, as if a page were being turned. Nothing bounces.",
+  },
+  art: {
+    composition:
+      "Asymmetric editorial spreads: a very large headline against a narrow column of text, full-bleed photographs alternating with wide empty margins, numbered sections and small captions. Weight sits off-centre.",
+    components:
+      "Square corners, hairline rules instead of boxes, text links whose underline draws in on hover, primary buttons as solid ink rectangles with generous letter-spacing. No cards, no pills, no icons in circles.",
+    imagery:
+      "Few photographs, used large, with real negative space: one subject per frame, one light and one grade across the project. Never a collage, never a lifestyle cliché.",
+    trust:
+      "Belief through restraint and provenance: the material, the maker, the place, press the brief supplies. One call to act per screen, stated quietly — never a wall of badges or urgency.",
+  },
+  inverse: {
+    ground: "#12110D",
+    surface: "#1B1A15",
+    ink: "#F3F0E8",
+    muted: "#A8A293",
+    line: "#2E2C25",
+    accent: "#F3F0E8",
+    accentInk: "#12110D",
+    success: "#8CC79A",
+    danger: "#F0938A",
+  },
 };
 
 const CRAFT: DesignDNA = {
@@ -168,12 +252,45 @@ const CRAFT: DesignDNA = {
     line: "#E6DCCE",
     accent: "#9A4A24",
     accentInk: "#FFFFFF",
+    success: "#3D6B35",
+    danger: "#A6321F",
   },
   space: [4, 8, 12, 16, 24, 32, 48, 64, 88, 120, 160],
   radius: { sm: "6px", md: "12px", lg: "20px", pill: "999px" },
   shadow: { sm: "0 1px 2px rgba(58,42,26,.07)", md: "0 8px 28px rgba(58,42,26,.10)" },
   container: "1140px",
-  motion: { fast: "150ms", base: "280ms", ease: "cubic-bezier(.22,.7,.25,1)" },
+  motion: {
+    fast: "150ms",
+    base: "280ms",
+    slow: "700ms",
+    ease: "cubic-bezier(.22,.7,.25,1)",
+    easeOut: "cubic-bezier(.22,1,.36,1)",
+    stagger: "80ms",
+    distance: "16px",
+    personality:
+      "Gentle and unhurried: soft fades with a little lift, nothing sharp or mechanical.",
+  },
+  art: {
+    composition:
+      "Human and slightly irregular: photographs at different sizes, text beside images rather than over them, a large pull quote, sections that read like pages of a workshop notebook.",
+    components:
+      "Softly rounded corners, warm paper surfaces, thin warm rules, buttons with generous padding and a clay fill, small labels in small caps.",
+    imagery:
+      "Process and people: hands at work, raw materials, the room in use, natural window light and honest shadow.",
+    trust:
+      "Belief through the maker: who makes it, how, where and how long it takes, with real delivery, care and returns policies. The call to act is an invitation, not a countdown.",
+  },
+  inverse: {
+    ground: "#1A1511",
+    surface: "#231D18",
+    ink: "#F5EDE2",
+    muted: "#B3A595",
+    line: "#3A3029",
+    accent: "#E08A5C",
+    accentInk: "#1A1511",
+    success: "#9CC98A",
+    danger: "#F2937E",
+  },
 };
 
 const CLINICAL: DesignDNA = {
@@ -212,12 +329,45 @@ const CLINICAL: DesignDNA = {
     line: "#DFE5EC",
     accent: "#1257A6",
     accentInk: "#FFFFFF",
+    success: "#1E6B45",
+    danger: "#B42318",
   },
   space: [4, 8, 12, 16, 20, 24, 32, 48, 64, 88, 120],
   radius: { sm: "4px", md: "8px", lg: "12px", pill: "999px" },
   shadow: { sm: "0 1px 2px rgba(16,23,32,.06)", md: "0 6px 20px rgba(16,23,32,.09)" },
   container: "1120px",
-  motion: { fast: "120ms", base: "220ms", ease: "cubic-bezier(.3,.6,.2,1)" },
+  motion: {
+    fast: "120ms",
+    base: "220ms",
+    slow: "600ms",
+    ease: "cubic-bezier(.3,.6,.2,1)",
+    easeOut: "cubic-bezier(.2,.9,.3,1)",
+    stagger: "60ms",
+    distance: "12px",
+    personality:
+      "Quiet and exact: short, near-invisible transitions that confirm an action rather than perform one.",
+  },
+  art: {
+    composition:
+      "Structured and calm: a clear twelve-column grid, information grouped into quiet panels, an obvious reading order, and the next step — book, call, ask — always in reach.",
+    components:
+      "Small radii, hairline borders, large comfortable form controls, small line icons only where they help scanning, status said in words and colour together.",
+    imagery:
+      "Real rooms, real equipment and real practitioners in even daylight. Never models posing in lab coats, never stethoscope stock.",
+    trust:
+      "Belief through clarity: credentials, how an appointment works, what it costs or how cost is decided, hours, accessibility and how personal data is handled — stated plainly.",
+  },
+  inverse: {
+    ground: "#0D1117",
+    surface: "#151B23",
+    ink: "#E8EDF3",
+    muted: "#9AA6B5",
+    line: "#26303C",
+    accent: "#6CA6F0",
+    accentInk: "#0B1320",
+    success: "#6FD19E",
+    danger: "#F59A92",
+  },
 };
 
 const TECHNICAL: DesignDNA = {
@@ -249,12 +399,45 @@ const TECHNICAL: DesignDNA = {
     line: "#252A32",
     accent: "#5EE6A8",
     accentInk: "#08130D",
+    success: "#5ED69A",
+    danger: "#FF7B72",
   },
   space: [4, 8, 12, 16, 20, 24, 32, 40, 56, 80, 112],
   radius: { sm: "3px", md: "6px", lg: "10px", pill: "999px" },
   shadow: { sm: "0 1px 2px rgba(0,0,0,.4)", md: "0 10px 30px rgba(0,0,0,.5)" },
   container: "1180px",
-  motion: { fast: "110ms", base: "200ms", ease: "cubic-bezier(.3,.7,.2,1)" },
+  motion: {
+    fast: "110ms",
+    base: "200ms",
+    slow: "500ms",
+    ease: "cubic-bezier(.3,.7,.2,1)",
+    easeOut: "cubic-bezier(.2,.9,.25,1)",
+    stagger: "40ms",
+    distance: "8px",
+    personality:
+      "Snappy and mechanical: fast, short and precise, things snapping into place the way a terminal prints.",
+  },
+  art: {
+    composition:
+      "Dense and precise: a strict grid, the real product interface or a code sample as the opening visual, specifications in tables, and documentation-like sections that reward scanning.",
+    components:
+      "Sharp small radii, low-contrast 1px lines, monospace for labels, keys and values, compact buttons, keyboard shortcuts shown where they exist.",
+    imagery:
+      "Mostly none. Interfaces, diagrams and code drawn in HTML and SVG; photographs only of real hardware or a real team.",
+    trust:
+      "Belief through specifics: docs, changelog, status, API examples, limits and security facts the brief supplies. The call to act is something to do now — a copyable command, a key, a sandbox.",
+  },
+  inverse: {
+    ground: "#FAFAF9",
+    surface: "#FFFFFF",
+    ink: "#0E1013",
+    muted: "#5B626C",
+    line: "#E4E6E9",
+    accent: "#0B7A4B",
+    accentInk: "#FFFFFF",
+    success: "#0B7A4B",
+    danger: "#B42318",
+  },
 };
 
 const COMMERCIAL: DesignDNA = {
@@ -287,12 +470,45 @@ const COMMERCIAL: DesignDNA = {
     line: "#E4E7EC",
     accent: "#3D3BE0",
     accentInk: "#FFFFFF",
+    success: "#18794E",
+    danger: "#C0262D",
   },
   space: [4, 8, 12, 16, 24, 32, 40, 56, 80, 112, 144],
   radius: { sm: "6px", md: "10px", lg: "16px", pill: "999px" },
   shadow: { sm: "0 1px 2px rgba(15,18,24,.06)", md: "0 10px 32px rgba(15,18,24,.10)" },
   container: "1160px",
-  motion: { fast: "130ms", base: "240ms", ease: "cubic-bezier(.25,.7,.25,1)" },
+  motion: {
+    fast: "130ms",
+    base: "240ms",
+    slow: "650ms",
+    ease: "cubic-bezier(.25,.7,.25,1)",
+    easeOut: "cubic-bezier(.16,1,.3,1)",
+    stagger: "70ms",
+    distance: "20px",
+    personality:
+      "Lively but controlled: crisp eased reveals, responsive hovers and a confident press.",
+  },
+  art: {
+    composition:
+      "Confident product storytelling: a direct headline with the product or service shown working, then alternating text-and-visual rows of different weights, and one strong closing call.",
+    components:
+      "Medium radii, soft layered surfaces separated by tone rather than borders, the accent reserved for the primary action, secondary actions as quiet text buttons.",
+    imagery:
+      "The product or service in real use by the people it is for, in bright natural light.",
+    trust:
+      "Belief through proof the brief supplies — clients, guarantees, prices shown upfront, a clear cancellation or refund policy — and the primary action repeated at natural decision points.",
+  },
+  inverse: {
+    ground: "#0D0F14",
+    surface: "#161922",
+    ink: "#F1F3F7",
+    muted: "#9CA3B0",
+    line: "#272B35",
+    accent: "#8E8CFF",
+    accentInk: "#0D0F14",
+    success: "#5FD3A0",
+    danger: "#FF8A8A",
+  },
 };
 
 const PRESS: DesignDNA = {
@@ -318,15 +534,264 @@ const PRESS: DesignDNA = {
     line: "#DCDCD6",
     accent: "#B01A16",
     accentInk: "#FFFFFF",
+    success: "#1F6B3A",
+    danger: "#B01A16",
   },
   space: [4, 8, 12, 16, 20, 28, 40, 56, 76, 104, 140],
   radius: { sm: "0px", md: "0px", lg: "2px", pill: "999px" },
   shadow: { sm: "none", md: "0 2px 8px rgba(0,0,0,.06)" },
   container: "1240px",
-  motion: { fast: "120ms", base: "200ms", ease: "cubic-bezier(.2,.6,.2,1)" },
+  motion: {
+    fast: "120ms",
+    base: "200ms",
+    slow: "450ms",
+    ease: "cubic-bezier(.2,.6,.2,1)",
+    easeOut: "cubic-bezier(.2,.8,.2,1)",
+    stagger: "40ms",
+    distance: "8px",
+    personality:
+      "Almost none: the news is the motion. Brief fades on secondary items, never on a headline.",
+  },
+  art: {
+    composition:
+      "Ranked, not gridded: a dominant lead story, then columns of decreasing weight, rules between items, dense datelines and bylines.",
+    components:
+      "No radii, column rules, kickers in small caps, headlines as the links, buttons rare and plain.",
+    imagery:
+      "Press photography as it happened, every frame captioned and credited.",
+    trust:
+      "Belief through attribution: bylines, dates, corrections, sources and a clear section structure.",
+  },
+  inverse: {
+    ground: "#121212",
+    surface: "#1A1A1A",
+    ink: "#F2F2EE",
+    muted: "#A3A39C",
+    line: "#2E2E2B",
+    accent: "#FF5A4F",
+    accentInk: "#121212",
+    success: "#7CC48F",
+    danger: "#FF6F65",
+  },
 };
 
-export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS];
+/* ── Three registers the six above could not hold ─────────────────────────
+ *
+ * A futuristic AI product, a spa and a private bank were all landing on
+ * Modern commercial or Clinical precision: a bright neutral ground and a blue
+ * button, the same page as a plumber's. Each of these is a direction an agency
+ * would recognise on sight, and each is reached by naming the industry — see
+ * BY_INDUSTRY — not by asking for a colour. */
+
+const LUMINOUS: DesignDNA = {
+  name: "Luminous dark",
+  register: "luminous technology",
+  intent:
+    "Deep and luminous. Near-black layered surfaces with light falling across them, one pale violet accent, large precise geometric headings. A flagship product launch, never a crypto template.",
+  type: {
+    display: '"Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* Sora: wide, geometric and calm at display sizes — the shape of a
+       product that wants to look like the future without a single glow. */
+    webfont: {
+      family: "Sora",
+      href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;600&display=swap",
+    },
+    ratio: 1.333,
+    base: 16,
+    displayLeading: 1.05,
+    displayTracking: "-0.035em",
+    displayWeight: 600,
+  },
+  color: {
+    ground: "#07080B",
+    surface: "#0F1116",
+    ink: "#F2F3F7",
+    muted: "#979CAB",
+    line: "#1E2129",
+    accent: "#C9B8FF",
+    accentInk: "#120C24",
+    success: "#7EE2B8",
+    danger: "#FF8F8F",
+  },
+  space: [4, 8, 12, 16, 24, 32, 48, 72, 104, 144, 192],
+  radius: { sm: "8px", md: "14px", lg: "24px", pill: "999px" },
+  shadow: {
+    sm: "inset 0 1px 0 rgba(255,255,255,.06)",
+    md: "0 24px 64px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08)",
+  },
+  container: "1200px",
+  motion: {
+    fast: "140ms",
+    base: "280ms",
+    slow: "1000ms",
+    ease: "cubic-bezier(.3,.7,.2,1)",
+    easeOut: "cubic-bezier(.16,1,.3,1)",
+    stagger: "100ms",
+    distance: "32px",
+    personality:
+      "Cinematic: long eased reveals, a gentle parallax on the main visual, light that seems to settle as you scroll.",
+  },
+  art: {
+    composition:
+      "Cinematic chapters: a full-height opening statement, the product revealed in one large framed visual, then sections that each make one claim and show one piece of evidence for it.",
+    components:
+      "Surfaces separated by light rather than borders — a 1px top highlight, a slightly lifted surface — glass only where text sits over imagery, primary buttons in the pale accent, secondary as ghost text.",
+    imagery:
+      "The real product interface, abstract light and geometry drawn in CSS or SVG, real hardware or people in low-key light. Never robots, glowing brains or circuit-board stock.",
+    trust:
+      "Belief through demonstration and candour: the product shown working, its limits stated, how data is handled and secured, pricing clear. The call to act is to try it.",
+  },
+  inverse: {
+    ground: "#F7F7FA",
+    surface: "#FFFFFF",
+    ink: "#0B0C12",
+    muted: "#5A5E6E",
+    line: "#E3E4EB",
+    accent: "#4B32C3",
+    accentInk: "#FFFFFF",
+    success: "#127A50",
+    danger: "#B42318",
+  },
+};
+
+const SANCTUARY: DesignDNA = {
+  name: "Calm sanctuary",
+  register: "restorative calm",
+  intent:
+    "Calm and restorative. Stone and linen grounds, a deep sage accent, light elegant serif headings and long, slow pacing. The page breathes the way the place should.",
+  type: {
+    display: '"Cormorant Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* Cormorant is the register: a light, high-contrast serif that reads as
+       linen and quiet rooms, where a system serif reads as a form. */
+    webfont: {
+      family: "Cormorant Garamond",
+      href: "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&display=swap",
+    },
+    ratio: 1.333,
+    base: 17,
+    displayLeading: 1.08,
+    displayTracking: "-0.01em",
+    displayWeight: 500,
+  },
+  color: {
+    ground: "#F5F2EC",
+    surface: "#FBF9F5",
+    ink: "#1F2420",
+    muted: "#5C655E",
+    line: "#E2DDD3",
+    accent: "#3E5C4C",
+    accentInk: "#FFFFFF",
+    success: "#2F6B45",
+    danger: "#A63A2B",
+  },
+  space: [4, 8, 12, 16, 24, 32, 48, 72, 104, 144, 184],
+  radius: { sm: "10px", md: "18px", lg: "28px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(31,36,32,.05)", md: "0 18px 48px rgba(31,36,32,.08)" },
+  container: "1180px",
+  motion: {
+    fast: "160ms",
+    base: "320ms",
+    slow: "1100ms",
+    ease: "cubic-bezier(.25,.6,.3,1)",
+    easeOut: "cubic-bezier(.22,1,.36,1)",
+    stagger: "110ms",
+    distance: "20px",
+    personality: "Breathing: slow fades, minimal travel, a gentle parallax on landscape photographs.",
+  },
+  art: {
+    composition:
+      "Slow and spacious: one idea per screen, wide photographs with text set in their calm area, long vertical rhythm, and booking or enquiry always one step away.",
+    components:
+      "Soft generous radii, pill buttons, tonal surfaces with no borders, generous line height, small uppercase labels with open tracking.",
+    imagery:
+      "The place and the experience in soft morning or evening light: rooms, textures, water, hands, landscape. Never a stock model with cucumber eyes.",
+    trust:
+      "Belief through reassurance: what a visit is like step by step, who the practitioners are and their qualifications, location, prices and policies, and an easy booking or enquiry.",
+  },
+  inverse: {
+    ground: "#141714",
+    surface: "#1C201C",
+    ink: "#EFEDE6",
+    muted: "#A9AEA6",
+    line: "#2D322D",
+    accent: "#A9C7B4",
+    accentInk: "#141714",
+    success: "#9ACFAB",
+    danger: "#EE9A8C",
+  },
+};
+
+const CAPITAL: DesignDNA = {
+  name: "Private capital",
+  register: "established authority",
+  intent:
+    "Established and assured. Ivory ground, deep navy ink and accent, a refined serif for headings and exact tabular figures. A private bank or a landmark property, never a template for one.",
+  type: {
+    display: '"Newsreader", Charter, Georgia, "Times New Roman", serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* Newsreader: a serif with authority and modern proportions, so the page
+       reads as an institution rather than as a newspaper or a fashion house. */
+    webfont: {
+      family: "Newsreader",
+      href: "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap",
+    },
+    ratio: 1.25,
+    base: 17,
+    displayLeading: 1.1,
+    displayTracking: "-0.015em",
+    displayWeight: 500,
+  },
+  color: {
+    ground: "#F7F6F2",
+    surface: "#FFFFFF",
+    ink: "#0F1A2A",
+    muted: "#556172",
+    line: "#DEDCD4",
+    accent: "#0F2E4D",
+    accentInk: "#F7F6F2",
+    success: "#1D6B48",
+    danger: "#A8291F",
+  },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 168],
+  radius: { sm: "2px", md: "4px", lg: "6px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(15,26,42,.06)", md: "0 12px 36px rgba(15,26,42,.10)" },
+  container: "1200px",
+  motion: {
+    fast: "140ms",
+    base: "240ms",
+    slow: "800ms",
+    ease: "cubic-bezier(.25,.6,.25,1)",
+    easeOut: "cubic-bezier(.2,1,.3,1)",
+    stagger: "70ms",
+    distance: "16px",
+    personality: "Composed: precise eased reveals and a steady parallax on architecture. Nothing playful.",
+  },
+  art: {
+    composition:
+      "Measured and architectural: a wide opening statement, then content on a strict grid — large property or portfolio photographs alternating with dense, tabular facts.",
+    components:
+      "Small radii, fine rules, tabular numerals for every figure, understated buttons in a navy fill or a precise underline, labels in small caps.",
+    imagery:
+      "Architecture and interiors in clean daylight with straight verticals; advisors as real people at work. Never handshakes, skylines at dusk or piles of coins.",
+    trust:
+      "Belief through specifics and regulation: registration and licence numbers, fees, team credentials and a track record only as the brief supplies it, clear disclaimers, and a private consultation as the call to act.",
+  },
+  inverse: {
+    ground: "#0A111B",
+    surface: "#111A26",
+    ink: "#EEF1F5",
+    muted: "#9DA8B7",
+    line: "#222D3B",
+    accent: "#D9C08A",
+    accentInk: "#0A111B",
+    success: "#7CCBA0",
+    danger: "#F09A8F",
+  },
+};
+
+export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS, LUMINOUS, SANCTUARY, CAPITAL];
 
 /* Which system each of the asset planner's registers gets.
  *
@@ -366,15 +831,51 @@ const NAMED: { match: RegExp; system: DesignDNA }[] = [
   { match: /\b(clean|minimal|medical|clinical|precise)\b/i, system: CLINICAL },
 ];
 
+/* The industry the brief names, which beats the photographic register.
+ *
+ * The register answers "what do the pictures look like", and for these
+ * industries that is the wrong question: "a premium wealth manager" is a luxury
+ * register and is not a fashion house, and "a boutique hotel" is a boutique and
+ * is not a shop. The industry decides who the page has to convince and how,
+ * which is what a design system is for.
+ *
+ * Ordered most specific first, so "an AI tool for dental clinics" is a clinic
+ * before it is an AI product. A brief that names a LOOK (NAMED above) still
+ * beats all of these. */
+const BY_INDUSTRY: { match: RegExp; system: DesignDNA }[] = [
+  {
+    match: /\b(clinics?|medical|dental|dentists?|hospitals?|healthcare|pharmac\w*|physio\w*|doctors?|diagnostics?|patients?)\b/i,
+    system: CLINICAL,
+  },
+  {
+    match: /\b(financ\w*|fintech|banks?|banking|wealth|investments?|investors?|asset management|private equity|venture capital|insurance|accountants?|accounting|law firm|lawyers?|solicitors?|attorneys?|legal services|real estate|realtors?|propert(y|ies)|estate agen\w*|mortgages?|brokerage)\b/i,
+    system: CAPITAL,
+  },
+  {
+    match: /\b(wellness|spa|yoga|pilates|meditation|retreats?|hotels?|resorts?|guest ?house|bed and breakfast|villas?|hospitality|skincare|massage|holistic|mindful\w*)\b/i,
+    system: SANCTUARY,
+  },
+  {
+    match: /\b(developers?|devtools?|dev tools?|api|sdk|cli|open[- ]source|observability|devops)\b/i,
+    system: TECHNICAL,
+  },
+  {
+    /* "AI" only in capitals: lower-case "ai" is a word in several languages
+       and a fragment of nothing in English worth matching. */
+    match: /\bAI\b|\b([Aa]rtificial intelligence|[Mm]achine learning|LLMs?|[Gg]enerative|[Nn]eural|[Ff]uturistic|[Dd]eep[- ]?tech|[Qq]uantum|[Rr]obotics?|[Aa]utonomous|[Aa]gentic)\b/,
+    system: LUMINOUS,
+  },
+];
+
 /**
  * A system by name, or null.
  *
  * The name travels rather than the object. Everything in this file is a
- * constant chosen from a set of six, so sending the whole DNA through a webhook
+ * constant chosen from a fixed set, so sending the whole DNA through a webhook
  * would be pushing two hundred bytes of hex codes down a wire to arrive at
  * something already on the other end — and giving every hop between here and
  * the save route a chance to alter a colour. A name cannot be half-corrupted:
- * it either matches one of six or it does not.
+ * it either matches one of the set or it does not.
  */
 export function systemByName(name: unknown): DesignDNA | null {
   if (typeof name !== "string") return null;
@@ -400,6 +901,14 @@ export function decideDesign(register: string, kind: BuildKind, brief: string): 
     return {
       dna: named.system,
       reason: `the brief asked for it by name — "${(brief.match(named.match) ?? [""])[0].toLowerCase()}"`,
+    };
+  }
+
+  const industry = BY_INDUSTRY.find((entry) => entry.match.test(brief ?? ""));
+  if (industry) {
+    return {
+      dna: industry.system,
+      reason: `the brief names the industry — "${(brief.match(industry.match) ?? [""])[0].toLowerCase()}" — so ${industry.system.name.toLowerCase()}`,
     };
   }
 
@@ -446,6 +955,8 @@ export function tokensCss(dna: DesignDNA): string {
     .join("\n");
 
   const space = dna.space.map((value, index) => `  --space-${index}: ${value}px;`).join("\n");
+  const dark = isDark(dna);
+  const alternate = dark ? "light" : "dark";
 
   return `/* ${dna.name} — this project's design system.
  *
@@ -465,13 +976,7 @@ export function tokensCss(dna: DesignDNA): string {
 ${scale}
 
   /* Colour */
-  --ground: ${dna.color.ground};
-  --surface: ${dna.color.surface};
-  --ink: ${dna.color.ink};
-  --muted: ${dna.color.muted};
-  --line: ${dna.color.line};
-  --accent: ${dna.color.accent};
-  --accent-ink: ${dna.color.accentInk};
+${paletteVars(dna.color)}
 
   /* Space */
 ${space}
@@ -488,10 +993,25 @@ ${space}
   /* Motion */
   --fast: ${dna.motion.fast};
   --base: ${dna.motion.base};
+  --slow: ${dna.motion.slow};
   --ease: ${dna.motion.ease};
+  --ease-out: ${dna.motion.easeOut};
+  --stagger: ${dna.motion.stagger};
+  --distance: ${dna.motion.distance};
+
+  /* States */
+  --disabled-opacity: 0.45;
+  --press-scale: 0.98;
 }
 
-html { color-scheme: ${isDark(dna) ? "dark" : "light"}; }
+html { color-scheme: ${dark ? "dark" : "light"}; }
+
+/* The other theme, for a project with a toggle: set data-theme="${alternate}" on
+   <html> and every surface that uses the tokens switches together. */
+:root[data-theme="${alternate}"] {
+${paletteVars(dna.inverse)}
+  color-scheme: ${alternate};
+}
 
 body {
   margin: 0;
@@ -501,6 +1021,7 @@ body {
   font-size: var(--text-base);
   line-height: var(--body-leading);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1, h2, h3, h4 {
@@ -508,9 +1029,93 @@ h1, h2, h3, h4 {
   font-weight: var(--display-weight);
   line-height: var(--display-leading);
   letter-spacing: var(--display-tracking);
+  text-wrap: balance;
   margin: 0;
 }
+
+/* Interaction states. Zero specificity (:where), so anything the page styles
+   itself wins — these are the floor every control stands on, not its design. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+:where(a, button, [role="button"], summary) {
+  transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease), box-shadow var(--base) var(--ease),
+    opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+:where(button, [role="button"]):not(:disabled, [aria-disabled="true"]):active {
+  transform: scale(var(--press-scale));
+}
+:where(button, input, select, textarea):disabled,
+:where([aria-disabled="true"]) {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+:where([aria-busy="true"]) { cursor: progress; }
+::selection { background: var(--accent); color: var(--accent-ink); }
+
+/* Motion, declared by attribute so no script is needed and nothing is hidden
+   that a reader without script, or with motion turned off, cannot see:
+     data-enter            the opening screen, on load; style="--i: n" staggers
+     data-reveal           a block that eases in as it scrolls into view
+     data-parallax         a frame whose <img> drifts slightly as it scrolls
+   Scroll effects use scroll-driven animations where the browser has them and
+   simply do not happen where it does not — the content is there either way. */
+@keyframes qs-rise {
+  from { opacity: 0; transform: translateY(var(--distance)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes qs-drift {
+  from { transform: translateY(-5%) scale(1.1); }
+  to { transform: translateY(5%) scale(1.1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  [data-enter] {
+    animation: qs-rise var(--slow) var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * var(--stagger));
+  }
+  @supports (animation-timeline: view()) {
+    [data-reveal] {
+      animation: qs-rise var(--ease-out) both;
+      animation-timeline: view();
+      animation-range: entry calc(var(--i, 0) * 4%) cover calc(28% + var(--i, 0) * 4%);
+    }
+    /* clip, not hidden: hidden would make the frame its own scroller, and a
+       view timeline measured against a box that never scrolls never moves. */
+    [data-parallax] { overflow: clip; view-timeline-name: --qs-frame; }
+    [data-parallax] > img {
+      animation: qs-drift linear both;
+      animation-timeline: --qs-frame;
+    }
+  }
+  @view-transition { navigation: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 `;
+}
+
+/** A palette as custom properties — the same names for either theme. */
+function paletteVars(palette: Palette): string {
+  return [
+    `  --ground: ${palette.ground};`,
+    `  --surface: ${palette.surface};`,
+    `  --ink: ${palette.ink};`,
+    `  --muted: ${palette.muted};`,
+    `  --line: ${palette.line};`,
+    `  --accent: ${palette.accent};`,
+    `  --accent-ink: ${palette.accentInk};`,
+    `  --success: ${palette.success};`,
+    `  --danger: ${palette.danger};`,
+  ].join("\n");
 }
 
 /* Whether this system's ground is dark, so `color-scheme` and any form control
@@ -551,6 +1156,8 @@ COLOUR
   var(--line)        hairlines, dividers, borders
   var(--accent)      the one colour that means "press this" — used sparingly
   var(--accent-ink)  text on the accent
+  var(--success)     confirmations — always said in words as well
+  var(--danger)      errors and destructive actions — always said in words as well
 
 TYPE
   Headings: var(--font-display) at weight ${dna.type.displayWeight}, leading ${dna.type.displayLeading}, tracking ${dna.type.displayTracking}.
@@ -571,9 +1178,25 @@ SHAPE
   Shadows: var(--shadow-sm) and var(--shadow-md). There is no third.
   Content is capped at var(--container) ${dna.container}.
 
-MOTION
-  var(--fast) ${dna.motion.fast} for hovers and small state changes, var(--base) ${dna.motion.base} for anything that moves or opens, on var(--ease).
-  Nothing animates on load except one considered entrance, if any.
+THEME
+  This system is ${isDark(dna) ? "dark" : "light"} because the brand calls for it. Ship that theme. Only if the brief asks for a toggle, add one: it sets data-theme="${isDark(dna) ? "light" : "dark"}" on <html> (every token above switches with it — already defined), starts from prefers-color-scheme, and remembers the choice in try/catch.
+
+ART DIRECTION — how this system composes, which matters more than its colours
+  Composition: ${dna.art.composition}
+  Components: ${dna.art.components}
+  Imagery: ${dna.art.imagery}
+  Trust and conversion: ${dna.art.trust}
+
+STATES — every control, designed in each
+  Hover, pressed, focus-visible, disabled, loading (aria-busy="true", the label says what is happening), success and error. Focus rings, the press, disabled and the transitions are already in the stylesheet; design hover and the rest to match.
+
+MOTION — ${dna.motion.personality}
+  var(--fast) ${dna.motion.fast} for hovers, var(--base) ${dna.motion.base} for anything that opens or moves, on var(--ease); var(--slow) ${dna.motion.slow} on var(--ease-out) for entrances. Siblings stagger by var(--stagger) ${dna.motion.stagger} and travel var(--distance) ${dna.motion.distance}.
+  Already built, by attribute — use these, do not write your own observers or keyframes:
+    data-enter on the opening screen's headline, text and action, with style="--i: 0", 1, 2 to stagger them.
+    data-reveal on the blocks of later sections, with --i on siblings.
+    data-parallax on the frame around at most two large photographs (the frame holds an <img> directly).
+  Reduced motion is already honoured. Animate only transform and opacity; nothing loops or moves on its own.
 
 RHYTHM — this is what separates a designed page from a stack of sections.
   Vary the sections deliberately: alternate their height, their density, their background (var(--ground) against var(--surface)), whether they are full-bleed or held to the container, and where the emphasis sits. Two adjacent sections with the same padding, the same grid and the same background read as one long section.
