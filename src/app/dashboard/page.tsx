@@ -514,12 +514,13 @@ export default function DashboardPage() {
         <div className={`relative w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))] ${videoMode ? "mt-3" : "mt-14"}`} ref={popoverRef}>
           {/* Target tabs. From md up they are fused to the canvas below them;
               on a phone they are a row of pills standing apart from it, only
-              the selected one carrying its name, spread edge to edge so the
-              first pill starts on the box's left edge and the last ends on
-              its right — five pills fit a 320px phone without scrolling. The
+              the selected one carrying its name. Both spread edge to edge —
+              the first tab as far in from the box's left edge as the last is
+              from its right, the gaps between all five equal — and five pills
+              fit a 320px phone without scrolling. The
               top padding is room for the New badge, which sits over its
               pill's edge there. */}
-          <div className="relative z-40 flex items-end justify-between gap-1.5 overflow-x-auto px-0 pb-3 pt-3.5 [scrollbar-width:none] md:justify-start md:gap-1.5 md:px-3.5 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden">
+          <div className="relative z-40 flex items-end justify-between gap-1.5 overflow-x-auto px-0 pb-3 pt-3.5 [scrollbar-width:none] md:gap-1.5 md:px-3.5 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden">
             {categoryTabs.map((tab) => {
               const Icon = tab.icon;
               const PhoneIcon = tab.phone;
