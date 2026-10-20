@@ -54,6 +54,9 @@ import {
   EDIT_MODEL,
   EditError,
   answerQuestion,
+  chargedModel,
+  fallbackNote,
+  servedLog,
   askClarifying,
   editDeadline,
   editModelFor,
@@ -247,6 +250,7 @@ import {
   DEFAULT_MODEL,
   PROVIDER_LABEL,
   creditMultiplierFor,
+  modelById,
   resolveModel,
 } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
@@ -525,7 +529,16 @@ type StreamLine =
  * whichever one it took, after the steps it emitted on the way there have
  * already reached the browser.
  */
+/* A reply, with a line saying so when a fallback model wrote it. */
+function withFallbackNote(text: string): string {
+  const note = fallbackNote();
+  return note ? `${text}\n\n${note}` : text;
+}
+
 export async function POST(request: Request) {
+  /* Which model actually answered each call this request makes — a refusal
+     fallback can hand Fable's work to Opus. See servedLog in builder/edit.ts. */
+  servedLog.enterWith({ fallbacks: [] });
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -1114,6 +1127,10 @@ async function handle(
    * Null for "auto" and for no choice at all, and the heuristics then decide
    * exactly as they did before. Auto is still the default and still the thing
    * most people should leave it on. */
+  /* Why a picked model could not run this turn — said in the thread before
+     the work starts, so nobody believes a change was made by a model that
+     did not make it. See the notice after intent is settled. */
+  let editModelDeclined: { picked: string; why: string } | null = null;
   const pickedEditModel = (() => {
     const asked = typeof body.model === "string" ? body.model.trim() : "";
     if (!asked || asked === "auto") return null;
@@ -1122,13 +1139,19 @@ async function handle(
     if (!picked) return null;
 
     const plan = balance?.modelPlanId ?? "free";
-    if (!modelAllowedOnPlan(picked, plan)) return null;
+    if (!modelAllowedOnPlan(picked, plan)) {
+      editModelDeclined = { picked: picked.name, why: "your plan doesn't include it" };
+      return null;
+    }
 
     /* Priced as what an edit actually is — a chat action, which is how this
        route charges for one everywhere else. Gating it behind a BUILD's door
        would refuse a model somebody can comfortably afford to make one small
        change with, which is the rigidity again wearing a different hat. */
-    if (balance && !canAfford(balance, creditCostOf("chat", { modelId: picked.id }))) return null;
+    if (balance && !canAfford(balance, creditCostOf("chat", { modelId: picked.id }))) {
+      editModelDeclined = { picked: picked.name, why: "your balance doesn't cover a change on it" };
+      return null;
+    }
 
     return picked.id;
   })();
@@ -1510,6 +1533,16 @@ async function handle(
       : addingTo
         ? "new_project"
         : routedIntent;
+  /* The picked model could not run this edit or answer: say which one does,
+     before it does — the same honesty a build gets when it steps down. */
+  const declined = editModelDeclined as { picked: string; why: string } | null;
+  if (declined && (intent === "edit" || intent === "question" || intent === "clarify")) {
+    await deliver(
+      `You picked ${declined.picked}, but ${declined.why}, so this ${intent === "edit" ? "change" : "answer"} runs on ${modelById(editModel).name}. Top up or change plan to use ${declined.picked}.`,
+      { key: `model-declined:${requestId}` },
+    );
+  }
+
   if (upgradeBase) {
     steps.mark(
       "upgrade",
@@ -2305,7 +2338,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
 
       /* Stored before it is billed. A question that never reached anyone is
          not a question that was asked, and the ledger should not say it was. */
-      const delivered = await deliver(question.text, { key: "clarify" });
+      const clarifyText = withFallbackNote(question.text);
+      const delivered = await deliver(clarifyText, { key: "clarify" });
 
       /* Billed as chat, like a question, because that is what it is: one short
          model call with the page in it. Charging a build rate for a sentence
@@ -2314,7 +2348,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         await bill(service, {
           userId: user.id,
           action: "chat",
-          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: editModel }),
+          cost: creditCostOf("chat", { outputTokens: question.outputTokens, modelId: chargedModel(editModel) }),
           description: `Clarify: ${project.name}`,
           projectId: project.id,
           outputTokens: question.outputTokens,
@@ -2339,7 +2373,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
           links: { preview: previewUrl, repo: "", admin: "" },
           configKeys: {},
           artifacts: {},
-          message: question.text,
+          message: clarifyText,
         },
         project: null,
       });
@@ -2374,7 +2408,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         `${editModel}, ${answer.outputTokens} output tokens`,
       );
 
-      const delivered = await deliver(answer.text, { key: "answer" });
+      const answerText = withFallbackNote(answer.text);
+      const delivered = await deliver(answerText, { key: "answer" });
 
       /* Billed as chat, on what it said. Asking about a page is a model call
          with the whole page in it, so it is not free — but the chat band starts
@@ -2387,7 +2422,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
            clarify path above — that one is the builder asking for help, and
            billing somebody extra for the classifier's caution is charging them
            for our own uncertainty. */
-        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: editModel });
+        const askCost = creditCostOf("chat", { outputTokens: answer.outputTokens, modelId: chargedModel(editModel) });
         await bill(service, {
           userId: user.id,
           action: "chat",
@@ -2415,7 +2450,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
           links: { preview: previewUrl, repo: "", admin: "" },
           configKeys: {},
           artifacts: {},
-          message: answer.text,
+          message: answerText,
         },
         project: null,
       });
@@ -3265,13 +3300,14 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         deploying ? "It is building now, and I'll tell you when it is live." : null,
         !redeploy.deploy ? "It is ready in your preview — press Publish when you want it online." : null,
         source.note ? `Next: ${source.note}` : null,
+        fallbackNote() || null,
       ]
         .filter(Boolean)
         .join(" ");
 
       const storedEdit = await deliver(said, { key: "edit" });
 
-      const editCost = creditCostOf(BUILD_ACTION, { filesTouched: 1, modelId: source.model });
+      const editCost = creditCostOf(BUILD_ACTION, { filesTouched: 1, modelId: chargedModel(source.model) });
       const charge = await bill(service, {
         userId: user.id,
         action: BUILD_ACTION,
@@ -4246,6 +4282,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
          top of a change that is not in the page reads as the subject being
          changed, and the thing to do next is the thing that was asked for. */
       edited.note && verification.complete && broke.length === 0 ? `Next: ${edited.note}` : null,
+      /* Who wrote it, when it was not the model picked. */
+      fallbackNote() || null,
     ]
       .filter(Boolean)
       .join(" ");
@@ -4305,7 +4343,7 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
        edit escalates when it carries a picture or when the first attempt placed
        nothing — see EDIT_MODEL_STRONG — and billing the cheap rate for the dear
        model is the mistake this file has made before. */
-    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: edited.model });
+    const editCost = creditCostOf(BUILD_ACTION, { ...editUsage(edited.applied), modelId: chargedModel(edited.model) });
     const charge = await bill(service, {
       userId: user.id,
       action: BUILD_ACTION,

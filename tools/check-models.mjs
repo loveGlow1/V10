@@ -344,6 +344,48 @@ try {
     "Auto has nothing cheaper to step down to",
   );
 
+  /* ── A picked model is the model that answers ───────────────────────────
+     The label a person picks must name the model actually called — the row
+     once said "Claude Fable 5" and called claude-fable-5-1. And a picker
+     note about cost must match what the credits actually charge. */
+  for (const model of models.MODELS.filter((entry) => entry.provider === "claude")) {
+    has(models.claudeNameOf(model.apiId) === model.name, `${model.name} calls the model its label names`, `label "${model.name}" but calls ${model.apiId} (${models.claudeNameOf(model.apiId)})`);
+    has(!/-\d{8}$/.test(model.apiId), `${model.name} calls the canonical id, not a dated snapshot`, model.apiId);
+    if (model.note && /x credits/.test(model.note)) {
+      has(model.note === `${model.creditMultiplier}x credits`, `${model.name}'s cost note matches what it charges`, `${model.note} vs ${model.creditMultiplier}x`);
+    }
+  }
+  {
+    const edit = readFileSync(join(process.cwd(), "src/lib/builder/edit.ts"), "utf8");
+    const route = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+    has(/This request was sent to \$\{modelById\(model\)\.name\}/.test(edit) && /Never claim to be a model or version you are not/.test(edit), "an answer names the model actually running if asked which model it is — a stand-in never claims to be the one picked");
+    has(/editModelDeclined = \{ picked: picked\.name, why: "your plan doesn't include it" \}/.test(route) && /You picked \$\{declined\.picked\}, but \$\{declined\.why\}/.test(route), "a picked model that cannot run an edit is said so, with the model that does");
+  }
+
+  /* ── Fable 5.1 features: refusal fallback, honestly told ────────────────
+     Fable 5.1, Opus 5.5 and Opus 5 take server-side fallbacks; nothing else
+     does. A fallback's answer says who wrote it and is charged at the lower
+     of the two prices. And Fable 5.1 rejects forced tool use with a 400, so
+     nothing may force one. */
+  {
+    const fallbackIds = models.MODELS.filter((entry) => entry.refusalFallback).map((entry) => entry.apiId).sort();
+    has(JSON.stringify(fallbackIds) === JSON.stringify(["claude-fable-5-1", "claude-opus-5", "claude-opus-5-5"]), "refusal fallback is on exactly for Fable 5.1, Opus 5.5 and Opus 5", fallbackIds);
+    const edit = readFileSync(join(process.cwd(), "src/lib/builder/edit.ts"), "utf8");
+    const route = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+    has(/betas: \["server-side-fallback-2026-07-01"\],\s*fallbacks: "default"/.test(edit) && /recordServed\(final, model\)/.test(edit), "those models' calls carry the fallback and record who answered");
+    has(/entry\?\.type === "fallback_message"/.test(edit) && /if \(message\.stop_reason === "refusal"\) return;/.test(edit), "a fallback is read from usage.iterations, and a chain that refused anyway is not reported as answered");
+    has(/servedLog\.enterWith\(\{ fallbacks: \[\] \}\)/.test(route) && (route.match(/fallbackNote\(\) \|\| null/g) ?? []).length === 2 && /withFallbackNote\(answer\.text\)/.test(route) && /withFallbackNote\(question\.text\)/.test(route), "every reply a fallback wrote says so — edits, answers and questions");
+    has((route.match(/modelId: chargedModel\(/g) ?? []).length === 4, "every edit and answer charge follows the model that did the work");
+    let forced = "";
+    try {
+      /* grep exits 1 when nothing matches — the result this check wants. */
+      forced = execFileSync("grep", ["-rlE", "tool_choice:\\s*\\{\\s*type:\\s*[\"'](any|tool)[\"']", join(process.cwd(), "src")], { encoding: "utf8" }).trim();
+    } catch {
+      forced = "";
+    }
+    has(!forced, "nothing forces a tool (Fable 5.1 rejects tool_choice any/tool)", forced);
+  }
+
   /* ── Reasoning fields go only to models that take them ──────────────────
      Haiku 4.5 predates adaptive thinking and answers output_config.effort with
      a 400 rather than ignoring it. Sending one body to every model is how the
