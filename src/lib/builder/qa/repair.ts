@@ -226,6 +226,13 @@ The smallest fix, in this order: give the element under the header enough top pa
         verifiable: true,
       };
 
+    case "functional/broken-routes":
+      return {
+        rule: issue.rule,
+        instruction: `${issue.message} Write the missing page for each one the navigation genuinely needs, with real content for this project, or point the link at a page that exists. Do not delete navigation the brief asked for.`,
+        verifiable: true,
+      };
+
     case "design/colour":
       return {
         rule: issue.rule,

@@ -5,6 +5,10 @@ import { ecommerce } from "@/lib/builder/blueprints/ecommerce";
 import { landing } from "@/lib/builder/blueprints/landing";
 import { news } from "@/lib/builder/blueprints/news";
 import { webapp } from "@/lib/builder/blueprints/webapp";
+import { saas } from "@/lib/builder/blueprints/saas";
+import { fintech } from "@/lib/builder/blueprints/fintech";
+import { logistics } from "@/lib/builder/blueprints/logistics";
+import { portfolio } from "@/lib/builder/blueprints/portfolio";
 /* The same ceiling an edit's conversation is trimmed to, in the same unit. One
    number, because a new page and an edit make the same promise about what is
    remembered — and words, because that is what the person pasting has. */
@@ -54,6 +58,10 @@ export const BLUEPRINTS: Record<BuildKind, Blueprint> = {
   blog,
   news,
   webapp,
+  saas,
+  fintech,
+  logistics,
+  portfolio,
 };
 
 export function blueprintFor(kind: BuildKind): Blueprint {
@@ -269,7 +277,7 @@ export function composeBuildPrompt(
     : "as a single self-contained HTML file";
 
   return `You are building ${
-    kind === "webapp" ? "a web application" : `a ${KIND_LABEL[kind].toLowerCase()}`
+    kind === "webapp" ? "a web application" : `a ${KIND_LABEL[kind].toLowerCase().replace("saas", "SaaS")}`
   } ${shape}, to a professional standard, for a real business that will use it.
 
 WHAT THIS IS: ${blueprint.identity}

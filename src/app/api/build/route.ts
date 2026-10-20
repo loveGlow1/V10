@@ -231,6 +231,7 @@ import {
 } from "@/lib/builder/intent";
 import {
   bestKindGuess,
+  familyOf,
   BUILD_KINDS,
   heuristicKind,
   isBuildKind,
@@ -5200,7 +5201,17 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
 
   if (preset && modules) {
     dataModel = withAuthored(deterministic, modules.tables);
-    const kindLabel: Record<string, string> = { webapp: "Web app", landing: "Landing page", ecommerce: "Store", blog: "Blog", news: "News" };
+    const kindLabel: Record<string, string> = {
+      webapp: "Web app",
+      landing: "Landing page",
+      ecommerce: "Store",
+      blog: "Blog",
+      news: "News",
+      saas: "SaaS",
+      fintech: "Fintech",
+      logistics: "Logistics",
+      portfolio: "Portfolio",
+    };
     steps.mark(
       "schema",
       `${kindLabel[kind.kind] ?? kind.kind} · ${preset.label}`,
@@ -5246,7 +5257,9 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   if (
     architecture.manifest.database &&
     architecture.manifest.authentication &&
-    kind.kind === "webapp" &&
+    /* And a bank's or a courier's customer area: identity documents and
+       delivery notifications are exactly these modules. */
+    (kind.kind === "webapp" || familyOf(kind.kind) === "site") &&
     !designedAlready &&
     dataModel.tables.some((table) => table.name === "profiles")
   ) {

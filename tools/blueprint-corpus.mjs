@@ -25,12 +25,26 @@ export const CORPUS = [
   ["waitlist page for an app I'm launching in March", "landing"],
   ["coming soon page for a new album", "landing"],
   ["a marketing page for our new pricing", "landing"],
-  ["portfolio site for a freelance illustrator", "landing"],
+  ["portfolio site for a freelance illustrator", "portfolio"],
   ["a sales page for my online course", "landing"],
   ["landing page for a dentist in Leeds with a booking enquiry form", "landing"],
   ["make me a lead capture page for a mortgage broker", "landing"],
   ["a page for our wedding venue with photos and enquiries", "landing"],
   ["squeeze page for my newsletter", "landing"],
+
+  // ── the sharper site types ──────────────────────────────────────────────
+  ["a SaaS marketing site for our invoicing product", "saas"],
+  ["build a website for my AI startup with pricing and a waitlist", "saas"],
+  ["an AI product website for a meeting-notes tool", "saas"],
+  ["software company website with a product demo and pricing tiers", "saas"],
+  ["a portfolio for a UX designer with case studies", "portfolio"],
+  ["website for our branding agency, show our case studies", "portfolio"],
+  ["a fintech website for a savings app in Lagos", "fintech"],
+  ["neobank site with accounts, cards and transfers", "fintech"],
+  ["a microfinance company site where customers can apply for loans", "fintech"],
+  ["website for a courier company with parcel tracking", "logistics"],
+  ["a logistics site for our freight forwarding business", "logistics"],
+  ["haulage company site with a quote form", "logistics"],
 
   // ── ecommerce ────────────────────────────────────────────────────────────
   ["build an online store that sells handmade ceramics", "ecommerce"],

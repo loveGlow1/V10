@@ -146,6 +146,46 @@ export const SUBTYPES: Record<Category, SubType[]> = {
         "A front page that ranks stories: a lead story, a categorised grid, a feed, and a trending section; every section has its own page.",
       ],
     },
+    /* The site types with a blueprint of their own (see kinds.ts). No
+       `match`: they are reached by what the brief is read as, or by being
+       picked, never by one keyword in the scan below — "software" or "track"
+       alone are not a SaaS site or a courier. */
+    {
+      id: "saas_site",
+      label: "SaaS / AI product",
+      kind: "saas",
+      blurb: "Product demo, features, pricing, waitlist",
+      focus: [
+        "The product shown working in the hero and a demo section, drawn in code; six features; pricing with a real toggle; an FAQ; a waitlist or trial form that keeps every lead.",
+      ],
+    },
+    {
+      id: "fintech_site",
+      label: "Fintech / banking",
+      kind: "fintech",
+      blurb: "Trust, security, rates, customer accounts",
+      focus: [
+        "Trust first: the regulatory line, a full security section, clear fees with a working calculator, and accounts each customer sees only their own of.",
+      ],
+    },
+    {
+      id: "logistics_site",
+      label: "Logistics / delivery",
+      kind: "logistics",
+      blurb: "Shipment tracking, services, quotes",
+      focus: [
+        "A tracking input in the hero that returns a real timeline for a seeded number, services and coverage, and a quote form with an indicative price.",
+      ],
+    },
+    {
+      id: "portfolio",
+      label: "Portfolio / agency",
+      kind: "portfolio",
+      blurb: "Case studies, services, process, contact",
+      focus: [
+        "The work shown large: six case studies that open to their full story, services, a process, named testimonials and an inquiry form.",
+      ],
+    },
   ],
   fliers: [
     {

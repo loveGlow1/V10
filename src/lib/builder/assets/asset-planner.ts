@@ -138,6 +138,36 @@ const BY_KIND: Record<BuildKind, Omit<VisualDirection, "avoid">> = {
     environment: "the product itself",
     mood: "clear, quiet, competent",
   },
+  saas: {
+    register: "technical precision",
+    palette: "a neutral grey scale and one accent, so the product's own interface carries the colour",
+    lighting: "bright, even, natural",
+    environment: "the people the product is for, at work, in real places",
+    mood: "precise, calm, current",
+  },
+  /* Money is trust. Nothing glossy, nothing that looks like an advert for a
+     loan: real people in real places, and a palette that says steady. */
+  fintech: {
+    register: "clinical trust",
+    palette: "deep, steady neutrals with one trustworthy accent",
+    lighting: "soft, natural daylight",
+    environment: "everyday customers — at a market stall, a desk, a kitchen table — managing their own money",
+    mood: "steady, safe, plain-spoken",
+  },
+  logistics: {
+    register: "technical and functional",
+    palette: "industrial neutrals with one high-visibility accent",
+    lighting: "daylight on location, depots and roads",
+    environment: "vans, riders, warehouses, loading bays and parcels in transit",
+    mood: "dependable, on time, in motion",
+  },
+  portfolio: {
+    register: "luxury editorial",
+    palette: "a quiet ground that lets the work carry the colour",
+    lighting: "considered, directional, gallery-like",
+    environment: "the finished work itself, shot large",
+    mood: "confident, crafted, unhurried",
+  },
 };
 
 /* What no project's pictures may contain, whatever its direction. Every one of
@@ -274,6 +304,23 @@ export function planAssets(opts: {
     for (let i = 0; i < 3; i++) {
       add(`testimonial-${i + 1}`, "avatar", "testimonial portrait", "1/1", "Customer portrait", "");
     }
+  }
+
+  if (kind === "saas" || kind === "fintech" || kind === "logistics") {
+    add("hero", "hero", "the opening image", "16/9", "The people it serves", subject(0, briefSubject(brief)));
+    add("feature-1", "editorial", "first feature section", "4/3", "The service in practice", subject(1, briefSubject(brief)));
+    add("feature-2", "lifestyle", "second feature section", "4/3", "A customer it worked for", subject(2, briefSubject(brief)));
+    for (let i = 0; i < 3; i++) {
+      add(`testimonial-${i + 1}`, "avatar", "testimonial portrait", "1/1", "Customer portrait", "");
+    }
+  }
+
+  if (kind === "portfolio") {
+    add("hero", "hero", "the opening piece of work", "16/9", "The signature project", subject(0, briefSubject(brief)));
+    for (let i = 0; i < 6; i++) {
+      add(`case-${i + 1}`, "gallery", "case study cover", "4/3", `Case study ${i + 1}`, subject(i, briefSubject(brief)));
+    }
+    add("portrait", "portrait", "the person or team behind the work", "1/1", "The studio", "");
   }
 
   if (kind === "ecommerce") {

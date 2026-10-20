@@ -352,6 +352,14 @@ const BY_KIND: Record<BuildKind, DesignDNA> = {
   blog: PRESS,
   news: PRESS,
   webapp: CLINICAL,
+  /* The spec's look for these: a neutral grey scale, one accent, hairlines
+     rather than shadows. Technical for the product and the freight company,
+     Clinical for money, where calm is the point; Editorial for a portfolio,
+     where the work is the colour. */
+  saas: TECHNICAL,
+  fintech: CLINICAL,
+  logistics: TECHNICAL,
+  portfolio: EDITORIAL,
 };
 
 /* A brief can also name the look outright, and when it does that beats

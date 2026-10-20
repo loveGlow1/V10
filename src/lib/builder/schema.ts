@@ -901,6 +901,14 @@ export function dataModelFor(manifest: ArchitectureManifest, schema: string): Da
   return { schema, tables, buckets };
 }
 
+/** Whether this model has shipments with a public tracking timeline. */
+export function tracksShipments(model: DataModel): boolean {
+  return (
+    model.tables.some((table) => table.name === "shipments" && table.columns.some((column) => column.name === "tracking_number")) &&
+    model.tables.some((table) => table.name === "shipment_events")
+  );
+}
+
 /** The table commands a role is granted: exactly those some policy lets it run. */
 export function grantsFor(
   table: Table,
@@ -1328,6 +1336,35 @@ export function toSql(
     );
   }
 
+  /* Tracking by number, for anybody. A visitor is not signed in and must
+     not be able to list shipments, so they get one definer function that
+     returns exactly one shipment's public fields and its timeline — never the
+     owner, never anyone else's. */
+  if (tracksShipments(model)) {
+    out.push(
+      `create or replace function ${model.schema}.track_shipment(number text)`,
+      "returns json",
+      "language sql",
+      "stable",
+      "security definer",
+      `set search_path = ${model.schema}, public`,
+      "as $$",
+      "  select json_build_object(",
+      "    'tracking_number', s.tracking_number, 'status', s.status, 'origin', s.origin,",
+      "    'destination', s.destination, 'service', s.service, 'estimated_delivery', s.estimated_delivery,",
+      "    'delivered_at', s.delivered_at,",
+      "    'events', coalesce((select json_agg(json_build_object('status', e.status, 'location', e.location, 'note', e.note, 'occurred_at', e.occurred_at) order by e.occurred_at desc)",
+      "                        from shipment_events e where e.shipment_id = s.id), '[]'::json))",
+      "  from shipments s where s.tracking_number = upper(trim(number));",
+      "$$;",
+      "",
+      `comment on function ${model.schema}.track_shipment(text) is '${OWNED_MARK} one shipment and its timeline by tracking number, for public tracking.';`,
+      `revoke all on function ${model.schema}.track_shipment(text) from public;`,
+      `grant execute on function ${model.schema}.track_shipment(text) to anon, authenticated;`,
+      "",
+    );
+  }
+
   if (model.buckets.length > 0) {
     out.push(`-- ── Storage ${"─".repeat(62)}`);
     out.push("-- Buckets hold the files; the media table above holds what is known about");
@@ -1450,6 +1487,13 @@ export function schemaBrief(model: DataModel): string {
     lines.push("");
   }
 
+  if (tracksShipments(model)) {
+    lines.push(
+      'TRACKING: anybody tracks a shipment by number with supabase.rpc("track_shipment", { number }) — it returns the shipment\'s public fields and its events newest first, or null for an unknown number. Never select from shipments for public tracking: a visitor cannot, and must not. Tracking numbers are stored upper-case.',
+      "",
+    );
+  }
+
   if (model.staffRole) {
     const staff = model.staffRole.replace(/_/g, " ");
     lines.push(
@@ -1538,8 +1582,14 @@ export function toTypes(model: DataModel): string {
 
   lines.push("    };");
   lines.push("    Views: Record<string, never>;");
-  if (model.tables.some((table) => table.name === "posts" && table.columns.some((column) => column.name === "view_count"))) {
-    lines.push("    Functions: { record_post_view: { Args: { post: string }; Returns: undefined } };");
+  const functions = [
+    model.tables.some((table) => table.name === "posts" && table.columns.some((column) => column.name === "view_count"))
+      ? "record_post_view: { Args: { post: string }; Returns: undefined }"
+      : null,
+    tracksShipments(model) ? "track_shipment: { Args: { number: string }; Returns: Json }" : null,
+  ].filter(Boolean);
+  if (functions.length > 0) {
+    lines.push(`    Functions: { ${functions.join("; ")} };`);
   } else {
     lines.push("    Functions: Record<string, never>;");
   }

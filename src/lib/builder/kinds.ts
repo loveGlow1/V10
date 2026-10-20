@@ -24,9 +24,51 @@
  * compiled on its own by tools/check-blueprint.mjs. The model fallback lives
  * next door in classify-kind.ts, which is server-only. */
 
-export const BUILD_KINDS = ["landing", "ecommerce", "blog", "news", "webapp"] as const;
+export const BUILD_KINDS = [
+  "landing",
+  "ecommerce",
+  "blog",
+  "news",
+  "webapp",
+  "saas",
+  "fintech",
+  "logistics",
+  "portfolio",
+] as const;
 
 export type BuildKind = (typeof BUILD_KINDS)[number];
+
+/* ── Site types that are a sharper version of an older kind ──────────────
+ *
+ * SaaS, fintech, logistics and portfolio each have their own blueprint (the
+ * sections, the tables, the integrations and the look such a site always
+ * has), but they are built on the plumbing of a kind that already existed.
+ * A SaaS product's marketing site and a portfolio are pages with one
+ * audience, like a landing page; a fintech or a logistics company is a public
+ * site with signed-in customers behind it, like a store or a publication.
+ *
+ * FAMILY is what the rest of the builder asks where it used to ask "is this a
+ * web app" or "is this a landing page": the shape of the project, rather than
+ * the brief. The five original kinds are their own family. */
+export type KindFamily = "landing" | "ecommerce" | "blog" | "news" | "webapp" | "site";
+
+const FAMILY: Record<BuildKind, KindFamily> = {
+  landing: "landing",
+  ecommerce: "ecommerce",
+  blog: "blog",
+  news: "news",
+  webapp: "webapp",
+  saas: "landing",
+  portfolio: "landing",
+  /* A public site plus a signed-in area that belongs to each customer. Not a
+     web app: the home page is a front door that explains, not a workspace. */
+  fintech: "site",
+  logistics: "site",
+};
+
+export function familyOf(kind: BuildKind): KindFamily {
+  return FAMILY[kind];
+}
 
 export function isBuildKind(value: unknown): value is BuildKind {
   return typeof value === "string" && (BUILD_KINDS as readonly string[]).includes(value);
@@ -39,6 +81,10 @@ export const KIND_LABEL: Record<BuildKind, string> = {
   blog: "Blog",
   news: "News publication",
   webapp: "Web app",
+  saas: "SaaS product site",
+  fintech: "Fintech site",
+  logistics: "Logistics site",
+  portfolio: "Portfolio",
 };
 
 /** The one line the chat says about what it is about to build. */
@@ -48,6 +94,10 @@ export const KIND_BLURB: Record<BuildKind, string> = {
   blog: "a publication — real articles, categories and an archive",
   news: "a news publication — a front page that ranks stories, and beats to browse",
   webapp: "a web app — sign-in, views, data, and the back end it runs on",
+  saas: "a SaaS product site — the product shown working, pricing, and a waitlist that keeps every lead",
+  fintech: "a fintech site — trust and security up front, rates, and accounts behind a sign-in",
+  logistics: "a logistics site — shipment tracking, services and a quote form that reaches you",
+  portfolio: "a portfolio — case studies, services, process and a way to hire you",
 };
 
 /* Which rung of the ladder answered. Named after the rung rather than after
@@ -90,7 +140,7 @@ const LANDING_EXPLICIT =
 /* Page-shaped things that are landing pages by another name. A portfolio, a
    restaurant's site, an event page: one page, one audience, one action. */
 const LANDING_SHAPE =
-  /\b(portfolio|resume|cv|personal site|about page|event page|conference page|menu page|brochure|microsite|link in bio|linktree|profile page|teaser)\b/i;
+  /\b(resume|cv|personal site|about page|event page|conference page|menu page|brochure|microsite|link in bio|linktree|profile page|teaser)\b/i;
 
 /* Selling. Split by strength of evidence, because they are not equally strong.
    Naming a store is a description; naming a cart is a requirement. */
@@ -209,6 +259,44 @@ const NEWS_LABEL =
 const APP_LABEL =
   /\b(web ?app|web application|application|saas|crm|erp|portal|internal tool|admin (panel|tool)|management system|booking system|help ?desk|ticketing|project management (tool|app|system))\b|\b(tool|calculator|converter|generator|editor|planner|tracker)\b/i;
 
+/* ── The sharper site types ────────────────────────────────────────────────
+ *
+ * Four industries whose sites always have the same parts, so they get a
+ * blueprint of their own rather than the general one (see FAMILY above).
+ * Each label is the name a person gives that kind of business or site.
+ *
+ * The SaaS label needs the word "site" (or "marketing", "homepage"): "a SaaS
+ * dashboard" is the software itself, which is a web app, and only its
+ * marketing site is this. */
+const SAAS_LABEL =
+  /\b(saas|software|ai)(?: product| startup| company| tool| app| platform)? (?:marketing |product |launch )?(?:site|website|homepage|home page)\b|\b(saas|software|ai) (?:product )?marketing (?:site|page|website)\b/i;
+
+const PORTFOLIO_LABEL =
+  /\b(portfolio|case stud(?:y|ies) (?:site|website)|(?:design|creative|branding|marketing|digital|web|video|architecture|photography) (?:agency|studio) (?:site|website)|agency (?:site|website)|studio (?:site|website))\b/i;
+
+const FINTECH_LABEL =
+  /\b(fin-?tech|neo-?bank|digital bank|online bank|challenger bank|bank(?:ing)? (?:site|website|app|platform)|lend(?:er|ing) (?:site|website|app|platform|company)|loans? (?:app|company|platform)|micro-?finance|credit union|mobile money|e-?wallet|wallet app|money transfer|remittance|payments? (?:company|startup|provider)|savings (?:app|platform)|investment (?:app|platform)|robo-?advis[eo]r|insurtech)\b/i;
+
+const LOGISTICS_LABEL =
+  /\b(logistics|courier|freight|haulage|trucking (?:company|business)|delivery (?:company|business)|dispatch (?:company|service|riders?)|shipping (?:company|business)|parcel (?:delivery|service|tracking)|shipment tracking|track (?:a |your |my )?(?:parcels?|packages?|shipments?)|3pl|cargo|last[- ]mile)\b/i;
+
+/* What is software whatever industry it serves. "A CRM for a logistics
+   company" is a CRM, and "a dashboard for my fintech" is a dashboard, so these
+   send a brief past the industry labels to be read as an application. */
+const SOFTWARE_PRODUCT =
+  /\b(dashboard|crm|erp|internal tool|admin (?:panel|tool)|back ?office|management system|help ?desk|ticketing|fleet management|tms|warehouse management|accounting (?:app|software)|budget(?:ing)? (?:app|tool|tracker)|expense tracker)\b/i;
+
+/** Which of the sharper site types a brief names, when it names exactly one. */
+function sharperLabel(m: string): BuildKind | null {
+  const named = [
+    SAAS_LABEL.test(m) ? ("saas" as const) : null,
+    PORTFOLIO_LABEL.test(m) ? ("portfolio" as const) : null,
+    FINTECH_LABEL.test(m) && !SOFTWARE_PRODUCT.test(m) ? ("fintech" as const) : null,
+    LOGISTICS_LABEL.test(m) && !SOFTWARE_PRODUCT.test(m) ? ("logistics" as const) : null,
+  ].filter((kind) => kind !== null);
+  return named.length === 1 ? named[0] : null;
+}
+
 /* ── The machinery ────────────────────────────────────────────────────────
  *
  * The exception to the labels, and the reason this is a ladder rather than a
@@ -249,7 +337,17 @@ const MARGIN = 2;
 type Scores = Record<BuildKind, number>;
 
 export function scoreKind(brief: string): Scores {
-  const scores: Scores = { landing: 0, ecommerce: 0, blog: 0, news: 0, webapp: 0 };
+  const scores: Scores = {
+    landing: 0,
+    ecommerce: 0,
+    blog: 0,
+    news: 0,
+    webapp: 0,
+    saas: 0,
+    fintech: 0,
+    logistics: 0,
+    portfolio: 0,
+  };
   const m = brief;
 
   /* Five, which no single signal below can match on its own. Someone who says
@@ -293,6 +391,12 @@ export function scoreKind(brief: string): Scores {
   if (appFunction) scores.webapp += 3;
   /* Asked for both halves by name. Nothing else in this file is worth six. */
   if (FULL_STACK.test(m)) scores.webapp += 6;
+
+  /* The sharper site types. Six, the weight of an explicit label plus one,
+     because naming the industry ("a courier company", "a portfolio") is
+     naming the site — but software for that industry is still software. */
+  const sharper = sharperLabel(m);
+  if (sharper) scores[sharper] += 6;
 
   /* ── What a landing page is allowed to be about ──────────────────────────
      The rule this whole file was asked for. Someone who says "landing page"
@@ -351,7 +455,14 @@ export function labelledKind(brief: string): BuildKind | null {
      co-occurs with another kind's noun by nature — "a landing page for my
      online store" carries two labels and means one thing. Every other pair is
      genuine ambiguity and falls through to be weighed. */
-  if (LANDING_EXPLICIT.test(m)) return "landing";
+  if (LANDING_EXPLICIT.test(m)) {
+    /* "A SaaS marketing site" names a landing page and a sharper one in the
+       same breath, and the sharper one is the same shape with more to say.
+       Somebody who wrote "landing page" in so many words still gets one. */
+    const sharper = sharperLabel(m);
+    if (sharper && familyOf(sharper) === "landing" && !/\blanding\b/i.test(m)) return sharper;
+    return "landing";
+  }
 
   /* News before the rest, and before blog in particular. "News blog" and
      "news portal" name two kinds each, and in both the first word is the one
@@ -359,6 +470,12 @@ export function labelledKind(brief: string): BuildKind | null {
      a portal of news is a front page rather than an application. The more
      specific label wins rather than the pair cancelling out. */
   if (NEWS_LABEL.test(m)) return "news";
+
+  /* The sharper site types before the general labels, for the reason news
+     is: "a fintech app" and "a SaaS product website" carry the general word
+     too, and the specific one is what decides the shape. */
+  const sharper = sharperLabel(m);
+  if (sharper) return sharper;
 
   const labelled = [
     ECOMMERCE_LABEL.test(m) ? ("ecommerce" as const) : null,
@@ -406,12 +523,12 @@ export function heuristicKind(brief: string): KindResult | null {
        store with customer accounts, and reading "login" as a demand for a web
        app threw the catalogue, the basket and the checkout away. Only a
        landing page, which has no accounts of its own, is overruled by them. */
-    const accountsFit = demanded === "webapp" && labelled !== "landing";
+    const accountsFit = demanded === "webapp" && familyOf(labelled) !== "landing";
     /* "A landing page whose contact form saves to Supabase" names a database
        and is still one page. Seen in production: a brief that said "one-page
        landing site" and then specified the form's table was read as a web
        app, and the build went to the wrong blueprint. */
-    const storesFormsOnly = labelled === "landing" && demanded === "webapp" && !ACCOUNT_MACHINERY.test(m) && !FULL_STACK.test(m);
+    const storesFormsOnly = familyOf(labelled) === "landing" && demanded === "webapp" && !ACCOUNT_MACHINERY.test(m) && !FULL_STACK.test(m);
     if (demanded && demanded !== labelled && !accountsFit && !storesFormsOnly) {
       return {
         kind: demanded,

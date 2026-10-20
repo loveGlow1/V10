@@ -55,6 +55,7 @@ writeFileSync(
       join(process.cwd(), "src/lib/builder/schema.ts"),
       join(process.cwd(), "src/lib/builder/stack.ts"),
       join(process.cwd(), "src/lib/builder/project-summary.ts"),
+      join(process.cwd(), "src/lib/builder/presets.ts"),
     ],
   }),
 );
@@ -96,6 +97,7 @@ const { dataModelFor, schemaBrief, schemaNameFor, toSql, toTypes } = await impor
   join(out, "lib/builder/schema.js")
 );
 const { decideStack } = await import(join(out, "lib/builder/stack.js"));
+const { presetFor, modulesFor } = await import(join(out, "lib/builder/presets.js"));
 
 let failures = 0;
 
@@ -697,6 +699,31 @@ console.log("\nThe preview");
   if (failures === 0) {
     pass(`${routes.length} routes, ${model.tables.length} tables, escaped, valid HTML`);
   }
+}
+
+console.log("\nThe site types with a blueprint of their own");
+{
+  const check = (ok, what, detail = "") => (ok ? pass(what) : fail(what, detail));
+  const needs = (brief, kind) => decideStack(brief, kind);
+  for (const [kind, brief] of [["fintech", "a fintech site for a savings app"], ["logistics", "a courier company site with parcel tracking"]]) {
+    const { manifest } = decideArchitecture(brief, kind, needs(brief, kind));
+    check(manifest.database && manifest.authentication && manifest.admin, `${kind}: customers sign in to their own data, and staff run it`, JSON.stringify(manifest));
+  }
+  for (const [kind, brief] of [["saas", "a SaaS marketing site for an invoicing product"], ["portfolio", "a portfolio for a product designer"]]) {
+    const { manifest } = decideArchitecture(brief, kind, needs(brief, kind));
+    check(!manifest.database && !manifest.authentication, `${kind}: a page — no database or sign-in unless asked`, JSON.stringify(manifest));
+  }
+  const schema = schemaNameFor("99999999-2222-3333-4444-555555555555");
+  const shipping = { schema, tables: modulesFor(presetFor("", "logistics"), "").tables, buckets: [] };
+  check(
+    toSql(shipping).includes(`create or replace function ${schema}.track_shipment(number text)`) &&
+      toSql(shipping).includes(`grant execute on function ${schema}.track_shipment(text) to anon, authenticated;`),
+    "logistics: anybody tracks by number through track_shipment(), never by reading the table",
+  );
+  check(toTypes(shipping).includes("track_shipment"), "logistics: the generated types know the rpc");
+  check(schemaBrief(shipping).includes('rpc("track_shipment"'), "logistics: the build is told to track through it");
+  const leads = { schema, tables: modulesFor(presetFor("", "saas"), "").tables, buckets: [] };
+  check(!toSql(leads).includes("track_shipment"), "and nothing else gets it");
 }
 
 console.log("\nPublications and stores: roles, workflow, modules");
