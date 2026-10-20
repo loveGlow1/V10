@@ -61,8 +61,11 @@ export function designGate(html: string, dna: DesignDNA | null | undefined): Gat
     [...styles.matchAll(/#[0-9a-f]{3,8}\b/gi)].map((match) => normaliseHex(match[0])),
   );
 
+  /* Both themes: the alternate palette is part of the system, and a page with
+     a theme toggle writes it — the tokens block itself defines it. */
   const allowed = new Set(
-    [dna.color.ground, dna.color.surface, dna.color.ink, dna.color.muted, dna.color.line, dna.color.accent, dna.color.accentInk]
+    [dna.color, dna.inverse]
+      .flatMap((palette) => Object.values(palette))
       .map(normaliseHex),
   );
 

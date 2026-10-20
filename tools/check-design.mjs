@@ -85,8 +85,13 @@ const { contrast, luminance } = await import(join(out, "lib/builder/qa/contrast.
 
 console.log("\nContrast");
 
-for (const system of SYSTEMS) {
-  const { ink, muted, ground, surface, accent, accentInk } = system.color;
+for (const [system, theme, palette] of SYSTEMS.flatMap((system) => [
+  [system, "", system.color],
+  /* The alternate theme a toggle switches to is held to the same floors: a
+     dark mode nobody can read is worse than no dark mode. */
+  [system, " (alternate theme)", system.inverse],
+])) {
+  const { ink, muted, ground, surface, accent, accentInk, success, danger } = palette;
 
   /* Body text carries the whole page, so it is held to AAA rather than to the
      4.5 that merely passes. A generated site is read on laptop screens in
@@ -99,20 +104,28 @@ for (const system of SYSTEMS) {
     /* A button's label. This is the one people get wrong: a mid-tone accent
        with white on it looks fine to the person who chose it and fails. */
     ["accent-ink on accent", contrast(accentInk, accent), 4.5],
+    /* Form feedback is text, and is read at the moment something went wrong. */
+    ["success on ground", contrast(success, ground), 4.5],
+    ["success on surface", contrast(success, surface), 4.5],
+    ["danger on ground", contrast(danger, ground), 4.5],
+    ["danger on surface", contrast(danger, surface), 4.5],
+    /* The accent is the focus ring as well as the button: a non-text
+       indicator, so WCAG's 3:1 for UI components. */
+    ["accent on ground (focus ring)", contrast(accent, ground), 3],
   ];
 
   const bad = checks.filter(([, ratio, floor]) => ratio < floor);
 
   if (bad.length > 0) {
     fail(
-      system.name,
+      system.name + theme,
       bad.map(([what, ratio, floor]) => `${what} is ${ratio}:1, needs ${floor}:1`).join("; "),
     );
     continue;
   }
 
   pass(
-    `${system.name} — ink ${contrast(ink, ground)}:1, muted ${contrast(muted, ground)}:1, button ${contrast(accentInk, accent)}:1`,
+    `${system.name}${theme} — ink ${contrast(ink, ground)}:1, muted ${contrast(muted, ground)}:1, button ${contrast(accentInk, accent)}:1`,
   );
 }
 
@@ -243,6 +256,17 @@ const CASES = [
   /* A brief that names the look beats the register it was inferred from. */
   { register: "clear commercial", kind: "landing", brief: "a dark mode developer tool landing page", expect: "Technical" },
   { register: "catalogue-consistent product photography", kind: "ecommerce", brief: "an elegant editorial jewellery store", expect: "Editorial serif" },
+  /* The industry decides who the page has to convince, and beats the register
+     the pictures were given — a luxury estate agent is not a fashion house. */
+  { register: "clear commercial", kind: "landing", brief: "a wellness retreat in the hills", expect: "Calm sanctuary" },
+  { register: "editorial fashion", kind: "landing", brief: "a boutique hotel by the sea", expect: "Calm sanctuary" },
+  { register: "clear commercial", kind: "landing", brief: "a wealth management firm", expect: "Private capital" },
+  { register: "luxury editorial", kind: "landing", brief: "a luxury real estate agency", expect: "Private capital" },
+  { register: "clear commercial", kind: "landing", brief: "an AI research lab launching its first model", expect: "Luminous dark" },
+  /* Most specific first: a clinic's software is still for a clinic. */
+  { register: "clear commercial", kind: "webapp", brief: "an AI scheduling tool for dental clinics", expect: "Clinical precision" },
+  /* And "ai" inside a word is not AI. */
+  { register: "clear commercial", kind: "landing", brief: "a plumbing company in Mumbai and Hawaii", expect: "Modern commercial" },
   /* And a register nobody recognises still gets a considered answer. */
   { register: "something nobody wrote a rule for", kind: "blog", brief: "a blog", expect: "Press" },
 ];
@@ -299,6 +323,31 @@ for (const system of SYSTEMS) {
 
   if (!css.includes(":root {")) problems.push("no :root block");
   if (!/color-scheme:\s*(light|dark)/.test(css)) problems.push("no color-scheme");
+
+  /* The alternate theme is defined, under the attribute the prompt names,
+     and flips color-scheme with it. */
+  const alternate = isDark(system) ? "light" : "dark";
+  if (!css.includes(`:root[data-theme="${alternate}"]`)) problems.push(`no ${alternate} theme block`);
+  if (!brief.includes(`data-theme="${alternate}"`)) problems.push("the prompt names a different theme attribute");
+
+  /* Motion the prompt promises is motion the stylesheet has, and all of it
+     stands down for a visitor who asked for less. */
+  for (const attribute of ["data-enter", "data-reveal", "data-parallax"]) {
+    if (!brief.includes(attribute) || !css.includes(`[${attribute}]`)) {
+      problems.push(`${attribute} is not in both the prompt and the stylesheet`);
+    }
+  }
+  if (!/prefers-reduced-motion:\s*reduce/.test(css)) problems.push("reduced motion is not honoured");
+  if (/\[data-reveal\][^}]*animation/.test(css.split("prefers-reduced-motion: no-preference")[0])) {
+    problems.push("reveals run outside the no-preference guard");
+  }
+
+  /* The art direction reaches the prompt — it is what makes two systems two
+     compositions rather than one layout in two colours. */
+  for (const [key, text] of Object.entries(system.art)) {
+    if (!text || text.length < 40) problems.push(`art.${key} is missing or too thin to direct anything`);
+    else if (!brief.includes(text)) problems.push(`art.${key} does not reach the prompt`);
+  }
 
   /* The spacing scale in the prompt has to be the one in the file. */
   for (const value of system.space) {
