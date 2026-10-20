@@ -65,6 +65,39 @@ export default function ChoiceSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  /* The page stays where it is while the sheet is up. Without this a drag or
+     a wheel that runs past the end of the list scrolls the page behind it.
+     The body is pinned with position: fixed rather than overflow alone, which
+     iOS Safari ignores, and put back at the same scroll position on close. */
+  useEffect(() => {
+    if (!open) return;
+
+    const { body } = document;
+    const scrollY = window.scrollY;
+    const previous = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      overflow: body.style.overflow,
+    };
+
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.overflow = "hidden";
+
+    return () => {
+      body.style.position = previous.position;
+      body.style.top = previous.top;
+      body.style.left = previous.left;
+      body.style.right = previous.right;
+      body.style.overflow = previous.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
+
   if (!mounted) return null;
 
   return createPortal(
@@ -101,8 +134,11 @@ export default function ChoiceSheet({
               <h3 className="text-[17px] font-semibold tracking-tight text-ink">{title}</h3>
             </div>
 
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pt-1">
-              <div className="overflow-hidden rounded-[18px] bg-layer/[0.06]" role="menu">
+            {/* Only this part scrolls, and every card in it keeps its full height:
+                a flex child is allowed to shrink by default, which squashed the
+                list card to fit and clipped its last rows instead of scrolling. */}
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pt-1 [-webkit-overflow-scrolling:touch]">
+              <div className="shrink-0 overflow-hidden rounded-[18px] bg-layer/[0.06]" role="menu">
                 {rows.map((row, index) => (
                   <button
                     key={row.id}
@@ -138,7 +174,7 @@ export default function ChoiceSheet({
                 <button
                   key={link.id}
                   onClick={link.onClick}
-                  className="flex w-full items-center gap-3 rounded-[18px] bg-layer/[0.06] px-5 py-4 text-left transition-colors hover:bg-layer/[0.09]"
+                  className="flex w-full shrink-0 items-center gap-3 rounded-[18px] bg-layer/[0.06] px-5 py-4 text-left transition-colors hover:bg-layer/[0.09]"
                 >
                   <span className="flex-1 text-[17px] text-ink">{link.label}</span>
                   {link.value && <span className="text-[16px] text-muted">{link.value}</span>}
@@ -146,7 +182,7 @@ export default function ChoiceSheet({
                 </button>
               ))}
 
-              {note && <p className="px-2 pb-1 text-center text-[12.5px] text-muted">{note}</p>}
+              {note && <p className="shrink-0 px-2 pb-1 text-center text-[12.5px] text-muted">{note}</p>}
             </div>
           </motion.div>
         </motion.div>
