@@ -14,6 +14,7 @@ import { useModel } from "../useModel";
 import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
+import { useTheme } from "./ThemeProvider";
 
 interface AccountSettingsModalProps {
   open: boolean;
@@ -171,6 +172,7 @@ export default function AccountSettingsModal({
      It is the models now, from the same provider the two pickers read, which
      is what makes "in use" a fact rather than a claim. */
   const { model, reach } = useModel();
+  const { choice: themeChoice, resolved: resolvedTheme, setChoice: setThemeChoice } = useTheme();
   const [section, setSection] = useState<SectionId>(initialSection ?? "account");
   const { selected: project, rename, remove } = useProjects();
   const [projectDraft, setProjectDraft] = useState("");
@@ -1219,30 +1221,42 @@ export default function AccountSettingsModal({
                     <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                       Appearance
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-3">
+                    {/* The same setting as the switch in the sidebar — one
+                        ThemeProvider, one stored choice — so changing it here
+                        changes it there, and it survives a reload. */}
+                    <div role="radiogroup" aria-label="Appearance" className="mt-3 flex flex-wrap gap-3">
                       {([["light", "Light"], ["dark", "Dark"], ["system", "Follow System"]] as const).map(
                         ([id, label]) => {
-                          const active = id === "dark";
+                          const active = themeChoice === id;
                           return (
                             <div key={id} className="w-[104px]">
                               <button
-                                disabled={!active}
-                                aria-pressed={active}
-                                title={active ? undefined : "QuickStark.Ai is dark-only for now"}
+                                role="radio"
+                                aria-checked={active}
+                                aria-label={label}
+                                onClick={() => setThemeChoice(id)}
                                 className={`flex h-[74px] w-full items-center justify-center rounded-lg border-2 transition-colors ${
                                   active
                                     ? "border-[#4A90E2] bg-panel"
-                                    : "cursor-not-allowed border-line/[0.08] bg-layer/[0.03] opacity-45"
+                                    : "border-line/[0.08] bg-layer/[0.03] hover:border-line/[0.18]"
                                 }`}
                               >
+                                {/* Fixed colours on purpose: each card is a
+                                    picture of a theme, so it must look the same
+                                    whichever theme is drawing it. */}
                                 <span
+                                  aria-hidden
                                   className={`flex h-[46px] w-[76px] flex-col gap-1 rounded p-2 ${
-                                    id === "light" ? "bg-solid" : id === "dark" ? "bg-canvas" : "bg-gradient-to-r from-white to-[#0d0d0f]"
+                                    id === "light"
+                                      ? "bg-[#F4F4F5]"
+                                      : id === "dark"
+                                        ? "bg-[#0d0d0f]"
+                                        : "bg-gradient-to-r from-[#F4F4F5] to-[#0d0d0f]"
                                   }`}
                                 >
-                                  <span className={`h-1 w-8 rounded-full ${id === "light" ? "bg-black/25" : "bg-layer/40"}`} />
-                                  <span className={`h-1 w-12 rounded-full ${id === "light" ? "bg-black/15" : "bg-layer/20"}`} />
-                                  <span className={`h-1 w-10 rounded-full ${id === "light" ? "bg-black/15" : "bg-layer/20"}`} />
+                                  <span className={`h-1 w-8 rounded-full ${id === "dark" ? "bg-white/40" : "bg-black/25"}`} />
+                                  <span className={`h-1 w-12 rounded-full ${id === "dark" ? "bg-white/20" : "bg-black/15"}`} />
+                                  <span className={`h-1 w-10 rounded-full ${id === "dark" ? "bg-white/20" : "bg-black/15"}`} />
                                 </span>
                               </button>
                               <p className={`mt-2 text-center text-[13px] ${active ? "text-ink" : "text-muted"}`}>
@@ -1254,7 +1268,9 @@ export default function AccountSettingsModal({
                       )}
                     </div>
                     <p className="mt-3 text-[13px] text-muted">
-                      QuickStark.Ai is dark-only for now, so the other themes are not selectable yet.
+                      {themeChoice === "system"
+                        ? `Follows your device — ${resolvedTheme} right now, and it changes when your device does.`
+                        : "Saved on this device. Applies everywhere in QuickStark.Ai right away."}
                     </p>
                   </div>
                 )}
