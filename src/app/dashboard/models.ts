@@ -132,6 +132,15 @@ export type Model = {
    * reach, and /api/build refuses it: a locked model is worth money, so the
    * picker is a courtesy and the route is the rule. */
   minPlan?: "free" | "standard" | "pro";
+  /* ── Server-side fallback on a refusal ─────────────────────────────────
+   *
+   * Fable 5.1, Opus 5.5 and Opus 5 run safety classifiers that can decline a
+   * request (stop_reason "refusal"). With `fallbacks: "default"` Anthropic
+   * re-runs the same request on a permitted model inside the same call
+   * (Opus 4.8 or Opus 5), so the person gets an answer instead of a dead end.
+   * Whenever a fallback answers, the thread says so and the charge follows
+   * the model that did the work — see servedBy in builder/edit.ts. */
+  refusalFallback?: boolean;
 };
 
 /** What the picker shows against a model this deployment cannot reach yet. */
@@ -197,6 +206,7 @@ export const MODELS: Model[] = [
     badge: "Top pick",
     note: "5x credits",
     apiId: "claude-fable-5-1",
+    refusalFallback: true,
     maxOutput: 64000,
     contextWindow: 1_000_000,
   },
@@ -215,6 +225,7 @@ export const MODELS: Model[] = [
     badge: "New",
     note: "2x credits",
     apiId: "claude-opus-5-5",
+    refusalFallback: true,
     maxOutput: 64000,
     contextWindow: 1_000_000,
   },
@@ -229,6 +240,7 @@ export const MODELS: Model[] = [
     provider: "claude",
     note: "2.5x credits",
     apiId: "claude-opus-5",
+    refusalFallback: true,
     maxOutput: 64000,
     contextWindow: 1_000_000,
   },

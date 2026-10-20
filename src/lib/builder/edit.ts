@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import Anthropic from "@anthropic-ai/sdk";
 
-import { creditMultiplierFor, modelById } from "@/app/dashboard/models";
+import { MODELS, claudeNameOf, creditMultiplierFor, modelById } from "@/app/dashboard/models";
 
 import {
   PICK_SYSTEM,
@@ -431,6 +433,44 @@ export function lastSentence(text: string): string | null {
   return trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
 }
 
+/* ── Which model actually answered ─────────────────────────────────────
+ *
+ * With a refusal fallback on, a request sent to Fable 5.1 can come back
+ * written by Opus 5 or Opus 4.8. Every call records that here, per request
+ * (the route opens the record with servedLog.enterWith), so the reply can
+ * say who wrote it and the charge can follow the model that did the work. */
+export type Fallback = { from: string; to: string; toApiId: string };
+export const servedLog = new AsyncLocalStorage<{ fallbacks: Fallback[] }>();
+
+/** A fallback this request's calls went through, in words, or "". */
+export function fallbackNote(): string {
+  const last = servedLog.getStore()?.fallbacks.at(-1);
+  return last ? `(${last.from} declined this one for safety reasons, so ${last.to} wrote it instead.)` : "";
+}
+
+/** The catalogue id to charge for, when a fallback did the work instead of `modelId`. */
+export function chargedModel(modelId: string): string {
+  const last = servedLog.getStore()?.fallbacks.at(-1);
+  if (!last) return modelId;
+  const served = MODELS.find((entry) => entry.apiId === last.toApiId)
+    /* Opus 4.8 is not in the picker; it is priced as Opus 5 ($5/$25). */
+    ?? (last.toApiId.startsWith("claude-opus") ? modelById("claude-opus-5") : null);
+  return served && creditMultiplierFor(served.id) < creditMultiplierFor(modelId) ? served.id : modelId;
+}
+
+/* Reads whether a fallback model wrote this response — the documented
+   signal is a `fallback_message` entry in usage.iterations. */
+export function recordServed(message: Anthropic.Message, requested: string): void {
+  const iterations = (message.usage as unknown as { iterations?: { type?: string }[] }).iterations ?? [];
+  if (!iterations.some((entry) => entry?.type === "fallback_message")) return;
+  if (message.stop_reason === "refusal") return;
+  servedLog.getStore()?.fallbacks.push({
+    from: modelById(requested).name,
+    to: claudeNameOf(message.model) ?? message.model,
+    toApiId: message.model,
+  });
+}
+
 async function ask(
   system: string,
   prompt: string,
@@ -470,7 +510,7 @@ async function ask(
        events are the only source of what is happening while it happens. The
        final message is still what the caller gets, so nothing downstream
        changes shape. */
-    const stream = client().messages.stream({
+    const params = {
       model: modelById(model).apiId ?? model,
       max_tokens: maxTokens,
       /* Sent only to a model that takes them. Haiku 4.5 predates both fields
@@ -498,14 +538,25 @@ async function ask(
       messages: [
         ...prior,
         {
-          role: "user",
+          role: "user" as const,
           content:
             attachments.length > 0
               ? [...attachments, { type: "text" as const, text: prompt }]
               : prompt,
         },
       ],
-    });
+    };
+    /* A model with server-side fallback: a refusal is re-run on a permitted
+       model inside the same call rather than ending the turn. The beta
+       messages stream has the same events and final message, so nothing
+       below changes shape. */
+    const stream = modelById(model).refusalFallback
+      ? (client().beta.messages.stream({
+          ...params,
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+        } as unknown as Parameters<ReturnType<typeof client>["beta"]["messages"]["stream"]>[0]) as unknown as ReturnType<ReturnType<typeof client>["messages"]["stream"]>)
+      : client().messages.stream(params);
 
     let stopped = false;
 
@@ -603,7 +654,9 @@ async function ask(
       }
     }
 
-    return await stream.finalMessage();
+    const final = await stream.finalMessage();
+    recordServed(final, model);
+    return final;
   } catch (error) {
     if (error instanceof EditError) throw error;
 
@@ -1109,7 +1162,7 @@ export async function answerQuestion(
 ): Promise<Answer> {
   /* Who is answering, said plainly: asked "which model are you?", it names
      the model that is actually running — never one it guesses at. */
-  const identity = `You are running on ${modelById(model).name}. If asked which AI or model you are, say you are ${modelById(model).name}, working inside QuickStark.Ai — never name a different model or version.`;
+  const identity = `This request was sent to ${modelById(model).name}. If asked which AI or model you are, say you are ${modelById(model).name}, working inside QuickStark.Ai — unless you are a different model answering in its place, in which case name the model you actually are. Never claim to be a model or version you are not.`;
   const message = await ask(
     `${plan ? `${QUESTION_SYSTEM}\n\n${PLAN_ADDENDUM}` : QUESTION_SYSTEM}\n\n${identity}`,
     questionPrompt(userMessage, html),
