@@ -19,9 +19,11 @@ export async function announceFinal(service: SupabaseClient, input: { videoId: s
   try {
     const { data: video } = await service.from("video_projects").select("user_id, title, project_id").eq("id", input.videoId).maybeSingle();
     if (!video?.project_id) return;
-    await service.from("projects").update({ last_build_at: new Date().toISOString() }).eq("id", video.project_id);
     const scenes = input.scenes ? `${input.scenes} scenes joined in order, with the voice and on-screen words. ` : "";
-    await service.from("project_messages").insert({
+    /* Once per cut: the dedupe key is unique per project, so a second call —
+       the board catching a cut that was never announced, say — inserts
+       nothing, and then the preview is not reloaded for nothing either. */
+    const { error } = await service.from("project_messages").insert({
       project_id: video.project_id,
       user_id: video.user_id,
       role: "system",
@@ -31,6 +33,8 @@ export async function announceFinal(service: SupabaseClient, input: { videoId: s
       kind: "build_ready",
       dedupe_key: `video-final:${input.videoId}:${input.version}`,
     });
+    if (error) return;
+    await service.from("projects").update({ last_build_at: new Date().toISOString() }).eq("id", video.project_id);
   } catch {
     /* The video is ready either way; the message is a courtesy. */
   }

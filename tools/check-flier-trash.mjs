@@ -120,6 +120,8 @@ has(/Recently deleted/.test(gallery) && /forever=1/.test(gallery) && /restore: t
   has(build.indexOf("await moveFlierVersion(") > 0 && build.indexOf("await moveFlierVersion(") < build.indexOf("const turn = await startFlierTurn("), "Undo, Redo and versions are moves before anything is designed or charged");
   has(/shown \? \[shown, \.\.\.rows\.filter/.test(ws), "the preview shows the current set first");
   has(/if \(found\.making\) return say\(false/.test(read("src/lib/flyers/versions.ts")), "no move while a new set is being made, so it is never hidden when it lands");
+  has(/label: `image:\$\{index \+ 1\}`, href: imageUrl\(input\.origin, target\.jobId, path\)/.test(read("src/lib/flyers/versions.ts")), "switching to a set puts its images in the chat, each with Download");
+  has(JSON.stringify(sets[0].paths) === JSON.stringify(["p0", "p1", "p2", "p3"]), "a set knows its images still showing");
 }
 
 rmSync(out, { recursive: true, force: true });

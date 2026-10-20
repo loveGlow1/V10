@@ -310,5 +310,20 @@ has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServ
   has(/project\.intent === FLIER_INTENT && service\) \{\s*const moved = await moveFlierVersion\(/.test(build), "Undo on a flier moves between its sets — it designs nothing and charges nothing");
 }
 
+/* The video in the chat, every time. */
+{
+  const announce = readFileSync(join(process.cwd(), "src/lib/video/announce.ts"), "utf8");
+  const stateSrc = readFileSync(join(process.cwd(), "src/lib/video/state.ts"), "utf8");
+  const moves = readFileSync(join(process.cwd(), "src/lib/video/versions.ts"), "utf8");
+  const chat = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+  const row = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/MessageRow.tsx"), "utf8");
+  has(/if \(error\) return;\s*await service\.from\("projects"\)\.update\(\{ last_build_at/.test(announce), "a cut is announced once; a repeat inserts nothing and reloads nothing");
+  has(/video-final:\$\{id\}:\$\{video\.current_version\}/.test(stateSrc) && /if \(!told\) await announceFinal\(/.test(stateSrc), "a cut made but never put in the chat is put there when the video is next looked at");
+  has(/label: "video:1", href: finalVideoUrl\(input\.origin, found\.videoId, move\.to\)/.test(moves), "switching to a made cut puts its MP4 in the chat, with Download");
+  has(/projectIntent !== "video" && projectIntent !== "flier"/.test(chat) && /message\.at > followedTo\.current/.test(chat), "the open chat follows a video's or flier's thread, so late messages appear without a reload");
+  has(/if \(message\.links\?\.length && !next\[at\]\.links\?\.length\) next\[at\] = \{ \.\.\.next\[at\], links: message\.links \}/.test(chat), "a message already showing is not added twice — it is given its media");
+  has(/was deleted\. It stays in Recently deleted/.test(row) && /couldn&apos;t be loaded just now/.test(row), "media that cannot load says why instead of vanishing");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
