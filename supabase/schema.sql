@@ -267,8 +267,13 @@ create table if not exists public.mcp_connections (
   server_id   text not null,
   name        text,
   url         text,
-  api_key     text,
   enabled     boolean not null default true,
+  -- Connected by signing in, never by a pasted key. See
+  -- migrations/20261020180000_mcp_oauth.sql and src/lib/mcp/oauth.ts.
+  auth             text not null default 'none' check (auth in ('none', 'oauth')),
+  oauth_tokens     text,
+  oauth_grant      text,
+  token_expires_at timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   unique (user_id, server_id)
@@ -297,17 +302,15 @@ create policy "Owners delete their MCP connections"
   on public.mcp_connections for delete
   using (auth.uid() = user_id);
 
--- RLS keeps one user out of another's rows, but the owner's own browser could
--- still read the key back — and anything that can run script in that page could
--- read it too. Column privileges make api_key write-only: it can be set and
--- replaced, never selected. The settings pane therefore shows "Connected"
--- rather than the key itself, which is all it needs.
+-- RLS keeps one user out of another's rows; column privileges keep the sealed
+-- OAuth tokens out of every browser, the owner's included. The pane reads
+-- `auth` and `token_expires_at` to say "Connected", which is all it needs.
 revoke all on public.mcp_connections from anon, authenticated;
-grant select (id, user_id, server_id, name, url, enabled, created_at, updated_at)
+grant select (id, user_id, server_id, name, url, enabled, auth, token_expires_at, created_at, updated_at)
   on public.mcp_connections to authenticated;
-grant insert (user_id, server_id, name, url, api_key, enabled)
+grant insert (user_id, server_id, name, url, enabled)
   on public.mcp_connections to authenticated;
-grant update (server_id, name, url, api_key, enabled)
+grant update (name, url, enabled)
   on public.mcp_connections to authenticated;
 grant delete on public.mcp_connections to authenticated;
 
@@ -1007,11 +1010,9 @@ revoke all on function public.set_updated_at() from public, anon, authenticated;
 -- may see.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- mcp_connections.api_key holds third-party keys. The app writes it and never
--- reads it back (AccountSettingsModal selects server_id, name, url, enabled),
--- so making it write-only over the API costs nothing and means a stored key
--- cannot be fetched again through PostgREST. service_role still reads it.
-revoke select (api_key) on public.mcp_connections from anon, authenticated;
+-- mcp_connections' sealed OAuth columns (oauth_tokens, oauth_grant) are never
+-- granted to a browser role at all — see the grants beside the table. Only the
+-- service role reads or writes them, in /api/integrations/mcp.
 
 -- rls_auto_enable() is SECURITY DEFINER maintenance tooling, and nothing in the
 -- app calls it. Postgres grants EXECUTE on a new function to PUBLIC, so
@@ -2057,7 +2058,7 @@ grant update (
 -- db_url is not. It is a Postgres superuser connection string — the database
 -- with row-level security irrelevant — and it exists for one purpose: applying
 -- this project's migration. So it is write-only at the column level, the same
--- way mcp_connections.api_key is: its owner can set and replace it, and nobody
+-- way a secret column should be: its owner can set and replace it, and nobody
 -- can read it back, including them. Only the service role reads it, on the
 -- server, in provision.ts.
 -- ─────────────────────────────────────────────────────────────────────────────

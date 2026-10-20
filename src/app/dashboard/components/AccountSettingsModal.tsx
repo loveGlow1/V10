@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Bot, Building2, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Activity, Bot, Building2, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, LogIn, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
@@ -13,6 +13,7 @@ import { MODELS } from "../models";
 import { useModel } from "../useModel";
 import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 interface AccountSettingsModalProps {
   open: boolean;
@@ -26,6 +27,8 @@ interface AccountSettingsModalProps {
   /** Which tab of the Agents pane opens — Home's "Select MCP Tools" asks for
       "mcp". Absent leaves the tab where it was. */
   initialAgentTab?: AgentTab;
+  /** How an MCP sign-in that just returned went — see MCP_NOTICES. */
+  mcpNotice?: { reason: string; serverId: string | null } | null;
 }
 
 export type AgentTab = "main" | "sub" | "mcp";
@@ -74,69 +77,55 @@ type Transaction = {
    from this the moment a billing service fills it. */
 const TRANSACTIONS: Transaction[] = [];
 
-type McpDraft = { serverId: string; name: string; url: string; apiKey: string };
+/* A custom server is a name and an address. There is no key field: connecting
+   means signing in on the server's own page — see src/lib/mcp/oauth.ts. */
+type McpDraft = { name: string; url: string };
 
 type McpFormProps = {
-  custom: boolean;
   draft: McpDraft;
   onChange: (draft: McpDraft) => void;
   onCancel: () => void;
-  onSave: () => void;
-  onDisconnect?: () => void;
+  onConnect: () => void;
   busy: boolean;
 };
 
 const FIELD =
   "mt-1.5 h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink placeholder:text-faint outline-none focus-visible:border-line/25";
 
-function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy }: McpFormProps) {
+function McpForm({ draft, onChange, onCancel, onConnect, busy }: McpFormProps) {
   return (
     <div className="mb-1 rounded-xl border border-line/[0.09] bg-layer/[0.03] p-4">
-      {custom && (
-        <>
-          <label className="block text-[13px] text-soft">
-            Name
-            <input
-              value={draft.name}
-              onChange={(e) => onChange({ ...draft, name: e.target.value })}
-              placeholder="My MCP server"
-              className={FIELD}
-            />
-          </label>
-          <label className="mt-3 block text-[13px] text-soft">
-            Server URL
-            <input
-              value={draft.url}
-              onChange={(e) => onChange({ ...draft, url: e.target.value })}
-              placeholder="https://example.com/mcp"
-              className={FIELD}
-            />
-          </label>
-        </>
-      )}
-      <label className="mt-3 block text-[13px] text-soft">
-        API key{custom && <span className="text-faint"> (optional)</span>}
+      <label className="block text-[13px] text-soft">
+        Name
         <input
-          type="password"
-          value={draft.apiKey}
-          onChange={(e) => onChange({ ...draft, apiKey: e.target.value })}
-          placeholder="Paste the key"
+          value={draft.name}
+          onChange={(e) => onChange({ ...draft, name: e.target.value })}
+          placeholder="My MCP server"
+          className={FIELD}
+        />
+      </label>
+      <label className="mt-3 block text-[13px] text-soft">
+        Server URL
+        <input
+          type="url"
+          inputMode="url"
+          value={draft.url}
+          onChange={(e) => onChange({ ...draft, url: e.target.value })}
+          placeholder="https://example.com/mcp"
           autoComplete="off"
           className={FIELD}
         />
       </label>
-      {/* The key is write-only in the database, so it cannot be shown back here
-          once saved — replacing it means pasting a new one. */}
       <p className="mt-2 text-[12px] text-faint">
-        Stored against your account and never read back into the browser.
+        You will sign in on the server&apos;s own page. No key is pasted or stored in your browser.
       </p>
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
-          onClick={onSave}
+          onClick={onConnect}
           disabled={busy}
           className="rounded-lg bg-solid px-3.5 py-1.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Connecting…" : "Connect"}
         </button>
         <button
           onClick={onCancel}
@@ -144,19 +133,22 @@ function McpForm({ custom, draft, onChange, onCancel, onSave, onDisconnect, busy
         >
           Cancel
         </button>
-        {onDisconnect && (
-          <button
-            onClick={onDisconnect}
-            disabled={busy}
-            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
-          >
-            Disconnect
-          </button>
-        )}
       </div>
     </div>
   );
 }
+
+/* What the sign-in round trip came back with, in words. */
+const MCP_NOTICES: Record<string, { tone: "ok" | "error"; text: string }> = {
+  connected: { tone: "ok", text: "Connected." },
+  cancelled: { tone: "error", text: "Sign-in was cancelled. Nothing was connected." },
+  expired: { tone: "error", text: "That sign-in took too long or was started elsewhere. Try again." },
+  failed: { tone: "error", text: "The server did not issue a token. Try again." },
+  unreachable: { tone: "error", text: "That server could not be reached, or did not say where to sign in." },
+  "no-oauth": { tone: "error", text: "That server does not let apps sign in to it automatically." },
+  unavailable: { tone: "error", text: "Sign-in for this server is not set up on this deployment yet." },
+  invalid: { tone: "error", text: "That server is not one you have added." },
+};
 
 export default function AccountSettingsModal({
   open,
@@ -165,6 +157,7 @@ export default function AccountSettingsModal({
   credits,
   initialSection,
   initialAgentTab,
+  mcpNotice = null,
 }: AccountSettingsModalProps) {
   /* Read here rather than passed in, and that is the point of the change.
    *
@@ -196,6 +189,10 @@ export default function AccountSettingsModal({
   const [agentTab, setAgentTab] = useState<AgentTab>(initialAgentTab ?? "main");
   const [mcpEnabled, setMcpEnabled] = useState<string[]>([]);
   const [mcpCustom, setMcpCustom] = useState<{ server_id: string; name: string; url: string }[]>([]);
+  /* Signed in, per server id: an OAuth row with tokens behind it. Separate from
+     `mcpEnabled` because a row can exist without being signed in — a custom
+     server saved and then abandoned on the provider's page. */
+  const [mcpSignedIn, setMcpSignedIn] = useState<string[]>([]);
   const [configuring, setConfiguring] = useState<McpDraft | null>(null);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
@@ -203,6 +200,10 @@ export default function AccountSettingsModal({
   useEffect(() => {
     if (!open) setEmailRevealed(false);
   }, [open]);
+
+  /* The page behind stays put while settings are open — on a phone a drag
+     past the end of a pane otherwise scrolls Home underneath. */
+  useBodyScrollLock(open);
 
   /* Each opening starts where the caller asked for and with the project pane
      back at rest — a half-typed rename or an armed delete button left over from
@@ -315,7 +316,7 @@ export default function AccountSettingsModal({
     if (!isSupabaseConfigured) return;
     const { data, error } = await createSupabaseBrowserClient()
       .from("mcp_connections")
-      .select("server_id, name, url, enabled");
+      .select("server_id, name, url, enabled, auth");
 
     if (error) {
       setMcpError(describeMcpError(error));
@@ -324,6 +325,7 @@ export default function AccountSettingsModal({
     const rows = data ?? [];
     setMcpError(null);
     setMcpEnabled(rows.filter((row) => row.enabled).map((row) => row.server_id as string));
+    setMcpSignedIn(rows.filter((row) => row.enabled && row.auth === "oauth").map((row) => row.server_id as string));
     setMcpCustom(
       rows
         .filter((row) => String(row.server_id).startsWith("custom:"))
@@ -341,30 +343,57 @@ export default function AccountSettingsModal({
   }, [open, section, agentTab, loadMcpConnections]);
 
   /* Catalogue first, then whatever the user added by hand, so both render
-     through the same row. */
+     through the same row. A custom server is connected once the connect route
+     has signed it in or found it open — never because a row exists. */
   const mcpRows: { server: McpServer; connected: boolean }[] = [
     ...MCP_SERVERS,
-    ...mcpCustom.map((row) => ({
-      id: row.server_id,
-      name: row.name,
-      description: row.url || "Custom MCP server",
-      needsKey: true,
-      path: null,
-      tint: "bg-layer/[0.06]",
-      color: "text-soft",
-    })),
-  ].map((server) => ({ server, connected: mcpEnabled.includes(server.id) }));
+    ...mcpCustom.map(
+      (row): McpServer => ({
+        id: row.server_id,
+        name: row.name,
+        description: row.url || "Custom MCP server",
+        auth: "oauth",
+        url: row.url,
+        path: null,
+        tint: "bg-layer/[0.06]",
+        color: "text-soft",
+      }),
+    ),
+  ].map((server) => ({
+    server,
+    connected:
+      server.auth === "none" || server.id.startsWith("custom:")
+        ? mcpEnabled.includes(server.id)
+        : mcpSignedIn.includes(server.id),
+  }));
 
-  async function saveMcpConnection() {
+  /* The word on a sign-in that just came back, named for the server it was. */
+  const notice = (() => {
+    if (!mcpNotice) return null;
+    const said = MCP_NOTICES[mcpNotice.reason] ?? { tone: "error" as const, text: "Something went wrong. Try again." };
+    const row = mcpRows.find(({ server }) => server.id === mcpNotice.serverId);
+    return { ...said, server: row?.server.name ?? null };
+  })();
+
+  /* Signing in is a page of the provider's, so this is a navigation, not a
+     fetch: the authorize route discovers the server's sign-in, registers with
+     it and redirects. It comes back to Home with this tab open. */
+  function signInToMcp(serverId: string) {
+    setMcpBusy(serverId);
+    setMcpError(null);
+    window.location.assign(`/api/integrations/mcp/authorize?server=${encodeURIComponent(serverId)}`);
+  }
+
+  async function connectCustomServer() {
     if (!configuring || !isSupabaseConfigured) return;
-    const isCustom = configuring.serverId === "";
-
-    if (isCustom && (!configuring.name.trim() || !configuring.url.trim())) {
+    const name = configuring.name.trim();
+    const url = configuring.url.trim();
+    if (!name || !url) {
       setMcpError("A custom server needs a name and a URL.");
       return;
     }
-    if (!isCustom && !configuring.apiKey.trim()) {
-      setMcpError("Paste the key for this server first.");
+    if (!/^https:\/\/[^\s/]+/i.test(url)) {
+      setMcpError("The server URL must start with https://.");
       return;
     }
     if (!account.id) {
@@ -372,31 +401,20 @@ export default function AccountSettingsModal({
       return;
     }
 
-    const serverId = isCustom ? `custom:${crypto.randomUUID()}` : configuring.serverId;
-    setMcpBusy(isCustom ? "new" : serverId);
+    /* Saved switched off: it becomes connected only when the sign-in (or the
+       server's own answer that it needs none) comes back. */
+    const serverId = `custom:${crypto.randomUUID()}`;
+    setMcpBusy("new");
     setMcpError(null);
-
     const { error } = await createSupabaseBrowserClient()
       .from("mcp_connections")
-      .upsert(
-        {
-          user_id: account.id,
-          server_id: serverId,
-          name: isCustom ? configuring.name.trim() : null,
-          url: isCustom ? configuring.url.trim() : null,
-          api_key: configuring.apiKey.trim() || null,
-          enabled: true,
-        },
-        { onConflict: "user_id,server_id" },
-      );
-
-    setMcpBusy(null);
+      .insert({ user_id: account.id, server_id: serverId, name, url, enabled: false });
     if (error) {
+      setMcpBusy(null);
       setMcpError(describeMcpError(error));
       return;
     }
-    setConfiguring(null);
-    await loadMcpConnections();
+    signInToMcp(serverId);
   }
 
   async function removeMcpConnection(serverId: string) {
@@ -414,12 +432,10 @@ export default function AccountSettingsModal({
       setMcpError(describeMcpError(error));
       return;
     }
-    setConfiguring(null);
     await loadMcpConnections();
   }
 
-  /* Servers that need no key are a straight on/off, so enabling one is the
-     whole configuration. */
+  /* A server with nothing to sign in to is a straight on/off. */
   async function toggleMcpServer(serverId: string, enable: boolean) {
     if (!enable) {
       await removeMcpConnection(serverId);
@@ -1062,7 +1078,7 @@ export default function AccountSettingsModal({
                         <button
                           onClick={() => {
                             setMcpError(null);
-                            setConfiguring({ serverId: "", name: "", url: "", apiKey: "" });
+                            setConfiguring({ name: "", url: "" });
                           }}
                           className="flex w-full items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-layer/[0.06]"
                         >
@@ -1075,15 +1091,26 @@ export default function AccountSettingsModal({
                           </span>
                         </button>
 
-                        {configuring?.serverId === "" && (
+                        {configuring && (
                           <McpForm
-                            custom
                             draft={configuring}
                             onChange={setConfiguring}
                             onCancel={() => setConfiguring(null)}
-                            onSave={saveMcpConnection}
+                            onConnect={connectCustomServer}
                             busy={mcpBusy === "new"}
                           />
+                        )}
+
+                        {notice && (
+                          <p
+                            role="status"
+                            className={`rounded-lg px-3 py-2 text-[13px] ${
+                              notice.tone === "ok" ? "bg-accent/10 text-accent" : "bg-danger/10 text-danger"
+                            }`}
+                          >
+                            {notice.server ? `${notice.server}: ` : ""}
+                            {notice.text}
+                          </p>
                         )}
 
                         {mcpRows.map(({ server, connected }) => (
@@ -1108,10 +1135,10 @@ export default function AccountSettingsModal({
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <p className="truncate text-sm text-ink">{server.name}</p>
-                                  {server.needsKey && !connected && (
+                                  {server.auth === "oauth" && !connected && (
                                     <span className="flex shrink-0 items-center gap-1 rounded-md bg-layer/[0.07] px-1.5 py-0.5 text-[11px] text-soft">
-                                      <KeyRound className="h-3 w-3" />
-                                      Key needed
+                                      <LogIn className="h-3 w-3" />
+                                      Sign-in needed
                                     </span>
                                   )}
                                   {connected && (
@@ -1124,23 +1151,31 @@ export default function AccountSettingsModal({
                                 <p className="truncate text-[13px] text-muted">{server.description}</p>
                               </div>
 
-                              {server.needsKey ? (
-                                <button
-                                  onClick={() => {
-                                    setMcpError(null);
-                                    setConfiguring({ serverId: server.id, name: "", url: "", apiKey: "" });
-                                  }}
-                                  className="flex shrink-0 items-center gap-2 rounded-lg border border-line/[0.09] bg-layer/[0.05] px-3 py-1.5 text-[13px] text-ink transition-colors hover:bg-layer/[0.09]"
-                                >
-                                  <Settings className="h-3.5 w-3.5" />
-                                  Configure
-                                </button>
+                              {server.auth === "oauth" ? (
+                                connected ? (
+                                  <button
+                                    onClick={() => removeMcpConnection(server.id)}
+                                    disabled={mcpBusy === server.id}
+                                    className="shrink-0 rounded-lg border border-line/[0.09] bg-layer/[0.05] px-3 py-2 text-[13px] text-ink transition-colors hover:bg-layer/[0.09] disabled:opacity-50"
+                                  >
+                                    {mcpBusy === server.id ? "Disconnecting…" : "Disconnect"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => signInToMcp(server.id)}
+                                    disabled={mcpBusy === server.id}
+                                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-transparent bg-solid px-3 py-2 text-[13px] text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
+                                  >
+                                    <LogIn className="h-3.5 w-3.5" />
+                                    {mcpBusy === server.id ? "Opening…" : "Sign in"}
+                                  </button>
+                                )
                               ) : (
                                 <button
                                   onClick={() => toggleMcpServer(server.id, !connected)}
                                   disabled={mcpBusy === server.id}
                                   aria-pressed={connected}
-                                  className={`shrink-0 rounded-lg border px-3 py-1.5 text-[13px] transition-colors disabled:opacity-50 ${
+                                  className={`shrink-0 rounded-lg border px-3 py-2 text-[13px] transition-colors disabled:opacity-50 ${
                                     connected
                                       ? "border-line/[0.09] bg-layer/[0.05] text-ink hover:bg-layer/[0.09]"
                                       : "border-transparent bg-solid text-onSolid hover:bg-layer/90"
@@ -1150,18 +1185,6 @@ export default function AccountSettingsModal({
                                 </button>
                               )}
                             </div>
-
-                            {configuring?.serverId === server.id && (
-                              <McpForm
-                                custom={false}
-                                draft={configuring}
-                                onChange={setConfiguring}
-                                onCancel={() => setConfiguring(null)}
-                                onSave={saveMcpConnection}
-                                onDisconnect={connected ? () => removeMcpConnection(server.id) : undefined}
-                                busy={mcpBusy === server.id}
-                              />
-                            )}
                           </div>
                         ))}
 

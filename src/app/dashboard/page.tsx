@@ -38,6 +38,7 @@ import { ProviderMark } from "./components/workspace/modelMarks";
 import type { LucideIcon } from "lucide-react";
 import type { BuildKind } from "@/lib/builder/kinds";
 import { fitComposer } from "@/lib/composer-height";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import {
   CATEGORY_LABEL,
   CATEGORY_NOTE,
@@ -238,6 +239,23 @@ export default function DashboardPage() {
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
+  /* Back from signing in to an MCP server (?mcp=…&server=…): Settings opens on
+     the MCP tab saying how it went, and the parameters leave the address bar so
+     a reload does not say it again. */
+  const [mcpNotice, setMcpNotice] = useState<{ reason: string; serverId: string | null } | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const reason = url.searchParams.get("mcp");
+    if (!reason) return;
+    setMcpNotice({ reason, serverId: url.searchParams.get("server") });
+    setSettingsSection("agents");
+    setSettingsAgentTab("mcp");
+    setAccountSettingsOpen(true);
+    url.searchParams.delete("mcp");
+    url.searchParams.delete("server");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   // Agent Selector State & Data. The agent list is what a phone chooses from:
   // the sheet has the room for it and the bar has not, so Q1 stays the mobile
   // control while a pointer gets the model picker below.
@@ -288,6 +306,8 @@ export default function DashboardPage() {
      other two are sent with the first message as `stack`, which /api/build
      already takes as the answer and stops asking. */
   const [stackChoice, setStackChoice] = useState<StackChoice>("auto");
+  /* A phone must not scroll the page behind the dialog. */
+  useBodyScrollLock(isAdvancedModalOpen);
   useEffect(() => {
     if (!isAdvancedModalOpen) return;
     const onKey = (event: KeyboardEvent) => {
@@ -528,6 +548,7 @@ export default function DashboardPage() {
         onClose={() => {
           setAccountSettingsOpen(false);
           setSettingsAgentTab(undefined);
+          setMcpNotice(null);
         }}
         onUpgradeClick={() => {
           setAccountSettingsOpen(false);
@@ -536,6 +557,7 @@ export default function DashboardPage() {
         credits={credits}
         initialSection={settingsSection}
         initialAgentTab={settingsAgentTab}
+        mcpNotice={mcpNotice}
       />
       <SupportChat />
       <ImportFromGitHub open={importOpen} onClose={() => setImportOpen(false)} onUpgrade={() => setBillingOpen(true)} />
@@ -1094,7 +1116,7 @@ export default function DashboardPage() {
       <AnimatePresence>
         {isAdvancedModalOpen && (
           <div
-            className="fixed inset-0 z-50 flex justify-center overflow-y-auto overscroll-contain bg-black/70 backdrop-blur-xl p-4"
+            className="fixed inset-0 z-50 flex justify-center overflow-y-auto overscroll-contain bg-black/70 backdrop-blur-xl sm:p-4"
             onClick={(event) => {
               if (event.target === event.currentTarget) setIsAdvancedModalOpen(false);
             }}
@@ -1107,14 +1129,16 @@ export default function DashboardPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="my-auto w-full max-w-md bg-panel border border-line/[0.08] rounded-[24px] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl space-y-5"
+              /* A sheet from the foot of the screen on a phone, like the model
+                 and template sheets it opens; a centred card from sm up. */
+              className="mt-auto w-full max-w-md space-y-5 rounded-t-[24px] border border-b-0 border-line/[0.08] bg-panel p-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl sm:my-auto sm:rounded-[24px] sm:border-b sm:pb-5"
             >
               <div className="flex items-center justify-between pb-1">
                 <h3 className="text-base font-semibold text-ink tracking-tight">Advanced Controls</h3>
                 <button
                   onClick={() => setIsAdvancedModalOpen(false)}
                   aria-label="Close"
-                  className="w-8 h-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
+                  className="h-10 w-10 sm:h-8 sm:w-8 rounded-full bg-layer/[0.04] border border-line/[0.06] flex items-center justify-center text-ink/70 hover:text-ink hover:bg-layer/[0.08] transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1146,7 +1170,8 @@ export default function DashboardPage() {
                     onClick={toggleMaxx}
                     disabled={!maxxModel || (!maxxOn && !maxxGate?.ok)}
                     title={!maxxOn && maxxGate && !maxxGate.ok ? maxxGate.label : undefined}
-                    className={`w-11 h-6 shrink-0 rounded-full transition-colors relative p-0.5 disabled:cursor-not-allowed disabled:opacity-45 ${maxxOn ? "bg-accent" : "bg-layer/20"}`}
+                    /* 24px tall to look at, 44px to hit: the ::after widens the target. */
+                    className={`w-11 h-6 shrink-0 rounded-full transition-colors relative p-0.5 after:absolute after:-inset-x-2 after:-inset-y-[10px] after:content-[''] disabled:cursor-not-allowed disabled:opacity-45 ${maxxOn ? "bg-accent" : "bg-layer/20"}`}
                   >
                     <div className={`w-5 h-5 rounded-full bg-black transition-transform ${maxxOn ? "translate-x-5" : "translate-x-0"}`} />
                   </button>

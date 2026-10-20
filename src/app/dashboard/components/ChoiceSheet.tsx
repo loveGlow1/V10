@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 /* A list to pick one thing from, as a sheet that rises from the foot of the
    screen: a handle, a close on the left and the title centred, the choices in
@@ -65,38 +66,8 @@ export default function ChoiceSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  /* The page stays where it is while the sheet is up. Without this a drag or
-     a wheel that runs past the end of the list scrolls the page behind it.
-     The body is pinned with position: fixed rather than overflow alone, which
-     iOS Safari ignores, and put back at the same scroll position on close. */
-  useEffect(() => {
-    if (!open) return;
-
-    const { body } = document;
-    const scrollY = window.scrollY;
-    const previous = {
-      position: body.style.position,
-      top: body.style.top,
-      left: body.style.left,
-      right: body.style.right,
-      overflow: body.style.overflow,
-    };
-
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.left = "0";
-    body.style.right = "0";
-    body.style.overflow = "hidden";
-
-    return () => {
-      body.style.position = previous.position;
-      body.style.top = previous.top;
-      body.style.left = previous.left;
-      body.style.right = previous.right;
-      body.style.overflow = previous.overflow;
-      window.scrollTo(0, scrollY);
-    };
-  }, [open]);
+  /* The page stays where it is while the sheet is up — see the hook. */
+  useBodyScrollLock(open);
 
   if (!mounted) return null;
 
