@@ -188,11 +188,14 @@ export const MODELS: Model[] = [
     /* Every paid plan reaches every model; only an account that has never
        paid is held to Sonnet and Haiku. See modelPlanFor in credits.ts. */
     minPlan: "standard",
-    name: "Claude Fable 5",
+    /* Named for the model it calls. The id stays "claude-fable-5" so a choice
+       saved before 5.1 still resolves; the label is what a person is told
+       they are getting, and it must be the model that answers. */
+    name: "Claude Fable 5.1",
     blurb: "Highest intelligence available",
     provider: "claude",
     badge: "Top pick",
-    note: "2x costlier",
+    note: "5x credits",
     apiId: "claude-fable-5-1",
     maxOutput: 64000,
     contextWindow: 1_000_000,
@@ -210,6 +213,7 @@ export const MODELS: Model[] = [
     blurb: "The newest Opus: peak intelligence, lower cost",
     provider: "claude",
     badge: "New",
+    note: "2x credits",
     apiId: "claude-opus-5-5",
     maxOutput: 64000,
     contextWindow: 1_000_000,
@@ -223,6 +227,7 @@ export const MODELS: Model[] = [
     name: "Claude Opus 5",
     blurb: "Peak intelligence for ambitious apps",
     provider: "claude",
+    note: "2.5x credits",
     apiId: "claude-opus-5",
     maxOutput: 64000,
     contextWindow: 1_000_000,
@@ -249,7 +254,7 @@ export const MODELS: Model[] = [
     name: "Claude Haiku 4.5",
     blurb: "Fastest, for small edits",
     provider: "claude",
-    apiId: "claude-haiku-4-5-20251001",
+    apiId: "claude-haiku-4-5",
     maxOutput: 64000,
     contextWindow: 200_000,
   },
@@ -338,6 +343,16 @@ export const DEFAULT_MODEL = MODELS[0].id;
  * window can hold it. The balance does not enter into it. See editModelFor in
  * src/lib/builder/edit.ts. */
 export const AUTO_MODEL = "claude-sonnet-5";
+
+/** The name a Claude model's API id stands for — "claude-opus-5-5" is
+    "Claude Opus 5.5". What a picker row says must be this, so the model a
+    person picks is the model that answers. Null for anything else. Pure. */
+export function claudeNameOf(apiId: string): string | null {
+  const match = /^claude-([a-z]+)-(\d+)(?:-(\d+))?$/.exec(apiId);
+  if (!match) return null;
+  const family = match[1].charAt(0).toUpperCase() + match[1].slice(1);
+  return `Claude ${family} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+}
 
 export function modelById(id: string) {
   return MODELS.find((model) => model.id === id) ?? MODELS[0];

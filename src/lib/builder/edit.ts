@@ -1107,8 +1107,11 @@ export async function answerQuestion(
   /* Plan mode: the same reader, asked for a plan of the change instead. */
   plan = false,
 ): Promise<Answer> {
+  /* Who is answering, said plainly: asked "which model are you?", it names
+     the model that is actually running — never one it guesses at. */
+  const identity = `You are running on ${modelById(model).name}. If asked which AI or model you are, say you are ${modelById(model).name}, working inside QuickStark.Ai — never name a different model or version.`;
   const message = await ask(
-    plan ? `${QUESTION_SYSTEM}\n\n${PLAN_ADDENDUM}` : QUESTION_SYSTEM,
+    `${plan ? `${QUESTION_SYSTEM}\n\n${PLAN_ADDENDUM}` : QUESTION_SYSTEM}\n\n${identity}`,
     questionPrompt(userMessage, html),
     1_500,
     attachments,

@@ -247,6 +247,7 @@ import {
   DEFAULT_MODEL,
   PROVIDER_LABEL,
   creditMultiplierFor,
+  modelById,
   resolveModel,
 } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
@@ -1114,6 +1115,10 @@ async function handle(
    * Null for "auto" and for no choice at all, and the heuristics then decide
    * exactly as they did before. Auto is still the default and still the thing
    * most people should leave it on. */
+  /* Why a picked model could not run this turn — said in the thread before
+     the work starts, so nobody believes a change was made by a model that
+     did not make it. See the notice after intent is settled. */
+  let editModelDeclined: { picked: string; why: string } | null = null;
   const pickedEditModel = (() => {
     const asked = typeof body.model === "string" ? body.model.trim() : "";
     if (!asked || asked === "auto") return null;
@@ -1122,13 +1127,19 @@ async function handle(
     if (!picked) return null;
 
     const plan = balance?.modelPlanId ?? "free";
-    if (!modelAllowedOnPlan(picked, plan)) return null;
+    if (!modelAllowedOnPlan(picked, plan)) {
+      editModelDeclined = { picked: picked.name, why: "your plan doesn't include it" };
+      return null;
+    }
 
     /* Priced as what an edit actually is — a chat action, which is how this
        route charges for one everywhere else. Gating it behind a BUILD's door
        would refuse a model somebody can comfortably afford to make one small
        change with, which is the rigidity again wearing a different hat. */
-    if (balance && !canAfford(balance, creditCostOf("chat", { modelId: picked.id }))) return null;
+    if (balance && !canAfford(balance, creditCostOf("chat", { modelId: picked.id }))) {
+      editModelDeclined = { picked: picked.name, why: "your balance doesn't cover a change on it" };
+      return null;
+    }
 
     return picked.id;
   })();
@@ -1510,6 +1521,16 @@ async function handle(
       : addingTo
         ? "new_project"
         : routedIntent;
+  /* The picked model could not run this edit or answer: say which one does,
+     before it does — the same honesty a build gets when it steps down. */
+  const declined = editModelDeclined as { picked: string; why: string } | null;
+  if (declined && (intent === "edit" || intent === "question" || intent === "clarify")) {
+    await deliver(
+      `You picked ${declined.picked}, but ${declined.why}, so this ${intent === "edit" ? "change" : "answer"} runs on ${modelById(editModel).name}. Top up or change plan to use ${declined.picked}.`,
+      { key: `model-declined:${requestId}` },
+    );
+  }
+
   if (upgradeBase) {
     steps.mark(
       "upgrade",

@@ -344,6 +344,24 @@ try {
     "Auto has nothing cheaper to step down to",
   );
 
+  /* ── A picked model is the model that answers ───────────────────────────
+     The label a person picks must name the model actually called — the row
+     once said "Claude Fable 5" and called claude-fable-5-1. And a picker
+     note about cost must match what the credits actually charge. */
+  for (const model of models.MODELS.filter((entry) => entry.provider === "claude")) {
+    has(models.claudeNameOf(model.apiId) === model.name, `${model.name} calls the model its label names`, `label "${model.name}" but calls ${model.apiId} (${models.claudeNameOf(model.apiId)})`);
+    has(!/-\d{8}$/.test(model.apiId), `${model.name} calls the canonical id, not a dated snapshot`, model.apiId);
+    if (model.note && /x credits/.test(model.note)) {
+      has(model.note === `${model.creditMultiplier}x credits`, `${model.name}'s cost note matches what it charges`, `${model.note} vs ${model.creditMultiplier}x`);
+    }
+  }
+  {
+    const edit = readFileSync(join(process.cwd(), "src/lib/builder/edit.ts"), "utf8");
+    const route = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
+    has(/You are running on \$\{modelById\(model\)\.name\}/.test(edit), "an answer names the model actually running if asked which model it is");
+    has(/editModelDeclined = \{ picked: picked\.name, why: "your plan doesn't include it" \}/.test(route) && /You picked \$\{declined\.picked\}, but \$\{declined\.why\}/.test(route), "a picked model that cannot run an edit is said so, with the model that does");
+  }
+
   /* ── Reasoning fields go only to models that take them ──────────────────
      Haiku 4.5 predates adaptive thinking and answers output_config.effort with
      a 400 rather than ignoring it. Sending one body to every model is how the
