@@ -6,6 +6,7 @@ import { Activity, Bot, Building2, CalendarDays, Check, ChevronDown, Coins, Cred
 
 import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
+import { WhatsAppConnect } from "./WhatsAppConnect";
 import { MCP_SERVERS, type McpServer } from "../mcpServers";
 import { useProjects } from "../ProjectsContext";
 import { MODELS } from "../models";
@@ -805,6 +806,21 @@ export default function AccountSettingsModal({ open, onClose, onUpgradeClick, cr
                           </button>
                         )}
                       </Row>
+
+                      {/* Not a Row: Row is declared inside this component, so it
+                          remounts its children on every render, and the code
+                          on screen would vanish mid-link. */}
+                      <div className="flex items-center justify-between gap-6 py-4">
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-medium text-ink">WhatsApp</p>
+                          <p className="mt-0.5 text-[13px] text-muted">
+                            Link your number to ask our WhatsApp assistant about your plan, credits and projects. It can only read them.
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          <WhatsAppConnect />
+                        </div>
+                      </div>
 
                       <Row title="Support code" description="Share this with our support team if they ask for it.">
                         {supportCode ? (
