@@ -514,9 +514,12 @@ export default function DashboardPage() {
         <div className={`relative w-[min(750px,calc(100vw-32px))] md:mt-7 md:w-[min(750px,calc(100vw-40px))] ${videoMode ? "mt-3" : "mt-14"}`} ref={popoverRef}>
           {/* Target tabs. From md up they are fused to the canvas below them;
               on a phone they are a row of pills standing apart from it, only
-              the selected one carrying its name. The top padding is room for
-              the New badge, which sits over its pill's edge there. */}
-          <div className="relative z-40 flex items-end gap-2.5 overflow-x-auto px-0.5 pb-3 pt-3.5 [scrollbar-width:none] md:gap-1.5 md:px-3.5 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden">
+              the selected one carrying its name, spread edge to edge so the
+              first pill starts on the box's left edge and the last ends on
+              its right — five pills fit a 320px phone without scrolling. The
+              top padding is room for the New badge, which sits over its
+              pill's edge there. */}
+          <div className="relative z-40 flex items-end justify-between gap-1.5 overflow-x-auto px-0 pb-3 pt-3.5 [scrollbar-width:none] md:justify-start md:gap-1.5 md:px-3.5 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden">
             {categoryTabs.map((tab) => {
               const Icon = tab.icon;
               const PhoneIcon = tab.phone;
@@ -539,7 +542,7 @@ export default function DashboardPage() {
                   /* Emergent's tab strip: rounded-top tabs standing on the
                      box, the selected one a shade lighter. */
                   aria-label={CATEGORY_LABEL[tab.id]}
-                  className={`qs-pill relative flex h-8 min-w-[54px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[14px] font-normal tracking-tight transition-colors md:h-auto md:min-w-0 md:justify-start md:gap-2 md:font-medium md:tracking-normal md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
+                  className={`qs-pill relative flex h-8 min-w-[48px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[14px] font-normal tracking-tight transition-colors md:h-auto md:min-w-0 md:justify-start md:gap-2 md:font-medium md:tracking-normal md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
                     active
                       ? "border-line/[0.16] bg-layer/[0.05] text-ink md:bg-layer/[0.13] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                       : "border-transparent bg-layer/[0.09] text-muted hover:bg-layer/[0.07] hover:text-soft md:bg-layer/[0.045]"
@@ -548,11 +551,11 @@ export default function DashboardPage() {
                   {/* Thin and a size down on a phone, as Emergent draws them. */}
                   <PhoneIcon className={`h-[17px] w-[17px] shrink-0 md:hidden ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.5} />
                   <Icon className={`hidden h-4 w-4 shrink-0 md:block ${active ? "text-ink" : "text-muted"}`} strokeWidth={1.75} />
-                  {/* A phone names only the selected tab. A coming-soon tab is
-                      never selected, so it is named always — otherwise all a
-                      phone shows is an icon under "Soon", and "Soon" reads as
-                      the tab's name rather than as news about it. */}
-                  <span className={active || soon ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
+                  {/* A phone names only the selected tab — a coming-soon tab
+                      too is its icon there, under its Soon badge, which is
+                      what lets all five fit the box's width. Its name is in
+                      its label and title, and from md up on the tab. */}
+                  <span className={active ? "" : "hidden md:inline"}>{CATEGORY_LABEL[tab.id]}</span>
                   {soon && (
                     <span className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-[4deg] rounded-[6px] bg-layer/[0.22] px-1.5 py-[1px] text-[10px] font-bold uppercase leading-[14px] tracking-wide text-ink ring-1 ring-line/[0.25] md:static md:translate-x-0 md:rotate-0 md:ring-0">
                       Soon
