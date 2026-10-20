@@ -239,6 +239,23 @@ export default function DashboardPage() {
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
+  /* Back from signing in to an MCP server (?mcp=…&server=…): Settings opens on
+     the MCP tab saying how it went, and the parameters leave the address bar so
+     a reload does not say it again. */
+  const [mcpNotice, setMcpNotice] = useState<{ reason: string; serverId: string | null } | null>(null);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const reason = url.searchParams.get("mcp");
+    if (!reason) return;
+    setMcpNotice({ reason, serverId: url.searchParams.get("server") });
+    setSettingsSection("agents");
+    setSettingsAgentTab("mcp");
+    setAccountSettingsOpen(true);
+    url.searchParams.delete("mcp");
+    url.searchParams.delete("server");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   // Agent Selector State & Data. The agent list is what a phone chooses from:
   // the sheet has the room for it and the bar has not, so Q1 stays the mobile
   // control while a pointer gets the model picker below.
@@ -531,6 +548,7 @@ export default function DashboardPage() {
         onClose={() => {
           setAccountSettingsOpen(false);
           setSettingsAgentTab(undefined);
+          setMcpNotice(null);
         }}
         onUpgradeClick={() => {
           setAccountSettingsOpen(false);
@@ -539,6 +557,7 @@ export default function DashboardPage() {
         credits={credits}
         initialSection={settingsSection}
         initialAgentTab={settingsAgentTab}
+        mcpNotice={mcpNotice}
       />
       <SupportChat />
       <ImportFromGitHub open={importOpen} onClose={() => setImportOpen(false)} onUpgrade={() => setBillingOpen(true)} />
