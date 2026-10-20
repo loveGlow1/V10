@@ -542,7 +542,7 @@ export default function DashboardPage() {
                   /* Emergent's tab strip: rounded-top tabs standing on the
                      box, the selected one a shade lighter. */
                   aria-label={CATEGORY_LABEL[tab.id]}
-                  className={`qs-pill relative flex h-8 min-w-[48px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[14px] font-normal tracking-tight transition-colors md:h-auto md:min-w-0 md:justify-start md:gap-2 md:font-medium md:tracking-normal md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-5 md:py-2.5 md:text-sm ${
+                  className={`qs-pill relative flex h-8 min-w-[48px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[14px] font-normal tracking-tight transition-colors md:h-auto md:min-w-0 md:justify-start md:gap-1.5 md:font-medium md:tracking-normal md:rounded-b-none md:rounded-t-[12px] md:border-0 md:px-4 md:py-2.5 md:text-sm ${
                     active
                       ? "border-line/[0.16] bg-layer/[0.05] text-ink md:bg-layer/[0.13] md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
                       : "border-transparent bg-layer/[0.09] text-muted hover:bg-layer/[0.07] hover:text-soft md:bg-layer/[0.045]"
