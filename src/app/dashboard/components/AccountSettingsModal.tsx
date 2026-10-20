@@ -13,6 +13,7 @@ import { MODELS } from "../models";
 import { useModel } from "../useModel";
 import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 interface AccountSettingsModalProps {
   open: boolean;
@@ -203,6 +204,10 @@ export default function AccountSettingsModal({
   useEffect(() => {
     if (!open) setEmailRevealed(false);
   }, [open]);
+
+  /* The page behind stays put while settings are open — on a phone a drag
+     past the end of a pane otherwise scrolls Home underneath. */
+  useBodyScrollLock(open);
 
   /* Each opening starts where the caller asked for and with the project pane
      back at rest — a half-typed rename or an armed delete button left over from
