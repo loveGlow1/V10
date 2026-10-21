@@ -2,12 +2,14 @@
 
 /* Import from GitHub, from Home: start a project from a repository without
  * opening one first. Connects GitHub when it is not connected yet (and comes
- * back here), then forks the repository into the person's own account and
- * opens it as a new project — see useGitHubImport. */
+ * back here), then either imports the repository straight into the workspace
+ * — saved here, nothing made on GitHub until it is pushed — or forks it into
+ * the person's own account first; either opens as a new project. See
+ * useGitHubImport. */
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { GitFork, Github, Loader2, X } from "lucide-react";
+import { Download, GitFork, Github, Loader2, X } from "lucide-react";
 
 import { connectGitHubHref } from "@/lib/github/connect-link";
 
@@ -27,7 +29,7 @@ export default function ImportFromGitHub({
 }) {
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
-  const { repo, setRepo, importing, error, upgrade, importRepo } = useGitHubImport(onClose);
+  const { repo, setRepo, importing, busy, error, upgrade, importRepo } = useGitHubImport(onClose);
 
   useEffect(() => setMounted(true), []);
 
@@ -65,7 +67,7 @@ export default function ImportFromGitHub({
         <header className="flex items-start justify-between gap-4 border-b border-line/[0.08] px-6 pb-4 pt-5">
           <div>
             <p className="text-[17px] font-semibold text-ink">Import from GitHub</p>
-            <p className="mt-1 text-[13px] text-muted">Start a new project from a repository. It&apos;s forked into your GitHub account first.</p>
+            <p className="mt-1 text-[13px] text-muted">Start a new project from a repository — yours or anyone&apos;s.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-muted transition-colors hover:text-ink">
             <X className="h-4 w-4" />
@@ -79,7 +81,7 @@ export default function ImportFromGitHub({
             <p className="text-[13px] text-muted">GitHub isn&apos;t set up on this deployment yet.</p>
           ) : !status.connected ? (
             <div>
-              <p className="text-[13px] leading-relaxed text-muted">Connect your GitHub account first, so the repository can be forked into it.</p>
+              <p className="text-[13px] leading-relaxed text-muted">Connect your GitHub account first, so the repository can be read — and forked, if you choose to.</p>
               <a href={connectGitHubHref("/dashboard?import=github")} className={`${button} mt-3`}>
                 <Github className="h-4 w-4" />
                 Connect GitHub
@@ -89,10 +91,9 @@ export default function ImportFromGitHub({
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                void importRepo();
+                void importRepo("import");
               }}
             >
-              {status.login ? <p className="mb-2 text-[12.5px] text-muted">Forks go to @{status.login}.</p> : null}
               <div className="flex gap-2">
                 <input
                   autoFocus
@@ -100,16 +101,37 @@ export default function ImportFromGitHub({
                   onChange={(event) => setRepo(event.target.value)}
                   placeholder="owner/repo or github.com link"
                   aria-label="Repository to import"
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
+                  className="h-9 min-w-0 w-full flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
                 />
-                <button type="submit" disabled={importing || !repo.trim()} className={button}>
-                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
-                  Import
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button type="submit" disabled={importing || !repo.trim()} className="inline-flex flex-col items-start gap-0.5 rounded-lg bg-ink px-3.5 py-2.5 text-left text-[13px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40">
+                  <span className="flex items-center gap-2">
+                    {busy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Import
+                  </span>
+                  <span className="text-[11.5px] font-normal opacity-70">Save it here. Nothing changes on GitHub until you push.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void importRepo("fork")}
+                  disabled={importing || !repo.trim()}
+                  className="inline-flex h-auto flex-col items-start gap-0.5 rounded-lg border border-line/[0.14] px-3.5 py-2.5 text-left text-[13px] font-medium text-ink transition-colors hover:bg-layer/[0.06] disabled:opacity-40"
+                >
+                  <span className="flex items-center gap-2">
+                    {busy === "fork" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
+                    Fork
+                  </span>
+                  <span className="text-[11.5px] font-normal text-muted">
+                    Copy it to {status.login ? `@${status.login}` : "your GitHub"} first. Standard and Pro.
+                  </span>
                 </button>
               </div>
               <p className="mt-3 text-[12px] leading-relaxed text-muted">
-                Public repos, or private ones your account can see. Up to about 120 source files. A single HTML page or
-                a Next.js app shows a live preview; anything else opens in VS Code.
+                Public repos, or private ones your account can see. Up to about 120 source files. Imported work is saved
+                in your workspace until you publish it or push it — back to the same repo when it&apos;s yours, or to a
+                new one of your own. A single HTML page or a Next.js app shows a live preview; anything else opens in VS
+                Code.
               </p>
             </form>
           )}
