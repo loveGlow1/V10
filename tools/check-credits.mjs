@@ -243,7 +243,12 @@ try {
     const funded = /create or replace function public\.funded_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     const grant = /create or replace function public\.grant_credits\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     has(/values \(p_user_id, p_action, p_credits, p_description, 'admin'\)/.test(grant), "credit granted by hand is marked as an administrator's");
-    has(/l\.source = 'admin'[\s\S]*then 'suggest'/.test(status), "an account holding administrator-granted credit may use it without a card");
+    has(/l\.source = 'admin'[\s\S]*then 'suggest'/.test(status), "an account the owner gifted credit may use it without a card");
+    has(
+      /sum\(-l\.credits\)[\s\S]*l\.action in \('chat', 'generate', 'publish', 'runtime'\)[\s\S]*min\(a\.created_at\)[\s\S]*\) > 0 then 'suggest'/.test(status),
+      "but only up to what it was gifted: signup credit beside it waits for a card",
+      "card_status() lets a gifted account spend its signup credit too",
+    );
     has(/l\.source is distinct from 'admin'/.test(funded), "administrator-granted credit is not counted as funding");
   }
 

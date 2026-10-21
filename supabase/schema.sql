@@ -3713,9 +3713,10 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 --   'suggest'   no card, but the account has put at least $25 into QuickStark
 --               and has been with us more than two months: it is asked to add
 --               a card (and can dismiss the ask) but keeps working.
---   'suggest'   also: an account holding credit an administrator granted it
---               (credit_ledger.source = 'admin', written by grant_credits),
---               while it has a balance — that credit is its to use.
+--   'suggest'   also: an account the owner gifted credit (credit_ledger.source
+--               = 'admin', written by grant_credits), until it has spent what
+--               it was gifted — that credit is its to use, card or no card.
+--               Signup credit is not: it waits for a card.
 --   'required'  everyone else — new accounts, and any account funded below
 --               $25 — may not use the service until it adds a card.
 --
@@ -3830,16 +3831,26 @@ as $$
               or (c.exp_year * 100 + coalesce(c.exp_month, 12))
                  >= (extract(year from now())::int * 100 + extract(month from now())::int))
     ) then 'ok'
-    -- Credit granted by an administrator is the account's to use, card or no
-    -- card: while it holds a balance and has had such a grant, it works and
-    -- is only asked to add a card.
+    -- Credit the owner gifted — granted by an administrator — is the
+    -- account's to use, card or no card. Only that credit: the account may
+    -- spend up to what it was gifted (net of corrections), counted from its
+    -- first gift, and no further. Signup credit sitting beside it stays
+    -- locked until a card is added.
     when exists (
-      select 1 from public.credit_ledger l
-       where l.user_id = p_user_id and l.source = 'admin' and l.credits > 0
-    ) and exists (
       select 1 from public.credit_balances b
        where b.user_id = p_user_id and (b.daily + b.rollover + b.monthly + b.top_up) > 0
-    ) then 'suggest'
+    ) and (
+      select coalesce(sum(l.credits), 0) from public.credit_ledger l
+       where l.user_id = p_user_id and l.source = 'admin'
+    ) - (
+      select coalesce(sum(-l.credits), 0) from public.credit_ledger l
+       where l.user_id = p_user_id
+         and l.action in ('chat', 'generate', 'publish', 'runtime')
+         and l.created_at >= (
+           select min(a.created_at) from public.credit_ledger a
+            where a.user_id = p_user_id and a.source = 'admin'
+         )
+    ) > 0 then 'suggest'
     when public.funded_usd(p_user_id) >= public.card_suggest_min_usd()
      and exists (
        select 1 from auth.users u
