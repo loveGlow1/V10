@@ -451,12 +451,18 @@ export default function AccountSettingsModal({
     setMcpBusy(serverId);
     setMcpError(null);
 
-    const { error } = await createSupabaseBrowserClient()
+    /* Insert, and on a row that is already there switch it on. Not an upsert:
+       PostgREST's ON CONFLICT sets every column it was given, user_id and
+       server_id included, and the browser is deliberately not allowed to
+       update those — so an upsert here was refused every time ("permission
+       denied"), measured against the live grants. */
+    const client = createSupabaseBrowserClient();
+    let { error } = await client
       .from("mcp_connections")
-      .upsert(
-        { user_id: account.id, server_id: serverId, enabled: true },
-        { onConflict: "user_id,server_id" },
-      );
+      .insert({ user_id: account.id, server_id: serverId, enabled: true });
+    if (error?.code === "23505") {
+      ({ error } = await client.from("mcp_connections").update({ enabled: true }).eq("server_id", serverId));
+    }
 
     setMcpBusy(null);
     if (error) {
