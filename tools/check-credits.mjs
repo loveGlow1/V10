@@ -182,14 +182,35 @@ try {
     "and caps it where MAX_SIGNUP_CREDITS says",
   );
 
-  /* The clamp itself, not just the numbers: handle_new_user is the statement
-     that moves credit into a brand-new account, and it has to hold the ceiling
-     whatever the grant function is later edited to say. */
+  /* The clamp itself, not just the numbers. The welcome no longer lands at
+     signup: a new balance opens empty, and grant_card_welcome — run once a
+     card has been saved and verified, never charged — is the statement that
+     moves it in. It has to hold the ceiling whatever the grant function is
+     later edited to say, and it grants once per account and once per card. */
   const signupTrigger = /create or replace function public\.handle_new_user\(\)[\s\S]*?\$\$;/.exec(schema);
   has(
-    signupTrigger !== null && signupTrigger[0].includes("max_signup_bonus_credits()"),
-    "the signup trigger clamps the welcome to the ceiling on its way into the balance",
-    "handle_new_user() writes the grant function's answer straight into the balance, so raising that function alone credits a first-timer above the limit",
+    signupTrigger !== null && /values \(new\.id, 'free', v_daily, v_monthly, 0\)/.test(signupTrigger[0]) && !/'signup-bonus'/.test(signupTrigger[0]),
+    "signup opens an empty balance: the welcome waits for a verified card",
+    "handle_new_user() still credits the welcome at signup, so free credit needs no card",
+  );
+  const cardWelcome = /create or replace function public\.grant_card_welcome\([\s\S]*?\$\$;/.exec(schema);
+  has(
+    cardWelcome !== null && cardWelcome[0].includes("max_signup_bonus_credits()"),
+    "the card welcome clamps the grant to the ceiling on its way into the balance",
+    "grant_card_welcome() writes the grant function's answer straight into the balance, so raising that function alone credits a first-timer above the limit",
+  );
+  has(
+    cardWelcome !== null &&
+      /on conflict \(fingerprint\) do nothing/.test(cardWelcome[0]) &&
+      /v_claimant is distinct from p_user_id/.test(cardWelcome[0]) &&
+      /dedupe_key = 'signup-bonus'/.test(cardWelcome[0]),
+    "one welcome per account and one per card",
+    "grant_card_welcome() can welcome an account twice, or one card on many accounts",
+  );
+  has(
+    /revoke all on function public\.grant_card_welcome\(uuid, text\) from public, anon, authenticated;/.test(schema),
+    "only the server can grant the card welcome",
+    "grant_card_welcome() is callable from a browser",
   );
 
   /* A build on the default model has to stay out of reach on the welcome

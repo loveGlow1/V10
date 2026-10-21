@@ -29,6 +29,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * customer cannot change either. A session this app did not create (a Payment
  * Link, a Dashboard test) has neither, and grants nothing. */
 export function readSessionGrant(session: Stripe.Checkout.Session): SessionGrant | null {
+  /* Saving a card (setup mode) buys nothing — see stripe-card.ts. */
+  if (session.mode === "setup") return null;
   const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
   const kind = session.metadata?.kind ?? "topup";
   const planId = kind === "plan" ? (session.metadata?.plan_id ?? null) : null;

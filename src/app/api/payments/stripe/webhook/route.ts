@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { alertOncePerDay, sendOperatorAlert } from "@/lib/operator-alert";
+import { cardSessionUser, recordCardSetup } from "@/lib/stripe-card";
 import { isSessionPaid, settleCheckoutSession } from "@/lib/stripe-fulfillment";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -25,7 +26,9 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  *
  * Events handled:
  *   checkout.session.completed              — paid now (cards), or pending
- *                                             (bank debits: payment_status "unpaid")
+ *                                             (bank debits: payment_status "unpaid");
+ *                                             or a card saved for the welcome
+ *                                             credit (setup mode — see stripe-card.ts)
  *   checkout.session.async_payment_succeeded — a pending payment cleared
  *   checkout.session.async_payment_failed    — a pending payment failed
  *   checkout.session.expired                 — abandoned; nothing to fulfill
@@ -65,6 +68,14 @@ export async function POST(request: Request) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
+        /* A card saved, not a purchase: recorded, and the welcome granted. */
+        if (cardSessionUser(session)) {
+          const service = createSupabaseServiceClient();
+          if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+          await recordCardSetup(stripe, service, session);
+          break;
+        }
+        if (session.mode === "setup") break;
         /* "unpaid" here means a delayed payment method; wait for
            async_payment_succeeded. "no_payment_required" is a free checkout. */
         if (isSessionPaid(session)) {

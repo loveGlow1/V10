@@ -30,6 +30,7 @@ import ScrollToEnds from "./components/ScrollToEnds";
 import { ProjectsProvider } from "./ProjectsContext";
 import SupportChat from "./components/SupportChat";
 import ImportFromGitHub from "./components/ImportFromGitHub";
+import { CardWelcomeBanner } from "./components/billing/CardWelcome";
 import PhoneField from "./components/PhoneField";
 import { ComingSoonModal } from "./components/ComingSoon";
 import ChoiceSheet, { type ChoiceRow } from "./components/ChoiceSheet";
@@ -932,6 +933,10 @@ export default function DashboardPage() {
               note="Agent changes apply from your next message."
             />
           </div>
+
+          {/* Free credit waits for a card on file — see CardWelcome. Shown only
+              to an account that has not had its welcome yet. */}
+          <CardWelcomeBanner className="mt-3" />
 
           {/* Starters, centred under the composer: one row, the selected tab's
               own. The row scrolls sideways rather than wrapping, so the chips
