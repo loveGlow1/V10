@@ -63,7 +63,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -259,8 +259,15 @@ export default function PreviewSheet({
                 />
                 {/* Over the frame rather than instead of it, so the frame is
                     already loading while this is on screen. */}
-                <TypingStatus typing={typing} saveState={saveState} onDone={stopTyping} docked />
-                {editMode && projectId && picked && picks.length > 0 && !typing ? (
+                {/* The editor sheet carries Done while typing; the pill still
+                    says how a save went. */}
+                <TypingStatus
+                  typing={typing && !(editMode && projectId && picked && picks.length > 0)}
+                  saveState={saveState}
+                  onDone={stopTyping}
+                  docked
+                />
+                {editMode && projectId && picked && picks.length > 0 ? (
                   <VisualEditPrompt
                     projectId={projectId}
                     picked={picked}
@@ -270,6 +277,9 @@ export default function PreviewSheet({
                     onEditText={editText}
                     onStyle={applyStyle}
                     onRemove={removePicked}
+                    typing={typing}
+                    onDoneTyping={stopTyping}
+                    onCover={coverBelow}
                     onSent={() => {
                       setPicked(null);
                       deselect();

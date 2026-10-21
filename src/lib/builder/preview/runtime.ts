@@ -211,8 +211,49 @@ export const EDIT_MODE = `
     following = window.requestAnimationFrame(tick);
   }
 
+  /* How much of the bottom of this frame the workspace's editor is covering
+     right now — the phone's sheet with the keyboard under it, or room the
+     floating box asked for — in this frame's pixels. The element being edited
+     is kept clear of it: never under the editor that is editing it. The spacer
+     gives the page room to scroll its last element up above the editor. */
+  var coverInset = 0;
+  var spacer = null;
+  function setCover(inset) {
+    coverInset = Math.max(0, Math.round(inset) || 0);
+    if (coverInset > 0) {
+      if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.setAttribute('data-qs-spacer', '');
+        spacer.setAttribute('aria-hidden', 'true');
+        spacer.style.cssText = 'pointer-events:none;width:1px;';
+        document.body.appendChild(spacer);
+      }
+      /* Only ever grows while editing: shrinking it would drop the page back
+         under the editor the moment the element had been lifted clear. */
+      var have = parseInt(spacer.style.height, 10) || 0;
+      if (coverInset > have) spacer.style.height = coverInset + 'px';
+    }
+    reveal(typing || selected);
+  }
+  function dropCover() {
+    coverInset = 0;
+    if (spacer && spacer.parentNode) spacer.parentNode.removeChild(spacer);
+    spacer = null;
+  }
+
   function reveal(element) {
-    if (!touchLayout || !element) return;
+    if (!element) return;
+    if (coverInset > 0) {
+      var box = element.getBoundingClientRect();
+      var bottomLimit = window.innerHeight - coverInset - 12;
+      var shift = 0;
+      if (box.bottom > bottomLimit) shift = box.bottom - bottomLimit;
+      /* Taller than the room left: its top stays in view rather than its foot. */
+      if (box.top - shift < 12) shift = box.top - 12;
+      if (Math.abs(shift) > 1) window.scrollBy({ top: shift, behavior: 'smooth' });
+      return;
+    }
+    if (!touchLayout) return;
     var rect = element.getBoundingClientRect();
     var limit = window.innerHeight * 0.45;
     if (rect.top < 0 || rect.bottom > limit) {
@@ -389,7 +430,7 @@ export const EDIT_MODE = `
 
   function setEditing(on) {
     if (on === editing) return;
-    if (!on) stopTyping(true);
+    if (!on) { stopTyping(true); dropCover(); }
     editing = on;
     if (!hoverBox) { hoverBox = overlay('rgba(59,130,246,0.7)', 1); selectBox = overlay('#2563eb', 2); selectLabel = label(); }
     if (on) {
@@ -675,6 +716,7 @@ export const PREVIEW_RUNTIME = `
     if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
+    if (typeof data.cover === 'number') { setCover(data.cover); return; }
     if (typeof data.navigate !== 'string') return;
     navigate(data.navigate);
   });

@@ -130,6 +130,7 @@ ${EDIT_MODE}
     if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') previewChange(data.preview);
+    if (typeof data.cover === 'number') setCover(data.cover);
   });
   function ready() { report('ready', { routes: [], tokens: designTokens() }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);

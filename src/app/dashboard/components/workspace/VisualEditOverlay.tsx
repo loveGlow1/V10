@@ -66,6 +66,14 @@ export function VisualEditPrompt(props: {
   onEditText?: () => void;
   onStyle?: StyleChange;
   onRemove?: () => void;
+  /* Typing into the page right now. The editor stays up — styles and the AI
+     box both work mid-sentence — and on a phone it carries the Done. */
+  typing?: boolean;
+  onDoneTyping?: () => void;
+  /* Where on screen the editor begins (viewport y), or null for nowhere: the
+     preview keeps the element being edited above it, so the editor never
+     sits on top of what it is editing. See preview-bridge coverBelow. */
+  onCover?: (y: number | null) => void;
 }) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
 }
@@ -117,6 +125,15 @@ function useFontSamples() {
   }, []);
 }
 
+/* Pressing a button in the editor must not take focus out of the page: while
+   someone is typing into the preview, a blur there ends the typing. Cancelling
+   the press's default keeps the caret where it is and the click still fires —
+   the same trick TypingStatus's Done uses. Buttons only; a text box still takes
+   focus when it is meant to. */
+export function keepPageFocus(event: React.PointerEvent | React.MouseEvent) {
+  if ((event.target as HTMLElement).closest("button")) event.preventDefault();
+}
+
 export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onStyle: StyleChange; dark?: boolean }) {
   useFontSamples();
   const at = sizeIndex(picked);
@@ -144,7 +161,7 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
     />
   );
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2.5" onPointerDown={keepPageFocus} onMouseDown={keepPageFocus}>
       <div className="flex flex-wrap items-center gap-1.5">
         <button type="button" className={button} disabled={at <= 0} onClick={() => onStyle("fontSize", SIZES[Math.max(0, at - 1)], "make it smaller")} aria-label="Smaller text">
           <Type className="h-3 w-3" />−
@@ -356,6 +373,9 @@ function VisualEditSheet({
   onEditText,
   onStyle,
   onRemove,
+  typing = false,
+  onDoneTyping,
+  onCover,
 }: {
   projectId: string;
   picked: Picked;
@@ -366,12 +386,32 @@ function VisualEditSheet({
   onEditText?: () => void;
   onStyle?: StyleChange;
   onRemove?: () => void;
+  typing?: boolean;
+  onDoneTyping?: () => void;
+  onCover?: (y: number | null) => void;
 }) {
   const [text, setText] = useState("");
   /* Ask the agent, or style it by hand. */
   const [mode, setMode] = useState<"ask" | "style">("ask");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [keyboard, setKeyboard] = useState(0);
+
+  /* The sheet's top edge is where the visible preview ends — it grows with the
+     Style tab, and rides up on the keyboard — so it is reported whenever it
+     moves, and the element being edited is lifted above it. */
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet || !onCover) return;
+    const tell = () => onCover(sheet.getBoundingClientRect().top);
+    tell();
+    const observer = new ResizeObserver(tell);
+    observer.observe(sheet);
+    return () => {
+      observer.disconnect();
+      onCover(null);
+    };
+  }, [onCover, keyboard, picked.pickId]);
 
   /* The keyboard's height, from the visual viewport: the sheet sits on top of
      it rather than behind it. */
@@ -435,7 +475,10 @@ function VisualEditSheet({
     <div
       role="dialog"
       aria-label="Change what you picked"
+      ref={sheetRef}
       style={{ bottom: keyboard }}
+      onPointerDown={keepPageFocus}
+      onMouseDown={keepPageFocus}
       className="pointer-events-auto fixed inset-x-0 z-[70] rounded-t-[22px] border-t border-white/[0.1] bg-[#161618] px-4 pt-2.5 shadow-[0_-16px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:max(14px,env(safe-area-inset-bottom))]"
     >
       <div aria-hidden className="mx-auto mb-2.5 h-1 w-9 rounded-full bg-white/20" />
@@ -445,9 +488,22 @@ function VisualEditSheet({
             {kind}
             {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
           </p>
-          {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>}
+          {typing ? (
+            <p className="truncate text-[12.5px] text-[#f97316]">Typing in the page — style it or ask AI as you go</p>
+          ) : (
+            snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>
+          )}
         </div>
-        {onSelectParent && (
+        {typing && onDoneTyping && (
+          <button
+            type="button"
+            onClick={onDoneTyping}
+            className="flex h-9 items-center rounded-full bg-white px-3.5 text-[13px] font-semibold text-black"
+          >
+            Done
+          </button>
+        )}
+        {onSelectParent && !typing && (
           <button
             type="button"
             onClick={onSelectParent}
@@ -552,6 +608,7 @@ function FloatingPrompt({
   onCancel,
   onStyle,
   onRemove,
+  onCover,
 }: {
   projectId: string;
   /* The newest pick, which the box sits beside. */
@@ -565,12 +622,12 @@ function FloatingPrompt({
   onCancel: () => void;
   onStyle?: StyleChange;
   onRemove?: () => void;
+  onCover?: (y: number | null) => void;
 }) {
   const [text, setText] = useState("");
   const [styling, setStyling] = useState(false);
   const boxRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [place, setPlace] = useState<{ top: number; left: number; width: number; room: number } | null>(null);
 
   /* Each new click puts the cursor back in the box; what was typed stays, so
      clipping one more element does not lose the request. */
@@ -578,10 +635,12 @@ function FloatingPrompt({
     inputRef.current?.focus();
   }, [picked.pickId]);
 
-  /* Beside the element: over its top-right corner when it is tall enough to
-     hold the box without hiding what it says, otherwise just under it — and
-     always inside the frame. Measured against the frame's own viewport, which
-     is what the rect is reported in. */
+  /* Never on the element: just under it, or — when the frame has no room
+     below — just over it, with the quick styles on the far side of the pill
+     from it. When neither side has room the frame is asked to scroll the
+     element up until there is room below. Measured against the frame's own
+     viewport, which is what the rect is reported in. */
+  const [place, setPlace] = useState<{ top: number; left: number; width: number; panelTop: number } | null>(null);
   useLayoutEffect(() => {
     if (docked) return;
     const host = boxRef.current?.parentElement;
@@ -595,14 +654,33 @@ function FloatingPrompt({
     const scaleY = rect.viewportHeight > 0 ? bounds.height / rect.viewportHeight : 1;
     const width = Math.min(PROMPT_WIDTH, bounds.width - GAP * 2);
     const right = (rect.left + rect.width) * scaleX;
-    let left = right - width - GAP;
-    left = Math.max(GAP, Math.min(left, bounds.width - width - GAP));
-    const roomy = rect.height * scaleY >= PROMPT_HEIGHT + GAP * 2;
-    let top = roomy ? rect.top * scaleY + GAP : (rect.top + rect.height) * scaleY + GAP;
-    if (top + PROMPT_HEIGHT > bounds.height - GAP) top = rect.top * scaleY - PROMPT_HEIGHT - GAP;
-    top = Math.max(GAP, Math.min(top, bounds.height - PROMPT_HEIGHT - GAP));
-    setPlace({ top, left, width, room: bounds.height });
-  }, [picked.rect, docked]);
+    let left = right - width;
+    left = Math.max(GAP, Math.min(left, bounds.width - Math.max(width, styling ? 340 : 0) - GAP));
+    const elementTop = rect.top * scaleY;
+    const elementBottom = (rect.top + rect.height) * scaleY;
+    const block = PROMPT_HEIGHT + (styling ? STYLE_PANEL_HEIGHT + GAP : 0);
+
+    if (elementBottom + GAP + block <= bounds.height - GAP) {
+      /* Below: pill first, styles under it. */
+      const top = Math.max(GAP, elementBottom + GAP);
+      setPlace({ top, left, width, panelTop: top + PROMPT_HEIGHT + GAP });
+      onCover?.(null);
+    } else if (elementTop - GAP - block >= GAP) {
+      /* Above: pill nearest the element, styles over it. */
+      const top = elementTop - GAP - PROMPT_HEIGHT;
+      setPlace({ top, left, width, panelTop: top - GAP - STYLE_PANEL_HEIGHT });
+      onCover?.(null);
+    } else {
+      /* No room either side yet: sit at the foot of the frame and ask it to
+         lift the element above us. Only an element taller than the whole
+         frame can still be under the editor, and then its top stays visible. */
+      const top = bounds.height - GAP - block;
+      setPlace({ top, left, width, panelTop: top + PROMPT_HEIGHT + GAP });
+      onCover?.(bounds.top + top - GAP);
+    }
+  }, [picked.rect, docked, styling, onCover]);
+
+  useEffect(() => () => onCover?.(null), [onCover]);
 
   function submit(event?: React.FormEvent) {
     event?.preventDefault();
@@ -623,21 +701,16 @@ function FloatingPrompt({
       ? { top: place.top, left: place.left, width: place.width }
       : { visibility: "hidden" };
 
-  /* The quick styles open under the pill — over it when the frame has no
-     room below. */
-  const below = place ? place.top + PROMPT_HEIGHT + STYLE_PANEL_HEIGHT + GAP * 2 <= place.room : true;
   const panel: React.CSSProperties | null =
-    styling && place
-      ? below
-        ? { top: place.top + PROMPT_HEIGHT + GAP, left: place.left, width: Math.max(place.width, 340) }
-        : { top: Math.max(GAP, place.top - STYLE_PANEL_HEIGHT - GAP), left: place.left, width: Math.max(place.width, 340) }
-      : null;
+    styling && place ? { top: place.panelTop, left: place.left, width: Math.max(place.width, 340) } : null;
 
   return (
     <>
     {panel && onStyle && (
       <div
         style={panel}
+        onPointerDown={keepPageFocus}
+        onMouseDown={keepPageFocus}
         className="pointer-events-auto absolute z-30 rounded-2xl border border-white/[0.12] bg-[#1c1c1f] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
       >
         <StyleBar picked={picked} onStyle={onStyle} />
@@ -648,6 +721,8 @@ function FloatingPrompt({
       ref={boxRef}
       onSubmit={submit}
       style={style}
+      onPointerDown={keepPageFocus}
+      onMouseDown={keepPageFocus}
       className="pointer-events-auto absolute z-30 flex h-11 items-center gap-2 rounded-full border border-white/[0.12] bg-[#1c1c1f]/95 pl-4 pr-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur-md"
     >
       <input
