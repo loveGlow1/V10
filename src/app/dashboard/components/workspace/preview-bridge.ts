@@ -43,6 +43,9 @@ export type Picked = {
   /* The computed size, e.g. "18px" — where the size steps start from when no
      size class says. */
   fontSize?: string;
+  /* The computed slant — "italic", "oblique" or "normal" — so the italic
+     button knows a heading is slanted even when its CSS, not a class, did it. */
+  fontStyle?: string;
   repeated: number;
   rect: PickedRect | null;
   /* Which click this was, so two elements written at the same place (a card
@@ -211,6 +214,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
             text: typeof detail.text === "string" ? detail.text : null,
             imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
             fontSize: typeof detail.fontSize === "string" ? detail.fontSize : undefined,
+            fontStyle: typeof detail.fontStyle === "string" ? detail.fontStyle : undefined,
             repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
             rect: rectFrom((detail as { rect?: unknown }).rect),
             pickId: typeof detail.pickId === "number" ? detail.pickId : 0,

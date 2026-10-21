@@ -16,7 +16,7 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Type, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Type, X } from "lucide-react";
 
 import { FONT_OPTIONS, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
@@ -122,6 +122,15 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
   const at = sizeIndex(picked);
   const currentFont = FONT_OPTIONS.find((option) => picked.className.split(/\s+/).includes(option.className))?.id ?? null;
   const bold = /(^|\s)font-(bold|extrabold|black|semibold)(\s|$)/.test(picked.className);
+  /* A class says so outright; otherwise what the browser actually drew —
+     so text slanted by the page's CSS shows as italic, and pressing the
+     button writes not-italic, which stands it upright whatever slanted it. */
+  const classes = picked.className.split(/\s+/);
+  const italic = classes.includes("italic") || classes.includes("!italic")
+    ? true
+    : classes.includes("not-italic") || classes.includes("!not-italic")
+      ? false
+      : picked.fontStyle === "italic" || /^oblique/.test(picked.fontStyle ?? "");
   const button = `flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-[13px] ${dark ? "bg-white/[0.08] text-white/90 active:bg-white/[0.18] hover:bg-white/[0.14]" : ""}`;
   const dot = (colour: string, label: string, onClick: () => void) => (
     <button
@@ -145,6 +154,16 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
         </button>
         <button type="button" aria-pressed={bold} className={`${button} ${bold ? "!bg-white !text-black" : ""}`} onClick={() => onStyle("fontWeight", bold ? "font-normal" : "font-bold", bold ? "make it not bold" : "make it bold")} aria-label="Bold">
           <Bold className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          aria-pressed={italic}
+          className={`${button} ${italic ? "!bg-white !text-black" : ""}`}
+          onClick={() => onStyle("fontStyle", italic ? "!not-italic" : "!italic", italic ? "make it upright, not italic" : "make it italic")}
+          aria-label={italic ? "Remove italic" : "Italic"}
+          title={italic ? "Remove italic" : "Italic"}
+        >
+          <Italic className="h-4 w-4" />
         </button>
         <span className="mx-1 h-5 w-px bg-white/15" />
         <button type="button" className={button} onClick={() => onStyle("align", "text-left", "align it left")} aria-label="Align left"><AlignLeft className="h-4 w-4" /></button>

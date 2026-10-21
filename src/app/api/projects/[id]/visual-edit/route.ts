@@ -52,7 +52,7 @@ import { recordMessage } from "@/lib/thread-server";
 import { ownedProject } from "../backend/owned";
 
 const MOST = 50;
-const GROUPS = new Set(["textColor", "background", "fontSize", "fontWeight", "fontFamily", "padding", "align", "radius"]);
+const GROUPS = new Set(["textColor", "background", "fontSize", "fontWeight", "fontFamily", "fontStyle", "padding", "align", "radius"]);
 
 /* The request is a person's hand edits, so it is read narrowly: anything that
    is not one of these shapes is dropped rather than trusted. */
@@ -68,7 +68,7 @@ function readEdits(body: unknown): VisualEdit[] {
     const classes = Array.isArray(change.classes)
       ? change.classes
           .filter((c): c is { group: string; value: string } => !!c && typeof c === "object" && typeof (c as { group?: unknown }).group === "string" && typeof (c as { value?: unknown }).value === "string")
-          .filter((c) => GROUPS.has(c.group) && /^[\w:./[\]()%,#-]*$/.test(c.value) && c.value.length <= 80)
+          .filter((c) => GROUPS.has(c.group) && /^!?[\w:./[\]()%,#-]*$/.test(c.value) && c.value.length <= 80)
           .map((c) => ({ group: c.group as NonNullable<VisualEdit["change"]["classes"]>[number]["group"], value: c.value }))
       : undefined;
     edits.push({

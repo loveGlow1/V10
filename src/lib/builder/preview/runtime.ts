@@ -182,6 +182,7 @@ export const EDIT_MODE = `
       color: style.color,
       background: style.backgroundColor,
       fontSize: style.fontSize,
+      fontStyle: style.fontStyle,
       rect: rectOf(element),
       pickId: element.__qsPick || 0
     };
