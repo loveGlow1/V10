@@ -16,7 +16,7 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Type, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Sparkles, Type, X } from "lucide-react";
 
 import { FONT_OPTIONS, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
@@ -398,8 +398,16 @@ function VisualEditSheet({
   const sheetRef = useRef<HTMLDivElement>(null);
   /* The style row while typing: folded until asked for. */
   const [typingStyle, setTypingStyle] = useState(false);
+  /* AI pressed while typing: the ask box only exists once typing has ended
+     and the full sheet is back, so it is focused then, not before. */
+  const askAfterTyping = useRef(false);
   useEffect(() => {
-    if (!typing) setTypingStyle(false);
+    if (typing) return;
+    setTypingStyle(false);
+    if (askAfterTyping.current) {
+      askAfterTyping.current = false;
+      inputRef.current?.focus();
+    }
   }, [typing]);
   const [keyboard, setKeyboard] = useState(0);
 
@@ -417,7 +425,7 @@ function VisualEditSheet({
       observer.disconnect();
       onCover(null);
     };
-  }, [onCover, keyboard, picked.pickId]);
+  }, [onCover, keyboard, picked.pickId, typing]);
 
   /* The keyboard's height, from the visual viewport: the sheet sits on top of
      it rather than behind it. */
@@ -476,6 +484,73 @@ function VisualEditSheet({
         { label: "Smaller", run: () => send("Make it smaller") },
         { label: "Remove", run: () => send("Remove it") },
       ];
+
+  /* Typing into the page: no sheet at all, only a small bar floating just
+     above the keyboard — the words being typed keep the screen. Aa opens the
+     style row above it, AI saves the words and opens the ask box, Done saves.
+     It reports its own top as the cover, so the page moves only if the words
+     are actually behind it. */
+  if (typing) {
+    return (
+      <div
+        ref={sheetRef}
+        role="toolbar"
+        aria-label="Typing in the page"
+        style={{ bottom: keyboard + 8 }}
+        onPointerDown={keepPageFocus}
+        onMouseDown={keepPageFocus}
+        className={`pointer-events-auto fixed inset-x-3 z-[70] border border-white/[0.1] bg-[#1c1c1f] shadow-[0_10px_30px_rgba(0,0,0,0.45)] ${
+          typingStyle ? "rounded-[20px] p-2.5" : "rounded-full p-1.5"
+        }`}
+      >
+        {typingStyle && onStyle && (
+          <div className="mb-2 px-0.5">
+            <StyleBar picked={picked} onStyle={onStyle} />
+          </div>
+        )}
+        <div className="flex h-9 items-center gap-1.5">
+          <p className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 text-[13px] font-semibold text-[#f97316]">
+            <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#f97316]" />
+            <span className="truncate">Typing</span>
+          </p>
+          {onStyle && (
+            <button
+              type="button"
+              onClick={() => setTypingStyle((open) => !open)}
+              aria-pressed={typingStyle}
+              aria-label="Style — size, bold, colour, font"
+              className={`flex h-9 items-center rounded-full px-3 text-[13px] font-semibold ${
+                typingStyle ? "bg-white text-black" : "bg-white/[0.08] text-white/90 active:bg-white/[0.16]"
+              }`}
+            >
+              Aa
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setMode("ask");
+              askAfterTyping.current = true;
+              onDoneTyping?.();
+            }}
+            aria-label="Save the words and ask AI instead"
+            className="flex h-9 items-center gap-1 rounded-full bg-white/[0.08] px-3 text-[13px] font-semibold text-white/90 active:bg-white/[0.16]"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> AI
+          </button>
+          {onDoneTyping && (
+            <button
+              type="button"
+              onClick={onDoneTyping}
+              className="flex h-9 items-center rounded-full bg-white px-3.5 text-[13px] font-semibold text-black"
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

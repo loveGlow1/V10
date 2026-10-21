@@ -279,7 +279,9 @@ export const EDIT_MODE = `
       if (Math.abs(shift) > 1) window.scrollBy({ top: shift, behavior: 'smooth' });
       return;
     }
-    if (!touchLayout) return;
+    /* Words being typed into move only when something actually covers them —
+       the measured case above — never by the rule of thumb below. */
+    if (!touchLayout || typing === element) return;
     var rect = element.getBoundingClientRect();
     var limit = window.innerHeight * 0.45;
     if (rect.top < 0 || rect.bottom > limit) {
@@ -292,7 +294,9 @@ export const EDIT_MODE = `
     lastRect = '';
     place(selectBox, element);
     placeLabel(element);
-    reveal(element);
+    /* Not while typing into it: then only the editor's own (small) cover
+       decides whether the page moves at all. */
+    if (typing !== element) reveal(element);
     report('select', describeElement(element));
   }
 
@@ -464,10 +468,15 @@ export const EDIT_MODE = `
     }
     if (!host) { pickAt(target); return; }
     if (picks.indexOf(host) < 0) addPick(host);
-    if (selected !== host) selectElement(host);
+    /* Typing first, then the selection: the workspace hears "typing" before
+       it hears what was picked, so its full editor never flashes up in
+       between — it opens straight into the compact typing bar. */
+    if (selected !== host) selected = host;
     startTyping(host);
+    selectElement(host);
   }
   var lastTap = null;
+  var pendingPick = 0;
   function onTouchDown(event) {
     if (!editing || event.pointerType === 'mouse') { touchStart = null; return; }
     touchStart = { x: event.clientX, y: event.clientY, t: Date.now() };
@@ -482,14 +491,19 @@ export const EDIT_MODE = `
     var now = Date.now();
     tappedAt = now;
     var under = document.elementFromPoint(event.clientX, event.clientY) || event.target;
-    /* A second tap, soon and close by, is a double tap: type. */
+    /* A second tap, soon and close by, is a double tap: type — and the pick
+       the first tap was holding never happens, so no editor opens and shuts
+       over the words in between. */
     if (lastTap && now - lastTap.t < 380 && Math.abs(event.clientX - lastTap.x) + Math.abs(event.clientY - lastTap.y) < 30) {
+      if (pendingPick) { clearTimeout(pendingPick); pendingPick = 0; }
       lastTap = null;
       typeAt(under);
       return;
     }
     lastTap = { x: event.clientX, y: event.clientY, t: now };
-    pickAt(under);
+    /* A single tap is a pick, made once it is clear no second tap is coming. */
+    if (pendingPick) clearTimeout(pendingPick);
+    pendingPick = setTimeout(function () { pendingPick = 0; pickAt(under); }, 300);
   }
 
   function onPick(event) {
