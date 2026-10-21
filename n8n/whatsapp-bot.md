@@ -60,5 +60,6 @@ No workflow has them written in.
 
 - `MAP.md`: the configuration map, readable on GitHub (diagram included).
 - `WhatsApp-Bot-Configuration-Map.pdf`: the same map as a printable PDF.
+- `WhatsApp-Bot-What-It-Does.pdf`: two-page overview of what the system does, for sharing.
 - `1-setup-move.workflow.json` … `5-error-alerts.workflow.json`: all five workflows, importable into any n8n (Workflows → Import from file). Logins are matched by name; data tables by name.
 - `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.
