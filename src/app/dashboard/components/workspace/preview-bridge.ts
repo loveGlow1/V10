@@ -200,6 +200,8 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
   const saveHandEdit = useCallback((edit: HandEdit, forAgent: string) => saveHandEdits([edit], [forAgent]), [saveHandEdits]);
   const saveRef = useRef(saveHandEdit);
   saveRef.current = saveHandEdit;
+  const saveHandEditsRef = useRef(saveHandEdits);
+  saveHandEditsRef.current = saveHandEdits;
 
   useEffect(() => {
     tellFrame({ editMode, touch });
@@ -267,8 +269,38 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
          sent to the agent naming the element, so the change still happens. */
       if (data.state === "typed") {
         setTyping(false);
-        const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; runs?: unknown; changed?: unknown } | null;
+        const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; runs?: unknown; edits?: unknown; changed?: unknown } | null;
         if (!typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
+        /* A sentence typed through several elements — "Better Care." and the
+           line in its <span>: one edit per element whose words changed, each
+           saved to its own place, in one request. */
+        if (Array.isArray(typed.edits)) {
+          const edits: HandEdit[] = [];
+          for (const raw of (typed.edits as unknown[]).slice(0, 30)) {
+            const one = raw as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; runs?: unknown };
+            if (!one || typeof one.src !== "string" || typeof one.tag !== "string") continue;
+            const runs = Array.isArray(one.runs)
+              ? (one.runs as unknown[]).filter((run): run is { before: string; after: string } =>
+                  !!run && typeof (run as { before?: unknown }).before === "string" && typeof (run as { after?: unknown }).after === "string")
+              : [];
+            if (typeof one.text !== "string" && runs.length === 0) continue;
+            edits.push({
+              src: one.src,
+              tag: one.tag,
+              className: typeof one.className === "string" ? one.className : "",
+              text: typeof one.before === "string" ? one.before : "",
+              change: typeof one.text === "string" ? { text: one.text } : { textRuns: runs.slice(0, 20) },
+            });
+          }
+          const whole = String(typed.text).trim();
+          if (edits.length) {
+            saveHandEditsRef.current(
+              edits,
+              edits.map(() => `change the text to "${whole}" — only the words, keeping the markup inside it as it is`),
+            );
+          }
+          return;
+        }
         const tag = typeof typed.tag === "string" ? typed.tag : "span";
         const before = typeof typed.before === "string" ? typed.before : "";
         const runs = Array.isArray(typed.runs)

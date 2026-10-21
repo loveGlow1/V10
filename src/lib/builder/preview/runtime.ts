@@ -344,6 +344,17 @@ export const EDIT_MODE = `
     }
     return gaps;
   }
+  /* An element's attributes, ours aside, as one string — to tell that the
+     markup came through typing unchanged. */
+  function attrsOf(element) {
+    var out = [];
+    for (var i = 0; i < element.attributes.length; i += 1) {
+      var name = element.attributes[i].name;
+      if (name === 'contenteditable' || name === 'spellcheck' || name === 'style') continue;
+      out.push(name + '=' + element.attributes[i].value);
+    }
+    return element.tagName + '|' + out.sort().join('|');
+  }
   function canType(element) { return Boolean(element) && (onlyText(element) || hasDirectText(element)); }
   function startTyping(element) {
     if (!editing || !canType(element)) return false;
@@ -353,13 +364,28 @@ export const EDIT_MODE = `
     typingBefore = element.textContent;
     mixed = null;
     if (!onlyText(element)) {
-      var islands = [];
-      for (var c = 0; c < element.children.length; c += 1) {
-        var child = element.children[c];
-        islands.push({ node: child, had: child.getAttribute('contenteditable'), html: child.outerHTML });
-        child.setAttribute('contenteditable', 'false');
+      /* Every element inside that has a place in the source is typed into
+         as well, so the caret moves through the whole sentence — "Better
+         Care." and the line in its <span> alike. What has no place in the
+         source (no data-qs-src) is locked: its words could not be saved. */
+      var inside = element.getElementsByTagName('*');
+      var nodes = [];
+      var locked = [];
+      for (var c = 0; c < inside.length; c += 1) {
+        var child = inside[c];
+        nodes.push({ node: child, attrs: attrsOf(child) });
+        if (!child.hasAttribute('data-qs-src')) {
+          locked.push({ node: child, had: child.getAttribute('contenteditable') });
+          child.setAttribute('contenteditable', 'false');
+        }
       }
-      mixed = { html: element.innerHTML, gaps: textGaps(element), islands: islands };
+      var tagged = [element];
+      for (var t = 0; t < nodes.length; t += 1) {
+        if (nodes[t].node.hasAttribute('data-qs-src') && !nodes[t].node.closest('[contenteditable="false"]')) tagged.push(nodes[t].node);
+      }
+      var before = [];
+      for (var b = 0; b < tagged.length; b += 1) before.push({ node: tagged[b], gaps: textGaps(tagged[b]), text: tagged[b].textContent, only: onlyText(tagged[b]) });
+      mixed = { html: element.innerHTML, nodes: nodes, locked: locked, before: before };
     }
     element.setAttribute('contenteditable', 'plaintext-only');
     if (element.contentEditable !== 'plaintext-only') element.setAttribute('contenteditable', 'true');
@@ -411,30 +437,44 @@ export const EDIT_MODE = `
     if (mixed) {
       var was = mixed;
       mixed = null;
-      for (var k = 0; k < was.islands.length; k += 1) {
-        var island = was.islands[k];
+      for (var k = 0; k < was.locked.length; k += 1) {
+        var island = was.locked[k];
         if (island.had === null) island.node.removeAttribute('contenteditable');
         else island.node.setAttribute('contenteditable', island.had);
       }
-      /* The islands must be exactly as they were — same elements, same
-         markup. A deleted link or a pasted <b> is not a text edit: put it
-         all back rather than save something the source cannot express. */
-      var intact = element.children.length === was.islands.length;
-      for (var m = 0; intact && m < was.islands.length; m += 1) {
-        if (element.children[m] !== was.islands[m].node || element.children[m].outerHTML !== was.islands[m].html) intact = false;
+      /* The markup must be exactly as it was — the same elements, in the same
+         order, with the same attributes. A deleted <span> or a pasted <b> is
+         not a text edit: put it all back rather than save something the
+         source cannot express. */
+      var now = element.getElementsByTagName('*');
+      var intact = now.length === was.nodes.length;
+      for (var m = 0; intact && m < was.nodes.length; m += 1) {
+        if (now[m] !== was.nodes[m].node || attrsOf(now[m]) !== was.nodes[m].attrs) intact = false;
       }
-      var gaps = intact ? textGaps(element) : [];
-      var runs = [];
-      for (var g = 0; intact && g < gaps.length; g += 1) {
-        var after = gaps[g].replace(/\u00a0/g, ' ');
-        if (after !== was.gaps[g]) runs.push({ before: was.gaps[g], after: after });
+      /* One edit per element whose own words changed, each saved to its own
+         place in the source. */
+      var edits = [];
+      for (var e = 0; intact && e < was.before.length; e += 1) {
+        var one = was.before[e];
+        var gaps = textGaps(one.node);
+        if (gaps.length !== one.gaps.length) { intact = false; break; }
+        var runs = [];
+        for (var g = 0; g < gaps.length; g += 1) {
+          var after = gaps[g].replace(/\u00a0/g, ' ');
+          if (after !== one.gaps[g]) runs.push({ before: one.gaps[g], after: after });
+        }
+        if (!runs.length) continue;
+        var base = { src: one.node.getAttribute('data-qs-src'), tag: one.node.tagName.toLowerCase(), className: one.node.getAttribute('class') || '', before: one.text };
+        if (one.only) { if (!one.node.textContent.trim()) { intact = false; break; } base.text = one.node.textContent.replace(/\u00a0/g, ' '); }
+        else base.runs = runs;
+        edits.push(base);
       }
-      if (!save || !intact || runs.length === 0 || !text.trim()) {
+      if (!save || !intact || edits.length === 0 || !text.trim()) {
         element.innerHTML = was.html;
         report('typed', { src: src, changed: false });
         return;
       }
-      report('typed', { src: src, tag: element.tagName.toLowerCase(), className: element.getAttribute('class') || '', before: typingBefore, text: text, runs: runs, changed: true });
+      report('typed', { src: src, tag: element.tagName.toLowerCase(), className: element.getAttribute('class') || '', before: typingBefore, text: text, edits: edits, changed: true });
       return;
     }
     if (!save || !text.trim() || text.trim() === typingBefore.trim()) {
@@ -467,6 +507,12 @@ export const EDIT_MODE = `
       if (n.hasAttribute && n.hasAttribute('data-qs-src') && hasDirectText(n)) { host = n; break; }
     }
     if (!host) { pickAt(target); return; }
+    /* Words that are part of a larger sentence — a <span> line in a heading
+       that has words of its own — are typed as that whole sentence, so the
+       caret can move through all of it. */
+    while (host.parentElement && host.parentElement !== document.body && host.parentElement.hasAttribute('data-qs-src') && hasDirectText(host.parentElement)) {
+      host = host.parentElement;
+    }
     if (picks.indexOf(host) < 0) addPick(host);
     /* Typing first, then the selection: the workspace hears "typing" before
        it hears what was picked, so its full editor never flashes up in

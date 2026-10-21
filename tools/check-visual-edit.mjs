@@ -250,7 +250,13 @@ Changed: a bolder mark with a single vertical stroke.`;
      type — clicking the selected element again leaves it selected. */
   has(/event\.detail >= 2\) \{ typeAt\(event\.target\)/.test(rt) && /now - lastTap\.t < 380/.test(rt) && /'plaintext-only'/.test(rt), "a double click or double tap types into the words in place");
   has(/if \(at >= 0 && element === selected\) return;/.test(rt) && !/element === selected && canType\(element\)\) \{ startTyping/.test(rt), "a single click on the selected element selects, and never starts typing");
-  has(/hasDirectText\(n\)/.test(rt) && /setAttribute\('contenteditable', 'false'\)/.test(rt) && /runs: runs/.test(rt), "words with markup inside them are typed with the markup locked, and reported as runs");
+  /* Text with markup inside: the elements in it that have a place in the
+     source are typed into too (the caret moves through the whole sentence),
+     what has none is locked, and each element whose words changed is
+     reported as its own edit. A double tap inside a sentence types it whole. */
+  has(/hasDirectText\(n\)/.test(rt) && /if \(!child\.hasAttribute\('data-qs-src'\)\) \{/.test(rt) && /setAttribute\('contenteditable', 'false'\)/.test(rt) && /edits: edits/.test(rt) && /else base\.runs = runs;/.test(rt), "words with markup inside are typed through, untagged parts locked, one edit per changed element");
+  has(/hasDirectText\(host\.parentElement\)\) \{\s*host = host\.parentElement;/.test(rt), "a double tap on a line inside a sentence types the whole sentence");
+  has(/if \(Array\.isArray\(typed\.edits\)\)/.test(bridge) && /saveHandEditsRef\.current\(\s*edits,/.test(bridge), "the bridge saves each changed element of a typed sentence in one request");
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
   has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(all\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
   has(/applySinglePageText\(next,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
