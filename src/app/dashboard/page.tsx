@@ -826,7 +826,7 @@ export default function DashboardPage() {
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-[0.98] sm:h-10 sm:w-10 ${
                       isRecording
                         ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                        : "qs-control bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-white md:bg-layer/[0.03]"
+                        : "qs-control bg-layer/[0.06] border-line/[0.08] hover:bg-layer/[0.06] hover:border-line/[0.12] text-ink md:bg-layer/[0.03]"
                     }`}
                   >
                     {isRecording ? (
