@@ -1107,10 +1107,13 @@ export default function PreviewPanel({
             <button
               onClick={() => setEditMode((on) => !on)}
               aria-pressed={editMode}
-              aria-label={editMode ? "Close visual edit" : "Visual edit"}
-              className={`shrink-0 rounded-md p-1 text-ink transition-colors hover:bg-layer/[0.06] ${editMode ? "bg-layer/[0.1]" : ""}`}
+              aria-label={editMode ? "Stop editing" : "Edit"}
+              className={`mr-auto flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-medium transition-colors ${
+                editMode ? "bg-[#2563eb] text-white hover:bg-[#1d4ed8]" : "text-ink hover:bg-layer/[0.06]"
+              }`}
             >
               <MousePointerClick className="h-3.5 w-3.5" />
+              Edit
             </button>
             {project?.id ? (
               <VersionControls
@@ -1604,7 +1607,10 @@ export default function PreviewPanel({
           )}
           {/* Edit, the width it is shown at, full screen — floating over the
               foot of the frame, the way the preview's own controls do in
-              other builders. */}
+              other builders. Not on a phone: the strip across the top carries
+              Edit there, and phone width and full screen are what a phone
+              already is — the bar would only sit on the page. */}
+          <div className="hidden md:contents">
           <PreviewToolbar
             editMode={editMode}
             canEdit={Boolean(previewUrl) && !isReceipt}
@@ -1614,6 +1620,7 @@ export default function PreviewPanel({
             fullscreen={fullscreen}
             onFullscreen={toggleFullscreen}
           />
+          </div>
         </div>
         </div>
       ) : (

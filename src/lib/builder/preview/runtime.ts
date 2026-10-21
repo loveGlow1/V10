@@ -218,6 +218,13 @@ export const EDIT_MODE = `
      gives the page room to scroll its last element up above the editor. */
   var coverInset = 0;
   var spacer = null;
+  /* The cover the page last moved for, and whether the person has scrolled
+     the page themselves since typing began. Once they have, where the page
+     sits is theirs: the editor's own small movements — the keyboard settling,
+     the bar growing a line — never scroll it back under their finger. */
+  var revealedFor = 0;
+  var handScrolled = false;
+  function onHandScroll() { if (typing) handScrolled = true; }
   function setCover(inset) {
     coverInset = Math.max(0, Math.round(inset) || 0);
     if (coverInset > 0) {
@@ -233,10 +240,14 @@ export const EDIT_MODE = `
       var have = parseInt(spacer.style.height, 10) || 0;
       if (coverInset > have) spacer.style.height = coverInset + 'px';
     }
+    if (typing && handScrolled) return;
+    if (Math.abs(coverInset - revealedFor) < 24 && revealedFor > 0) return;
+    revealedFor = coverInset;
     reveal(typing || selected);
   }
   function dropCover() {
     coverInset = 0;
+    revealedFor = 0;
     if (spacer && spacer.parentNode) spacer.parentNode.removeChild(spacer);
     spacer = null;
   }
@@ -455,6 +466,7 @@ export const EDIT_MODE = `
     stopTyping(true);
     typing = element;
     typingBefore = element.textContent;
+    handScrolled = false;
     mixed = null;
     if (!onlyText(element)) {
       /* Every element inside that has a place in the source is typed into
@@ -733,6 +745,8 @@ export const EDIT_MODE = `
       window.addEventListener('submit', onBlock, true);
       window.addEventListener('keydown', onKey, true);
       window.addEventListener('scroll', follow, true);
+      window.addEventListener('touchmove', onHandScroll, { capture: true, passive: true });
+      window.addEventListener('wheel', onHandScroll, { capture: true, passive: true });
       window.addEventListener('resize', follow);
       document.documentElement.style.cursor = touchLayout ? 'pointer' : 'crosshair';
       /* While picking on a phone: no text-selection or picture callout on a
@@ -743,7 +757,7 @@ export const EDIT_MODE = `
            phone the caret cannot be placed in, or dragged through, anything
            that cannot be selected — so a <span> line inside a heading was out
            of reach while the heading itself was not. */
-        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}html,body{touch-action:manipulation!important}[contenteditable=true],[contenteditable=plaintext-only],[contenteditable=true] *,[contenteditable=plaintext-only] *{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
+        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}html,body{touch-action:manipulation!important;overscroll-behavior:none!important}[contenteditable=true],[contenteditable=plaintext-only],[contenteditable=true] *,[contenteditable=plaintext-only] *{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
         document.head.appendChild(touchStyle);
       }
       if (!following) following = window.requestAnimationFrame(tick);
@@ -755,6 +769,8 @@ export const EDIT_MODE = `
       window.removeEventListener('submit', onBlock, true);
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('touchmove', onHandScroll, true);
+      window.removeEventListener('wheel', onHandScroll, true);
       window.removeEventListener('resize', follow);
       document.documentElement.style.cursor = '';
       if (touchStyle) { touchStyle.remove(); touchStyle = null; }

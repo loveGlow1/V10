@@ -76,7 +76,9 @@ export const REDEPLOY_COST = 1;
  * future edit to the database function alone forgets. */
 export const MAX_SIGNUP_CREDITS = 5;
 
-/* Everything a new account ever gets for free: five credits, once, at signup.
+/* Everything a new account ever gets for free: five credits, once — granted
+ * when a card is saved and verified, never charged (grant_card_welcome in
+ * supabase/schema.sql; until 2026-10 it was granted at signup itself).
  *
  * They land in the top-up bucket rather than the daily one, which is what makes
  * them a one-time balance instead of an allowance — top-ups never expire and
@@ -194,7 +196,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Standard community support",
     features: [
-      `${SIGNUP_CREDITS} credits to start, on the house`,
+      `${SIGNUP_CREDITS} credits to start, on the house, once you add a card (never charged)`,
       /* "Change", not "build". The signup grant sits below the door for a build
          on the default model deliberately (see SIGNUP_CREDITS), so a card
          promising a free account the build it pictures is promising the one

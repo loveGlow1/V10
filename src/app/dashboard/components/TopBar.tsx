@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronLeft, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, Eye, MoreHorizontal } from "lucide-react";
 
 import CreditPill from "./CreditPill";
 import { MenuMark } from "./marks";
@@ -17,6 +17,10 @@ interface TopBarProps {
      of it. Home passes neither and keeps the layout it has. */
   projectName?: string;
   onBack?: () => void;
+  /* The way to the app's preview, while it has one — and whether a version
+     has landed since it was last looked at, which the button marks. */
+  onPreview?: () => void;
+  previewFresh?: boolean;
 }
 
 /* The phone bar: the way into the drawer, and the way onto a plan. The brand,
@@ -32,6 +36,8 @@ export default function TopBar({
   credits,
   projectName,
   onBack,
+  onPreview,
+  previewFresh = false,
 }: TopBarProps) {
   /* Everything in this row is 34px tall — the two icon buttons and the pill
      between them. It was 30, which left the pill sitting two pixels inside the
@@ -75,6 +81,24 @@ export default function TopBar({
         {balance && <span className="hidden min-[430px]:flex">{balance}</span>}
 
         {upgrade}
+
+        {/* The preview, one tap away whenever there is one to see, rather than
+            inside Quick actions. When a new version is waiting it says so — the
+            word and a dot — which is when it is most wanted; otherwise on a
+            phone it is the eye alone, so the app's name keeps its room. */}
+        {onPreview && (
+          <button
+            onClick={onPreview}
+            aria-label={previewFresh ? "Preview — a new version is ready" : "Preview"}
+            className={`relative flex h-[34px] shrink-0 items-center gap-1.5 rounded-full border border-line/[0.14] bg-layer/[0.08] px-2.5 text-[12.5px] font-medium leading-none text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:bg-layer/[0.12] active:scale-[0.98] ${previewFresh ? "px-3" : "w-[34px] justify-center min-[430px]:w-auto min-[430px]:px-3"}`}
+          >
+            <Eye className="h-4 w-4" />
+            <span className={previewFresh ? "inline" : "hidden min-[430px]:inline"}>Preview</span>
+            {previewFresh && (
+              <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-canvas bg-[#22c55e]" />
+            )}
+          </button>
+        )}
 
         {/* Quick actions on an app screen: Deploy, Preview, Manage, Code, Info. */}
         <button onClick={onMenuClick} aria-label="Quick actions" className={round}>

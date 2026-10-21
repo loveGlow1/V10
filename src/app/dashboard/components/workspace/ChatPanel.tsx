@@ -76,6 +76,7 @@ import {
   uploadAttachment,
   type Attachment,
 } from "@/lib/project-attachments";
+import { CardWelcomeBanner } from "../billing/CardWelcome";
 
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
@@ -2064,6 +2065,9 @@ export default function ChatPanel({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Free credit waits for a card on file — see CardWelcome. */}
+      <CardWelcomeBanner className="mx-3 mt-1 shrink-0" />
 
       <div className="shrink-0 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* What is going with this message. Named rather than counted: "logo.svg,

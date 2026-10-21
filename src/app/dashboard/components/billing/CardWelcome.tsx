@@ -1,0 +1,186 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import { CreditCard, Loader2, ShieldCheck, X } from "lucide-react";
+
+import { useCredits } from "../../useCredits";
+
+/* The welcome credit, behind a card on file — see src/lib/stripe-card.ts.
+ *
+ *   CardWelcomeBanner  "Add a card to get 5 free credits — you won't be
+ *                      charged", above the composer on Home and in the
+ *                      workspace, only for an account that has not had its
+ *                      welcome. Gone once it has.
+ *   CardReturn         back from Stripe: confirms the card, says what came of
+ *                      it, refreshes the balance. Mounted once, in the layout.
+ *
+ * The card is saved on Stripe's own page in setup mode: the bank verifies it
+ * with a zero-amount check and nothing is charged. */
+
+type Status = {
+  configured: boolean;
+  card: { brand: string | null; last4: string | null } | null;
+  welcomed: boolean;
+  welcomeCredits: number;
+};
+
+const CHANGED = "qs:card-changed";
+
+function useCardStatus() {
+  const [status, setStatus] = useState<Status | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/payments/stripe/card", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: Status | null) => setStatus(body))
+      .catch(() => setStatus(null));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener(CHANGED, load);
+    return () => window.removeEventListener(CHANGED, load);
+  }, [load]);
+  return status;
+}
+
+/** Off to Stripe's page to save a card, coming back to where this was. */
+export async function startCardSetup(): Promise<string | null> {
+  const returnTo = `${window.location.pathname}${window.location.search}`.replace(/[?&]card(_session)?=[^&]*/g, "") || "/dashboard";
+  const response = await fetch("/api/payments/stripe/card", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnTo }),
+  }).catch(() => null);
+  const body = (await response?.json().catch(() => ({}))) as { url?: string; error?: string } | undefined;
+  if (body?.url) {
+    window.location.assign(body.url);
+    return null;
+  }
+  return body?.error ?? "Stripe couldn't be reached. Try again.";
+}
+
+export function CardWelcomeBanner({ className = "" }: { className?: string }) {
+  const { planId } = useCredits();
+  const status = useCardStatus();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  if (hidden || planId !== "free" || !status || !status.configured || status.welcomed) return null;
+  /* A card saved but no welcome: that card already unlocked one elsewhere. */
+  const used = Boolean(status.card);
+
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    const failed = await startCardSetup();
+    if (failed) {
+      setError(failed);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-2xl border border-line/[0.1] bg-layer/[0.04] px-3.5 py-2.5 text-left ${className}`}
+      role="region"
+      aria-label="Free credits"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#22c55e]/15 text-[#16a34a] dark:text-[#4ade80]">
+        <ShieldCheck className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium leading-snug text-ink">
+          {used
+            ? "That card already claimed free credits on another account"
+            : `Add a card to get ${status.welcomeCredits} free credits`}
+        </p>
+        <p className="text-[12px] leading-snug text-muted">
+          {error ?? (used ? "Add a different card, or top up to keep building." : "No charge — your bank just checks the card is real.")}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => void go()}
+        disabled={busy}
+        className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3 text-[12.5px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CreditCard className="h-3.5 w-3.5" />}
+        {used ? "Use another card" : "Add card"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setHidden(true)}
+        aria-label="Not now"
+        className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:text-ink"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+const SAID: Record<string, (credits: number) => string> = {
+  granted: (credits) => `Card verified — ${credits} free credits added. You weren't charged.`,
+  already: () => "Card saved. You weren't charged.",
+  card_used: () => "Card saved, but it already claimed free credits on another account. You weren't charged.",
+  invalid: () => "Card saved. You weren't charged.",
+};
+
+export function CardReturn() {
+  const { refresh } = useCredits();
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const state = params.get("card");
+    if (!state) return;
+    const sessionId = params.get("card_session");
+    /* Off the address either way, so a reload does not say it twice. */
+    params.delete("card");
+    params.delete("card_session");
+    const rest = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+    if (state !== "saved" || !sessionId) return;
+
+    void fetch("/api/payments/stripe/card/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as { welcome?: string; error?: string };
+        if (!response.ok) {
+          setNote({ text: body.error ?? "The card could not be saved. Try again.", ok: false });
+          return;
+        }
+        const credits = await fetch("/api/payments/stripe/card", { cache: "no-store" })
+          .then((r) => r.json() as Promise<Status>)
+          .then((s) => s.welcomeCredits)
+          .catch(() => 5);
+        setNote({ text: (SAID[body.welcome ?? "already"] ?? SAID.already)(credits), ok: body.welcome !== "card_used" });
+        await refresh();
+        window.dispatchEvent(new Event(CHANGED));
+      })
+      .catch(() => setNote({ text: "Couldn't confirm the card. Reload the page to try again.", ok: false }));
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!note) return;
+    const timer = setTimeout(() => setNote(null), 7000);
+    return () => clearTimeout(timer);
+  }, [note]);
+
+  if (!note) return null;
+  return (
+    <div
+      role="status"
+      className="fixed inset-x-3 top-[max(12px,env(safe-area-inset-top))] z-[90] mx-auto flex max-w-md items-center gap-2.5 rounded-2xl border border-line/[0.12] bg-canvas px-4 py-3 text-[13px] text-ink shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+    >
+      <ShieldCheck className={`h-4 w-4 shrink-0 ${note.ok ? "text-[#16a34a] dark:text-[#4ade80]" : "text-warn"}`} />
+      <p className="min-w-0 flex-1">{note.text}</p>
+      <button type="button" onClick={() => setNote(null)} aria-label="Dismiss" className="text-muted hover:text-ink">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
