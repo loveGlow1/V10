@@ -10,6 +10,7 @@ import { EDIT_MODEL } from "@/lib/builder/edit";
 import { isPublishedProject } from "@/lib/project-status";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 /* Where a charge is actually taken.
  *
@@ -194,6 +195,10 @@ export async function POST(request: Request) {
   };
 
   const service = createSupabaseServiceClient();
+
+  /* No card, no service, for an account that has never paid. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
 
   let { data, error } = service
     ? await service.rpc("spend_credits_for", { p_user_id: user.id, ...arguments_ })

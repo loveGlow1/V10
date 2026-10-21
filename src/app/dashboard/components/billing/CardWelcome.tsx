@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CreditCard, Loader2, ShieldCheck, X } from "lucide-react";
+import { CreditCard, Loader2, LogOut, ShieldCheck, X } from "lucide-react";
+
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 
 import { useCredits } from "../../useCredits";
 
@@ -11,6 +13,11 @@ import { useCredits } from "../../useCredits";
  *                      charged", above the composer on Home and in the
  *                      workspace, only for an account that has not had its
  *                      welcome. Gone once it has.
+ *   CardGate           no card, no service: an account that has never paid
+ *                      and has no valid card (new, or from before the rule
+ *                      and holding the free credit it got at signup) sees
+ *                      only this until it adds one. The server refuses its
+ *                      work too — see lib/card-gate.ts. In the layout.
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
  *
@@ -22,6 +29,7 @@ type Status = {
   card: { brand: string | null; last4: string | null } | null;
   welcomed: boolean;
   welcomeCredits: number;
+  required: boolean;
 };
 
 const CHANGED = "qs:card-changed";
@@ -65,7 +73,8 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
 
-  if (hidden || planId !== "free" || !status || !status.configured || status.welcomed) return null;
+  /* An account that must add a card sees the gate instead. */
+  if (hidden || planId !== "free" || !status || !status.configured || status.welcomed || status.required) return null;
   /* A card saved but no welcome: that card already unlocked one elsewhere. */
   const used = Boolean(status.card);
 
@@ -181,6 +190,83 @@ export function CardReturn() {
       <button type="button" onClick={() => setNote(null)} aria-label="Dismiss" className="text-muted hover:text-ink">
         <X className="h-3.5 w-3.5" />
       </button>
+    </div>
+  );
+}
+
+/* No card, no service. Over everything, with no way past it but a card —
+   or out. What it says depends on who is looking: a new account is promised
+   its welcome, an older one the free credit it already holds, and one whose
+   card has run out is asked for a valid one. */
+export function CardGate() {
+  const status = useCardStatus();
+  const { balance } = useCredits();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!status?.required || !status.configured) return null;
+  const holding = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;
+  const title = status.card
+    ? "Your card has expired"
+    : !status.welcomed
+      ? `Add a card to get your ${status.welcomeCredits} free credits`
+      : holding > 0
+        ? "Add a card to use your free credits"
+        : "Add a card to keep building";
+
+  const go = async () => {
+    setBusy(true);
+    setError(null);
+    const failed = await startCardSetup();
+    if (failed) {
+      setError(failed);
+      setBusy(false);
+    }
+  };
+  const signOut = async () => {
+    await createSupabaseBrowserClient().auth.signOut().catch(() => undefined);
+    window.location.assign("/");
+  };
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/60 backdrop-blur-[3px] sm:items-center sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-gate-title"
+        className="w-full max-w-[440px] rounded-t-[24px] border border-line/[0.1] bg-canvas px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] sm:rounded-2xl sm:pb-6"
+      >
+        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#22c55e]/15 text-[#16a34a] dark:text-[#4ade80]">
+          <ShieldCheck className="h-5 w-5" />
+        </span>
+        <h2 id="card-gate-title" className="mt-4 text-[19px] font-semibold leading-snug text-ink">
+          {title}
+        </h2>
+        <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
+          {status.card
+            ? "Add a valid card to keep using QuickStark."
+            : "QuickStark needs a card on file before you can build."}{" "}
+          You won&apos;t be charged — your bank just confirms the card is real. It keeps free credit for real people.
+        </p>
+        {error ? <p className="mt-3 text-[12.5px] text-warn">{error}</p> : null}
+        <button
+          type="button"
+          onClick={() => void go()}
+          disabled={busy}
+          className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink text-[14px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+          {status.card ? "Add a valid card" : "Add card"}
+        </button>
+        <p className="mt-3 text-center text-[11.5px] text-muted">Secured by Stripe.</p>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="mx-auto mt-3 flex items-center gap-1.5 text-[12.5px] text-muted transition-colors hover:text-ink"
+        >
+          <LogOut className="h-3.5 w-3.5" /> Sign out
+        </button>
+      </div>
     </div>
   );
 }

@@ -118,6 +118,7 @@ import { reframe } from "@/lib/builder/framing";
 import { landmarkBrief } from "@/lib/builder/landmarks";
 import { referenceEditBrief } from "@/lib/builder/reference";
 import { loadReferencedProjects, referenceText } from "@/lib/builder/project-reference";
+import { refuseWithoutCard } from "@/lib/card-gate";
 import { FLIER_INTENT, isFlierTarget, startFlierTurn } from "@/lib/flyers/workspace";
 import { VIDEO_INTENT, startVideoTurn } from "@/lib/video/workspace";
 import { moveVideoVersion } from "@/lib/video/versions";
@@ -799,6 +800,11 @@ async function handle(
      so that a client can neither put its own HTML on a preview nor decide what
      it owes. Ownership was settled just above, under the caller's session. */
   const service = createSupabaseServiceClient();
+
+  /* No card, no service, for an account that has never paid — see
+     lib/card-gate.ts. Before anything is built or charged. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
 
   /* ── A flier ────────────────────────────────────────────────────────────
    *

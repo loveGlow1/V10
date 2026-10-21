@@ -3,14 +3,16 @@ import Stripe from "stripe";
 
 import { SIGNUP_CREDITS } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
+import { cardRequired } from "@/lib/card-gate";
 import { CARD_SESSION_KIND, cardStatus } from "@/lib/stripe-card";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* A card on file — the key to the free welcome credit. See stripe-card.ts.
  *
- * GET  { configured, card, welcomed, welcomeCredits } — what the Billing
- *      screen and the welcome prompt draw.
+ * GET  { configured, card, welcomed, welcomeCredits, required } — what the
+ *      card screens draw. `required`: this account may not use the service
+ *      until it saves a card (see lib/card-gate.ts).
  * POST { url } — a Stripe Checkout page in setup mode: the card is saved and
  *      verified by the bank, never charged. Who it is for is written onto the
  *      session here, on the server; the browser's return
@@ -33,8 +35,9 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Temporarily unavailable, please retry." }, { status: 503 });
-  const status = await cardStatus(service, user.id);
+  const [status, required] = await Promise.all([cardStatus(service, user.id), cardRequired(service, user.id)]);
   return NextResponse.json({
+    required,
     configured: Boolean(process.env.STRIPE_SECRET_KEY),
     card: status.card,
     welcomed: status.welcomed,

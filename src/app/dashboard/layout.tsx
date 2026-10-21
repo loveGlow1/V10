@@ -9,7 +9,7 @@ import { PLAN_ORDER, modelPlanFor, type CreditBalance, type PlanId } from './cre
 import { toppedUpCredits } from '@/lib/credits-server';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 import { ModelProvider } from './useModel';
-import { CardReturn } from './components/billing/CardWelcome';
+import { CardGate, CardReturn } from './components/billing/CardWelcome';
 
 export const metadata: Metadata = {
   title: "QuickStark.Ai | Dashboard",
@@ -88,6 +88,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       {children}
       {/* Back from saving a card on Stripe's page: confirmed and announced. */}
       <CardReturn />
+      {/* No card, no service, for an account that has never paid. */}
+      <CardGate />
     </div>
     </ModelProvider>
     </CreditsProvider>
