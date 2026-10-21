@@ -782,7 +782,7 @@
     "operation": "send",
     "options": {
      "appendAttribution": false,
-     "senderName": "QuickStark.Ai WhatsApp Bot"
+     "senderName": "={{ $('Business Profile').first().json.biz }} WhatsApp Bot"
     },
     "resource": "message",
     "sendTo": "={{ $json.alertEmail }}",
