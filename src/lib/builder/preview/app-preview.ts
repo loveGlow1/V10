@@ -199,6 +199,18 @@ export function stylesheetOf(tree: FileTree): string {
  * is Tailwind's, and `@import` has already been inlined by stylesheetOf, so
  * what is left of one is a request for a file that is not there. Browsers drop
  * both harmlessly; removing them keeps the devtools console honest. */
+/* The remote stylesheets a project's CSS @imports — Google Fonts, mostly —
+   as <link>s. nativeCss strips every @import (an @import that is not the first
+   rule is ignored by browsers anyway), which meant a project's own web fonts
+   never reached its preview. Https only. */
+function remoteImportLinks(styles: string): string {
+  const hrefs = new Set<string>();
+  for (const match of styles.matchAll(/@import\s+(?:url\()?["'](https:\/\/[^"')]+)["']\)?\s*;/g)) hrefs.add(match[1]);
+  return [...hrefs]
+    .map((href) => `<link rel="stylesheet" href="${href.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">`)
+    .join("\n");
+}
+
 function nativeCss(styles: string): string {
   return styles
     .replace(/^[ \t]*@tailwind\s+[^;]+;[ \t]*$/gm, "")
@@ -376,6 +388,7 @@ ${config ? `<script>${config}\nwindow.tailwind = window.tailwind || {}; if (wind
 <script src="${TAILWIND}"></script>
 ${config ? `<script>try { if (window.__qsTailwind && window.tailwind) window.tailwind.config = window.__qsTailwind; } catch (e) {}</script>` : ""}
 ${headLinks}
+${styles ? remoteImportLinks(styles) : ""}
 <style>${SHELL}</style>
 ${styles ? `<style>${nativeCss(styles).replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 ${styles ? `<style type="text/tailwindcss">${styles.replace(/<\/style/gi, "<\\/style")}</style>` : ""}

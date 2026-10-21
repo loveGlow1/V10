@@ -434,6 +434,19 @@ export const EDIT_MODE = `
   /* A change shown before it is made: the class string, words and picture the
      workspace has worked out, on every element written at that place. */
   function previewChange(change) {
+    /* A font from the style panel: its stylesheet, fetched once, from Google
+       Fonts only — the same host the saved page will load it from. */
+    if (typeof change.fontHref === 'string' && change.fontHref.indexOf('https://fonts.googleapis.com/css2?') === 0) {
+      var have = document.querySelectorAll('link[rel="stylesheet"]');
+      var loaded = false;
+      for (var l = 0; l < have.length; l += 1) if (have[l].getAttribute('href') === change.fontHref) loaded = true;
+      if (!loaded) {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = change.fontHref;
+        document.head.appendChild(link);
+      }
+    }
     var elements = sameSource(change.src);
     for (var i = 0; i < elements.length; i += 1) {
       var element = elements[i];

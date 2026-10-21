@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 
 import { rememberAuthWrite } from "@/lib/builder/preview/auth-seed";
 
-import { applyClassChange, type ClassGroup } from "@/lib/builder/visual-edit";
+import { applyClassChange, fontForClass, fontHref, type ClassGroup } from "@/lib/builder/visual-edit";
 
 import { askChat, trackTypedSave } from "./visual-ask";
 
@@ -302,7 +302,8 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       const targets = picks.length ? picks : picked ? [picked] : [];
       for (const target of targets) {
         const className = applyClassChange(target.className, group, value);
-        tellFrame({ preview: { src: target.src, className } });
+        const font = group === "fontFamily" ? fontForClass(value) : null;
+        tellFrame({ preview: { src: target.src, className, ...(font ? { fontHref: fontHref(font) } : {}) } });
         saveHandEdit({ src: target.src, tag: target.tag, className: target.className, text: target.text ?? "", change: { classes: [{ group, value }] } }, words);
       }
       const restyled = (one: Picked) => (targets.some((t) => t.pickId === one.pickId && t.src === one.src) ? { ...one, className: applyClassChange(one.className, group, value) } : one);

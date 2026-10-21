@@ -18,7 +18,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Type, X } from "lucide-react";
 
-import { parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
+import { FONT_OPTIONS, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
 import type { Picked, SaveState } from "./preview-bridge";
 import { askChat } from "./visual-ask";
@@ -102,8 +102,25 @@ function sizeIndex(picked: Picked): number {
   return best;
 }
 
+/* The picker's own samples are drawn in the faces they name, so the editor
+   loads them too — once, in one request, the first time a style panel opens.
+   Fonts are fetched per glyph range, so this is a few small files. */
+const SAMPLES_ID = "qs-font-samples";
+function useFontSamples() {
+  useEffect(() => {
+    if (document.getElementById(SAMPLES_ID)) return;
+    const link = document.createElement("link");
+    link.id = SAMPLES_ID;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?${FONT_OPTIONS.map((option) => `family=${option.google}`).join("&")}&display=swap`;
+    document.head.appendChild(link);
+  }, []);
+}
+
 export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onStyle: StyleChange; dark?: boolean }) {
+  useFontSamples();
   const at = sizeIndex(picked);
+  const currentFont = FONT_OPTIONS.find((option) => picked.className.split(/\s+/).includes(option.className))?.id ?? null;
   const bold = /(^|\s)font-(bold|extrabold|black|semibold)(\s|$)/.test(picked.className);
   const button = `flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-[13px] ${dark ? "bg-white/[0.08] text-white/90 active:bg-white/[0.18] hover:bg-white/[0.14]" : ""}`;
   const dot = (colour: string, label: string, onClick: () => void) => (
@@ -133,6 +150,30 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
         <button type="button" className={button} onClick={() => onStyle("align", "text-left", "align it left")} aria-label="Align left"><AlignLeft className="h-4 w-4" /></button>
         <button type="button" className={button} onClick={() => onStyle("align", "text-center", "centre it")} aria-label="Centre"><AlignCenter className="h-4 w-4" /></button>
         <button type="button" className={button} onClick={() => onStyle("align", "text-right", "align it right")} aria-label="Align right"><AlignRight className="h-4 w-4" /></button>
+      </div>
+      {/* Font: Default takes the family class off, so the element goes back
+          to whatever the page set; every other chip is shown in its own face. */}
+      <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none]" role="radiogroup" aria-label="Font">
+        <span className="w-12 shrink-0 text-[11.5px] text-white/55">Font</span>
+        {[{ id: null as string | null, label: "Default", className: "", stack: "inherit" }, ...FONT_OPTIONS].map((option) => {
+          const active = currentFont === option.id;
+          return (
+            <button
+              key={option.id ?? "default"}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              title={option.id ? `Set in ${option.label}` : "The page's own font"}
+              onClick={() => onStyle("fontFamily", option.className, option.id ? `set it in ${option.label}` : "use the page's own font")}
+              className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-[13px] transition-colors ${
+                active ? "bg-white text-black" : "bg-white/[0.08] text-white/90 hover:bg-white/[0.14] active:bg-white/[0.18]"
+              }`}
+              style={{ fontFamily: option.stack }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
       </div>
       <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
         <span className="w-12 shrink-0 text-[11.5px] text-white/55">Text</span>
