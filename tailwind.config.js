@@ -6,6 +6,11 @@ module.exports = {
      v4 does by default. Capability, not width: a narrow laptop window still has a mouse
      and keeps its hovers. */
   future: { hoverOnlyWhenSupported: true },
+  /* `dark:` follows the app's own theme (theme.ts): dark unless <html> carries
+     data-theme="light" — not the operating system's, which the app's Light /
+     Dark / System setting already decides between. Only the agent chat uses
+     `dark:` at the time of writing. */
+  darkMode: ['variant', '&:not([data-theme="light"] *)'],
   content: [
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
