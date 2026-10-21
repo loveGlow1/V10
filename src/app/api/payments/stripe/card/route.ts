@@ -4,9 +4,10 @@ import Stripe from "stripe";
 import { SIGNUP_CREDITS } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
 import { cardStatusOf } from "@/lib/card-gate";
-import { CARD_SESSION_KIND, cardStatus } from "@/lib/stripe-card";
+import { CARD_SESSION_KIND, cardStatus, customerFor } from "@/lib/stripe-card";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { stripeSecretKey } from "@/lib/stripe-key";
 
 /* A card on file — the key to the free welcome credit. See stripe-card.ts.
  *
@@ -48,7 +49,7 @@ export async function GET() {
   return NextResponse.json({
     status: gate,
     required: gate === "required",
-    configured: Boolean(process.env.STRIPE_SECRET_KEY),
+    configured: Boolean(stripeSecretKey()),
     card: status.card,
     welcomed: status.welcomed,
     welcomeCredits: SIGNUP_CREDITS,
@@ -56,7 +57,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const secretKey = stripeSecretKey();
   if (!secretKey) return NextResponse.json({ error: "Stripe is not configured on this deployment." }, { status: 503 });
   const user = await signedIn();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
@@ -71,20 +72,7 @@ export async function POST(request: Request) {
     `${SITE_URL}${returnTo}${returnTo.includes("?") ? "&" : "?"}card=${state}${extra}`;
 
   const stripe = new Stripe(secretKey);
-  /* One Stripe customer per account: the one on file, else one made for this
-     account on an earlier try that was not finished, else a new one. */
-  const { customerId: known } = await cardStatus(service, user.id);
-  let customerId = known;
-  if (!customerId && user.email) {
-    const earlier = await stripe.customers.list({ email: user.email, limit: 20 }).catch(() => null);
-    customerId = earlier?.data.find((customer) => customer.metadata?.user_id === user.id)?.id ?? null;
-  }
-  customerId ??= (
-    await stripe.customers.create({
-      email: user.email ?? undefined,
-      metadata: { user_id: user.id },
-    })
-  ).id;
+  const customerId = await customerFor(stripe, service, user);
 
   const metadata = { user_id: user.id, kind: CARD_SESSION_KIND };
   /* Checked against Stripe itself:

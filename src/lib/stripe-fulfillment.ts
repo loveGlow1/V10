@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 
 import { isPaidPlanId } from "@/lib/crypto-payments";
 import { recordPayment } from "@/lib/money";
+import { rememberCard } from "@/lib/stripe-card";
 
 /* A paid Stripe Checkout Session becoming what it was bought for.
  *
@@ -30,8 +31,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * customer cannot change either. A session this app did not create (a Payment
  * Link, a Dashboard test) has neither, and grants nothing. */
 export function readSessionGrant(session: Stripe.Checkout.Session): SessionGrant | null {
-  /* Saving a card (setup mode) buys nothing — see stripe-card.ts. */
-  if (session.mode === "setup") return null;
+  /* Saving a card (setup mode) buys nothing — see stripe-card.ts. A plan
+     (subscription mode) is settled invoice by invoice — see
+     settlePaidInvoice — so its session grants nothing itself, or the first
+     month would be granted twice. */
+  if (session.mode === "setup" || session.mode === "subscription") return null;
   const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
   const kind = session.metadata?.kind ?? "topup";
   const planId = kind === "plan" ? (session.metadata?.plan_id ?? null) : null;
@@ -161,5 +165,106 @@ export async function recoverMissedCheckouts(
     }
   }
 
+  return { recovered, failures };
+}
+
+/* ── Plans: a subscription, settled one paid invoice at a time ─────────────
+ *
+ * A plan bought by card renews every month (or year) until it is cancelled.
+ * Every paid invoice — the first and each renewal — extends the plan and
+ * grants its month through settle_stripe_checkout, keyed on the invoice id so
+ * a second delivery changes nothing. Who and what come from the metadata this
+ * app wrote onto the subscription. A renewal that is not paid simply never
+ * arrives, and the plan runs out at its paid-through date. */
+
+type InvoicePlan = { userId: string; planId: string; months: 1 | 12; subscriptionId: string | null };
+
+function invoicePlan(invoice: Stripe.Invoice): InvoicePlan | null {
+  const details = invoice.parent?.subscription_details ?? null;
+  const meta = details?.metadata ?? {};
+  const userId = meta.user_id ?? "";
+  const planId = meta.plan_id ?? null;
+  if (!UUID.test(userId) || meta.kind !== "plan" || !isPaidPlanId(planId)) return null;
+  const months = meta.months === "12" ? 12 : 1;
+  const subscription = details?.subscription;
+  return { userId, planId, months, subscriptionId: typeof subscription === "string" ? subscription : (subscription?.id ?? null) };
+}
+
+/** Settles one paid plan invoice. "skipped" when it is not one of ours. */
+export async function settlePaidInvoice(
+  service: SupabaseClient,
+  stripe: Stripe,
+  invoice: Stripe.Invoice,
+): Promise<"settled" | "skipped"> {
+  const plan = invoicePlan(invoice);
+  if (!plan || invoice.status !== "paid" || !invoice.id) return "skipped";
+
+  const { error } = await service.rpc("settle_stripe_checkout", {
+    p_session_id: invoice.id,
+    p_user_id: plan.userId,
+    p_credits: null,
+    p_plan_id: plan.planId,
+    p_months: plan.months,
+  });
+  if (error) throw error;
+
+  if (invoice.amount_paid > 0 && invoice.currency) {
+    await recordPayment(service, {
+      userId: plan.userId,
+      dedupeKey: `stripe:${invoice.id}`,
+      minorAmount: invoice.amount_paid,
+      currency: invoice.currency,
+      provider: "stripe",
+    });
+  }
+
+  /* The card the plan renews on is the account's card on file — so a new
+     subscriber is not asked for a card they just paid with. Best effort. */
+  if (plan.subscriptionId) {
+    try {
+      const subscription = await stripe.subscriptions.retrieve(plan.subscriptionId, { expand: ["default_payment_method"] });
+      const method = subscription.default_payment_method;
+      const customer = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
+      if (method && typeof method !== "string") await rememberCard(stripe, service, plan.userId, customer, method);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("stripe: could not keep the card a plan renews on:", err instanceof Error ? err.message : err);
+    }
+  }
+  return "settled";
+}
+
+/** The sweep's half for plans: paid plan invoices from the recovery window
+ *  that have no ledger line yet, settled now. */
+export async function recoverMissedInvoices(
+  service: SupabaseClient,
+  stripe: Stripe,
+  now: number,
+): Promise<{ recovered: string[]; failures: { id: string; why: string }[] }> {
+  const recovered: string[] = [];
+  const failures: { id: string; why: string }[] = [];
+  const since = Math.floor(now / 1000) - STRIPE_RECOVERY_WINDOW_DAYS * 24 * 60 * 60;
+  const paid: Stripe.Invoice[] = [];
+  for await (const invoice of stripe.invoices.list({ status: "paid", created: { gte: since }, limit: 100 })) {
+    if (invoicePlan(invoice)) paid.push(invoice);
+  }
+  if (paid.length === 0) return { recovered, failures };
+  const { data, error } = await service
+    .from("credit_ledger")
+    .select("dedupe_key")
+    .in("dedupe_key", paid.map((invoice) => `stripe:${invoice.id}`));
+  if (error) {
+    failures.push({ id: "(stripe invoices)", why: error.message });
+    return { recovered, failures };
+  }
+  const done = new Set((data ?? []).map((row) => (row as { dedupe_key: string }).dedupe_key));
+  for (const invoice of paid) {
+    if (done.has(`stripe:${invoice.id}`)) continue;
+    try {
+      if ((await settlePaidInvoice(service, stripe, invoice)) === "settled") recovered.push(invoice.id ?? "?");
+    } catch (err) {
+      failures.push({ id: invoice.id ?? "?", why: err instanceof Error ? err.message : String(err) });
+    }
+  }
   return { recovered, failures };
 }

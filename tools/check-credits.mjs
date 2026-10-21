@@ -260,6 +260,22 @@ try {
     has(gated.length === 0, "video planning, the terminal and screenshots ask for a card too", `not gated: ${gated.join(", ")}`);
   }
 
+  /* Plans renew monthly on the card, like emergent.sh; and test keys never
+     run the live site. */
+  {
+    const checkout = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/checkout/route.ts"), "utf8");
+    const fulfil = readFileSync(join(process.cwd(), "src/lib/stripe-fulfillment.ts"), "utf8");
+    const webhook = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/webhook/route.ts"), "utf8");
+    const key = readFileSync(join(process.cwd(), "src/lib/stripe-key.ts"), "utf8");
+    has(/plan \? "subscription" : "payment"/.test(checkout) && /recurring: \{ interval:/.test(checkout) && /subscription_data: \{ metadata \}/.test(checkout), "a plan bought by card is a subscription that renews until cancelled");
+    has(/session\.mode === "subscription"\) return null;/.test(fulfil) && /case "invoice\.paid"/.test(webhook) && /p_session_id: invoice\.id/.test(fulfil), "each paid invoice settles one period, once — the first month is not granted twice");
+    has(/recoverMissedInvoices/.test(readFileSync(join(process.cwd(), "src/app/api/cron/reconcile/route.ts"), "utf8")), "a renewal the webhook missed is settled by the sweep");
+    has(/TEST_KEY\.test\(key\) && isProductionDeployment\(\)\) return null;/.test(key), "a Stripe test key never runs the live site");
+    const raw = ["src/app/api/payments/stripe/checkout/route.ts", "src/app/api/payments/stripe/webhook/route.ts", "src/app/api/payments/stripe/card/route.ts", "src/app/api/payments/stripe/card/confirm/route.ts", "src/app/api/payments/stripe/portal/route.ts", "src/lib/card-gate.ts", "src/app/api/cron/reconcile/route.ts"]
+      .filter((file) => /process\.env\.STRIPE_SECRET_KEY/.test(readFileSync(join(process.cwd(), file), "utf8")));
+    has(raw.length === 0, "every Stripe call reads its key through that guard", `reads the key directly: ${raw.join(", ")}`);
+  }
+
   /* Credit an administrator granted is the account's to use, card or no
      card, and is not counted as funding. */
   {

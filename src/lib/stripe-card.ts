@@ -57,6 +57,25 @@ export async function recordCardSetup(
   }
   const method = intent.payment_method;
   if (!method || typeof method === "string") return { ok: false, reason: "Stripe did not return the card." };
+  const customerId =
+    typeof session.customer === "string" ? session.customer : (session.customer?.id ?? (typeof intent.customer === "string" ? intent.customer : intent.customer?.id));
+  if (!customerId) return { ok: false, reason: "Stripe did not return the customer." };
+  return rememberCard(stripe, service, userId, customerId, method);
+}
+
+/**
+ * Keeps a card the account has used with Stripe — saved on its own, or paid
+ * with for a plan or credits — as its card on file, and grants the welcome
+ * credit when this card and this account have not had one. Throws only on a
+ * database error, which a retry could fix.
+ */
+export async function rememberCard(
+  stripe: Stripe,
+  service: SupabaseClient,
+  userId: string,
+  customerId: string,
+  method: Stripe.PaymentMethod,
+): Promise<CardSetupResult> {
   /* A card (Apple Pay and Google Pay arrive as cards) carries its own
      fingerprint. Link is a card the bank verified, kept in the person's Link
      account, and shows no card details: its claim is keyed on that account's
@@ -66,9 +85,6 @@ export async function recordCardSetup(
   if (!fingerprint) {
     return { ok: false, reason: "Only a card can unlock the free credit. Try again with a card." };
   }
-  const customerId =
-    typeof session.customer === "string" ? session.customer : (session.customer?.id ?? (typeof intent.customer === "string" ? intent.customer : intent.customer?.id));
-  if (!customerId) return { ok: false, reason: "Stripe did not return the customer." };
 
   const card: SavedCard = method.card
     ? {
@@ -95,8 +111,8 @@ export async function recordCardSetup(
   );
   if (saveError) throw saveError;
 
-  /* The card the customer now pays with by default, so a later top-up can
-     offer it. Best effort: the card is saved either way. */
+  /* The card the customer now pays with by default — what a monthly plan
+     renews on. Best effort: the card is saved either way. */
   await stripe.customers
     .update(customerId, { invoice_settings: { default_payment_method: method.id } })
     .catch(() => undefined);
@@ -108,6 +124,28 @@ export async function recordCardSetup(
   if (error) throw error;
   const welcome = (["granted", "already", "card_used", "invalid"] as const).find((value) => value === data) ?? "invalid";
   return { ok: true, card, welcome };
+}
+
+/**
+ * The account's one Stripe customer: the one its card is on, else one made
+ * for it on an earlier try, else a new one. Cards, plans and the billing
+ * portal all use it, so a plan renews on the card that was saved and the
+ * portal shows both.
+ */
+export async function customerFor(
+  stripe: Stripe,
+  service: SupabaseClient,
+  user: { id: string; email?: string | null },
+): Promise<string> {
+  const { customerId: known } = await cardStatus(service, user.id);
+  if (known) return known;
+  if (user.email) {
+    const earlier = await stripe.customers.list({ email: user.email, limit: 20 }).catch(() => null);
+    const found = earlier?.data.find((customer) => customer.metadata?.user_id === user.id)?.id;
+    if (found) return found;
+  }
+  const made = await stripe.customers.create({ email: user.email ?? undefined, metadata: { user_id: user.id } });
+  return made.id;
 }
 
 /** What the account has: its card, if any, and whether the welcome is had. */

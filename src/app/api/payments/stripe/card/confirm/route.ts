@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { cardSessionUser, recordCardSetup } from "@/lib/stripe-card";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { stripeSecretKey } from "@/lib/stripe-key";
 
 /* The browser back from saving a card: POST { sessionId }. Records the card and
  * grants the welcome now, rather than waiting on the webhook — which records
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const secretKey = stripeSecretKey();
   if (!secretKey) return NextResponse.json({ error: "Stripe is not configured on this deployment." }, { status: 503 });
   const supabase = await createSupabaseServerClient();
   const user = supabase ? (await supabase.auth.getUser()).data.user : null;

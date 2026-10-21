@@ -18,9 +18,10 @@ import { RECONCILE_SERVICE, recordHeartbeat } from "@/lib/heartbeat";
 import Stripe from "stripe";
 
 import { addressFunding } from "@/lib/chain-watch";
-import { recoverMissedCheckouts } from "@/lib/stripe-fulfillment";
+import { recoverMissedCheckouts, recoverMissedInvoices } from "@/lib/stripe-fulfillment";
 import { LATE_PAYMENT_DAYS } from "@/lib/crypto-payments";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { stripeSecretKey } from "@/lib/stripe-key";
 
 /* The sweep that means nobody has to watch.
  *
@@ -220,12 +221,15 @@ export async function GET(request: Request) {
      idempotent function the webhook uses, so a session both paths see still
      pays out once. Skipped on a deployment without Stripe. */
   let stripeRecovered: string[] = [];
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const stripeKey = stripeSecretKey();
   if (stripeKey) {
     try {
-      const result = await recoverMissedCheckouts(service, new Stripe(stripeKey), now);
-      stripeRecovered = result.recovered;
-      for (const failure of result.failures) {
+      const stripe = new Stripe(stripeKey);
+      const result = await recoverMissedCheckouts(service, stripe, now);
+      /* Plans renew by invoice: the ones the webhook missed, settled too. */
+      const invoices = await recoverMissedInvoices(service, stripe, now);
+      stripeRecovered = [...result.recovered, ...invoices.recovered];
+      for (const failure of [...result.failures, ...invoices.failures]) {
         failures.push({ id: failure.id, action: "stripe-recover", why: failure.why });
       }
     } catch (error) {

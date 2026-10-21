@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { stripeSecretKey } from "@/lib/stripe-key";
 
 /* No card, no service — except for established customers.
  *
@@ -25,7 +26,7 @@ export type CardStatus = "ok" | "suggest" | "required";
 export async function cardStatusOf(service: SupabaseClient, userId: string): Promise<CardStatus> {
   /* No Stripe on this deployment means no way to add a card: nobody is
      held to a rule they could not meet. */
-  if (!process.env.STRIPE_SECRET_KEY) return "ok";
+  if (!stripeSecretKey()) return "ok";
   const { data, error } = await service.rpc("card_status", { p_user_id: userId });
   if (error) {
     // eslint-disable-next-line no-console

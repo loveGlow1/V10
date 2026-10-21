@@ -10,6 +10,9 @@ import {
 import { ANNUAL_DISCOUNT, PLANS } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { stripeSecretKey } from "@/lib/stripe-key";
+import { customerFor } from "@/lib/stripe-card";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Hosted Stripe Checkout — the card twin of /api/payments/crypto.
  *
@@ -24,8 +27,12 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
  * no Products or Prices to keep in step in the Stripe Dashboard, and a card
  * payment and a crypto payment for the same thing always cost the same.
  *
- * A plan is sold the way the crypto checkout sells it: one month or twelve,
- * paid once (mode "payment"), not an auto-renewing Stripe subscription.
+ * A plan is a subscription (mode "subscription"), the way emergent.sh sells
+ * them: billed every month — or every year on the annual price — on the card
+ * it was bought with, until it is cancelled in the billing portal
+ * (/api/payments/stripe/portal). Each paid invoice is settled by the webhook
+ * (invoice.paid). Top-ups are one-off payments. The crypto checkout, which
+ * cannot charge again, still sells a plan a month or a year at a time.
  *
  * The buyer must be signed in. Their user id and what they bought are written
  * onto the session here, on the server, and read back by
@@ -44,7 +51,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const secretKey = stripeSecretKey();
   if (!secretKey) {
     return NextResponse.json(
       { error: "Stripe is not configured on this deployment." },
@@ -80,8 +87,18 @@ export async function POST(request: Request) {
   const stripe = new Stripe(secretKey);
 
   const credits = purchaseCredits(purchase);
-  // One-off for plans too: a month at a time, like the crypto checkout.
-  const mode: Stripe.Checkout.SessionCreateParams.Mode = "payment";
+  const plan = purchase.kind === "plan";
+  const mode: Stripe.Checkout.SessionCreateParams.Mode = plan ? "subscription" : "payment";
+  /* Who it is for, on the session and — for a plan — on the subscription,
+     where every renewal's invoice carries it to the webhook. */
+  const metadata: Record<string, string> =
+    purchase.kind === "plan"
+      ? { user_id: user.id, kind: "plan", plan_id: purchase.planId, months: String(purchase.months === 12 ? 12 : 1) }
+      : { user_id: user.id, kind: "topup", credits: String(credits) };
+  /* A plan renews on the account's own Stripe customer — the one its card is
+     on — so the billing portal shows the plan beside the card. */
+  const service = plan ? createSupabaseServiceClient() : null;
+  const customer = plan && service ? await customerFor(stripe, service, user).catch(() => null) : null;
 
   const params: Stripe.Checkout.SessionCreateParams = {
     // Checkout Studio
@@ -110,45 +127,41 @@ export async function POST(request: Request) {
         price_data: {
           currency: "usd",
           unit_amount: Math.round(purchasePriceUsd(purchase) * 100),
+          ...(purchase.kind === "plan" ? { recurring: { interval: purchase.months === 12 ? ("year" as const) : ("month" as const) } } : {}),
           product_data: {
             name:
               purchase.kind !== "plan"
                 ? `QuickStark ${purchaseLabel(purchase)}`
                 : purchase.months === 12
-                  ? `QuickStark ${PLANS[purchase.planId].name} plan — 12 months`
-                  : `QuickStark ${PLANS[purchase.planId].name} plan — one month`,
+                  ? `QuickStark ${PLANS[purchase.planId].name} plan — yearly`
+                  : `QuickStark ${PLANS[purchase.planId].name} plan — monthly`,
             description:
               purchase.kind !== "plan"
                 ? `${credits} credits. Top-up credits never expire.`
                 : purchase.months === 12
-                  ? `${credits} credits every month for 12 months. ${Math.round(ANNUAL_DISCOUNT * 100)}% less than monthly.`
-                  : `${credits} credits for the month.`,
+                  ? `${credits} credits every month. Renews every year; cancel anytime. ${Math.round(ANNUAL_DISCOUNT * 100)}% less than monthly.`
+                  : `${credits} credits every month. Renews monthly; cancel anytime.`,
             tax_code: PRODUCT_TAX_CODE,
           },
         },
       },
     ],
-    /* The signed-in account's email, so the buyer does not type it, and so the
-       receipt and invoice go where the account's mail goes. */
-    ...(user.email ? { customer_email: user.email } : {}),
-    /* A Customer for every purchase. The invoice and receipt are issued by
-       Stripe under Managed Payments, so invoice_creation is not sent. */
-    customer_creation: "always",
+    /* The account's own customer for a plan; otherwise the signed-in
+       account's email, so the buyer does not type it and the receipt goes
+       where the account's mail goes, and a Customer for every purchase. The
+       invoice and receipt are issued by Stripe under Managed Payments, so
+       invoice_creation is not sent. */
+    ...(customer
+      ? { customer }
+      : {
+          ...(user.email ? { customer_email: user.email } : {}),
+          ...(plan ? {} : { customer_creation: "always" as const }),
+        }),
     // Who gets what. Read back by the webhook; only this server can write it.
     client_reference_id: user.id,
-    metadata:
-      purchase.kind === "plan"
-        ? {
-            user_id: user.id,
-            kind: "plan",
-            plan_id: purchase.planId,
-            months: String(purchase.months === 12 ? 12 : 1),
-          }
-        : { user_id: user.id, kind: "topup", credits: String(credits) },
+    metadata,
+    ...(plan ? { subscription_data: { metadata }, payment_method_collection: "always" as const } : {}),
   };
-  if (params.mode === "subscription") {
-    params.payment_method_collection = "always";
-  }
 
   try {
     const session = await stripe.checkout.sessions.create(params);
