@@ -3,8 +3,9 @@ import Stripe from "stripe";
 
 import { alertOncePerDay, sendOperatorAlert } from "@/lib/operator-alert";
 import { cardSessionUser, recordCardSetup } from "@/lib/stripe-card";
-import { isSessionPaid, settleCheckoutSession } from "@/lib/stripe-fulfillment";
+import { isSessionPaid, settleCheckoutSession, settlePaidInvoice } from "@/lib/stripe-fulfillment";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { stripeSecretKey } from "@/lib/stripe-key";
 
 /* Where Stripe tells this app a Checkout Session finished.
  *
@@ -30,6 +31,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  *                                             or a card saved for the welcome
  *                                             credit (setup mode — see stripe-card.ts)
  *   checkout.session.async_payment_succeeded — a pending payment cleared
+ *   invoice.paid                             — a plan's month (or year) paid:
+ *                                             the first and every renewal
  *   checkout.session.async_payment_failed    — a pending payment failed
  *   checkout.session.expired                 — abandoned; nothing to fulfill
  */
@@ -38,7 +41,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const secretKey = stripeSecretKey();
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secretKey || !webhookSecret) {
     /* A 503, so Stripe retries once the deployment is configured. */
@@ -92,6 +95,12 @@ export async function POST(request: Request) {
         break;
       case "checkout.session.expired":
         break;
+      case "invoice.paid": {
+        const service = createSupabaseServiceClient();
+        if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+        await settlePaidInvoice(service, stripe, event.data.object);
+        break;
+      }
       default:
         /* Anything else the endpoint was subscribed to: acknowledged, ignored. */
         break;

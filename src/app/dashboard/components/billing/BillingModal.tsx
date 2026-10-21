@@ -10,6 +10,7 @@ import FeatureList from "./FeatureList";
 import UpgradeButton from "./UpgradeButton";
 import { ANNUAL_DISCOUNT, PLANS, TOP_UP_PACK, planPriceUsd, type PlanId } from "../../credits";
 import { isPaidPlanId, type Purchase } from "@/lib/crypto-payments";
+import { useCredits } from "../../useCredits";
 
 interface BillingModalProps {
   open: boolean;
@@ -36,6 +37,20 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
      purchase from the same tables, and the webhook grants it. */
   const [cardBusy, setCardBusy] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
+
+  /* A paid plan renews on its card until it is cancelled — in Stripe's
+     billing portal, which also changes the card and shows invoices. */
+  const { planId: currentPlan } = useCredits();
+  const [portalBusy, setPortalBusy] = useState(false);
+  async function openPortal() {
+    setPortalBusy(true);
+    setCardError(null);
+    const response = await fetch("/api/payments/stripe/portal", { method: "POST" }).catch(() => null);
+    const body = (await response?.json().catch(() => ({}))) as { url?: string; error?: string } | undefined;
+    if (body?.url) return window.location.assign(body.url);
+    setCardError(body?.error ?? "Billing could not be opened. Try again.");
+    setPortalBusy(false);
+  }
 
   async function payByCard(purchase: Purchase) {
     const key = JSON.stringify(purchase);
@@ -187,11 +202,23 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     promotional one that disagreed with it. */}
                 <p className="text-muted text-xs font-medium text-center mt-3">
                   {PLANS[selectedPlan].monthlyPriceUsd === 0
-                    ? "No card required. Upgrade whenever you need more."
+                    ? "Add a card to start — it is never charged on Free. Upgrade whenever you need more."
                     : annual
-                      ? `${priceText} for 12 months, paid once — ${PLANS[selectedPlan].monthlyCredits} credits every month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly ${priceText}. No auto-renewal.`
-                      : `${priceText} per month. By card, plus applicable tax (added at checkout where your country requires it); by crypto, exactly ${priceText}. Cancel anytime.`}
+                      ? `${priceText} a year — ${PLANS[selectedPlan].monthlyCredits} credits every month. By card it renews every year until you cancel, plus applicable tax (added at checkout where your country requires it). By crypto, ${priceText} for 12 months, paid once.`
+                      : `${priceText} a month. By card it renews every month until you cancel, plus applicable tax (added at checkout where your country requires it). By crypto, ${priceText} for one month, paid once.`}
                 </p>
+
+                {currentPlan !== "free" && (
+                  <button
+                    type="button"
+                    onClick={() => void openPortal()}
+                    disabled={portalBusy}
+                    className="mx-auto mt-3 flex items-center gap-1.5 text-xs font-semibold text-ink underline underline-offset-2 disabled:opacity-50"
+                  >
+                    {portalBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CreditCard className="h-3.5 w-3.5" />}
+                    Manage or cancel your subscription
+                  </button>
+                )}
 
                 {/* The other thing a person opens this sheet to do. Somebody who
                     needs one more publish today is not looking for a plan, and
