@@ -123,7 +123,18 @@ the business phone. It comes back when any of these happens:
 - nobody from the team replies within 24 hours
 - the customer types `menu`
 
-**Alerts:** New contact · New lead · Person requested · Assistant couldn't answer
+**Staying on topic:** the assistant only talks about the business it works for.
+It has no internet access and never researches. Questions about other companies,
+general knowledge, homework, coding, advice or chit-chat get a short, warm
+decline ("Sorry, I can only help with questions about …") and a pointer to the
+menu. This applies to every business, even one with custom AI instructions.
+
+**Alerts** arrive as one consistent card: heading, customer name and formatted
+phone number, what they want (an AI summary for leads), their message,
+status or next step, a one-tap **Reply now** link, and a reference with the
+Lagos time.
+
+**Alert types:** New contact · New lead · Person requested · Assistant couldn't answer
 · New sale / Restock. All of them are stored in `bot_events` and counted in the
 08:00 report.
 
