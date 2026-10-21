@@ -15,6 +15,7 @@ Evolution API on Railway (`evolution-api-production-4056.up.railway.app`).
 | **WhatsApp Bot — Add a Business** | n8n-login form. Saves the business and its products, creates its Evolution instance with the engine webhook, shows the QR code to scan. |
 | **WhatsApp Bot — Daily Summary** | 08:00 Lagos: one WhatsApp report per business to its `alert_numbers`, from `bot_events`. |
 | **WhatsApp Bot — Error Alerts** | Error workflow: WhatsApps the platform owner when a run fails. |
+| **WhatsApp Bot — Edit a Business** | n8n-login form: find a business, change prices, products, details or pause it on a pre-filled page, save in one click. |
 | **WhatsApp Bot — Setup / Move** | One-click setup on a new n8n: creates the data tables, saves `wa_settings`, repoints every business's WhatsApp. See MAP.md → *Move to a new n8n*. |
 
 ## Adding a business
@@ -61,5 +62,5 @@ No workflow has them written in.
 - `MAP.md`: the configuration map, readable on GitHub (diagram included).
 - `WhatsApp-Bot-Configuration-Map.pdf`: the same map as a printable PDF.
 - `WhatsApp-Bot-What-It-Does.pdf`: two-page overview of what the system does, for sharing.
-- `1-setup-move.workflow.json` … `5-error-alerts.workflow.json`: all five workflows, importable into any n8n (Workflows → Import from file). Logins are matched by name; data tables by name.
+- `1-setup-move.workflow.json` … `6-edit-a-business.workflow.json`: all six workflows, importable into any n8n (Workflows → Import from file). Logins are matched by name; data tables by name.
 - `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.

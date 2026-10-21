@@ -13,8 +13,10 @@ as a printable PDF: [WhatsApp-Bot-Configuration-Map.pdf](WhatsApp-Bot-Configurat
   instance name is how the engine knows which business a message is for.
 - **Adding a business:** fill in the *Add a Business* form and scan a QR code,
   or do it by hand (see [Add a new business](#add-a-new-business)).
-- **Changing a business** (menu, prices, hours, tone, AI instructions): edit its
-  rows in Supabase. Changes apply to the next message, with no publishing.
+- **Changing a business** (prices, products, hours, tone, on/off): open the
+  *Edit a Business* form, change the pre-filled page and press **Save changes**.
+  Changes apply to the next message. Menus and custom AI instructions are edited
+  in Supabase.
 
 ## System map
 
@@ -125,7 +127,13 @@ the business phone. It comes back when any of these happens:
 · New sale / Restock. All of them are stored in `bot_events` and counted in the
 08:00 report.
 
-## 4. What you edit per business (Supabase)
+## 4. What you edit per business
+
+The quick way is the **Edit a Business** form: type the business name, change
+the pre-filled page (one product per line: `Name | price | stock | payment link |
+description`; add a line to add a product, delete a line to remove it) and press
+**Save changes**. Everything below can also be edited directly in Supabase.
+
 
 **`clients`**: one row per business.
 
@@ -246,15 +254,16 @@ Use **exactly these names**, so imported workflows find them automatically:
 | `Supabase account` | Supabase OAuth2 API | Sign in to Supabase and allow the project |
 | `Anthropic account` | Anthropic | An Anthropic API key |
 
-### 2. Import the five workflows (Workflows → Import from file)
+### 2. Import the six workflows (Workflows → Import from file)
 
-All five are in this folder:
+All six are in this folder:
 
 1. [`1-setup-move.workflow.json`](1-setup-move.workflow.json)
 2. [`2-engine.workflow.json`](2-engine.workflow.json)
 3. [`3-add-a-business.workflow.json`](3-add-a-business.workflow.json)
 4. [`4-daily-summary.workflow.json`](4-daily-summary.workflow.json)
 5. [`5-error-alerts.workflow.json`](5-error-alerts.workflow.json)
+6. [`6-edit-a-business.workflow.json`](6-edit-a-business.workflow.json)
 
 If a step shows a red credential warning after import, open it and pick the
 login with the matching name.
@@ -273,7 +282,7 @@ The result page lists each business with ✅ or ❌.
 
 ### 4. Publish and finish
 
-1. Publish the Engine, Add a Business, Daily Summary and Error Alerts workflows.
+1. Publish the Engine, Add a Business, Edit a Business, Daily Summary and Error Alerts workflows.
 2. In the Engine and the Daily Summary, open Workflow settings → Error workflow and choose **WhatsApp Bot — Error Alerts**.
 3. Send "hi" to any business number.
 
