@@ -51,6 +51,7 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
 
 ## Files in `n8n/whatsapp/`
 
-- `WhatsApp-Bot-Configuration-Map.pdf`: the full map: accounts, every engine step, behaviour, settings, adding a business by form or by hand, rebuilding, troubleshooting.
+- `MAP.md`: the configuration map, readable on GitHub (diagram included).
+- `WhatsApp-Bot-Configuration-Map.pdf`: the same map as a printable PDF: the full map: accounts, every engine step, behaviour, settings, adding a business by form or by hand, rebuilding, troubleshooting.
 - `engine.workflow.json`: the engine, importable into any n8n (Workflows → Import from file). Credentials and the `wa_contacts` data table need picking after import.
 - `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.
