@@ -268,6 +268,18 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/mirror: true, text: displayText\(element\)\.text/.test(rt) && /function applyLive\(wanted\)/.test(rt) && /report\('typingText', \{ text: old \}\)/.test(rt) && /typeof data\.liveText === 'string'/.test(rt), "on a phone the words are typed in a field and mirrored live into the page");
   /* A line break between the words reads as a space in the field. */
   has(/if \(child\.tagName === 'BR'\) \{ gap\(\); continue; \}/.test(rt), "a line break reads as a space in the phone's text field, not as words run together");
+  /* Scrolling the page behind the editor while typing: the frame keeps where
+     the person scrolled it (the editor's own small movements never scroll it
+     back), its scroll does not carry on to the outer page, and a drag on the
+     editor moves nothing outside it but what scrolls on its own. */
+  {
+    const overlay3 = read2(new URL("../src/app/dashboard/components/workspace/VisualEditOverlay.tsx", import.meta.url), "utf8");
+    has(/if \(typing && handScrolled\) return;/.test(rt) && /addEventListener\('touchmove', onHandScroll/.test(rt) && /handScrolled = false;/.test(rt), "a page scrolled by hand while typing stays where it was put");
+    has(/Math\.abs\(coverInset - revealedFor\) < 24/.test(rt), "the editor settling by a few pixels does not move the page");
+    has(/overscroll-behavior:none!important/.test(rt), "the frame's scroll does not carry on to the page around it");
+    has(/document\.addEventListener\("touchmove", hold, \{ passive: false \}\)/.test(overlay3) && /closest\?\.\("\[data-qs-scroll\]"\)/.test(overlay3) && /canScroll\(own, dx, dy\)/.test(overlay3), "a drag on the editor holds the page still, except inside what scrolls");
+    has(/field\.scrollHeight \+ borders/.test(overlay3), "the words' field fits its words, so it does not scroll by a rounding error");
+  }
   /* The editor can be put anywhere, like a window, and stays there. */
   {
     const movable = read2(new URL("../src/app/dashboard/components/workspace/use-movable.ts", import.meta.url), "utf8");

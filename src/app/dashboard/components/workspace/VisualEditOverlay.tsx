@@ -211,7 +211,7 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
       </div>
       {/* Font: Default takes the family class off, so the element goes back
           to whatever the page set; every other chip is shown in its own face. */}
-      <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none]" role="radiogroup" aria-label="Font">
+      <div data-qs-scroll className="flex items-center gap-1.5 overflow-x-auto overscroll-contain [scrollbar-width:none]" role="radiogroup" aria-label="Font">
         <span className="w-12 shrink-0 text-[11.5px] text-white/55">Font</span>
         {[{ id: null as string | null, label: "Default", className: "", stack: "inherit" }, ...FONT_OPTIONS].map((option) => {
           const active = currentFont === option.id;
@@ -233,11 +233,11 @@ export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onS
           );
         })}
       </div>
-      <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+      <div data-qs-scroll className="flex items-center gap-2 overflow-x-auto overscroll-contain [scrollbar-width:none]">
         <span className="w-12 shrink-0 text-[11.5px] text-white/55">Text</span>
         {TEXT_COLOURS.map(([value, colour]) => dot(colour, `Text ${value.slice(5)}`, () => onStyle("textColor", value, `make the text ${value.slice(5).replace("-", " ")}`)))}
       </div>
-      <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+      <div data-qs-scroll className="flex items-center gap-2 overflow-x-auto overscroll-contain [scrollbar-width:none]">
         <span className="w-12 shrink-0 text-[11.5px] text-white/55">Fill</span>
         {FILL_COLOURS.map(([value, colour]) => dot(colour, value === "bg-transparent" ? "No fill" : `Fill ${value.slice(3)}`, () => onStyle("background", value, value === "bg-transparent" ? "remove its background colour" : `make its background ${value.slice(3).replace("-", " ")}`)))}
       </div>
@@ -448,7 +448,10 @@ function VisualEditSheet({
     const field = fieldRef.current;
     if (!field) return;
     field.style.height = "auto";
-    field.style.height = `${Math.min(field.scrollHeight, 104)}px`;
+    /* Its borders on top of what it holds, or the words overflow it by two
+       pixels and it scrolls — and a drag on it carries on to the page. */
+    const borders = field.offsetHeight - field.clientHeight;
+    field.style.height = `${Math.min(field.scrollHeight + borders, 104)}px`;
   }, [typingText]);
   useEffect(() => {
     if (typing) return;
@@ -493,6 +496,52 @@ function VisualEditSheet({
     return () => {
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  /* The page behind holds still. With the keyboard up, a drag that lands on
+     the editor would pan the whole browser view: the bar jumps with it, the
+     keyboard height re-measures, and the preview is told it has moved. So a
+     drag on the editor moves nothing outside it — except inside what scrolls
+     on its own (the words, the style and chip rows) — and the preview frame,
+     which scrolls its own page, does not hand its scroll on to this one. The
+     page can be scrolled freely in the frame; the editor stays where it is. */
+  useEffect(() => {
+    const root = document.documentElement;
+    const before = root.style.overscrollBehavior;
+    root.style.overscrollBehavior = "none";
+    /* Something that scrolls keeps a drag only while it can still move
+       that way; at its edge the drag stops there rather than carrying on to
+       the page. */
+    let last: { x: number; y: number } | null = null;
+    const start = (event: TouchEvent) => {
+      const point = event.touches[0];
+      last = point ? { x: point.clientX, y: point.clientY } : null;
+    };
+    const canScroll = (box: Element, dx: number, dy: number) => {
+      /* A few pixels of overflow is rounding, not something to scroll. */
+      if (Math.abs(dy) >= Math.abs(dx)) {
+        if (box.scrollHeight <= box.clientHeight + 4) return false;
+        return dy > 0 ? box.scrollTop > 0 : box.scrollTop + box.clientHeight < box.scrollHeight - 1;
+      }
+      if (box.scrollWidth <= box.clientWidth + 4) return false;
+      return dx > 0 ? box.scrollLeft > 0 : box.scrollLeft + box.clientWidth < box.scrollWidth - 1;
+    };
+    const hold = (event: TouchEvent) => {
+      const point = event.touches[0];
+      const dx = point && last ? point.clientX - last.x : 0;
+      const dy = point && last ? point.clientY - last.y : 0;
+      if (point) last = { x: point.clientX, y: point.clientY };
+      const own = (event.target as Element | null)?.closest?.("[data-qs-scroll]");
+      if (own && canScroll(own, dx, dy)) return;
+      if (event.cancelable) event.preventDefault();
+    };
+    document.addEventListener("touchstart", start, { passive: true });
+    document.addEventListener("touchmove", hold, { passive: false });
+    return () => {
+      root.style.overscrollBehavior = before;
+      document.removeEventListener("touchstart", start);
+      document.removeEventListener("touchmove", hold);
     };
   }, []);
 
@@ -623,7 +672,8 @@ function VisualEditSheet({
             autoCapitalize="sentences"
             spellCheck
             aria-label="The words"
-            className="max-h-[104px] min-h-[40px] min-w-0 flex-1 resize-none rounded-[14px] border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-[16px] leading-snug text-white outline-none focus:border-white/30"
+            data-qs-scroll
+            className="max-h-[104px] min-h-[40px] overscroll-contain min-w-0 flex-1 resize-none rounded-[14px] border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-[16px] leading-snug text-white outline-none focus:border-white/30"
           />
           {onDoneTyping && (
             <button
@@ -814,7 +864,7 @@ function VisualEditSheet({
           <p className="mt-2.5 text-[11.5px] text-white/45">Applied instantly and saved as a new version — no credits.</p>
         </div>
       ) : (
-        <div key="chips" className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        <div key="chips" data-qs-scroll className="-mx-4 mt-3 flex gap-2 overflow-x-auto overscroll-contain px-4 pb-1 [scrollbar-width:none]">
           {chips.map((chip) => (
             <button
               key={chip.label}
@@ -839,6 +889,7 @@ function VisualEditSheet({
         >
           <textarea
             ref={inputRef}
+            data-qs-scroll
             rows={1}
             value={text}
             onChange={(event) => setText(event.target.value)}
