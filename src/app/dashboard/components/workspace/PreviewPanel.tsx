@@ -473,7 +473,7 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(frameRef, project?.id, !isDesktop);
   useEffect(() => {
     if (reloadAfterSave > 0) setReloads((count) => count + 1);
   }, [reloadAfterSave]);
@@ -1576,6 +1576,9 @@ export default function PreviewPanel({
                   typing={typing}
                   onDoneTyping={stopTyping}
                   onCover={coverBelow}
+                  typingText={typingText}
+                  onTypeLive={typeLive}
+                  onCancelTyping={cancelTyping}
                   onSent={() => {
                     setPicked(null);
                     deselect();

@@ -355,6 +355,99 @@ export const EDIT_MODE = `
     }
     return element.tagName + '|' + out.sort().join('|');
   }
+  /* ── Mirrored typing (phones) ─────────────────────────────────────────
+     The words as the text field shows them: whitespace collapsed, as they
+     read on the page, with each character mapped back to the text node and
+     offset it came from — and whether that node's words can be saved (no
+     untagged element between it and the one being typed into). */
+  var mirrorOf = null;
+  function savable(node, root) {
+    for (var n = node.parentElement; n && n !== root; n = n.parentElement) {
+      if (!n.hasAttribute('data-qs-src')) return false;
+    }
+    return true;
+  }
+  function displayText(root) {
+    var text = '';
+    var map = [];
+    var space = true;
+    /* A line break, or the edge of a block, reads as a space — "Better
+       Care.<br>A Better Way" is two sentences, not "Care.A". It belongs to no
+       text node, so it can be typed beside but not deleted. */
+    function gap() {
+      if (space) return;
+      text += ' ';
+      map.push({ node: null, offset: 0, ok: false });
+      space = true;
+    }
+    function walk(parent) {
+      for (var child = parent.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) {
+          var ok = savable(child, root);
+          var value = child.textContent;
+          for (var i = 0; i < value.length; i += 1) {
+            var ch = value.charAt(i);
+            if (/\\s/.test(ch)) {
+              if (space) continue;
+              ch = ' ';
+              space = true;
+            } else {
+              space = false;
+            }
+            text += ch;
+            map.push({ node: child, offset: i, ok: ok });
+          }
+        } else if (child.nodeType === 1) {
+          if (child.tagName === 'BR') { gap(); continue; }
+          var display = getComputedStyle(child).display;
+          var block = display !== 'contents' && display.indexOf('inline') !== 0;
+          if (block) gap();
+          walk(child);
+          if (block) gap();
+        }
+      }
+    }
+    walk(root);
+    if (text.charAt(text.length - 1) === ' ') { text = text.slice(0, -1); map.pop(); }
+    return { text: text, map: map };
+  }
+  /* One change from the text field, applied to the page: the stretch that
+     differs from what is there now, put into the one text node it lies in.
+     A change that crosses from one element's words into another's, or into
+     words that cannot be saved, is refused — the field is told the page's
+     words again, so the two never disagree. */
+  function applyLive(wanted) {
+    var root = mirrorOf;
+    if (!root || typing !== root) return;
+    wanted = String(wanted).replace(/[\\r\\n]+/g, ' ');
+    var now = displayText(root);
+    var old = now.text;
+    if (wanted === old) return;
+    var p = 0;
+    while (p < old.length && p < wanted.length && old.charAt(p) === wanted.charAt(p)) p += 1;
+    var q = 0;
+    while (q < old.length - p && q < wanted.length - p && old.charAt(old.length - 1 - q) === wanted.charAt(wanted.length - 1 - q)) q += 1;
+    var inserted = wanted.slice(p, wanted.length - q);
+    var target = null;
+    var start = 0;
+    var end = 0;
+    if (old.length - q > p) {
+      var first = now.map[p];
+      var last = now.map[old.length - q - 1];
+      if (first && last && first.node === last.node && first.ok) { target = first.node; start = first.offset; end = last.offset + 1; }
+    } else {
+      var before = p > 0 ? now.map[p - 1] : null;
+      var after = p < now.map.length ? now.map[p] : null;
+      if (before && before.ok) { target = before.node; start = end = before.offset + 1; }
+      else if (after && after.ok) { target = after.node; start = end = after.offset; }
+    }
+    if (!target) { report('typingText', { text: old }); return; }
+    var value = target.textContent;
+    target.textContent = value.slice(0, start) + inserted + value.slice(end);
+    for (var c = sameSource(root.getAttribute('data-qs-src')), k = 0; mixed === null && k < c.length; k += 1) {
+      if (c[k] !== root && onlyText(c[k])) c[k].textContent = root.textContent;
+    }
+  }
   function canType(element) { return Boolean(element) && (onlyText(element) || hasDirectText(element)); }
   function startTyping(element) {
     if (!editing || !canType(element)) return false;
@@ -387,11 +480,27 @@ export const EDIT_MODE = `
       for (var b = 0; b < tagged.length; b += 1) before.push({ node: tagged[b], gaps: textGaps(tagged[b]), text: tagged[b].textContent, only: onlyText(tagged[b]) });
       mixed = { html: element.innerHTML, nodes: nodes, locked: locked, before: before };
     }
+    element.style.outline = '2px dashed #f97316';
+    element.style.outlineOffset = '3px';
+    /* On a phone the words are typed in the workspace's own text field — a
+       native one, with the phone's caret, selection and autocorrect, above the
+       keyboard where they can be seen — and mirrored here as they change
+       (liveText). Nothing in this frame takes focus, so the frame's keyboard,
+       caret and scrolling never get involved. */
+    if (touchLayout) {
+      mirrorOf = element;
+      for (var u = 0; mixed && u < mixed.locked.length; u += 1) {
+        var lock = mixed.locked[u];
+        if (lock.had === null) lock.node.removeAttribute('contenteditable');
+        else lock.node.setAttribute('contenteditable', lock.had);
+      }
+      report('typing', { src: element.getAttribute('data-qs-src'), mirror: true, text: displayText(element).text });
+      setTimeout(function () { if (typing === element) reveal(element); }, 350);
+      return true;
+    }
     element.setAttribute('contenteditable', 'plaintext-only');
     if (element.contentEditable !== 'plaintext-only') element.setAttribute('contenteditable', 'true');
     element.setAttribute('spellcheck', 'true');
-    element.style.outline = '2px dashed #f97316';
-    element.style.outlineOffset = '3px';
     element.style.cursor = 'text';
     element.style.setProperty('-webkit-user-select', 'text', 'important');
     element.style.setProperty('user-select', 'text', 'important');
@@ -423,6 +532,7 @@ export const EDIT_MODE = `
     if (!typing) return;
     var element = typing;
     typing = null;
+    mirrorOf = null;
     element.removeEventListener('keydown', onTypingKey);
     element.removeEventListener('blur', onTypingBlur);
     element.removeAttribute('contenteditable');
@@ -899,6 +1009,8 @@ export const PREVIEW_RUNTIME = `
     if (typeof data.editMode === 'boolean') { touchLayout = data.touch === true; setEditing(data.editMode); return; }
     if (data.editText === true) { startTyping(selected); return; }
     if (data.stopTyping === true) { stopTyping(true); return; }
+    if (data.cancelTyping === true) { stopTyping(false); return; }
+    if (typeof data.liveText === 'string') { applyLive(data.liveText); return; }
     if (data.deselect === true) { clearPicks(); selected = null; lastRect = ''; place(selectBox, null); placeLabel(null); return; }
     if (data.selectParent === true) { selectParentOf(); return; }
     if (data.preview && typeof data.preview.src === 'string') { previewChange(data.preview); return; }
