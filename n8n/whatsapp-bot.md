@@ -48,3 +48,9 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
   lead/follow-up times) is in the n8n data table `wa_contacts`, keyed by
   `instance:phone`, so the same customer can talk to several businesses.
 - Alerts are logged to Supabase `bot_events`.
+
+## Files in `n8n/whatsapp/`
+
+- `WhatsApp-Bot-Configuration-Map.pdf`: the full map: accounts, every engine step, behaviour, settings, adding a business by form or by hand, rebuilding, troubleshooting.
+- `engine.workflow.json`: the engine, importable into any n8n (Workflows → Import from file). Credentials and the `wa_contacts` data table need picking after import.
+- `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.
