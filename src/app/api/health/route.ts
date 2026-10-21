@@ -10,6 +10,7 @@ import {
 } from "@/lib/crypto-payments-server";
 import { isBuilderConfigured } from "@/lib/n8n";
 import { canCompile } from "@/lib/standalone-page";
+import { stripeReadiness } from "@/lib/stripe-key";
 import { createSupabaseServiceClient, isServiceRoleConfigured } from "@/lib/supabase-service";
 import { getMissingSupabaseEnvVars, isSupabaseConfigured } from "@/lib/supabaseClient";
 
@@ -102,6 +103,11 @@ export async function GET() {
        all — visible immediately. A checkout with wallets but no callback secret
        looks perfect right up until somebody pays and is never credited, which
        is the failure worth being able to see from outside. */
+    /* Card payments: which Stripe mode this deployment runs in, and whether
+       the webhook can be verified. "Full production" reads mode "live",
+       liveOnProduction true and webhookSecretSet true. A test key on the live
+       site shows as testKeyRefused — it is ignored there; see stripe-key.ts. */
+    stripe: stripeReadiness(),
     cryptoCheckoutConfigured: isCryptoCheckoutConfigured(),
     cryptoSettlementConfigured: isSettlementCallbackConfigured(),
     /* Whether anything is WATCHING. The two above can both be true while

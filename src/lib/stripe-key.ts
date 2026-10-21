@@ -31,3 +31,21 @@ export function stripeTestKeyRefused(): boolean {
   const key = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
   return TEST_KEY.test(key) && isProductionDeployment();
 }
+
+/** Stripe's readiness, for /api/health: whether card payments are live. No key
+ *  and no secret ever appears in it — only which mode and what is set. */
+export function stripeReadiness(): {
+  mode: "live" | "test" | "none";
+  liveOnProduction: boolean;
+  testKeyRefused: boolean;
+  webhookSecretSet: boolean;
+} {
+  const key = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
+  const mode = /^(sk|rk)_live_/.test(key) ? "live" : TEST_KEY.test(key) ? "test" : "none";
+  return {
+    mode,
+    liveOnProduction: mode === "live" && isProductionDeployment(),
+    testKeyRefused: stripeTestKeyRefused(),
+    webhookSecretSet: /^whsec_/.test(process.env.STRIPE_WEBHOOK_SECRET?.trim() ?? ""),
+  };
+}
