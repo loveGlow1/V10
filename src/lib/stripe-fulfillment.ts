@@ -82,6 +82,20 @@ export async function settleCheckoutSession(
     p_months: grant.months === 12 ? 12 : 1,
   });
   if (error) throw error;
+
+  /* What it cost, on the ledger line it made: an account's total paid is
+     what decides whether it is asked or required to add a card (see
+     card_status in supabase/schema.sql). Best effort — the credit is already
+     granted, and a line without an amount is counted at the pack rate. */
+  if (typeof session.amount_total === "number" && session.amount_total > 0) {
+    const { error: amountError } = await service
+      .from("credit_ledger")
+      .update({ amount_usd: session.amount_total / 100 })
+      .eq("user_id", grant.userId)
+      .eq("dedupe_key", `stripe:${session.id}`);
+    // eslint-disable-next-line no-console
+    if (amountError) console.warn("stripe: could not record what the session cost:", amountError.message);
+  }
   return "settled";
 }
 

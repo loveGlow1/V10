@@ -9,10 +9,11 @@ import { useCredits } from "../../useCredits";
 
 /* The welcome credit, behind a card on file — see src/lib/stripe-card.ts.
  *
- *   CardWelcomeBanner  "Add a card to get 5 free credits — you won't be
- *                      charged", above the composer on Home and in the
- *                      workspace, only for an account that has not had its
- *                      welcome. Gone once it has.
+ *   CardWelcomeBanner  the soft ask, above the composer on Home and in the
+ *                      workspace: for an established customer (funded $25+,
+ *                      with us over two months) who has no card — they keep
+ *                      working; and for a saved card that had already claimed
+ *                      free credits on another account.
  *   CardGate           no card, no service: an account that has never paid
  *                      and has no valid card (new, or from before the rule
  *                      and holding the free credit it got at signup) sees
@@ -29,8 +30,22 @@ type Status = {
   card: { brand: string | null; last4: string | null } | null;
   welcomed: boolean;
   welcomeCredits: number;
+  /* ok, suggest (asked, keeps working) or required (the gate) — see
+     card_status in supabase/schema.sql. */
+  status: "ok" | "suggest" | "required";
   required: boolean;
 };
+
+/* "Not now" on the soft ask lasts for this visit: it is back next time, the
+   way emergent.sh keeps asking. */
+const NOT_NOW = "qs-card-not-now";
+function saidNotNow(): boolean {
+  try {
+    return window.sessionStorage.getItem(NOT_NOW) === "1";
+  } catch {
+    return false;
+  }
+}
 
 const CHANGED = "qs:card-changed";
 
@@ -72,11 +87,14 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
+  useEffect(() => setHidden(saidNotNow()), []);
 
-  /* An account that must add a card sees the gate instead. */
-  if (hidden || planId !== "free" || !status || !status.configured || status.welcomed || status.required) return null;
+  if (hidden || !status || !status.configured) return null;
   /* A card saved but no welcome: that card already unlocked one elsewhere. */
-  const used = Boolean(status.card);
+  const used = status.status === "ok" && Boolean(status.card) && !status.welcomed && planId === "free";
+  /* The soft ask. An account that must add a card sees the gate instead. */
+  const asked = status.status === "suggest";
+  if (!used && !asked) return null;
 
   const go = async () => {
     setBusy(true);
@@ -101,10 +119,15 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
         <p className="text-[13px] font-medium leading-snug text-ink">
           {used
             ? "That card already claimed free credits on another account"
-            : `Add a card to get ${status.welcomeCredits} free credits`}
+            : !status.welcomed
+              ? `Add a card to get your ${status.welcomeCredits} free credits`
+              : "Add a card to your account"}
         </p>
         <p className="text-[12px] leading-snug text-muted">
-          {error ?? (used ? "Add a different card, or top up to keep building." : "No charge — your bank just checks the card is real.")}
+          {error ??
+            (used
+              ? "Add a different card, or top up to keep building."
+              : "You can keep building. No charge — your bank just checks the card is real.")}
         </p>
       </div>
       <button
@@ -118,7 +141,14 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
       </button>
       <button
         type="button"
-        onClick={() => setHidden(true)}
+        onClick={() => {
+          setHidden(true);
+          try {
+            window.sessionStorage.setItem(NOT_NOW, "1");
+          } catch {
+            /* Private mode: hidden for this page only. */
+          }
+        }}
         aria-label="Not now"
         className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:text-ink"
       >
