@@ -209,19 +209,12 @@ export default function PreviewSheet({
               <RotateCw className="h-4 w-4" />
             </button>
 
-            {/* On a narrow phone the labelled Edit button needs the room; the
-                title steps aside rather than shrinking to "P…". The space
-                stays, so the buttons keep their places. */}
-            <p
-              className={`min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink ${
-                usingDocument && framed ? "invisible min-[430px]:visible" : ""
-              }`}
-            >
-              Preview
-            </p>
+            {/* No title: the sheet is plainly the preview, and the app's name
+                belongs to the workspace, not here. The space keeps the buttons
+                on the right. */}
+            <span aria-hidden className="min-w-0 flex-1" />
 
-            {/* Sized and spaced to balance the reload button, so the title sits
-                on the centre line rather than near it. */}
+            {/* The controls, together on the right. */}
             <div className="flex shrink-0 items-center gap-2">
               {/* Point at something in the app and change it. */}
               {usingDocument && framed ? (
