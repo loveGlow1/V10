@@ -395,6 +395,11 @@ function VisualEditSheet({
   const [mode, setMode] = useState<"ask" | "style">("ask");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  /* The style row while typing: folded until asked for. */
+  const [typingStyle, setTypingStyle] = useState(false);
+  useEffect(() => {
+    if (!typing) setTypingStyle(false);
+  }, [typing]);
   const [keyboard, setKeyboard] = useState(0);
 
   /* The sheet's top edge is where the visible preview ends — it grows with the
@@ -481,19 +486,42 @@ function VisualEditSheet({
       onMouseDown={keepPageFocus}
       className="pointer-events-auto fixed inset-x-0 z-[70] rounded-t-[22px] border-t border-white/[0.1] bg-[#161618] px-4 pt-2.5 shadow-[0_-16px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:max(14px,env(safe-area-inset-bottom))]"
     >
-      <div aria-hidden className="mx-auto mb-2.5 h-1 w-9 rounded-full bg-white/20" />
-      <div className="flex items-center gap-2">
+      {/* While typing, the sheet folds to one row and the ask box: the
+          keyboard already takes half a phone, and the words being typed have
+          to stay in sight above both. Every element keeps a key so the ask
+          box is the SAME textarea in both layouts — tapping it mid-sentence
+          saves the words, opens Ask AI and keeps the keyboard up, in one tap. */}
+      <div key="handle" aria-hidden className={`mx-auto h-1 w-9 rounded-full bg-white/20 ${typing ? "mb-2" : "mb-2.5"}`} />
+      <div key="header" className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[14px] font-semibold text-white">
-            {kind}
-            {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
-          </p>
           {typing ? (
-            <p className="truncate text-[12.5px] text-[#f97316]">Typing in the page — style it or ask AI as you go</p>
+            <p className="flex items-center gap-1.5 text-[13.5px] font-semibold text-[#f97316]">
+              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#f97316]" />
+              Typing
+            </p>
           ) : (
-            snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>
+            <>
+              <p className="truncate text-[14px] font-semibold text-white">
+                {kind}
+                {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
+              </p>
+              {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>}
+            </>
           )}
         </div>
+        {typing && onStyle && (
+          <button
+            type="button"
+            onClick={() => setTypingStyle((open) => !open)}
+            aria-pressed={typingStyle}
+            aria-label="Style — size, bold, colour, font"
+            className={`flex h-9 items-center rounded-full px-3 text-[13px] font-semibold ${
+              typingStyle ? "bg-white text-black" : "bg-white/[0.08] text-white/90 active:bg-white/[0.16]"
+            }`}
+          >
+            Aa
+          </button>
+        )}
         {typing && onDoneTyping && (
           <button
             type="button"
@@ -512,18 +540,20 @@ function VisualEditSheet({
             <ArrowUpLeft className="h-3.5 w-3.5" /> Parent
           </button>
         )}
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Let go of what you picked"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.08] text-white/85 active:bg-white/[0.16]"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {!typing && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Let go of what you picked"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.08] text-white/85 active:bg-white/[0.16]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
-      {onStyle && (
-        <div role="tablist" aria-label="How to change it" className="mt-3 flex rounded-full bg-white/[0.06] p-1">
+      {!typing && onStyle && (
+        <div key="tabs" role="tablist" aria-label="How to change it" className="mt-3 flex rounded-full bg-white/[0.06] p-1">
           {(["ask", "style"] as const).map((one) => (
             <button
               key={one}
@@ -539,61 +569,71 @@ function VisualEditSheet({
         </div>
       )}
 
-      {mode === "style" && onStyle ? (
-        <div className="mt-3 pb-1">
+      {typing ? (
+        typingStyle && onStyle ? (
+          <div key="style-typing" className="mt-2.5">
+            <StyleBar picked={picked} onStyle={onStyle} />
+          </div>
+        ) : null
+      ) : mode === "style" && onStyle ? (
+        <div key="style" className="mt-3 pb-1">
           <StyleBar picked={picked} onStyle={onStyle} />
           <p className="mt-2.5 text-[11.5px] text-white/45">Applied instantly and saved as a new version — no credits.</p>
         </div>
       ) : (
-      <>
-      <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        {chips.map((chip) => (
-          <button
-            key={chip.label}
-            type="button"
-            onClick={chip.run}
-            className="h-9 shrink-0 rounded-full border border-white/[0.12] px-3.5 text-[13.5px] text-white/90 active:bg-white/[0.12]"
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
+        <div key="chips" className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+          {chips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={chip.run}
+              className="h-9 shrink-0 rounded-full border border-white/[0.12] px-3.5 text-[13.5px] text-white/90 active:bg-white/[0.12]"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          send(text);
-        }}
-        className="mt-3 flex items-end gap-2 rounded-[18px] border border-white/[0.12] bg-white/[0.05] p-1.5 pl-3.5"
-      >
-        <textarea
-          ref={inputRef}
-          rows={1}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={picks.length > 1 ? `Describe a change to these ${picks.length}…` : "Describe a change…"}
-          aria-label="Describe a change"
-          enterKeyHint="send"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              send(text);
-            }
+      {(typing || mode !== "style" || !onStyle) && (
+        <form
+          key="ask"
+          onSubmit={(event) => {
+            event.preventDefault();
+            send(text);
           }}
-          className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent py-[7px] text-[16px] leading-snug text-white placeholder:text-white/45 outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!text.trim()}
-          aria-label="Send the change"
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
-            text.trim() ? "bg-white text-black" : "bg-white/[0.12] text-white/45"
-          }`}
+          className={`${typing ? "mt-2.5" : "mt-3"} flex items-end gap-2 rounded-[18px] border border-white/[0.12] bg-white/[0.05] p-1.5 pl-3.5`}
         >
-          <ArrowUp className="h-4 w-4 stroke-[2.5]" />
-        </button>
-      </form>
-      </>
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            /* Focusing this ends the typing in the page (saved, like Done)
+               and the sheet opens on Ask AI around the box already in hand. */
+            onFocus={() => setMode("ask")}
+            placeholder={typing ? "Or ask AI to change it…" : picks.length > 1 ? `Describe a change to these ${picks.length}…` : "Describe a change…"}
+            aria-label="Describe a change"
+            enterKeyHint="send"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                send(text);
+              }
+            }}
+            className="max-h-28 min-h-[36px] flex-1 resize-none bg-transparent py-[7px] text-[16px] leading-snug text-white placeholder:text-white/45 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!text.trim()}
+            aria-label="Send the change"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+              text.trim() ? "bg-white text-black" : "bg-white/[0.12] text-white/45"
+            }`}
+          >
+            <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+          </button>
+        </form>
       )}
     </div>
   );

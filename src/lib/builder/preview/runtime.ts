@@ -241,15 +241,41 @@ export const EDIT_MODE = `
     spacer = null;
   }
 
+  /* How far down the page's OWN fixed or sticky bars reach over the top of
+     the viewport across this element — a site header, mostly. Lifting an
+     element clear of the editor and straight under the site's header is no
+     better than leaving it under the editor. Bars taller than half the screen
+     are not headers (a full-screen menu, a backdrop) and are ignored. */
+  function topObstruction(element) {
+    var box = element.getBoundingClientRect();
+    var reach = 0;
+    var all = document.body.getElementsByTagName('*');
+    for (var i = 0; i < all.length; i += 1) {
+      var node = all[i];
+      if (node === element || node.contains(element) || element.contains(node)) continue;
+      if (node.hasAttribute('data-qs-overlay') || node.hasAttribute('data-qs-spacer')) continue;
+      var position = getComputedStyle(node).position;
+      if (position !== 'fixed' && position !== 'sticky') continue;
+      var r = node.getBoundingClientRect();
+      if (r.height <= 0 || r.width <= 0 || r.top > 4 || r.bottom <= 0 || r.height > window.innerHeight * 0.5) continue;
+      if (r.right <= box.left || r.left >= box.right) continue;
+      if (getComputedStyle(node).visibility === 'hidden' || Number(getComputedStyle(node).opacity) === 0) continue;
+      if (r.bottom > reach) reach = r.bottom;
+    }
+    return reach;
+  }
+
   function reveal(element) {
     if (!element) return;
     if (coverInset > 0) {
       var box = element.getBoundingClientRect();
+      var top = topObstruction(element) + 12;
       var bottomLimit = window.innerHeight - coverInset - 12;
       var shift = 0;
       if (box.bottom > bottomLimit) shift = box.bottom - bottomLimit;
-      /* Taller than the room left: its top stays in view rather than its foot. */
-      if (box.top - shift < 12) shift = box.top - 12;
+      /* Under the site's header, or taller than the room between the header
+         and the editor: its top stays in view rather than its foot. */
+      if (box.top - shift < top) shift = box.top - top;
       if (Math.abs(shift) > 1) window.scrollBy({ top: shift, behavior: 'smooth' });
       return;
     }
@@ -318,6 +344,11 @@ export const EDIT_MODE = `
       chosen.addRange(range);
     } catch (ignored) {}
     report('typing', { src: element.getAttribute('data-qs-src') });
+    /* The keyboard rises over the next few hundred milliseconds and the phone
+       may scroll the page itself to the caret; place the words after both,
+       between the site's header and the editor. */
+    setTimeout(function () { if (typing === element) reveal(element); }, 350);
+    setTimeout(function () { if (typing === element) reveal(element); }, 800);
     return true;
   }
   function onTypingKey(event) {
