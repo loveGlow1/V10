@@ -74,7 +74,14 @@ type HandEdit = {
   tag: string;
   className: string;
   text: string;
-  change: { text?: string; classes?: { group: ClassGroup; value: string }[]; remove?: boolean };
+  change: {
+    text?: string;
+    /* Words typed into text that has markup inside it: each run is the text
+       between two of its child elements, before and after. */
+    textRuns?: { before: string; after: string }[];
+    classes?: { group: ClassGroup; value: string }[];
+    remove?: boolean;
+  };
 };
 
 /* What the agent is asked when a removal cannot be cut by hand — usually
@@ -260,13 +267,25 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
          sent to the agent naming the element, so the change still happens. */
       if (data.state === "typed") {
         setTyping(false);
-        const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; changed?: unknown } | null;
+        const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; runs?: unknown; changed?: unknown } | null;
         if (!typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
         const tag = typeof typed.tag === "string" ? typed.tag : "span";
         const before = typeof typed.before === "string" ? typed.before : "";
+        const runs = Array.isArray(typed.runs)
+          ? (typed.runs as unknown[])
+              .filter((run): run is { before: string; after: string } =>
+                !!run && typeof (run as { before?: unknown }).before === "string" && typeof (run as { after?: unknown }).after === "string")
+              .slice(0, 20)
+          : [];
         saveRef.current(
-          { src: typed.src, tag, className: typeof typed.className === "string" ? typed.className : "", text: before, change: { text: typed.text } },
-          `change the text to "${typed.text.trim()}"`,
+          {
+            src: typed.src,
+            tag,
+            className: typeof typed.className === "string" ? typed.className : "",
+            text: before,
+            change: runs.length ? { textRuns: runs } : { text: typed.text },
+          },
+          `change the text to "${typed.text.trim()}" — only the words, keeping the markup inside it as it is`,
         );
         return;
       }

@@ -247,10 +247,11 @@ export function EditHint({ docked = false }: { docked?: boolean }) {
     }
   };
   const verb = docked ? "Tap" : "Click";
+  const twice = docked ? "Double-tap" : "Double-click";
   const steps = [
-    `${verb} anything in the page to select it`,
-    `${verb} the selected text again to type into it — saved as you finish`,
-    docked ? "Or open Style for size and colour, or Ask AI to describe a change" : "Or press Aa for size and colour, or describe a change for the AI",
+    `${twice} any words to type into them — saved as you finish, no credits`,
+    `${verb} once to select something and ask the AI to change it`,
+    docked ? "Open Style for size, colour and font — also free" : "Press Aa for size, colour and font — also free",
   ];
   return (
     <div
@@ -505,7 +506,7 @@ function VisualEditSheet({
                 {kind}
                 {picks.length > 1 && <span className="font-normal text-white/55"> · +{picks.length - 1} more</span>}
               </p>
-              {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · tap it again to type</p>}
+              {snippet && <p className="truncate text-[12.5px] text-white/55">“{snippet}” · double-tap the words to type</p>}
             </>
           )}
         </div>

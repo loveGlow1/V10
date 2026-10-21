@@ -22,6 +22,7 @@ import {
   applySinglePageClasses,
   applySinglePageRemove,
   applySinglePageText,
+  applySinglePageTextRuns,
   applyVisualEdit,
   describeChange,
   ensureFontLoaded,
@@ -78,6 +79,13 @@ function readEdits(body: unknown): VisualEdit[] {
       text: typeof e.text === "string" ? e.text : undefined,
       change: {
         text: typeof change.text === "string" ? change.text.slice(0, 2000) : undefined,
+        textRuns: Array.isArray(change.textRuns)
+          ? change.textRuns
+              .filter((run): run is { before: string; after: string } =>
+                !!run && typeof (run as { before?: unknown }).before === "string" && typeof (run as { after?: unknown }).after === "string")
+              .slice(0, 20)
+              .map((run) => ({ before: run.before.slice(0, 2000), after: run.after.slice(0, 2000) }))
+          : undefined,
         classes: classes && classes.length > 0 ? classes : undefined,
         imageSrc: typeof change.imageSrc === "string" ? change.imageSrc.slice(0, 2000) : undefined,
         remove: change.remove === true ? true : undefined,
@@ -107,13 +115,16 @@ async function agentBusy(service: SupabaseClient, projectId: string): Promise<bo
 /* "the heading now reads “…”" — what was typed, in words. */
 function typedSummary(edits: VisualEdit[]): string {
   const names: Record<string, string> = { h1: "the heading", h2: "the heading", h3: "the heading", p: "the paragraph", a: "the link", button: "the button", li: "the list item" };
-  const styleWords: Record<string, string> = { textColor: "text colour", background: "background", fontSize: "size", fontWeight: "weight", align: "alignment", padding: "spacing", radius: "corners" };
+  const styleWords: Record<string, string> = { textColor: "text colour", background: "background", fontSize: "size", fontWeight: "weight", fontFamily: "font", fontStyle: "italic", align: "alignment", padding: "spacing", radius: "corners" };
   return edits
     .slice(0, 3)
     .map((edit) => {
       const what = names[edit.tag] ?? `the ${edit.tag}`;
       if (edit.change.remove) return `${what} removed`;
       if (typeof edit.change.text === "string") return `${what} now reads “${edit.change.text.trim().slice(0, 80)}”`;
+      if (edit.change.textRuns?.length) {
+        return edit.change.textRuns.map((run) => `“${run.before.trim().slice(0, 40)}” → “${run.after.trim().slice(0, 40)}”`).join(", ");
+      }
       const styles = (edit.change.classes ?? []).map((change) => styleWords[change.group] ?? change.group);
       return `${what}: ${styles.join(", ") || "style"} changed`;
     })
@@ -176,14 +187,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         return;
       }
       const typed = typeof edit.change.text === "string";
+      const typedRuns = Boolean(edit.change.textRuns?.length);
       const styled = Boolean(edit.change.classes?.length);
-      if ((!typed && !styled) || edit.change.imageSrc) {
+      if ((!typed && !typedRuns && !styled) || edit.change.imageSrc) {
         missed.push({ index, reason: "only typed text, quick styles and removals are applied by hand on a single page" });
         return;
       }
       let next = html;
       if (typed) {
         const result = applySinglePageText(next, { src: edit.src, tag: edit.tag, before: edit.text ?? "", text: edit.change.text as string });
+        if (!result.ok) {
+          missed.push({ index, reason: result.reason });
+          return;
+        }
+        next = result.source;
+      }
+      if (typedRuns) {
+        const result = applySinglePageTextRuns(next, { src: edit.src, tag: edit.tag, runs: edit.change.textRuns ?? [] });
         if (!result.ok) {
           missed.push({ index, reason: result.reason });
           return;
