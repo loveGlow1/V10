@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
 import { isPaidPlanId } from "@/lib/crypto-payments";
+import { recordPayment } from "@/lib/money";
 
 /* A paid Stripe Checkout Session becoming what it was bought for.
  *
@@ -83,18 +84,26 @@ export async function settleCheckoutSession(
   });
   if (error) throw error;
 
-  /* What it cost, on the ledger line it made: an account's total paid is
-     what decides whether it is asked or required to add a card (see
-     card_status in supabase/schema.sql). Best effort — the credit is already
-     granted, and a line without an amount is counted at the pack rate. */
-  if (typeof session.amount_total === "number" && session.amount_total > 0) {
-    const { error: amountError } = await service
-      .from("credit_ledger")
-      .update({ amount_usd: session.amount_total / 100 })
-      .eq("user_id", grant.userId)
-      .eq("dedupe_key", `stripe:${session.id}`);
-    // eslint-disable-next-line no-console
-    if (amountError) console.warn("stripe: could not record what the session cost:", amountError.message);
+  /* What it cost, on the ledger line it made — in the currency it was paid
+     in and in dollars: an account's total funded is what decides whether it
+     is asked or required to add a card (see card_status in
+     supabase/schema.sql). When Stripe showed the buyer a local price, its own
+     conversion says what that was in the dollars the session was priced in. */
+  if (typeof session.amount_total === "number" && session.amount_total > 0 && session.currency) {
+    const conversion = (session as { currency_conversion?: { amount_total?: number; source_currency?: string } | null })
+      .currency_conversion;
+    const knownUsd =
+      conversion && conversion.source_currency?.toLowerCase() === "usd" && typeof conversion.amount_total === "number"
+        ? conversion.amount_total / 100
+        : null;
+    await recordPayment(service, {
+      userId: grant.userId,
+      dedupeKey: `stripe:${session.id}`,
+      minorAmount: session.amount_total,
+      currency: session.currency,
+      provider: "stripe",
+      knownUsd,
+    });
   }
   return "settled";
 }
