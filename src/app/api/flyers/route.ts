@@ -7,6 +7,7 @@ import { flyerJobCost, isOwnPreviewPath, runFlyerJob } from '@/lib/flyers/run';
 import { createSupabaseServiceClient } from '@/lib/supabase-service';
 import type { FlyerRequest } from '@/lib/flyers/types';
 import { daysLeft, liveOutputs, type Output as StoredOutput } from '@/lib/flyers/trash';
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -197,6 +198,9 @@ export async function POST(req: Request) {
   /* Enough credit for every image this job could make, before any is made. */
   const n = Math.min(Math.max(body.variants ?? (stage === 'preview' ? 4 : 1), 1), 4);
   const service = createSupabaseServiceClient();
+  /* No card, no service, for an account that has never paid. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
   const balance = service ? await currentBalance(service, user.id) : null;
   const needed = flyerJobCost(stage, n);
   if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < needed) {

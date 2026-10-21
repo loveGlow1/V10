@@ -23,6 +23,7 @@ import { configureAuth } from "@/lib/builder/backend/managed";
 import { reserveSlug } from "@/lib/publish/reserve";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 /* Making a project live.
  *
@@ -165,6 +166,10 @@ export async function POST(request: Request) {
    * has happened — not shown a live URL and a negative balance. */
   const alreadyPublished = Boolean(project.published_version_id);
   const cost = roundCredits(creditCostOf("publish", { alreadyPublished }));
+
+  /* No card, no service, for an account that has never paid. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
 
   const balance = await currentBalance(service, user.id);
   if (balance && !canAfford(balance, cost)) {

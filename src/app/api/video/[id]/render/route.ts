@@ -22,6 +22,8 @@ import { NextResponse } from "next/server";
 import { startRender } from "@/lib/video/start-render";
 
 import { videoSession } from "../../shared";
+import { refuseWithoutCard } from "@/lib/card-gate";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Dispatching a job per scene and voice line, in parallel — and, for a UGC
    video, making its creator keyframe first. */
@@ -32,6 +34,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const session = await videoSession();
   if ("error" in session) return session.error;
   const { supabase, userId } = session;
+  /* No card, no service, for an account that has never paid. */
+  const noCard = await refuseWithoutCard(createSupabaseServiceClient(), userId);
+  if (noCard) return noCard;
   const body = ((await request.json().catch(() => null)) ?? {}) as { retryFailed?: unknown };
   return startRender(supabase, userId, id, body, new URL(request.url).origin);
 }

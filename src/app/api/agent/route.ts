@@ -17,6 +17,7 @@ import { VISUAL_FILE, Workspace, createTools } from "@/lib/agent/tools";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 /* The agent: one turn of a session, streamed.
  *
@@ -85,6 +86,10 @@ export async function POST(request: Request) {
   /* Read under the caller's own session: RLS returns it only to its owner. */
   const session = await loadSession(supabase, sessionId);
   if (!session) return NextResponse.json({ error: "That session does not exist." }, { status: 404 });
+
+  /* No card, no service, for an account that has never paid. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
 
   const balance = await currentBalance(service, user.id);
   const available = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;

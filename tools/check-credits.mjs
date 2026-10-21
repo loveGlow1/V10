@@ -213,6 +213,33 @@ try {
     "grant_card_welcome() is callable from a browser",
   );
 
+  /* No card, no service, for an account that has never paid — new, or from
+     before the card rule and still holding its signup credit. Every route
+     that starts work asks before it does. */
+  const cardRequiredFn = /create or replace function public\.card_required\([\s\S]*?\$\$;/.exec(schema);
+  has(
+    cardRequiredFn !== null &&
+      /payment_cards/.test(cardRequiredFn[0]) &&
+      /exp_year \* 100/.test(cardRequiredFn[0]) &&
+      /plan_id <> 'free'/.test(cardRequiredFn[0]) &&
+      /dedupe_key like 'stripe:%'/.test(cardRequiredFn[0]) &&
+      /status = 'confirmed'/.test(cardRequiredFn[0]),
+    "an account that never paid needs an unexpired card; one that has paid does not",
+    "card_required() lets an unpaid account without a valid card through, or asks a paying one for a card",
+  );
+  {
+    const routes = [
+      "src/app/api/build/route.ts",
+      "src/app/api/agent/route.ts",
+      "src/app/api/credits/spend/route.ts",
+      "src/app/api/flyers/route.ts",
+      "src/app/api/publish/route.ts",
+      "src/app/api/video/[id]/render/route.ts",
+    ];
+    const ungated = routes.filter((file) => !/refuseWithoutCard\(/.test(readFileSync(join(process.cwd(), file), "utf8")));
+    has(ungated.length === 0, "every route that starts paid work asks for a card first", `not gated: ${ungated.join(", ")}`);
+  }
+
   /* A build on the default model has to stay out of reach on the welcome
      alone. That is what makes the free tier a look at the workspace rather
      than a free build, and it is the reason the grant is small. */
