@@ -98,6 +98,10 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      request covers them all. */
   const [picks, setPicks] = useState<Picked[]>([]);
   const [tokens, setTokens] = useState<Record<string, string>>({});
+  /* How many times the page has reported itself rendered — the app in the
+     frame up and drawn, not just the frame's document loaded. A loading
+     notice waits on this. */
+  const [readyCount, setReadyCount] = useState(0);
   /* Typing straight into the page: whether it is happening, and how the last
      words typed were kept — written into the source by hand, or handed to
      the agent when they could not be placed exactly. */
@@ -352,6 +356,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       }
 
       if (data.state === "ready") {
+        setReadyCount((count) => count + 1);
         const offered = data.detail?.tokens;
         if (offered && typeof offered === "object") {
           setTokens(
@@ -460,7 +465,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     lastCover.current = -1;
   }, [picked?.pickId, editMode]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, readyCount, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping };
 }
 
 /* The page held still while somebody is typing into it. A build landing
