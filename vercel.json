@@ -9,6 +9,10 @@
     {
       "path": "/api/cron/flyer-trash",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/fx-rates",
+      "schedule": "15 3 * * *"
     }
   ]
 }

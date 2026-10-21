@@ -236,6 +236,26 @@ try {
     "funding is counted at the top-up pack's own rate",
     "topup_usd_per_credit() disagrees with TOP_UP_PACK",
   );
+  /* Funded counts in any currency — naira through Paystack as much as
+     dollars through Stripe — valued in dollars at the day's rate. */
+  {
+    const funded = /create or replace function public\.funded_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    const money = readFileSync(join(process.cwd(), "src/lib/money.ts"), "utf8");
+    const fulfil = readFileSync(join(process.cwd(), "src/lib/stripe-fulfillment.ts"), "utf8");
+    has(
+      /create table if not exists public\.fx_rates/.test(schema) && /public\.to_usd\(l\.paid_amount, l\.paid_currency\)/.test(funded) && /dedupe_key like 'paystack:%'/.test(funded),
+      "payments in naira and any other currency count toward the card rule, at their dollar value",
+      "funded_usd() ignores what was paid in a currency other than dollars",
+    );
+    has(
+      /if \(provider === "paystack"\) return minor \/ 100;/.test(money) && /ZERO_DECIMAL/.test(money) && /THREE_DECIMAL/.test(money),
+      "amounts are read in each provider's own smallest unit (kobo for Paystack, each currency's own for Stripe)",
+    );
+    has(/recordPayment\(service, \{[\s\S]*provider: "stripe"/.test(fulfil), "a Stripe payment records its amount, currency and dollar value");
+    const cron = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")).crons ?? [];
+    has(cron.some((job) => job.path === "/api/cron/fx-rates"), "exchange rates are refreshed daily");
+  }
+
   {
     const routes = [
       "src/app/api/build/route.ts",
