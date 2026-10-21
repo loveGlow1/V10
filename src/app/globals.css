@@ -150,13 +150,20 @@
   --brandBg-rgb: 246 246 248;
   --brandSurface-rgb: 255 255 255;
   --brandSurfaceAccent-rgb: 250 250 252;
-  --brandTextSec-rgb: 99 103 111;
+  --brandTextSec-rgb: 86 90 98;
+  /* The brand green, darkened for a white ground. The dark theme's mint
+     (142 240 138) measured 1.4:1 on white — a status colour that vanished. */
+  --brandGreen-rgb: 3 122 82;
   --brandBorder: rgba(17, 17, 20, 0.1);
 
+  /* Text tones, measured on white, the #f6f6f8 canvas and a #f0f0f3 chip:
+     muted 6.9 / 6.4 / 6.1, faint 5.0 / 4.7 / 4.4 — every one readable. Faint
+     was 138 142 150 (3.0:1 on the canvas), which is what made captions,
+     footers and hints look washed out on the light theme. */
   --ink: 20 20 23;
   --soft: 61 64 71;
-  --muted: 99 103 111;
-  --faint: 138 142 150;
+  --muted: 86 90 98;
+  --faint: 100 104 112;
 
   --layer: 17 17 20;
   --line: 17 17 20;
@@ -169,9 +176,36 @@
   --solid: 24 24 27;
   --on-solid: 255 255 255;
 
-  --accent: 4 142 96;
+  /* Status colours: success 5.4:1 on white (was 4.2, under the line for
+     text), danger 5.5, warning 5.8. The same meaning as on the dark theme,
+     at a strength a white ground can carry. */
+  --accent: 3 122 82;
   --danger: 205 34 34;
   --warn: 146 89 6;
+}
+
+/* Faded text on the light theme.
+ *
+ * `text-ink/45` and its neighbours are how the dark theme draws secondary
+ * text: white at partial strength reads as a soft grey on black. The same
+ * fraction of near-black over white is a much paler grey — ink at 45% measured
+ * 2.98:1, at 30% under 2:1 — so on the light theme everything drawn that way
+ * faded out. Held to 65% here (5.0:1 even on a chip), light theme only.
+ *
+ * The theme half is wrapped in :where, so each rule weighs exactly one class —
+ * the same as the utility it corrects, and later in the file, so it wins; a
+ * hover or focus colour (a class and a pseudo-class) still wins over it. */
+:where([data-theme='light']) .text-ink\/30,
+:where([data-theme='light']) .text-ink\/40,
+:where([data-theme='light']) .text-ink\/45,
+:where([data-theme='light']) .text-ink\/50,
+:where([data-theme='light']) .text-ink\/55,
+:where([data-theme='light']) .text-ink\/60 {
+  color: rgb(var(--ink) / 0.65);
+}
+:where([data-theme='light']) .text-muted\/60,
+:where([data-theme='light']) .text-muted\/70 {
+  color: rgb(var(--muted));
 }
 
 /* ── Touch input ──────────────────────────────────────────────────────────────
