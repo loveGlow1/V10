@@ -68,6 +68,6 @@ No workflow has them written in.
 - `MAP.md`: the configuration map, readable on GitHub (diagram included).
 - `WhatsApp-Bot-Configuration-Map.pdf`: the same map as a printable PDF.
 - `WhatsApp-Bot-What-It-Does.pdf`: two-page overview of what the system does, for sharing.
-- `WhatsApp-Assistant-Dashboard-Architecture.pdf`: plan for a business dashboard (self sign-up, one-click setup, owners control their bot and inventory), comparing adding it to quickstark.tech with a separate site.
+- `WhatsApp-Assistant-Dashboard-Architecture.pdf`: plan for a business dashboard (self sign-up, one-click setup, owners control their bot and inventory), comparing adding it to quickstark.tech with a separate site, plus the AI usage cost calculation, credit pricing and how to implement credits.
 - `1-setup-move.workflow.json` … `6-edit-a-business.workflow.json`: all six workflows, importable into any n8n (Workflows → Import from file). Logins are matched by name; data tables by name.
 - `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.
