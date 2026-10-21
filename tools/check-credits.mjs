@@ -213,19 +213,28 @@ try {
     "grant_card_welcome() is callable from a browser",
   );
 
-  /* No card, no service, for an account that has never paid — new, or from
-     before the card rule and still holding its signup credit. Every route
-     that starts work asks before it does. */
-  const cardRequiredFn = /create or replace function public\.card_required\([\s\S]*?\$\$;/.exec(schema);
+  /* No card, no service — except established customers, who are asked and
+     keep working. Every route that starts work asks before it does. */
+  const cardStatusFn = /create or replace function public\.card_status\([\s\S]*?\$\$;/.exec(schema);
   has(
-    cardRequiredFn !== null &&
-      /payment_cards/.test(cardRequiredFn[0]) &&
-      /exp_year \* 100/.test(cardRequiredFn[0]) &&
-      /plan_id <> 'free'/.test(cardRequiredFn[0]) &&
-      /dedupe_key like 'stripe:%'/.test(cardRequiredFn[0]) &&
-      /status = 'confirmed'/.test(cardRequiredFn[0]),
-    "an account that never paid needs an unexpired card; one that has paid does not",
-    "card_required() lets an unpaid account without a valid card through, or asks a paying one for a card",
+    cardStatusFn !== null &&
+      /payment_cards/.test(cardStatusFn[0]) &&
+      /exp_year \* 100/.test(cardStatusFn[0]) &&
+      /funded_usd\(p_user_id\) >= public\.card_suggest_min_usd\(\)/.test(cardStatusFn[0]) &&
+      /created_at <= now\(\) - public\.card_suggest_min_age\(\)/.test(cardStatusFn[0]) &&
+      /else 'required'/.test(cardStatusFn[0]),
+    "a card is required unless one is on file; only accounts funded $25+ and over two months old are merely asked",
+    "card_status() lets an account without a valid card through that should be required to add one",
+  );
+  const sqlNumber = (name) => {
+    const body = new RegExp(`create or replace function public\\.${name}\\(\\)[\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$`).exec(schema);
+    return body ? body[1] : "";
+  };
+  has(/25::numeric/.test(sqlNumber("card_suggest_min_usd")) && /'2 months'/.test(sqlNumber("card_suggest_min_age")), "the soft ask starts at $25 funded and two months with us");
+  has(
+    new RegExp(`\\(${credits.TOP_UP_PACK.priceUsd}::numeric / ${credits.TOP_UP_PACK.credits}\\)`).test(sqlNumber("topup_usd_per_credit")),
+    "funding is counted at the top-up pack's own rate",
+    "topup_usd_per_credit() disagrees with TOP_UP_PACK",
   );
   {
     const routes = [
