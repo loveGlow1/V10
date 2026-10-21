@@ -1034,6 +1034,7 @@ export default function PreviewPanel({
     <PublishPanel
       projectId={project?.id ?? null}
       hasBuild={Boolean(project?.last_build_at)}
+      buildStamp={project?.last_build_at ?? null}
       slug={project?.slug ?? null}
       publishedAt={project?.published_at ?? null}
       pending={changesPending}

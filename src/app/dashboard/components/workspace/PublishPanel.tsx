@@ -191,6 +191,7 @@ const LEVEL_ICON = {
 export default function PublishPanel({
   projectId,
   hasBuild,
+  buildStamp = null,
   priceNote,
   slug,
   publishedAt,
@@ -210,6 +211,9 @@ export default function PublishPanel({
   /* Whether there is anything to publish. A project with no build has nothing
      to put on an address, and the button says so rather than failing. */
   hasBuild: boolean;
+  /* When the latest version landed: the checklist runs again for every new
+     one, so a Fix that landed shows as fixed. */
+  buildStamp?: string | null;
   priceNote: string;
   /* The address already reserved, from the project row. Without this the panel
      only knew about a publish that happened in THIS session — so reopening the
@@ -306,16 +310,16 @@ export default function PublishPanel({
       if (!current || !files || !Array.isArray(files.files)) return;
       const server = isServerBuild(files.files);
       setWebApp(server);
+      /* What the files say, at once; then the full run — a Web App's
+         database and settings, and every image on the web actually loaded. */
       setChecks(runChecks({ files: files.files, webApp: false, backend: null, secretNames: null }));
-      if (server) {
-        const full = await loadChecks(projectId, true);
-        if (current && full) setChecks(full);
-      }
+      const full = await loadChecks(projectId, server);
+      if (current && full) setChecks(full);
     })();
     return () => {
       current = false;
     };
-  }, [projectId, hasBuild]);
+  }, [projectId, hasBuild, buildStamp]);
 
   const running = run?.phase === "running";
   useEffect(() => {
@@ -714,6 +718,7 @@ export default function PublishPanel({
 
   /* ── Normal ─────────────────────────────────────────────────────────────── */
   const failing = checks?.filter((check) => check.level !== "pass").length ?? 0;
+  const fixable = checks?.filter((check) => check.level !== "pass" && check.fix && (check.fix === "database" || check.asks?.length)) ?? [];
   return (
     <>
       {status}
@@ -882,6 +887,21 @@ export default function PublishPanel({
             <ChevronDown className={`h-3.5 w-3.5 text-muted transition-transform ${checksOpen || blocked ? "rotate-180" : ""}`} />
           </button>
           {(checksOpen || blocked) && checks ? (
+            <>
+            {/* Every problem the builder can fix, in one go: each check's own
+                requests, one per file, sent together. */}
+            {fixable.length > 1 ? (
+              <button
+                onClick={() => {
+                  if (fixable.some((check) => check.fix === "database")) onOpenDatabase();
+                  const asks = fixable.flatMap((check) => (check.fix === "chat" ? (check.asks ?? []) : []));
+                  if (asks.length) onAsk(asks);
+                }}
+                className="mt-2 flex h-8 w-full items-center justify-center rounded-lg bg-ink text-[12px] font-medium text-sunken transition-opacity hover:opacity-90"
+              >
+                Fix all {fixable.length}
+              </button>
+            ) : null}
             <ul className="mt-1.5">
               {checks.map((check) => (
                 <li key={check.id} className="flex items-start gap-2 py-1">
@@ -904,6 +924,7 @@ export default function PublishPanel({
                 </li>
               ))}
             </ul>
+            </>
           ) : null}
         </div>
       ) : null}
