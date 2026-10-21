@@ -38,6 +38,7 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
 - `ai_prompt`: full custom AI instructions. Null builds them from the fields above.
 - `services_note`: extra line under the products list
 - `alert_numbers`, `alert_email`: where alerts go
+- `contact_email`: shown to customers on the "Talk to a person" reply ("Not online? Email us at …")
 - `daily_summary`: whether the business gets the morning report
 - `active`: false stops the bot without deleting anything
 
