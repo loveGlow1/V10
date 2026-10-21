@@ -13,8 +13,8 @@ Evolution API on Railway (`evolution-api-production-4056.up.railway.app`).
 | --- | --- |
 | **WhatsApp Bot — Engine (all businesses)** | Webhook from Evolution → finds the business by `instance_name` → menu, stock desk, AI answers (text, photos, voice notes), handoff to a person, alerts, events log, hourly follow-ups. |
 | **WhatsApp Bot — Add a Business** | n8n-login form. Saves the business and its products, creates its Evolution instance with the engine webhook, shows the QR code to scan. |
-| **WhatsApp Bot — Daily Summary** | 08:00 Lagos: one WhatsApp report per business to its `alert_numbers`, from `bot_events`. |
-| **WhatsApp Bot — Error Alerts** | Error workflow: WhatsApps the platform owner when a run fails. |
+| **WhatsApp Bot — Daily Summary** | 08:00 Lagos: one report per business to its `alert_numbers` (WhatsApp) and `alert_email`, from `bot_events`. |
+| **WhatsApp Bot — Error Alerts** | Error workflow: WhatsApps and emails the platform owner when a run fails (email = `alert_email` of the business whose instance sends alerts). |
 | **WhatsApp Bot — Edit a Business** | n8n-login form: find a business, change prices, products, details or pause it on a pre-filled page, save in one click. |
 | **WhatsApp Bot — Setup / Move** | One-click setup on a new n8n: creates the data tables, saves `wa_settings`, repoints every business's WhatsApp. See MAP.md → *Move to a new n8n*. |
 
@@ -45,6 +45,10 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
 
 `inventory`: `item_name`, `price`, `quantity`, `description`, `payment_url`
 (any checkout link: Stripe, Paystack…).
+
+## Email
+
+Every alert, the daily report and error alerts also go by email through one Gmail login in n8n (credential named **Gmail account**). The three email steps (Engine → Email Alert, Daily Summary → Email Summary, Error Alerts → Email the Owner) stay switched off until that login exists; after adding it, select it on those three steps and switch them on.
 
 ## Settings
 

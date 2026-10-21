@@ -70,6 +70,70 @@
     "resource": "row",
     "returnAll": false
    }
+  },
+  {
+   "id": "8b62f6a6-0a4c-45b3-8ca7-4353e3348d41",
+   "name": "Owner Business",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    448,
+    200
+   ],
+   "alwaysOutputData": true,
+   "onError": "continueRegularOutput",
+   "notes": "The owner's email is the alert email of the business whose WhatsApp sends error alerts.",
+   "parameters": {
+    "authentication": "oAuth2",
+    "operation": "getAll",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "clients",
+    "limit": 1,
+    "matchType": "allFilters",
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "instance_name",
+       "condition": "eq",
+       "keyValue": "={{ $('Settings').first().json.alert_instance }}"
+      }
+     ]
+    }
+   },
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "b9a6773b-eceb-4333-a7c6-c294f22ddc4e",
+   "name": "Email the Owner",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.2,
+   "position": [
+    672,
+    200
+   ],
+   "disabled": true,
+   "onError": "continueRegularOutput",
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "sendTo": "={{ $json.alert_email }}",
+    "subject": "🚨 WhatsApp bot error",
+    "emailType": "text",
+    "message": "={{ $('Compose Alert').first().json.text.replace(/[*_]/g, '') }}",
+    "options": {
+     "appendAttribution": false,
+     "senderName": "WhatsApp Bot"
+    }
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "name": "Gmail account"
+    }
+   }
   }
  ],
  "connections": {
@@ -100,6 +164,22 @@
     [
      {
       "node": "WhatsApp the Owner",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Owner Business",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Owner Business": {
+   "main": [
+    [
+     {
+      "node": "Email the Owner",
       "type": "main",
       "index": 0
      }

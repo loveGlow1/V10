@@ -89,7 +89,7 @@
     0
    ],
    "parameters": {
-    "jsCode": "// One WhatsApp report per business, to each of its alert numbers: what the\n// bot handled in the last 24 hours and who is still waiting on the team.\nconst clients = $('Get Clients').all().map((i) => i.json).filter((c) => c.client_id && c.daily_summary !== false);\nconst events = $input.all().map((i) => i.json).filter((e) => e && e.client_id);\nconst out = [];\nfor (const c of clients) {\n  const mine = events.filter((e) => e.client_id === c.client_id);\n  const count = (k) => mine.filter((e) => e.kind === k).length;\n  const people = (k) => {\n    const seen = new Set();\n    return mine.filter((e) => e.kind === k && !seen.has(e.phone) && seen.add(e.phone))\n      .slice(0, 10).map((e) => `• ${e.name ? e.name + ' ' : ''}+${e.phone} — https://wa.me/${e.phone}`);\n  };\n  const biz = c.business_name || c.client_id;\n  const leads = people('lead');\n  const waiting = people('human');\n  const text = [\n    `📊 *${biz} · Daily WhatsApp report*`,\n    '━━━━━━━━━━━━━━',\n    `🆕 New contacts: *${count('new_contact')}*`,\n    `💼 Leads: *${count('lead')}*`,\n    `🙋 Asked for a person: *${count('human')}*`,\n    `⚠️ Couldn't answer: *${count('unanswered')}*`,\n    `🛒 Sales: *${count('sale')}* · 📥 Restocks: *${count('restock')}*`,\n    leads.length ? ['', '*Leads to follow up*', ...leads].join('\\n') : null,\n    waiting.length ? ['', '*Wanted a person*', ...waiting].join('\\n') : null,\n    mine.length ? null : '\\n_A quiet day — no new activity._',\n    '━━━━━━━━━━━━━━',\n  ].filter((l) => l !== null).join('\\n');\n  let alerts = c.alert_numbers;\n  if (typeof alerts === 'string') { try { alerts = JSON.parse(alerts); } catch (e) { alerts = [alerts]; } }\n  for (const n of [...new Set((alerts || []).map(String))]) if (n) out.push({ json: { number: n, instance: c.instance_name, text } });\n}\nreturn out;"
+    "jsCode": "// One report per business, to each of its alert numbers and its alert email:\n// what the bot handled in the last 24 hours and who is still waiting on the team.\nconst clients = $('Get Clients').all().map((i) => i.json).filter((c) => c.client_id && c.daily_summary !== false);\nconst events = $input.all().map((i) => i.json).filter((e) => e && e.client_id);\nconst out = [];\nfor (const c of clients) {\n  const mine = events.filter((e) => e.client_id === c.client_id);\n  const count = (k) => mine.filter((e) => e.kind === k).length;\n  const people = (k) => {\n    const seen = new Set();\n    return mine.filter((e) => e.kind === k && !seen.has(e.phone) && seen.add(e.phone))\n      .slice(0, 10).map((e) => `• ${e.name ? e.name + ' ' : ''}+${e.phone} — https://wa.me/${e.phone}`);\n  };\n  const biz = c.business_name || c.client_id;\n  const leads = people('lead');\n  const waiting = people('human');\n  const text = [\n    `📊 *${biz} · Daily WhatsApp report*`,\n    '━━━━━━━━━━━━━━',\n    `🆕 New contacts: *${count('new_contact')}*`,\n    `💼 Leads: *${count('lead')}*`,\n    `🙋 Asked for a person: *${count('human')}*`,\n    `⚠️ Couldn't answer: *${count('unanswered')}*`,\n    `🛒 Sales: *${count('sale')}* · 📥 Restocks: *${count('restock')}*`,\n    leads.length ? ['', '*Leads to follow up*', ...leads].join('\\n') : null,\n    waiting.length ? ['', '*Wanted a person*', ...waiting].join('\\n') : null,\n    mine.length ? null : '\\n_A quiet day — no new activity._',\n    '━━━━━━━━━━━━━━',\n  ].filter((l) => l !== null).join('\\n');\n  let alerts = c.alert_numbers;\n  if (typeof alerts === 'string') { try { alerts = JSON.parse(alerts); } catch (e) { alerts = [alerts]; } }\n  // The first copy of each business's report also carries its email, so the\n  // same report goes to the inbox once (Email Summaries).\n  const email = String(c.alert_email || '').trim();\n  const subject = `📊 ${biz} · Daily WhatsApp report`;\n  [...new Set((alerts || []).map(String))].filter(Boolean)\n    .forEach((n, i) => out.push({ json: { number: n, instance: c.instance_name, text, email: i === 0 ? email : '', subject } }));\n}\nreturn out;"
    }
   },
   {
@@ -145,6 +145,48 @@
     "resource": "row",
     "returnAll": false
    }
+  },
+  {
+   "id": "8a731298-6698-415d-9f87-2cc61cb35bdf",
+   "name": "Email Summaries",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    896,
+    200
+   ],
+   "parameters": {
+    "jsCode": "// One email per business that has an alert email.\nreturn $input.all().filter((i) => i.json.email);"
+   }
+  },
+  {
+   "id": "257af1d7-9fe3-4283-8f75-a08b474244c6",
+   "name": "Email Summary",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.2,
+   "position": [
+    1120,
+    200
+   ],
+   "disabled": true,
+   "onError": "continueRegularOutput",
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "sendTo": "={{ $json.email }}",
+    "subject": "={{ $json.subject }}",
+    "emailType": "text",
+    "message": "={{ $json.text.replace(/[*_]/g, '') }}",
+    "options": {
+     "appendAttribution": false,
+     "senderName": "WhatsApp Bot"
+    }
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "name": "Gmail account"
+    }
+   }
   }
  ],
  "connections": {
@@ -177,6 +219,11 @@
       "node": "Send Summary",
       "type": "main",
       "index": 0
+     },
+     {
+      "node": "Email Summaries",
+      "type": "main",
+      "index": 0
      }
     ]
    ]
@@ -197,6 +244,17 @@
     [
      {
       "node": "Get Clients",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Email Summaries": {
+   "main": [
+    [
+     {
+      "node": "Email Summary",
       "type": "main",
       "index": 0
      }

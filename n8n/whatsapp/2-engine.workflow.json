@@ -790,7 +790,12 @@
    },
    "onError": "continueRegularOutput",
    "webhookId": "b1ff1a41-ed3f-4d53-a506-699de105536b",
-   "disabled": true
+   "disabled": true,
+   "credentials": {
+    "gmailOAuth2": {
+     "name": "Gmail account"
+    }
+   }
   },
   {
    "id": "a8477428-63aa-42b5-8b11-3d96443ad8a4",
