@@ -63,7 +63,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -280,6 +280,9 @@ export default function PreviewSheet({
                     typing={typing}
                     onDoneTyping={stopTyping}
                     onCover={coverBelow}
+                    typingText={typingText}
+                    onTypeLive={typeLive}
+                    onCancelTyping={cancelTyping}
                     onSent={() => {
                       setPicked(null);
                       deselect();

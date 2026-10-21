@@ -74,6 +74,11 @@ export function VisualEditPrompt(props: {
      preview keeps the element being edited above it, so the editor never
      sits on top of what it is editing. See preview-bridge coverBelow. */
   onCover?: (y: number | null) => void;
+  /* Phones: the words being typed, held in the sheet's own field and
+     mirrored into the page (null when typing happens in the page). */
+  typingText?: string | null;
+  onTypeLive?: (text: string) => void;
+  onCancelTyping?: () => void;
 }) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
 }
@@ -377,6 +382,9 @@ function VisualEditSheet({
   typing = false,
   onDoneTyping,
   onCover,
+  typingText = null,
+  onTypeLive,
+  onCancelTyping,
 }: {
   projectId: string;
   picked: Picked;
@@ -390,6 +398,9 @@ function VisualEditSheet({
   typing?: boolean;
   onDoneTyping?: () => void;
   onCover?: (y: number | null) => void;
+  typingText?: string | null;
+  onTypeLive?: (text: string) => void;
+  onCancelTyping?: () => void;
 }) {
   const [text, setText] = useState("");
   /* Ask the agent, or style it by hand. */
@@ -401,6 +412,18 @@ function VisualEditSheet({
   /* AI pressed while typing: the ask box only exists once typing has ended
      and the full sheet is back, so it is focused then, not before. */
   const askAfterTyping = useRef(false);
+  /* Whether anything has been typed yet — the bar says so only once it has. */
+  const [edited, setEdited] = useState(false);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!typing) setEdited(false);
+  }, [typing]);
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(field.scrollHeight, 104)}px`;
+  }, [typingText]);
   useEffect(() => {
     if (typing) return;
     setTypingStyle(false);
@@ -490,6 +513,100 @@ function VisualEditSheet({
      style row above it, AI saves the words and opens the ask box, Done saves.
      It reports its own top as the cover, so the page moves only if the words
      are actually behind it. */
+  /* The words in a real text field, above the keyboard: what is typed is
+     seen as it is typed, with the phone's own caret and autocorrect, and the
+     page follows letter by letter. Done saves, the cross puts the words back. */
+  if (typing && typingText !== null && onTypeLive) {
+    return (
+      <div
+        ref={sheetRef}
+        role="toolbar"
+        aria-label="Edit the words"
+        style={{ bottom: keyboard + 8 }}
+        onPointerDown={keepPageFocus}
+        onMouseDown={keepPageFocus}
+        className="pointer-events-auto fixed inset-x-3 z-[70] rounded-[20px] border border-white/[0.1] bg-[#1c1c1f] p-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+      >
+        {typingStyle && onStyle && (
+          <div className="mb-2.5">
+            <StyleBar picked={picked} onStyle={onStyle} />
+          </div>
+        )}
+        <div className="mb-2 flex items-center gap-1.5">
+          <p className={`min-w-0 flex-1 truncate pl-1 text-[12.5px] ${edited ? "text-[#f97316]" : "text-white/60"}`}>
+            {edited ? "Edited · tap Done to save" : "Tap the words below to edit"}
+          </p>
+          {onStyle && (
+            <button
+              type="button"
+              onClick={() => setTypingStyle((open) => !open)}
+              aria-pressed={typingStyle}
+              aria-label="Style — size, bold, colour, font"
+              className={`flex h-8 items-center rounded-full px-2.5 text-[12.5px] font-semibold ${
+                typingStyle ? "bg-white text-black" : "bg-white/[0.08] text-white/90 active:bg-white/[0.16]"
+              }`}
+            >
+              Aa
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setMode("ask");
+              askAfterTyping.current = true;
+              onDoneTyping?.();
+            }}
+            aria-label="Save the words and ask AI instead"
+            className="flex h-8 items-center gap-1 rounded-full bg-white/[0.08] px-2.5 text-[12.5px] font-semibold text-white/90 active:bg-white/[0.16]"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> AI
+          </button>
+          {onCancelTyping && (
+            <button
+              type="button"
+              onClick={onCancelTyping}
+              aria-label="Put the words back as they were"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.08] text-white/85 active:bg-white/[0.16]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={fieldRef}
+            rows={1}
+            value={typingText}
+            onChange={(event) => {
+              setEdited(true);
+              onTypeLive(event.target.value.replace(/[\r\n]+/g, " "));
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                onDoneTyping?.();
+              }
+            }}
+            enterKeyHint="done"
+            autoCapitalize="sentences"
+            spellCheck
+            aria-label="The words"
+            className="max-h-[104px] min-h-[40px] min-w-0 flex-1 resize-none rounded-[14px] border border-white/[0.12] bg-white/[0.06] px-3 py-2 text-[16px] leading-snug text-white outline-none focus:border-white/30"
+          />
+          {onDoneTyping && (
+            <button
+              type="button"
+              onClick={onDoneTyping}
+              className="flex h-10 shrink-0 items-center rounded-full bg-white px-4 text-[13.5px] font-semibold text-black"
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (typing) {
     return (
       <div

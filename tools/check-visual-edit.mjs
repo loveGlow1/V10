@@ -260,6 +260,13 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
   has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(all\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
   has(/applySinglePageText\(next,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");
+  /* On a phone the words are typed in a field in the bar and mirrored into
+     the page as they change: what is typed is always in view, nothing says
+     "Typing" before a key is pressed, and a change that cannot be placed puts
+     the field back. The runtime is a template literal: its regexes need their
+     backslashes doubled, or the whole frame fails to parse. */
+  has(/mirror: true, text: displayText\(element\)\.text/.test(rt) && /function applyLive\(wanted\)/.test(rt) && /report\('typingText', \{ text: old \}\)/.test(rt) && /typeof data\.liveText === 'string'/.test(rt), "on a phone the words are typed in a field and mirrored live into the page");
+  has(/if \(\/\\\\s\/\.test\(ch\)\)/.test(rt) && /replace\(\/\[\\\\r\\\\n\]\+\/g, ' '\)/.test(rt), "the mirror's regexes survive the template literal");
 }
 
 /* Hand edits and the agent take turns: neither writes over the other. */

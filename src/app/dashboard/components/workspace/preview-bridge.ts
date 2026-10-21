@@ -102,6 +102,10 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      words typed were kept — written into the source by hand, or handed to
      the agent when they could not be placed exactly. */
   const [typing, setTyping] = useState(false);
+  /* On a phone, the words being typed live in the workspace's own text field
+     and are mirrored into the page: this is the field's value, or null when
+     the typing is happening in the page itself (a mouse). */
+  const [typingText, setTypingText] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>(null);
   /* Bumped when typing was saved after the agent's change landed: the frame
      then shows the agent's page without the typing, so it is reloaded. */
@@ -261,6 +265,16 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
       if (data.state === "typing") {
         setTyping(true);
         setSaveState(null);
+        const mirrored = data.detail as { mirror?: unknown; text?: unknown } | null;
+        setTypingText(mirrored?.mirror === true && typeof mirrored.text === "string" ? mirrored.text : null);
+        return;
+      }
+
+      /* The page refused a change from the field (it crossed into words that
+         cannot be saved): the field goes back to what the page shows. */
+      if (data.state === "typingText") {
+        const text = (data.detail as { text?: unknown } | null)?.text;
+        if (typeof text === "string") setTypingText(text);
         return;
       }
 
@@ -269,6 +283,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
          sent to the agent naming the element, so the change still happens. */
       if (data.state === "typed") {
         setTyping(false);
+        setTypingText(null);
         const typed = data.detail as { src?: unknown; tag?: unknown; className?: unknown; before?: unknown; text?: unknown; runs?: unknown; edits?: unknown; changed?: unknown } | null;
         if (!typed || typed.changed !== true || typeof typed.src !== "string" || typeof typed.text !== "string") return;
         /* A sentence typed through several elements — "Better Care." and the
@@ -422,6 +437,16 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
   /* Type into the selected element in place. */
   const editText = useCallback(() => tellFrame({ editText: true }), [tellFrame]);
   const stopTyping = useCallback(() => tellFrame({ stopTyping: true }), [tellFrame]);
+  /* The field changed: shown at once here, and in the page as it arrives. */
+  const typeLive = useCallback(
+    (text: string) => {
+      setTypingText(text);
+      tellFrame({ liveText: text });
+    },
+    [tellFrame],
+  );
+  /* Put the words back as they were. */
+  const cancelTyping = useCallback(() => tellFrame({ cancelTyping: true }), [tellFrame]);
 
   /* "Saved" says itself and goes. */
   useEffect(() => {
@@ -435,7 +460,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     lastCover.current = -1;
   }, [picked?.pickId, editMode]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping };
 }
 
 /* The page held still while somebody is typing into it. A build landing
