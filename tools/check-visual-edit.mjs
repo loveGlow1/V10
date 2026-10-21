@@ -280,6 +280,15 @@ Changed: a bolder mark with a single vertical stroke.`;
     has(/document\.addEventListener\("touchmove", hold, \{ passive: false \}\)/.test(overlay3) && /closest\?\.\("\[data-qs-scroll\]"\)/.test(overlay3) && /canScroll\(own, dx, dy\)/.test(overlay3), "a drag on the editor holds the page still, except inside what scrolls");
     has(/field\.scrollHeight \+ borders/.test(overlay3), "the words' field fits its words, so it does not scroll by a rounding error");
   }
+  /* The way to the preview on a phone, and the wait for it. */
+  {
+    const chat = read2(new URL("../src/app/dashboard/components/workspace/ChatPanel.tsx", import.meta.url), "utf8");
+    const sheet = read2(new URL("../src/app/dashboard/components/workspace/PreviewSheet.tsx", import.meta.url), "utf8");
+    has(/if \(stamp\) nudgePreview\(\);/.test(chat) && /if \(wasBuilding\.current && !building\) nudgePreview\(\);/.test(chat) && /else if \(wasOpen\.current\) nudgePreview\(\);/.test(chat), "View Preview is offered as the workspace opens, when a job ends, when a version lands and when the preview closes");
+    has(/previewReady && previewUrl && !previewOpen && !building &&/.test(chat) && /const PREVIEW_READY_MS = 3 \* 60_000;/.test(chat), "it steps aside while a job runs, and after a few minutes");
+    has(/setReadyCount\(\(count\) => count \+ 1\)/.test(bridge) && /readyCount !== readySeen\.current/.test(sheet), "the preview counts as loaded when the app has drawn itself, not when the frame has");
+    has(/Your app is starting up — this can take 1–2 minutes\./.test(sheet) && /waited >= 600/.test(sheet) && /waited >= 90_000/.test(sheet), "a slow preview says it is loading, then starting up, then offers a reload");
+  }
   /* The editor can be put anywhere, like a window, and stays there. */
   {
     const movable = read2(new URL("../src/app/dashboard/components/workspace/use-movable.ts", import.meta.url), "utf8");

@@ -135,8 +135,9 @@ type Message = ThreadMessage & {
    is invented while that is in flight and nothing is invented if it fails: a
    build that did not happen says so, in the conversation, next to the message
    that asked for it. */
-/* How long the "your preview is ready" pill stays up after a build lands. */
-const PREVIEW_READY_MS = 6_000;
+/* How long the View Preview button stays up after the workspace opens, a job
+   finishes, a version lands or the preview is closed. Hidden while a job runs. */
+const PREVIEW_READY_MS = 3 * 60_000;
 
 type ComposerMode = "auto" | "edit" | "new_project";
 
@@ -400,55 +401,67 @@ export default function ChatPanel({
     };
   }, []);
 
-  /* The "your preview is ready" pill is an announcement, not a status.
-     
-     It used to render for as long as a page existed, which meant it was on
-     screen every visit, all visit, over a page that had been ready since last
-     week — permanent furniture in the one column a phone has, announcing news
-     that had long stopped being news.
-     
-     It is tied to the event instead: last_build_at moves when a version of the
-     page lands, and every path that changes the page stamps it — an edit, a new
-     build, an undo. So the pill wakes when one of those arrives, says its piece,
-     and goes.
-     
-     The stamp already on the row when a workspace opens is history, not an
-     arrival, so it is recorded and not announced; the same applies to switching
-     apps, which is why the project's id is held beside it. */
+  /* The View Preview button above the composer, on a phone.
+
+     Not permanent furniture, and not an announcement that is gone in a
+     blink either: it is offered whenever the preview is what somebody is
+     likely to want next — as the workspace opens, as a job finishes, as a
+     version lands (a build, an edit, an undo), and as the preview is closed —
+     and stays PREVIEW_READY_MS before stepping aside. While a job runs it is
+     hidden: there is nothing new to look at yet. The bar's own Preview button
+     is there in between, so it is never far. */
   const [previewReady, setPreviewReady] = useState(false);
+  /* Each reason to show it starts a fresh window: a counter, so a second
+     build landing inside the window restarts the clock. */
+  const [previewWave, setPreviewWave] = useState(0);
+  const nudgePreview = useCallback(() => {
+    setPreviewReady(true);
+    setPreviewWave((wave) => wave + 1);
+  }, []);
   const seenBuild = useRef<{ id: string | null; stamp: string | null } | null>(null);
 
   useEffect(() => {
     const id = project?.id ?? null;
     const stamp = project?.last_build_at ?? null;
 
-    /* A different app — or the first one this panel has seen. Whatever it was
-       last built with happened before we got here. */
+    /* A different app — or the first one this panel has seen: the way to its
+       preview is offered straight away, as the workspace opens. */
     if (!seenBuild.current || seenBuild.current.id !== id) {
       seenBuild.current = { id, stamp };
-      setPreviewReady(false);
+      if (stamp) nudgePreview();
+      else setPreviewReady(false);
       return;
     }
+    /* A new version landed — a build, an edit, an undo. */
     if (stamp && stamp !== seenBuild.current.stamp) {
       seenBuild.current = { id, stamp };
-      setPreviewReady(true);
+      nudgePreview();
     }
-  }, [project?.id, project?.last_build_at]);
+  }, [project?.id, project?.last_build_at, nudgePreview]);
 
-  /* Long enough to read and reach, short enough that it is gone before it is in
-     the way. The timer runs from the moment it appears; a second build landing
-     inside the window restarts it by setting the flag again. */
+  /* A job ending is when the preview is most wanted, even one that changed
+     nothing: it comes back the moment the work stops. */
+  const wasBuilding = useRef(false);
   useEffect(() => {
-    if (!previewReady) return;
+    if (wasBuilding.current && !building) nudgePreview();
+    wasBuilding.current = building;
+  }, [building, nudgePreview]);
+
+  /* Up long enough to reach without hunting for it, then out of the way. */
+  useEffect(() => {
+    if (previewWave === 0) return;
     const timer = setTimeout(() => setPreviewReady(false), PREVIEW_READY_MS);
     return () => clearTimeout(timer);
-  }, [previewReady]);
+  }, [previewWave]);
 
-  /* Opening the preview is the announcement being acted on, so it has done its
-     job and does not come back when the sheet is closed. */
+  /* Hidden while the preview is open; back when it is closed, so the way
+     to it is never far. */
+  const wasOpen = useRef(false);
   useEffect(() => {
     if (previewOpen) setPreviewReady(false);
-  }, [previewOpen]);
+    else if (wasOpen.current) nudgePreview();
+    wasOpen.current = previewOpen;
+  }, [previewOpen, nudgePreview]);
   /* The phases of the message in flight, and the clock they run against. Both
      are drawn from what this panel genuinely observes — the server's own report
      of each operation, and the wait for the page — rather than from a script.
@@ -2037,13 +2050,11 @@ export default function ChatPanel({
           Phones only: from md up the preview is already on screen beside this,
           so announcing it would be pointing at something visible.
 
-          It pops rather than fades in, and it leaves the same way a few seconds
-          later — see previewReady above. Announcing a preview as ready over the
-          top of the preview itself would say nothing, so it also stands down the
-          moment the sheet goes up, and having been acted on, it does not come
-          back when the sheet is closed. */}
+          It pops rather than fades in, and leaves the same way — see
+          previewReady above for when. It stands down while the sheet is up and
+          while a job runs, and comes back when either ends. */}
       <AnimatePresence>
-        {previewReady && previewUrl && !previewOpen && (
+        {previewReady && previewUrl && !previewOpen && !building && (
           <motion.div
             key="preview-ready"
             initial={{ opacity: 0, y: 12, scale: 0.9 }}
@@ -2060,7 +2071,7 @@ export default function ChatPanel({
               className="mx-auto flex h-11 items-center gap-2 rounded-full bg-solid px-5 text-[14px] font-medium text-onSolid shadow-[0_8px_28px_rgba(0,0,0,0.45)] transition-transform active:scale-[0.97]"
             >
               <Eye className="h-4 w-4" />
-              Your Preview is ready
+              View Preview
             </button>
           </motion.div>
         )}

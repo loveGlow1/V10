@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpRight, MousePointerClick, RotateCw, X } from "lucide-react";
+import { ArrowUpRight, Laptop, MousePointerClick, RotateCw, X } from "lucide-react";
 
 import { withAuthSeed } from "@/lib/builder/preview/auth-seed";
 import { isProjectSummary } from "@/lib/builder/project-summary";
@@ -63,7 +63,7 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(
+  const { editMode, setEditMode, picked, setPicked, picks, readyCount, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(
     frameRef,
     projectId,
     true,
@@ -130,6 +130,37 @@ export default function PreviewSheet({
     if (open) setLoaded(false);
   }, [open, url, nonce]);
 
+  /* Loaded means the app drew itself: the page in the frame reports "ready"
+     once it has rendered, which can be well after its document loaded (a
+     project's modules are fetched and run first). The frame's own load is
+     the answer for an address, and a fallback a few seconds on for a page
+     that never reports. */
+  const readySeen = useRef(readyCount);
+  useEffect(() => {
+    if (readyCount !== readySeen.current) {
+      readySeen.current = readyCount;
+      setLoaded(true);
+    }
+  }, [readyCount]);
+  const fallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (fallback.current) clearTimeout(fallback.current);
+  }, []);
+
+  /* How long this load has taken, for the notice: nothing for a blink, then
+     "loading", then "starting up" once it is clearly a cold start, and a way
+     to try again if it never comes. */
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (!open || loaded) {
+      setWaited(0);
+      return;
+    }
+    const began = Date.now();
+    const tick = setInterval(() => setWaited(Date.now() - began), 500);
+    return () => clearInterval(tick);
+  }, [open, loaded, nonce]);
+
   /* The sheet covers the page, so the page must not scroll underneath it —
      otherwise dragging inside the preview scrolls the conversation behind. */
   useEffect(() => {
@@ -178,12 +209,12 @@ export default function PreviewSheet({
               <RotateCw className="h-4 w-4" />
             </button>
 
-            <p className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold text-ink">
-              Preview
-            </p>
+            {/* No title: the sheet is plainly the preview, and the app's name
+                belongs to the workspace, not here. The space keeps the buttons
+                on the right. */}
+            <span aria-hidden className="min-w-0 flex-1" />
 
-            {/* Sized and spaced to balance the reload button, so the title sits
-                on the centre line rather than near it. */}
+            {/* The controls, together on the right. */}
             <div className="flex shrink-0 items-center gap-2">
               {/* Point at something in the app and change it. */}
               {usingDocument && framed ? (
@@ -250,7 +281,10 @@ export default function PreviewSheet({
                   {...(usingDocument ? { srcDoc: heldFramed } : { src: url ?? undefined })}
                   title={`${title} preview`}
                   onLoad={() => {
-                    if (!usingDocument || framed) setLoaded(true);
+                    if (!usingDocument) return setLoaded(true);
+                    if (!framed) return;
+                    if (fallback.current) clearTimeout(fallback.current);
+                    fallback.current = setTimeout(() => setLoaded(true), 4000);
                   }}
                   /* Generated from someone's prompt and served from another
                      origin: scripts and forms, and no same-origin reach back
@@ -302,16 +336,45 @@ export default function PreviewSheet({
                   </p>
                   </>
                 ) : null}
+                {/* Nothing to show yet — the page itself is still on its way —
+                    so the frame's square is plain rather than white. */}
+                {!loaded && usingDocument && !framed && <div className="absolute inset-0 bg-canvas" />}
+                {/* While the app loads: the frame stays visible (whatever it has
+                    drawn so far) and a notice at its foot says what is
+                    happening, the way a sandbox that is waking up says so. Not
+                    for a blink of a load: only after the first moment. */}
                 <AnimatePresence>
-                  {!loaded && (
+                  {!loaded && waited >= 600 && (
                     <motion.div
-                      initial={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.25 }}
-                      className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-canvas"
+                      role="status"
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 12 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-40 flex items-center gap-3 rounded-2xl border border-line/[0.1] bg-panel/95 px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-md"
                     >
-                      <span className="h-7 w-7 animate-spin rounded-full border-2 border-line/[0.15] border-t-ink" />
-                      <p className="text-[14px] text-muted">Loading your app…</p>
+                      <Laptop className="h-5 w-5 shrink-0 text-ink" />
+                      <p className="min-w-0 flex-1 text-[13px] leading-snug text-ink">
+                        {waited >= 90_000
+                          ? "This is taking longer than usual. Try reloading the preview."
+                          : waited >= 8_000
+                            ? "Your app is starting up — this can take 1–2 minutes."
+                            : "Loading your app…"}
+                      </p>
+                      {waited >= 90_000 ? (
+                        <button
+                          type="button"
+                          onClick={() => setNonce((value) => value + 1)}
+                          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3.5 text-[13px] font-medium text-canvas"
+                        >
+                          <RotateCw className="h-3.5 w-3.5" /> Reload
+                        </button>
+                      ) : (
+                        <span className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-layer/[0.1] px-3.5 text-[13px] font-medium text-ink">
+                          <span aria-hidden className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line/[0.2] border-t-ink" />
+                          {waited >= 8_000 ? "Starting…" : "Loading…"}
+                        </span>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
