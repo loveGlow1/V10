@@ -139,11 +139,17 @@ export function ensureFontLoaded(source: string, option: FontOption, kind: "html
 
 export type VisualChange = {
   text?: string;
+  /* Words typed into text that has markup inside it ("Feel <em>Better</em>"):
+     each run is the text between two of its children, before and after. Only
+     those words change in the source; the markup between them is untouched. */
+  textRuns?: TextRun[];
   /* Take the element out altogether. */
   remove?: boolean;
   classes?: { group: ClassGroup; value: string }[];
   imageSrc?: string;
 };
+
+export type TextRun = { before: string; after: string };
 
 export type VisualEdit = {
   /** "path:line:col" from data-qs-src — line 1-based, col 0-based. */
@@ -312,7 +318,14 @@ export function applyVisualEdit(source: string, edit: VisualEdit): VisualResult 
   /* Collected as [start, end, replacement] and applied last-first, so one
      change does not move the positions of another. */
   const splices: [number, number, string][] = [];
-  const { text, classes, imageSrc } = edit.change;
+  const { text, classes, imageSrc, textRuns } = edit.change;
+
+  if (textRuns && textRuns.length > 0) {
+    if (found.selfClosing) return { ok: false, needsAi: true, reason: "it holds no words" };
+    const result = runSplices(source, found.openEnd, textRuns, true);
+    if ("reason" in result) return { ok: false, needsAi: true, reason: result.reason };
+    splices.push(...result.splices);
+  }
 
   if (text !== undefined) {
     if (!found.textChildren) return { ok: false, needsAi: true, reason: "its words come from code or data, not from the page" };
@@ -357,6 +370,7 @@ export function applyVisualEdit(source: string, edit: VisualEdit): VisualResult 
 export function describeChange(edit: VisualEdit): string {
   const parts: string[] = [];
   if (edit.change.text !== undefined) parts.push(`text → "${edit.change.text.slice(0, 40)}"`);
+  for (const run of edit.change.textRuns ?? []) parts.push(`"${run.before.trim().slice(0, 30)}" → "${run.after.trim().slice(0, 30)}"`);
   for (const change of edit.change.classes ?? []) {
     const named = change.group === "fontFamily" ? fontForClass(change.value)?.label : null;
     parts.push(`${change.group} → ${named ?? (change.value || "default")}`);
@@ -376,6 +390,164 @@ export function describeChange(edit: VisualEdit): string {
  * its text — is replaced, escaped for HTML. Refused rather than guessed when
  * the element holds anything but text or the old words are not there. Pure. */
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/* ── An element's own words, between its children ────────────────────────
+ *
+ * For text typed into an element that has markup inside it. The scanner walks
+ * the element's inside and keeps only what is at its own level: text, not the
+ * contents of its children, comments or (in JSX) {expressions}. Each run that
+ * was changed is found there by its old words — once, or not at all — and
+ * replaced; everything between the runs stays byte for byte. */
+
+const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/** Skips a balanced {…} starting at `at`, minding strings. Returns the index after it. */
+function skipBraces(source: string, at: number, limit: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = at; i < limit; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === "\\") { i += 1; continue; }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}" && --depth === 0) return i + 1;
+  }
+  return limit;
+}
+
+/**
+ * Walks the inside of an element from `from`. Returns its own text spans and
+ * where its closing tag starts, or null when the markup cannot be followed.
+ */
+function ownText(source: string, from: number, jsx: boolean): { spans: { start: number; end: number }[]; close: number } | null {
+  const spans: { start: number; end: number }[] = [];
+  let depth = 0;
+  let textStart = from;
+  let i = from;
+  const flush = (end: number) => {
+    if (depth === 0 && end > textStart) spans.push({ start: textStart, end });
+  };
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "<") {
+      flush(i);
+      if (source.startsWith("<!--", i)) {
+        const end = source.indexOf("-->", i);
+        if (end < 0) return null;
+        i = end + 3;
+        textStart = i;
+        continue;
+      }
+      const opening = readOpening(source, i);
+      if (!opening) return null;
+      const closing = source[i + 1] === "/";
+      const name = (/^<\/?([a-zA-Z][\w.:-]*)/.exec(source.slice(i, i + 80))?.[1] ?? "").toLowerCase();
+      if (closing) {
+        if (depth === 0) return { spans, close: i };
+        depth -= 1;
+      } else if (!opening.selfClosing && !(!jsx && VOID.has(name))) {
+        depth += 1;
+      }
+      i = opening.end + 1;
+      textStart = i;
+      continue;
+    }
+    if (jsx && ch === "{") {
+      flush(i);
+      i = skipBraces(source, i, source.length);
+      textStart = i;
+      continue;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The splices that put each run's new words in place of its old ones, within
+ * one element's own text — or why it cannot be done exactly.
+ */
+function runSplices(
+  source: string,
+  openEnd: number,
+  runs: TextRun[],
+  jsx: boolean,
+): { splices: [number, number, string][] } | { reason: string } {
+  const inside = ownText(source, openEnd + 1, jsx);
+  if (!inside) return { reason: "its markup could not be followed" };
+  const splices: [number, number, string][] = [];
+  for (const run of runs) {
+    const core = decode(run.before).replace(/\s+/g, " ").trim();
+    if (!core) return { reason: "a change was typed where there were no words to find" };
+    const forms = jsx ? [core] : [core, escapeHtml(core)];
+    let found: [number, number] | null = null;
+    for (const form of forms) {
+      const pattern = new RegExp(escapeRegExp(form).replace(/ /g, "\\s+"), "g");
+      const hits: [number, number][] = [];
+      for (const span of inside.spans) {
+        const text = source.slice(span.start, span.end);
+        for (const hit of text.matchAll(pattern)) hits.push([span.start + (hit.index ?? 0), span.start + (hit.index ?? 0) + hit[0].length]);
+      }
+      if (hits.length === 1) {
+        found = hits[0];
+        break;
+      }
+      if (hits.length > 1) return { reason: `"${core.slice(0, 40)}" appears more than once in it` };
+    }
+    if (!found) return { reason: "its words are not written in the page as shown" };
+    const words = run.after.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    const written = jsx ? (/[{}<>]/.test(words) ? `{${JSON.stringify(words)}}` : words) : escapeHtml(words);
+    if (splices.some(([start, end]) => found![0] < end && start < found![1])) return { reason: "two changes overlap" };
+    splices.push([found[0], found[1], written]);
+  }
+  return { splices };
+}
+
+const applySplices = (source: string, splices: [number, number, string][]) => {
+  let out = source;
+  for (const [start, end, text] of [...splices].sort((a, b) => b[0] - a[0])) out = out.slice(0, start) + text + out.slice(end);
+  return out;
+};
+
+/** Words typed into a single page's element that has markup inside it. */
+export function applySinglePageTextRuns(
+  html: string,
+  edit: { src: string; tag: string; runs: TextRun[] },
+): VisualResult {
+  const where = parseSrc(edit.src);
+  const tag = edit.tag.toLowerCase();
+  if (!where || !/^[a-z][a-z0-9-]*$/.test(tag) || edit.runs.length === 0) return { ok: false, needsAi: true, reason: "the element could not be placed" };
+  const lineStarts = [0];
+  for (let i = 0; i < html.length; i += 1) if (html.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  if (where.line < 1 || where.line > lineStarts.length) return { ok: false, needsAi: true, reason: "the page has changed" };
+  const lineStart = lineStarts[where.line - 1];
+  const lineEnd = where.line < lineStarts.length ? lineStarts[where.line] : html.length;
+  const opensHere = (at: number) => new RegExp(`^<${tag}[\\s>/]`, "i").test(html.slice(at, at + tag.length + 2));
+
+  /* The exact place first; then any element of that tag on that line whose
+     own words hold every old run exactly once. */
+  const tries: number[] = [];
+  const exact = lineStart + where.col - 1;
+  if (opensHere(exact)) tries.push(exact);
+  for (let at = html.indexOf("<", lineStart); at >= 0 && at < lineEnd; at = html.indexOf("<", at + 1)) {
+    if (at !== exact && opensHere(at)) tries.push(at);
+  }
+  let reason = "the element is no longer where it was";
+  for (const at of tries) {
+    const opening = readOpening(html, at);
+    if (!opening || opening.selfClosing) continue;
+    const result = runSplices(html, opening.end, edit.runs, false);
+    if ("splices" in result) return { ok: true, source: applySplices(html, result.splices) };
+    reason = result.reason;
+  }
+  return { ok: false, needsAi: true, reason };
+}
 
 export function applySinglePageText(
   html: string,

@@ -56,7 +56,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/da
   }
 }
 
-const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageRemove, applySinglePageText } = await import(join(out, "lib/builder/visual-edit.js"));
+const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageRemove, applySinglePageText, applySinglePageTextRuns } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
 const parses = (source) => ts.createSourceFile("x.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX).parseDiagnostics.length === 0;
 
@@ -230,11 +230,27 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(moved.ok && moved.source.includes(">Rye</h1>"), "a column that moved still finds the one element on the line with the old words");
   has(!applySinglePageText(page, { src: "index.html:4:3", tag: "p", before: "Open at 7.", text: "x" }).ok, "an element holding markup is refused, not flattened");
   has(!applySinglePageText(page, { src: "index.html:3:11", tag: "h1", before: "Something else", text: "x" }).ok, "old words that are not there are refused, not guessed");
+  {
+    /* Words typed into text that holds markup: only the changed run moves. */
+    const mixed = `<!doctype html>\n<html><body>\n<h1>Feel\n  <em>Better</em> today &amp; tomorrow</h1>\n<p>Yes <b>no</b> Yes</p>\n</body></html>`;
+    const before = applySinglePageTextRuns(mixed, { src: "index.html:3:1", tag: "h1", runs: [{ before: "Feel\n  ", after: "Look and feel " }] });
+    has(before.ok && before.source.includes("<h1>Look and feel\n  <em>Better</em>"), "words before an inline element are replaced, the element kept byte for byte");
+    const after = applySinglePageTextRuns(mixed, { src: "index.html:3:1", tag: "h1", runs: [{ before: " today & tomorrow", after: " today & always" }] });
+    has(after.ok && after.source.includes("</em> today &amp; always</h1>"), "words after it, with an entity in the source, are escaped back");
+    has(!applySinglePageTextRuns(mixed, { src: "index.html:4:1", tag: "p", runs: [{ before: "Yes ", after: "Maybe " }] }).ok, "words that appear twice in the element are refused, not guessed");
+    const jsx = `export default function Page() {\n  return (\n    <h1 className="t">\n      Feel{" "}\n      <span>Better</span> every day\n    </h1>\n  );\n}\n`;
+    const edited = applyVisualEdit(jsx, { src: "app/page.tsx:3:4", tag: "h1", className: "t", change: { textRuns: [{ before: "Feel ", after: "Look" }, { before: " every day", after: " {now}" }] } });
+    has(edited.ok && edited.source.includes('Look{" "}') && edited.source.includes('<span>Better</span> {"{now}"}'), "in JSX, runs around a child are replaced and braces are written as a string");
+  }
   const { readFileSync: read2 } = await import("node:fs");
   const rt = read2(new URL("../src/lib/builder/preview/runtime.ts", import.meta.url), "utf8");
   const bridge = read2(new URL("../src/app/dashboard/components/workspace/preview-bridge.ts", import.meta.url), "utf8");
   const route = read2(new URL("../src/app/api/projects/[id]/visual-edit/route.ts", import.meta.url), "utf8");
-  has(/element === selected && canType\(element\)\) \{ startTyping\(element\)/.test(rt) && /'plaintext-only'/.test(rt), "tapping the selected words again types into them in place");
+  /* Double click (or double tap) types; one click is for the AI, and does not
+     type — clicking the selected element again leaves it selected. */
+  has(/event\.detail >= 2\) \{ typeAt\(event\.target\)/.test(rt) && /now - lastTap\.t < 380/.test(rt) && /'plaintext-only'/.test(rt), "a double click or double tap types into the words in place");
+  has(/if \(at >= 0 && element === selected\) return;/.test(rt) && !/element === selected && canType\(element\)\) \{ startTyping/.test(rt), "a single click on the selected element selects, and never starts typing");
+  has(/hasDirectText\(n\)/.test(rt) && /setAttribute\('contenteditable', 'false'\)/.test(rt) && /runs: runs/.test(rt), "words with markup inside them are typed with the markup locked, and reported as runs");
   has(/report\('typed', \{ src: src, tag:/.test(rt) && /if \(typing && typing\.contains\(event\.target\)\) return;/.test(rt), "typed words are reported; taps inside the words move the caret, not the pick");
   has(/fetch\(`\/api\/projects\/\$\{projectId\}\/visual-edit`/.test(bridge) && /return toAgent\(all\);/.test(bridge), "typed words are saved by hand, or handed to the agent when they cannot be placed");
   has(/applySinglePageText\(next,/.test(route) && /model: "visual-edit"/.test(route), "single pages are written by hand as a new version");

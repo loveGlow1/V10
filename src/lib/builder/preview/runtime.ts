@@ -317,13 +317,46 @@ export const EDIT_MODE = `
      card in a list) follow. */
   var typing = null;
   var typingBefore = '';
-  function canType(element) { return Boolean(element) && onlyText(element); }
+  /* Text with markup inside it — "Feel <em>Better</em>", a link in a
+     sentence. Its own words are typed into; the elements inside are islands
+     that cannot be typed into or deleted, and only the words that changed
+     between them are reported, so the source keeps its markup. */
+  var mixed = null;
+  function hasDirectText(element) {
+    for (var i = 0; i < element.childNodes.length; i += 1) {
+      var node = element.childNodes[i];
+      if (node.nodeType === 3 && node.textContent.trim()) return true;
+    }
+    return false;
+  }
+  /* The words between an element's children, in order: gap 0 before the
+     first child, gap n after the last. Same children, same number of gaps. */
+  function textGaps(element) {
+    var gaps = [''];
+    for (var i = 0; i < element.childNodes.length; i += 1) {
+      var node = element.childNodes[i];
+      if (node.nodeType === 3) gaps[gaps.length - 1] += node.textContent;
+      else if (node.nodeType === 1) gaps.push('');
+    }
+    return gaps;
+  }
+  function canType(element) { return Boolean(element) && (onlyText(element) || hasDirectText(element)); }
   function startTyping(element) {
     if (!editing || !canType(element)) return false;
     if (typing === element) return true;
     stopTyping(true);
     typing = element;
     typingBefore = element.textContent;
+    mixed = null;
+    if (!onlyText(element)) {
+      var islands = [];
+      for (var c = 0; c < element.children.length; c += 1) {
+        var child = element.children[c];
+        islands.push({ node: child, had: child.getAttribute('contenteditable'), html: child.outerHTML });
+        child.setAttribute('contenteditable', 'false');
+      }
+      mixed = { html: element.innerHTML, gaps: textGaps(element), islands: islands };
+    }
     element.setAttribute('contenteditable', 'plaintext-only');
     if (element.contentEditable !== 'plaintext-only') element.setAttribute('contenteditable', 'true');
     element.setAttribute('spellcheck', 'true');
@@ -371,6 +404,35 @@ export const EDIT_MODE = `
     element.style.removeProperty('user-select');
     var text = element.textContent.replace(/\u00a0/g, ' ');
     var src = element.getAttribute('data-qs-src');
+    if (mixed) {
+      var was = mixed;
+      mixed = null;
+      for (var k = 0; k < was.islands.length; k += 1) {
+        var island = was.islands[k];
+        if (island.had === null) island.node.removeAttribute('contenteditable');
+        else island.node.setAttribute('contenteditable', island.had);
+      }
+      /* The islands must be exactly as they were — same elements, same
+         markup. A deleted link or a pasted <b> is not a text edit: put it
+         all back rather than save something the source cannot express. */
+      var intact = element.children.length === was.islands.length;
+      for (var m = 0; intact && m < was.islands.length; m += 1) {
+        if (element.children[m] !== was.islands[m].node || element.children[m].outerHTML !== was.islands[m].html) intact = false;
+      }
+      var gaps = intact ? textGaps(element) : [];
+      var runs = [];
+      for (var g = 0; intact && g < gaps.length; g += 1) {
+        var after = gaps[g].replace(/\u00a0/g, ' ');
+        if (after !== was.gaps[g]) runs.push({ before: was.gaps[g], after: after });
+      }
+      if (!save || !intact || runs.length === 0 || !text.trim()) {
+        element.innerHTML = was.html;
+        report('typed', { src: src, changed: false });
+        return;
+      }
+      report('typed', { src: src, tag: element.tagName.toLowerCase(), className: element.getAttribute('class') || '', before: typingBefore, text: text, runs: runs, changed: true });
+      return;
+    }
     if (!save || !text.trim() || text.trim() === typingBefore.trim()) {
       element.textContent = typingBefore;
       report('typed', { src: src, changed: false });
@@ -389,6 +451,23 @@ export const EDIT_MODE = `
      nothing twice. */
   var touchStart = null;
   var tappedAt = 0;
+  /* A double click (or double tap) on words: type into them, there and then.
+     The words under the pointer decide — the nearest tagged element that
+     holds text of its own, so a double click on "Better" in
+     "Feel <em>Better</em>" types into the <em>, and on "Feel" into the
+     heading around it. Nothing typeable there: it is an ordinary pick. */
+  function typeAt(target) {
+    var start = target && target.nodeType === 1 ? target : target && target.parentElement;
+    var host = null;
+    for (var n = start; n && n !== document.body; n = n.parentElement) {
+      if (n.hasAttribute && n.hasAttribute('data-qs-src') && hasDirectText(n)) { host = n; break; }
+    }
+    if (!host) { pickAt(target); return; }
+    if (picks.indexOf(host) < 0) addPick(host);
+    if (selected !== host) selectElement(host);
+    startTyping(host);
+  }
+  var lastTap = null;
   function onTouchDown(event) {
     if (!editing || event.pointerType === 'mouse') { touchStart = null; return; }
     touchStart = { x: event.clientX, y: event.clientY, t: Date.now() };
@@ -400,8 +479,17 @@ export const EDIT_MODE = `
     var quick = Date.now() - touchStart.t < 700;
     touchStart = null;
     if (moved > 12 || !quick) return;
-    tappedAt = Date.now();
-    pickAt(document.elementFromPoint(event.clientX, event.clientY) || event.target);
+    var now = Date.now();
+    tappedAt = now;
+    var under = document.elementFromPoint(event.clientX, event.clientY) || event.target;
+    /* A second tap, soon and close by, is a double tap: type. */
+    if (lastTap && now - lastTap.t < 380 && Math.abs(event.clientX - lastTap.x) + Math.abs(event.clientY - lastTap.y) < 30) {
+      lastTap = null;
+      typeAt(under);
+      return;
+    }
+    lastTap = { x: event.clientX, y: event.clientY, t: now };
+    pickAt(under);
   }
 
   function onPick(event) {
@@ -411,6 +499,8 @@ export const EDIT_MODE = `
     event.stopPropagation();
     if (event.stopImmediatePropagation) event.stopImmediatePropagation();
     if (Date.now() - tappedAt < 800) return;
+    /* The second click of a double click: type into the words under it. */
+    if (event.detail >= 2) { typeAt(event.target); return; }
     pickAt(event.target);
   }
 
@@ -418,8 +508,9 @@ export const EDIT_MODE = `
     var element = taggedFrom(target);
     if (!element) return;
     var at = picks.indexOf(element);
-    /* The selected one, tapped again: type into it, when it is words. */
-    if (at >= 0 && element === selected && canType(element)) { startTyping(element); return; }
+    /* One click is for asking: the selected one, clicked again, stays
+       selected. Typing is a double click — see typeAt. */
+    if (at >= 0 && element === selected) return;
     if (at >= 0) {
       /* Clicked again: let go of that one, and the newest left is the one the
          prompt sits beside. */
@@ -478,7 +569,7 @@ export const EDIT_MODE = `
          long press, no grey tap flash — the outline is the feedback. */
       if (touchLayout && !touchStyle) {
         touchStyle = document.createElement('style');
-        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}';
+        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}html,body{touch-action:manipulation!important}';
         document.head.appendChild(touchStyle);
       }
       if (!following) following = window.requestAnimationFrame(tick);
