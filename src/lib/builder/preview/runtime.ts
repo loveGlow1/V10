@@ -629,7 +629,11 @@ export const EDIT_MODE = `
          long press, no grey tap flash — the outline is the feedback. */
       if (touchLayout && !touchStyle) {
         touchStyle = document.createElement('style');
-        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}html,body{touch-action:manipulation!important}';
+        /* …except inside the words being typed into, all the way down: on a
+           phone the caret cannot be placed in, or dragged through, anything
+           that cannot be selected — so a <span> line inside a heading was out
+           of reach while the heading itself was not. */
+        touchStyle.textContent = '*{-webkit-touch-callout:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-tap-highlight-color:transparent!important}html,body{touch-action:manipulation!important}[contenteditable=true],[contenteditable=plaintext-only],[contenteditable=true] *,[contenteditable=plaintext-only] *{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
         document.head.appendChild(touchStyle);
       }
       if (!following) following = window.requestAnimationFrame(tick);
