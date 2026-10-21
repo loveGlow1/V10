@@ -1,0 +1,476 @@
+{
+ "name": "WhatsApp Bot — Add a Business",
+ "nodes": [
+  {
+   "id": "4995d736-e97f-49a4-aeb1-a3cd6f1c11af",
+   "name": "Add a Business",
+   "type": "n8n-nodes-base.formTrigger",
+   "typeVersion": 2.6,
+   "position": [
+    0,
+    80
+   ],
+   "parameters": {
+    "authentication": "n8nUserAuth",
+    "formTitle": "Add a business to the WhatsApp bot",
+    "formDescription": "Fill this in, submit, then scan the QR code with the business's WhatsApp (Linked devices → Link a device). The bot is live as soon as it connects.",
+    "responseMode": "lastNode",
+    "formFields": {
+     "values": [
+      {
+       "fieldLabel": "Business name",
+       "fieldName": "business_name",
+       "fieldType": "text",
+       "requiredField": true,
+       "placeholder": "Mama Tee Bakery"
+      },
+      {
+       "fieldLabel": "Owner / staff WhatsApp numbers for alerts",
+       "fieldName": "alert_numbers",
+       "fieldType": "text",
+       "requiredField": true,
+       "placeholder": "2348012345678, 2348098765432"
+      },
+      {
+       "fieldLabel": "Alert email",
+       "fieldName": "alert_email",
+       "fieldType": "email",
+       "placeholder": "owner@business.com"
+      },
+      {
+       "fieldLabel": "Website",
+       "fieldName": "website",
+       "fieldType": "text",
+       "placeholder": "mamateebakery.com"
+      },
+      {
+       "fieldLabel": "Short tagline (shown under the welcome)",
+       "fieldName": "tagline",
+       "fieldType": "text",
+       "placeholder": "Fresh bread & cakes, delivered in Lekki"
+      },
+      {
+       "fieldLabel": "What does the business do?",
+       "fieldName": "about",
+       "fieldType": "textarea",
+       "requiredField": true,
+       "placeholder": "Who you are, what you sell, where you are, who you serve."
+      },
+      {
+       "fieldLabel": "Key info & FAQs",
+       "fieldName": "faqs",
+       "fieldType": "textarea",
+       "placeholder": "Opening hours, location, delivery areas and fees, how to pay (bank details), refund policy…"
+      },
+      {
+       "fieldLabel": "Products / services — one per line: Name | price | stock | payment link | short description",
+       "fieldName": "services",
+       "fieldType": "textarea",
+       "placeholder": "Birthday cake 8 inch | 25000 | 10 | | Vanilla or chocolate\nSmall chops tray | 15000 | 20 | https://paystack.com/pay/xyz | 50 pieces"
+      },
+      {
+       "fieldLabel": "Tone",
+       "fieldName": "tone",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Friendly & warm"
+         },
+         {
+          "option": "Professional"
+         },
+         {
+          "option": "Fun & playful"
+         },
+         {
+          "option": "Friendly, Nigerian English & Pidgin welcome"
+         }
+        ]
+       }
+      },
+      {
+       "fieldLabel": "Currency",
+       "fieldName": "currency",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "NGN"
+         },
+         {
+          "option": "GHS"
+         },
+         {
+          "option": "KES"
+         },
+         {
+          "option": "ZAR"
+         },
+         {
+          "option": "USD"
+         },
+         {
+          "option": "GBP"
+         },
+         {
+          "option": "EUR"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "options": {
+     "buttonLabel": "Create the bot",
+     "appendAttribution": false
+    }
+   },
+   "webhookId": "ca2ecfe7-8d12-4a43-ba77-14a218798100"
+  },
+  {
+   "id": "829f35fd-74d6-40f5-af11-e9c6218d6ad6",
+   "name": "Prepare Business",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    224,
+    80
+   ],
+   "parameters": {
+    "jsCode": "// One id for everything this business owns: its clients row, its inventory\n// and its WhatsApp instance. Short, readable, and unique.\nconst f = $('Add a Business').first().json;\nconst slug = String(f.business_name || 'business').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'business';\nconst id = slug + '_' + Math.random().toString(36).slice(2, 6);\nconst numbers = String(f.alert_numbers || '').split(/[,;\\s]+/).map((n) => n.replace(/\\D/g, '').replace(/^0(\\d{10})$/, '234$1')).filter((n) => n.length >= 8);\nconst TONES = {\n  'Friendly & warm': 'Friendly and warm, like a helpful shop attendant who knows the customer.',\n  'Professional': 'Professional, polite and concise.',\n  'Fun & playful': 'Fun and playful, with the odd emoji, but always clear.',\n  'Friendly, Nigerian English & Pidgin welcome': 'Friendly Nigerian English; if the customer writes in Pidgin, reply in Pidgin.',\n};\nconst services = String(f.services || '').split('\\n').map((l) => l.trim()).filter(Boolean).map((l) => {\n  const [name, price, stock, link, desc] = l.split('|').map((x) => (x || '').trim());\n  return {\n    item_name: name,\n    price: Number(String(price || '').replace(/[^0-9.]/g, '')) || null,\n    quantity: stock === '' || stock === undefined ? 100 : Number(String(stock).replace(/[^0-9]/g, '')) || 0,\n    payment_url: /^https?:\\/\\//.test(link || '') ? link : null,\n    description: desc || null,\n  };\n}).filter((s) => s.item_name);\nreturn [{ json: {\n  client_id: id,\n  instance_name: id,\n  business_name: String(f.business_name).trim(),\n  alert_numbers: '{' + numbers.join(',') + '}',\n  first_alert: numbers[0] || '',\n  alert_email: f.alert_email || null,\n  website: String(f.website || '').trim() || null,\n  tagline: String(f.tagline || '').trim() || null,\n  about: String(f.about || '').trim(),\n  faqs: String(f.faqs || '').trim() || null,\n  tone: TONES[f.tone] || null,\n  currency: f.currency || 'NGN',\n  services,\n} }];"
+   }
+  },
+  {
+   "id": "d48eab11-c380-4b2d-b48b-4de2806eac47",
+   "name": "Create Client",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    448,
+    80
+   ],
+   "parameters": {
+    "authentication": "oAuth2",
+    "resource": "row",
+    "operation": "create",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "clients",
+    "dataToSend": "defineBelow",
+    "fieldsUi": {
+     "fieldValues": [
+      {
+       "fieldId": "client_id",
+       "fieldValue": "={{ $json.client_id }}"
+      },
+      {
+       "fieldId": "instance_name",
+       "fieldValue": "={{ $json.instance_name }}"
+      },
+      {
+       "fieldId": "business_name",
+       "fieldValue": "={{ $json.business_name }}"
+      },
+      {
+       "fieldId": "alert_numbers",
+       "fieldValue": "={{ $json.alert_numbers }}"
+      },
+      {
+       "fieldId": "alert_email",
+       "fieldValue": "={{ $json.alert_email }}"
+      },
+      {
+       "fieldId": "website",
+       "fieldValue": "={{ $json.website }}"
+      },
+      {
+       "fieldId": "tagline",
+       "fieldValue": "={{ $json.tagline }}"
+      },
+      {
+       "fieldId": "about",
+       "fieldValue": "={{ $json.about }}"
+      },
+      {
+       "fieldId": "faqs",
+       "fieldValue": "={{ $json.faqs }}"
+      },
+      {
+       "fieldId": "tone",
+       "fieldValue": "={{ $json.tone }}"
+      },
+      {
+       "fieldId": "currency",
+       "fieldValue": "={{ $json.currency }}"
+      }
+     ]
+    }
+   },
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "82cc7cda-46ee-4f17-907f-7f5791f22256",
+   "name": "Any Services?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    672,
+    80
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "leftValue": "={{ $('Prepare Business').first().json.services.length > 0 }}",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   }
+  },
+  {
+   "id": "a4dc2d12-9a42-47e4-96ab-56a5e93c1339",
+   "name": "Split Services",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    896,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// One item per product or service, tagged with the new business.\nconst b = $('Prepare Business').first().json;\nreturn b.services.map((s) => ({ json: { ...s, client_id: b.client_id } }));"
+   }
+  },
+  {
+   "id": "cd962cb6-85b0-4815-8826-8ae94f7b5b9f",
+   "name": "Create Products",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    1120,
+    0
+   ],
+   "parameters": {
+    "authentication": "oAuth2",
+    "resource": "row",
+    "operation": "create",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "inventory",
+    "dataToSend": "defineBelow",
+    "fieldsUi": {
+     "fieldValues": [
+      {
+       "fieldId": "client_id",
+       "fieldValue": "={{ $json.client_id }}"
+      },
+      {
+       "fieldId": "item_name",
+       "fieldValue": "={{ $json.item_name }}"
+      },
+      {
+       "fieldId": "price",
+       "fieldValue": "={{ $json.price }}"
+      },
+      {
+       "fieldId": "quantity",
+       "fieldValue": "={{ $json.quantity }}"
+      },
+      {
+       "fieldId": "payment_url",
+       "fieldValue": "={{ $json.payment_url }}"
+      },
+      {
+       "fieldId": "description",
+       "fieldValue": "={{ $json.description }}"
+      }
+     ]
+    }
+   },
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "1628b990-e347-4c13-a217-206b92992f1b",
+   "name": "Create WhatsApp",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.3,
+   "position": [
+    1344,
+    80
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $('Settings').first().json.evolution_url }}/instance/create",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ instanceName: $('Prepare Business').first().json.instance_name, qrcode: true, integration: \"WHATSAPP-BAILEYS\", webhook: { url: $('Settings').first().json.engine_webhook_url, byEvents: false, base64: false, events: [\"MESSAGES_UPSERT\"] } }) }}",
+    "options": {
+     "timeout": 30000
+    }
+   },
+   "executeOnce": true,
+   "onError": "continueRegularOutput",
+   "credentials": {
+    "httpHeaderAuth": {
+     "name": "Header Auth account"
+    }
+   }
+  },
+  {
+   "id": "ce6bafd6-8d99-4590-9d5d-8f884f436ef5",
+   "name": "Scan to Connect",
+   "type": "n8n-nodes-base.form",
+   "typeVersion": 2.5,
+   "position": [
+    1568,
+    80
+   ],
+   "parameters": {
+    "operation": "completion",
+    "respondWith": "showText",
+    "responseText": "=<div style=\"font-family:system-ui,sans-serif;max-width:520px;margin:24px auto;text-align:center\">\n{{ $json.qrcode && $json.qrcode.base64 ? '<h2>✅ ' + $('Prepare Business').first().json.business_name + ' is set up</h2><p><b>Last step:</b> on the business phone open WhatsApp → <b>Settings → Linked devices → Link a device</b> and scan this code.</p><img alt=\"WhatsApp QR code\" style=\"width:280px;height:280px\" src=\"' + $json.qrcode.base64 + '\"/><p style=\"color:#666\">The code refreshes every ~40 seconds. If it expires, open the <a href=\"' + $('Settings').first().json.evolution_url + '/manager\" target=\"_blank\">Evolution manager</a>, find <b>' + $('Prepare Business').first().json.instance_name + '</b> and press <b>Get QR code</b>.</p>' : '<h2>⚠️ Business saved, WhatsApp not created yet</h2><p>The business and its products are saved, but the WhatsApp connection could not be made automatically: ' + String(($json.error && ($json.error.message || $json.error)) || $json.message || 'unknown error') + '.</p><p>Create an instance named <b>' + $('Prepare Business').first().json.instance_name + '</b> in the <a href=\"' + $('Settings').first().json.evolution_url + '/manager\" target=\"_blank\">Evolution manager</a> with its webhook set to ' + $('Settings').first().json.engine_webhook_url + ' and the MESSAGES_UPSERT event.</p>' }}\n<p style=\"margin-top:24px\">Business id: <code>{{ $('Prepare Business').first().json.client_id }}</code><br/>Alerts go to: {{ $('Prepare Business').first().json.alert_numbers.replace(/[{}]/g, '').split(',').join(', ') }}</p>\n<p>Edit its menu, prompt or products any time in Supabase → <b>clients</b> / <b>inventory</b>.</p>\n</div>"
+   },
+   "webhookId": "f98d39b3-dfe1-4205-a904-dc4b460583e1"
+  },
+  {
+   "id": "946c4c0d-4b1f-4381-8126-7c35cd375c7d",
+   "name": "Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    112,
+    280
+   ],
+   "parameters": {
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    },
+    "limit": 1,
+    "operation": "get",
+    "resource": "row",
+    "returnAll": false
+   }
+  }
+ ],
+ "connections": {
+  "Prepare Business": {
+   "main": [
+    [
+     {
+      "node": "Create Client",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Client": {
+   "main": [
+    [
+     {
+      "node": "Any Services?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Any Services?": {
+   "main": [
+    [
+     {
+      "node": "Split Services",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Create WhatsApp",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Split Services": {
+   "main": [
+    [
+     {
+      "node": "Create Products",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create Products": {
+   "main": [
+    [
+     {
+      "node": "Create WhatsApp",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create WhatsApp": {
+   "main": [
+    [
+     {
+      "node": "Scan to Connect",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Add a Business": {
+   "main": [
+    [
+     {
+      "node": "Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Settings": {
+   "main": [
+    [
+     {
+      "node": "Prepare Business",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}

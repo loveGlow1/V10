@@ -1,7 +1,7 @@
 # WhatsApp Bot — Configuration Map
 
 How the multi-business WhatsApp assistant is wired, what each piece does, and
-how to add a new business (or rebuild everything) on your own. The same content
+how to add a new business, or move the whole bot to a new n8n with one click. The same content
 as a printable PDF: [WhatsApp-Bot-Configuration-Map.pdf](WhatsApp-Bot-Configuration-Map.pdf).
 
 ## The 30-second version
@@ -75,7 +75,7 @@ Workflow **WhatsApp Bot — Engine (all businesses)**. Two triggers: **Webhook**
 
 | Stage | n8n steps | What happens |
 | --- | --- | --- |
-| 1 · Receive | Webhook → Parse Command | Keeps only new messages (`messages.upsert`). Drops groups, statuses and the bot's own replies. Reads the number, text, photo or voice note. A message your team types on the business phone is marked "agent". |
+| 1 · Receive | Webhook → Parse Command → Settings | Keeps only new messages (`messages.upsert`). Drops groups, statuses and the bot's own replies. Reads the number, text, photo or voice note. A message your team types on the business phone is marked "agent". **Settings** reads the Evolution address and Supabase project from `wa_settings`. |
 | 2 · Which business? | Fetch Client Config → Client Active? → Business Profile | Finds the `clients` row whose `instance_name` matches the instance. Stops if there is none or `active` is false. Builds the menu, and the AI instructions if `ai_prompt` is empty. |
 | 3 · Who is talking? | Get Contact → Decide → Save Contact → Should Reply? | Loads the customer's state from `wa_contacts` (key `instance:phone`). Decide picks the command and handles handoff, `#close` and the spam limit. State is always saved; if the bot should stay quiet, it stops here. |
 | 4 · Route | Route Command | Stock, sell/restock, reports (list/low/services), AI questions, or a fixed reply. |
@@ -91,6 +91,7 @@ Workflow **WhatsApp Bot — Engine (all businesses)**. Two triggers: **Webhook**
 | WhatsApp Bot — Add a Business | Form (n8n login) | Prepare Business → Create Client → Any Services? → Split Services → Create Products → Create WhatsApp → Scan to Connect (QR) |
 | WhatsApp Bot — Daily Summary | 08:00 Africa/Lagos | Get Clients → Last 24h Events → Build Summary → Send Summary |
 | WhatsApp Bot — Error Alerts | Engine failure | Compose Alert → WhatsApp the Owner. Must be published and set as the engine's Error Workflow. |
+| WhatsApp Bot — Setup / Move | Form (n8n login) | Ensure wa_settings → Ensure wa_contacts → Work Out Settings → Clear Old Settings → Save Settings → Get Businesses → Businesses To Repoint → Point WhatsApp Here → Build Report. See [Move to a new n8n](#move-to-a-new-n8n-one-click-setup). |
 
 ## 3. How the bot behaves
 
@@ -225,27 +226,70 @@ status should change to Connected.
 **B5. Test.** Send "hi" from another phone. The menu should arrive, and the run
 shows up under the engine's **Executions** in n8n.
 
-## Rebuild everything from scratch
+## Move to a new n8n (one-click setup)
 
-You only need this when moving to a new n8n, Supabase or Evolution. Files are in
-this folder.
+Use this when you switch n8n accounts, for example when credits run out. Your
+businesses, products and WhatsApp numbers stay where they are, in Supabase and
+Evolution. You only move the n8n part, which takes about 10 minutes.
 
-1. **Supabase:** run [`schema.sql`](schema.sql) in the SQL Editor.
-2. **Evolution:** in Railway, deploy the Evolution API template (it brings Postgres and Redis). Set a strong `AUTHENTICATION_API_KEY`.
-3. **n8n credentials:** create the three listed in [section 1](#1-accounts-addresses-and-keys).
-4. **n8n data table:** create `wa_contacts` with these columns:
-   - text: `ckey`, `client_id`, `instance`, `phone`, `name`
-   - number: `session`, `last_at`, `handoff_since`, `agent_at`, `handoff_last`, `lead_at`, `followed_at`, `rate_start`, `rate_count`
-5. **Import the engine** from [`engine.workflow.json`](engine.workflow.json), then:
-   - pick the credential on every step that shows a warning
-   - pick `wa_contacts` in Get Contact, Save Contact, Mark Lead, Recent Leads and Mark Followed
-   - if your Supabase project or Evolution URL changed, replace `esuatccbicekcohzgcvd` and the Railway URL in the Supabase and HTTP steps
-6. **Recreate the companion workflows** from [section 2](#2-the-engine-stage-by-stage), or import your downloaded copies.
-7. **Publish** the engine and use its Production webhook URL in every Evolution instance and in the form's Create WhatsApp step.
-8. Add the businesses again and test with "hi".
+Nothing install-specific is written into the workflows. The Evolution address,
+Supabase project, engine address and your alert number all live in one n8n data
+table, `wa_settings`, and the **Setup / Move** form fills it in for you.
 
-**Back up:** in n8n, open each WhatsApp workflow → **...** menu → **Download**,
-and keep the files here.
+### 1. Create the three logins (n8n → Credentials → Create)
+
+Use **exactly these names**, so imported workflows find them automatically:
+
+| Name | Type | Fill in |
+| --- | --- | --- |
+| `Header Auth account` | Header Auth | Name: `apikey` · Value: the Evolution global key (Railway → evolution-api → Variables → `AUTHENTICATION_API_KEY`) |
+| `Supabase account` | Supabase OAuth2 API | Sign in to Supabase and allow the project |
+| `Anthropic account` | Anthropic | An Anthropic API key |
+
+### 2. Import the five workflows (Workflows → Import from file)
+
+All five are in this folder:
+
+1. [`1-setup-move.workflow.json`](1-setup-move.workflow.json)
+2. [`2-engine.workflow.json`](2-engine.workflow.json)
+3. [`3-add-a-business.workflow.json`](3-add-a-business.workflow.json)
+4. [`4-daily-summary.workflow.json`](4-daily-summary.workflow.json)
+5. [`5-error-alerts.workflow.json`](5-error-alerts.workflow.json)
+
+If a step shows a red credential warning after import, open it and pick the
+login with the matching name.
+
+### 3. Click the button
+
+Open **WhatsApp Bot — Setup / Move**, publish it, and open its form. Check the
+values (they're pre-filled with today's setup), leave "Engine webhook address"
+empty, and press **Set up**. In one go it:
+
+- creates the `wa_settings` and `wa_contacts` data tables
+- saves the settings every workflow reads
+- points **every business's WhatsApp** at this n8n
+
+The result page lists each business with ✅ or ❌.
+
+### 4. Publish and finish
+
+1. Publish the Engine, Add a Business, Daily Summary and Error Alerts workflows.
+2. In the Engine and the Daily Summary, open Workflow settings → Error workflow and choose **WhatsApp Bot — Error Alerts**.
+3. Send "hi" to any business number.
+
+You can run Setup / Move again at any time, for example after changing the
+Evolution address. It's safe to repeat.
+
+**Good to know:**
+
+- **Voice notes on n8n Cloud** use n8n's built-in AI credits. On a self-hosted n8n, add an OpenAI login to the **Transcribe Voice** step.
+- **Data tables** need an n8n version that has them. Any current n8n Cloud plan does.
+- **Chats start fresh after a move.** Chats handed to a person and recent AI memory reset; business data is unaffected.
+
+### Moving Supabase or Evolution too (rare)
+
+- **New Supabase project:** run [`schema.sql`](schema.sql) in its SQL Editor, copy your `clients` and `inventory` rows across, then enter the new project ref in Setup / Move.
+- **New Evolution server:** in Railway, deploy the Evolution API template (it brings Postgres and Redis) and set a strong `AUTHENTICATION_API_KEY`. Each business's WhatsApp then needs scanning again (Add a Business, or the manager's **Get QR code**). Enter the new address in Setup / Move.
 
 ## Troubleshooting
 

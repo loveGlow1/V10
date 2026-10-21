@@ -1,0 +1,113 @@
+{
+ "name": "WhatsApp Bot — Error Alerts",
+ "nodes": [
+  {
+   "id": "ae040c2a-0705-411a-ad0d-304a7390cf7e",
+   "name": "On Bot Failure",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {}
+  },
+  {
+   "id": "0ce6e92c-79c6-4f24-a5c8-8c40a5e1af2f",
+   "name": "Compose Alert",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// What broke, where, and a link to the failed run — short enough for WhatsApp.\nconst j = $input.first().json || {};\nconst ex = j.execution || {};\nconst wf = j.workflow || {};\nconst err = ex.error || j.trigger?.error || {};\nconst node = ex.lastNodeExecuted || err.node?.name || 'unknown step';\nconst msg = String(err.message || err.description || 'Unknown error').slice(0, 400);\nconst text = [\n  '🚨 *WhatsApp bot error*',\n  `Workflow: ${wf.name || wf.id || 'unknown'}`,\n  `Step: ${node}`,\n  `Error: ${msg}`,\n  ex.url ? `Run: ${ex.url}` : null,\n  '',\n  '_Customers may not be getting replies until this is fixed._',\n].filter((l) => l !== null).join('\\n');\nreturn [{ json: { text } }];"
+   }
+  },
+  {
+   "id": "0cd6416a-4138-4a76-bc6c-f256ea5248fd",
+   "name": "WhatsApp the Owner",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.3,
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $json.evolution_url }}/message/sendText/{{ $json.alert_instance }}",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={\n  \"number\": \"{{ $json.owner_number }}\",\n  \"text\": {{ JSON.stringify($('Compose Alert').first().json.text) }},\n  \"linkPreview\": false\n}",
+    "options": {}
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "name": "Header Auth account"
+    }
+   }
+  },
+  {
+   "id": "7fc69990-6dd8-4c51-8997-5c799e02af05",
+   "name": "Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    120,
+    200
+   ],
+   "parameters": {
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    },
+    "limit": 1,
+    "operation": "get",
+    "resource": "row",
+    "returnAll": false
+   }
+  }
+ ],
+ "connections": {
+  "On Bot Failure": {
+   "main": [
+    [
+     {
+      "node": "Compose Alert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Compose Alert": {
+   "main": [
+    [
+     {
+      "node": "Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Settings": {
+   "main": [
+    [
+     {
+      "node": "WhatsApp the Owner",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}

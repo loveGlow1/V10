@@ -1,0 +1,211 @@
+{
+ "name": "WhatsApp Bot — Daily Summary",
+ "nodes": [
+  {
+   "id": "1d0ed870-3635-4fc1-9f94-3417c4adfa2b",
+   "name": "Daily 08:00 Lagos",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "days",
+       "triggerAtHour": 8
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "d254ee4c-5499-4da0-8c4b-7880d7cf8cf2",
+   "name": "Get Clients",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "authentication": "oAuth2",
+    "resource": "row",
+    "operation": "getAll",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "clients",
+    "returnAll": true
+   },
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "a910aabb-0cc0-45f3-a1ef-257a03f062d9",
+   "name": "Last 24h Events",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "authentication": "oAuth2",
+    "resource": "row",
+    "operation": "getAll",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "bot_events",
+    "returnAll": true,
+    "matchType": "allFilters",
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "created_at",
+       "condition": "gte",
+       "keyValue": "={{ $now.minus({ hours: 24 }).toISO() }}"
+      }
+     ]
+    }
+   },
+   "executeOnce": true,
+   "alwaysOutputData": true,
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "80b1a861-1607-44d1-97e9-99627bca789e",
+   "name": "Build Summary",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    672,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// One WhatsApp report per business, to each of its alert numbers: what the\n// bot handled in the last 24 hours and who is still waiting on the team.\nconst clients = $('Get Clients').all().map((i) => i.json).filter((c) => c.client_id && c.daily_summary !== false);\nconst events = $input.all().map((i) => i.json).filter((e) => e && e.client_id);\nconst out = [];\nfor (const c of clients) {\n  const mine = events.filter((e) => e.client_id === c.client_id);\n  const count = (k) => mine.filter((e) => e.kind === k).length;\n  const people = (k) => {\n    const seen = new Set();\n    return mine.filter((e) => e.kind === k && !seen.has(e.phone) && seen.add(e.phone))\n      .slice(0, 10).map((e) => `• ${e.name ? e.name + ' ' : ''}+${e.phone} — https://wa.me/${e.phone}`);\n  };\n  const biz = c.business_name || c.client_id;\n  const leads = people('lead');\n  const waiting = people('human');\n  const text = [\n    `📊 *${biz} · Daily WhatsApp report*`,\n    '━━━━━━━━━━━━━━',\n    `🆕 New contacts: *${count('new_contact')}*`,\n    `💼 Leads: *${count('lead')}*`,\n    `🙋 Asked for a person: *${count('human')}*`,\n    `⚠️ Couldn't answer: *${count('unanswered')}*`,\n    `🛒 Sales: *${count('sale')}* · 📥 Restocks: *${count('restock')}*`,\n    leads.length ? ['', '*Leads to follow up*', ...leads].join('\\n') : null,\n    waiting.length ? ['', '*Wanted a person*', ...waiting].join('\\n') : null,\n    mine.length ? null : '\\n_A quiet day — no new activity._',\n    '━━━━━━━━━━━━━━',\n  ].filter((l) => l !== null).join('\\n');\n  let alerts = c.alert_numbers;\n  if (typeof alerts === 'string') { try { alerts = JSON.parse(alerts); } catch (e) { alerts = [alerts]; } }\n  for (const n of [...new Set((alerts || []).map(String))]) if (n) out.push({ json: { number: n, instance: c.instance_name, text } });\n}\nreturn out;"
+   }
+  },
+  {
+   "id": "b920493d-8623-493a-88b4-5932f2c90e7c",
+   "name": "Send Summary",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.3,
+   "position": [
+    896,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $('Settings').first().json.evolution_url }}/message/sendText/{{ $json.instance }}",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={\n  \"number\": \"{{ $json.number }}\",\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"linkPreview\": false\n}",
+    "options": {
+     "batching": {
+      "batch": {
+       "batchSize": 1,
+       "batchInterval": 1500
+      }
+     }
+    }
+   },
+   "onError": "continueRegularOutput",
+   "credentials": {
+    "httpHeaderAuth": {
+     "name": "Header Auth account"
+    }
+   }
+  },
+  {
+   "id": "a31dcede-3656-4768-bea4-2f4721025498",
+   "name": "Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    120,
+    200
+   ],
+   "parameters": {
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    },
+    "limit": 1,
+    "operation": "get",
+    "resource": "row",
+    "returnAll": false
+   }
+  }
+ ],
+ "connections": {
+  "Get Clients": {
+   "main": [
+    [
+     {
+      "node": "Last 24h Events",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Last 24h Events": {
+   "main": [
+    [
+     {
+      "node": "Build Summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Summary": {
+   "main": [
+    [
+     {
+      "node": "Send Summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Daily 08:00 Lagos": {
+   "main": [
+    [
+     {
+      "node": "Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Settings": {
+   "main": [
+    [
+     {
+      "node": "Get Clients",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "timezone": "Africa/Lagos"
+ }
+}
