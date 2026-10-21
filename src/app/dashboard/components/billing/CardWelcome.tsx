@@ -49,18 +49,46 @@ function saidNotNow(): boolean {
 
 const CHANGED = "qs:card-changed";
 
+/* Back from Stripe with a card, its confirmation still on its way: the gate
+   holds off rather than flashing "Add card" over "Card verified". */
+let confirming = false;
+
+/* One read for every screen that asks — the gate and the banners on the
+   same page share it — and a fresh one when a card is added. */
+let shared: { at: number; read: Promise<Status | null> } | null = null;
+/* A minute old is old enough to ask again: an account whose gifted credit
+   runs out mid-visit should meet the gate without reloading. */
+const FRESH_FOR_MS = 60_000;
+function readStatus(fresh: boolean): Promise<Status | null> {
+  if (!shared || fresh || Date.now() - shared.at > FRESH_FOR_MS) {
+    shared = {
+      at: Date.now(),
+      read: fetch("/api/payments/stripe/card", { cache: "no-store" })
+        .then((response) => (response.ok ? (response.json() as Promise<Status>) : null))
+        .catch(() => null),
+    };
+  }
+  return shared.read;
+}
+
 function useCardStatus() {
   const [status, setStatus] = useState<Status | null>(null);
-  const load = useCallback(() => {
-    fetch("/api/payments/stripe/card", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: Status | null) => setStatus(body))
-      .catch(() => setStatus(null));
+  const load = useCallback((fresh: boolean) => {
+    /* A copy, so the screen redraws even when the read is the shared one it
+       already had (the gate's hold may have changed meanwhile). */
+    void readStatus(fresh).then((read) => setStatus(read ? { ...read } : null));
   }, []);
   useEffect(() => {
-    load();
-    window.addEventListener(CHANGED, load);
-    return () => window.removeEventListener(CHANGED, load);
+    load(false);
+    /* Whoever announces a change has already read afresh. Coming back to the
+       tab reads again once the last read is a minute old. */
+    const changed = () => load(false);
+    window.addEventListener(CHANGED, changed);
+    window.addEventListener("focus", changed);
+    return () => {
+      window.removeEventListener(CHANGED, changed);
+      window.removeEventListener("focus", changed);
+    };
   }, [load]);
   return status;
 }
@@ -180,6 +208,7 @@ export function CardReturn() {
     const rest = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
     if (state !== "saved" || !sessionId) return;
+    confirming = true;
 
     void fetch("/api/payments/stripe/card/confirm", {
       method: "POST",
@@ -192,15 +221,18 @@ export function CardReturn() {
           setNote({ text: body.error ?? "The card could not be saved. Try again.", ok: false });
           return;
         }
-        const credits = await fetch("/api/payments/stripe/card", { cache: "no-store" })
-          .then((r) => r.json() as Promise<Status>)
-          .then((s) => s.welcomeCredits)
-          .catch(() => 5);
-        setNote({ text: (SAID[body.welcome ?? "already"] ?? SAID.already)(credits), ok: body.welcome !== "card_used" });
+        const fresh = await readStatus(true);
+        setNote({
+          text: (SAID[body.welcome ?? "already"] ?? SAID.already)(fresh?.welcomeCredits ?? 5),
+          ok: body.welcome !== "card_used",
+        });
         await refresh();
-        window.dispatchEvent(new Event(CHANGED));
       })
-      .catch(() => setNote({ text: "Couldn't confirm the card. Reload the page to try again.", ok: false }));
+      .catch(() => setNote({ text: "Couldn't confirm the card. Reload the page to try again.", ok: false }))
+      .finally(() => {
+        confirming = false;
+        window.dispatchEvent(new Event(CHANGED));
+      });
   }, [refresh]);
 
   useEffect(() => {
@@ -213,7 +245,7 @@ export function CardReturn() {
   return (
     <div
       role="status"
-      className="fixed inset-x-3 top-[max(12px,env(safe-area-inset-top))] z-[90] mx-auto flex max-w-md items-center gap-2.5 rounded-2xl border border-line/[0.12] bg-canvas px-4 py-3 text-[13px] text-ink shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+      className="fixed inset-x-3 top-[max(12px,env(safe-area-inset-top))] z-[96] mx-auto flex max-w-md items-center gap-2.5 rounded-2xl border border-line/[0.12] bg-canvas px-4 py-3 text-[13px] text-ink shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
     >
       <ShieldCheck className={`h-4 w-4 shrink-0 ${note.ok ? "text-[#16a34a] dark:text-[#4ade80]" : "text-warn"}`} />
       <p className="min-w-0 flex-1">{note.text}</p>
@@ -234,7 +266,7 @@ export function CardGate() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!status?.required || !status.configured) return null;
+  if (confirming || !status?.required || !status.configured) return null;
   const holding = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;
   const title = status.card
     ? "Your card has expired"

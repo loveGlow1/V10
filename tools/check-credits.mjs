@@ -236,6 +236,30 @@ try {
     "funding is counted at the top-up pack's own rate",
     "topup_usd_per_credit() disagrees with TOP_UP_PACK",
   );
+  /* Saving a card, as Stripe actually accepts it (checked against the
+     account): no payment_method_types (refused now), Managed Payments off
+     (it allows no setup mode), nothing but cards on offer, and Link — which
+     cannot be excluded — accepted and fingerprinted by its email. */
+  {
+    const cardRoute = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/card/route.ts"), "utf8");
+    const stripeCard = readFileSync(join(process.cwd(), "src/lib/stripe-card.ts"), "utf8");
+    const session = /checkout\.sessions\.create\(\{[\s\S]*?\}\);/.exec(cardRoute)?.[0] ?? "";
+    has(
+      /mode: "setup"/.test(session) && /currency: "usd"/.test(session) && /managed_payments: \{ enabled: false \}/.test(session) && /excluded_payment_method_types: NOT_CARDS/.test(session) && !/payment_method_types:/.test(session.replace(/excluded_payment_method_types/g, "")),
+      "the card page is opened the way Stripe accepts it, offering cards only",
+      "the setup session sends parameters Stripe refuses, or offers methods that are not cards",
+    );
+    has(/`link:\$\{linkEmail\}`/.test(stripeCard), "a card saved through Link is accepted, and claims free credit once by its email");
+    const welcome = /create or replace function public\.grant_card_welcome\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    has(/ilike 'welcome credit%'/.test(welcome), "an account welcomed before the welcome line was named is not welcomed again");
+    const gated = [
+      "src/app/api/video/[id]/plan/route.ts",
+      "src/app/api/projects/[id]/terminal/route.ts",
+      "src/app/api/snapshot/route.ts",
+    ].filter((file) => !/refuseWithoutCard\(/.test(readFileSync(join(process.cwd(), file), "utf8")));
+    has(gated.length === 0, "video planning, the terminal and screenshots ask for a card too", `not gated: ${gated.join(", ")}`);
+  }
+
   /* Credit an administrator granted is the account's to use, card or no
      card, and is not counted as funding. */
   {

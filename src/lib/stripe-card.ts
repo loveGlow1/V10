@@ -56,19 +56,28 @@ export async function recordCardSetup(
     return { ok: false, reason: "Your bank did not verify the card. Try another card." };
   }
   const method = intent.payment_method;
-  if (!method || typeof method === "string" || method.type !== "card" || !method.card?.fingerprint) {
-    return { ok: false, reason: "Only a card can unlock the free credit." };
+  if (!method || typeof method === "string") return { ok: false, reason: "Stripe did not return the card." };
+  /* A card (Apple Pay and Google Pay arrive as cards) carries its own
+     fingerprint. Link is a card the bank verified, kept in the person's Link
+     account, and shows no card details: its claim is keyed on that account's
+     email, so one Link account cannot unlock free credit twice either. */
+  const linkEmail = method.type === "link" ? method.link?.email?.trim().toLowerCase() : null;
+  const fingerprint = method.type === "card" ? method.card?.fingerprint : linkEmail ? `link:${linkEmail}` : null;
+  if (!fingerprint) {
+    return { ok: false, reason: "Only a card can unlock the free credit. Try again with a card." };
   }
   const customerId =
     typeof session.customer === "string" ? session.customer : (session.customer?.id ?? (typeof intent.customer === "string" ? intent.customer : intent.customer?.id));
   if (!customerId) return { ok: false, reason: "Stripe did not return the customer." };
 
-  const card: SavedCard = {
-    brand: method.card.brand ?? null,
-    last4: method.card.last4 ?? null,
-    expMonth: method.card.exp_month ?? null,
-    expYear: method.card.exp_year ?? null,
-  };
+  const card: SavedCard = method.card
+    ? {
+        brand: method.card.brand ?? null,
+        last4: method.card.last4 ?? null,
+        expMonth: method.card.exp_month ?? null,
+        expYear: method.card.exp_year ?? null,
+      }
+    : { brand: "link", last4: null, expMonth: null, expYear: null };
 
   const { error: saveError } = await service.from("payment_cards").upsert(
     {
@@ -79,7 +88,7 @@ export async function recordCardSetup(
       last4: card.last4,
       exp_month: card.expMonth,
       exp_year: card.expYear,
-      fingerprint: method.card.fingerprint,
+      fingerprint,
       verified_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -94,7 +103,7 @@ export async function recordCardSetup(
 
   const { data, error } = await service.rpc("grant_card_welcome", {
     p_user_id: userId,
-    p_fingerprint: method.card.fingerprint,
+    p_fingerprint: fingerprint,
   });
   if (error) throw error;
   const welcome = (["granted", "already", "card_used", "invalid"] as const).find((value) => value === data) ?? "invalid";
