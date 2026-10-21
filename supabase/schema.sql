@@ -3656,9 +3656,13 @@ begin
     return 'invalid';
   end if;
 
+  -- Welcomed already: the named line, or — for accounts welcomed before the
+  -- line was named — any earlier welcome grant.
   if exists (
     select 1 from public.credit_ledger
-     where user_id = p_user_id and dedupe_key = 'signup-bonus'
+     where user_id = p_user_id
+       and (dedupe_key = 'signup-bonus'
+            or (action = 'grant' and coalesce(description, '') ilike 'welcome credit%'))
   ) then
     return 'already';
   end if;

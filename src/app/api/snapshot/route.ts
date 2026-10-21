@@ -5,6 +5,7 @@ import { takeSnapshot } from "@/lib/agent/snapshot";
 import { Workspace } from "@/lib/agent/tools";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 /* A screenshot of a session's project, on request — the same capture the
  * agent's take_snapshot makes, for the owner of the session only.
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
 
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Screenshots are unavailable right now." }, { status: 503 });
+  /* A browser is paid for per screenshot: no card, no service, for an
+     account that has never paid. */
+  const noCard = await refuseWithoutCard(service, user.id);
+  if (noCard) return noCard;
 
   const body = (await request.json().catch(() => null)) as { sessionId?: unknown; path?: unknown; mobile?: unknown } | null;
   const session = await loadSession(supabase, typeof body?.sessionId === "string" ? body.sessionId : "");

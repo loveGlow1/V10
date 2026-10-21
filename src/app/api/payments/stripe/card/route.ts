@@ -19,6 +19,14 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  *      session here, on the server; the browser's return
  *      (./confirm) and the webhook record it. */
 
+/* Every method Checkout could otherwise offer that is not a card. */
+const NOT_CARDS = [
+  "klarna", "cashapp", "amazon_pay", "affirm", "afterpay_clearpay", "zip", "alma", "paypal", "us_bank_account",
+  "sepa_debit", "bacs_debit", "acss_debit", "au_becs_debit", "nz_bank_account", "pay_by_bank", "crypto",
+  "revolut_pay", "mobilepay", "samsung_pay", "kr_card", "naver_pay", "kakao_pay", "payco", "billie", "satispay",
+  "scalapay", "sequra", "sunbit", "bizum", "paypay", "twint", "wero", "payto",
+] as Stripe.Checkout.SessionCreateParams.ExcludedPaymentMethodType[];
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -63,23 +71,37 @@ export async function POST(request: Request) {
     `${SITE_URL}${returnTo}${returnTo.includes("?") ? "&" : "?"}card=${state}${extra}`;
 
   const stripe = new Stripe(secretKey);
-  /* One Stripe customer per account: the one already on file, or a new one. */
+  /* One Stripe customer per account: the one on file, else one made for this
+     account on an earlier try that was not finished, else a new one. */
   const { customerId: known } = await cardStatus(service, user.id);
-  const customerId =
-    known ??
-    (
-      await stripe.customers.create({
-        email: user.email ?? undefined,
-        metadata: { user_id: user.id },
-      })
-    ).id;
+  let customerId = known;
+  if (!customerId && user.email) {
+    const earlier = await stripe.customers.list({ email: user.email, limit: 20 }).catch(() => null);
+    customerId = earlier?.data.find((customer) => customer.metadata?.user_id === user.id)?.id ?? null;
+  }
+  customerId ??= (
+    await stripe.customers.create({
+      email: user.email ?? undefined,
+      metadata: { user_id: user.id },
+    })
+  ).id;
 
   const metadata = { user_id: user.id, kind: CARD_SESSION_KIND };
+  /* Checked against Stripe itself:
+       - payment_method_types is no longer accepted; the currency stands in,
+         and the methods come from the account's settings.
+       - Managed Payments, on by default for this account, allows only payment
+         and subscription mode, so a setup session opts out of it.
+       - Everything that is not a card is excluded, leaving card (Apple Pay
+         and Google Pay included) and Link, which cannot be excluded and is a
+         card underneath — see recordCardSetup. */
   const session = await stripe.checkout.sessions.create({
     mode: "setup",
+    currency: "usd",
+    managed_payments: { enabled: false },
+    excluded_payment_method_types: NOT_CARDS,
     customer: customerId,
     client_reference_id: user.id,
-    payment_method_types: ["card"],
     metadata,
     setup_intent_data: { metadata },
     success_url: back("saved", "&card_session={CHECKOUT_SESSION_ID}"),

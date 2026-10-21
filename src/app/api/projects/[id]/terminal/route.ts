@@ -20,6 +20,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { endSession, keepAlive, openSession, terminalConfigured } from "@/lib/terminal/sandbox";
 
 import { ownedProject } from "../backend/owned";
+import { refuseWithoutCard } from "@/lib/card-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +48,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
   const owned = await ownedProject(id);
   if ("error" in owned) return owned.error;
+  /* A sandbox is paid for by the minute: no card, no service, for an account
+     that has never paid. */
+  const noCard = await refuseWithoutCard(createSupabaseServiceClient(), owned.userId);
+  if (noCard) return noCard;
 
   /* Development only: a bridge running on this machine instead of a sandbox
      (python3 bridge.py with QS_BRIDGE_KEY), so the terminal can be worked on
