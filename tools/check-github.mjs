@@ -91,5 +91,32 @@ const cookie = writeOAuthCookie({ state: "s", verifier: "v", userId: "u", next: 
 has(readOAuthCookie(cookie)?.next === "/dashboard", "a cookie carrying an off-site next is neutralised");
 has(readOAuthCookie("not-base64-json") === null, "a garbled cookie reads as nothing");
 
+console.log("\nImport straight from a repository, or fork it:");
+{
+  const push = pushMod;
+  const realFetch = globalThis.fetch;
+  const answer = (status, body) => async () => new Response(JSON.stringify(body), { status });
+  const repoBody = (push_) => ({ name: "site", owner: { login: "someone" }, default_branch: "main", html_url: "https://github.com/someone/site", private: false, permissions: { push: push_ } });
+  globalThis.fetch = answer(200, repoBody(true));
+  const mine = await push.readSource("t", "someone", "site");
+  has(mine.ok && mine.value.canPush === true && mine.value.repo.name === "site" && mine.value.repo.branch === "main", "a repository the account can write to is pushed back to");
+  globalThis.fetch = answer(200, repoBody(false));
+  const theirs = await push.readSource("t", "someone", "site");
+  has(theirs.ok && theirs.value.canPush === false, "anyone else's repository is read, not linked");
+  globalThis.fetch = answer(404, { message: "Not Found" });
+  const missing = await push.readSource("t", "someone", "gone");
+  has(!missing.ok && missing.status === 404 && /doesn't exist/.test(missing.reason), "a repository out of reach says so");
+  let calls = 0;
+  globalThis.fetch = async () => (calls += 1, new Response(JSON.stringify(repoBody(false)), { status: 200 }));
+  await push.readSource("t", "someone", "site");
+  has(calls === 1, "importing makes one read and nothing on GitHub");
+  globalThis.fetch = realFetch;
+
+  const route = readFileSync(join(process.cwd(), "src/app/api/integrations/github/fork/route.ts"), "utf8");
+  has(/const importing = body\.mode === "import";/.test(route) && /if \(!importing && !\(await canPushToGitHub/.test(route), "importing takes no paid plan; forking, which writes to GitHub, does");
+  has(/linked = source\.value\.canPush;/.test(route) && /if \(linked\) await service\.from\("project_github_repos"\)\.upsert/.test(route), "an import is linked only to a repository the account can push to");
+  has(/readSource\(connection\.token/.test(route) && /forkRepo\(connection\.token/.test(route), "both ways in are offered by the one route");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

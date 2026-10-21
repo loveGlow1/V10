@@ -16,7 +16,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Code2, ExternalLink, GitFork, Github, Loader2, RefreshCw, UploadCloud, X } from "lucide-react";
+import { Code2, Download, ExternalLink, GitFork, Github, Loader2, RefreshCw, UploadCloud, X } from "lucide-react";
 
 import { useGitHubImport } from "../../useGitHubImport";
 import { CODE_CHANNEL } from "./CodeEditor";
@@ -47,7 +47,7 @@ export default function VSCodeDialog({
   const [status, setStatus] = useState<Status | null>(null);
   const [ahead, setAhead] = useState(false);
   const [busy, setBusy] = useState<"open" | "sync" | "save" | null>(null);
-  /* Fork from GitHub: the same import Home offers — see useGitHubImport. */
+  /* Import or fork from GitHub: the same two Home offers — see useGitHubImport. */
   const forking = useGitHubImport(onClose);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [upgrade, setUpgrade] = useState(false);
@@ -324,26 +324,36 @@ export default function VSCodeDialog({
               <div className="flex items-start gap-3">
                 <GitFork className="mt-0.5 h-5 w-5 shrink-0 text-soft" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-medium text-ink">Fork from GitHub</p>
+                  <p className="text-[14px] font-medium text-ink">Import or fork from GitHub</p>
                   <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-                    Start a new project from any repository. It&apos;s forked into your GitHub account first.
+                    Start a new project from any repository. Import saves it straight here — nothing changes on GitHub
+                    until you push. Fork copies it into your GitHub account first.
                   </p>
                   <form
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void forking.importRepo();
+                      void forking.importRepo("import");
                     }}
-                    className="mt-3 flex gap-2"
+                    className="mt-3 flex flex-wrap gap-2"
                   >
                     <input
                       value={forking.repo}
                       onChange={(event) => forking.setRepo(event.target.value)}
                       placeholder="owner/repo or github.com link"
-                      aria-label="Repository to fork"
-                      className="h-9 min-w-0 flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
+                      aria-label="Repository to import or fork"
+                      className="h-9 min-w-[160px] flex-1 rounded-lg border border-line/[0.12] bg-layer/[0.04] px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.3]"
                     />
                     <button type="submit" disabled={busy !== null || forking.importing || !forking.repo.trim()} className={secondary}>
-                      {forking.importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
+                      {forking.busy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      Import
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void forking.importRepo("fork")}
+                      disabled={busy !== null || forking.importing || !forking.repo.trim()}
+                      className={secondary}
+                    >
+                      {forking.busy === "fork" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitFork className="h-4 w-4" />}
                       Fork
                     </button>
                   </form>

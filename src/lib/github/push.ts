@@ -92,6 +92,20 @@ export async function findRepo(token: string, owner: string, name: string): Prom
 }
 
 /**
+ * The repository to import as it is — no fork — and whether the signed-in
+ * account can push to it: an import of a repository they can write to goes
+ * straight back to it; anyone else's has nowhere to go back to until a first
+ * push makes one of their own.
+ */
+export async function readSource(token: string, owner: string, name: string): Promise<Result<{ repo: RepoRef; canPush: boolean }>> {
+  const found = await gh<RepoBody & { permissions?: { push?: boolean } }>(token, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  if (!found.ok) {
+    return found.status === 404 ? { ok: false, status: 404, reason: "that repository doesn't exist or isn't visible to your GitHub account" } : found;
+  }
+  return { ok: true, value: { repo: toRef(found.value), canPush: Boolean(found.value.permissions?.push) } };
+}
+
+/**
  * A new repository in the signed-in account. `auto_init` because the Git Data
  * API refuses to write to a repository with no commits at all; the README it
  * makes is replaced by the first push.
