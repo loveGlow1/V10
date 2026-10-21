@@ -18,14 +18,41 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { liveJob } from "@/lib/jobs/store";
 
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
-import { applySinglePageClasses, applySinglePageRemove, applySinglePageText, applyVisualEdit, describeChange, parseSrc, type VisualEdit } from "@/lib/builder/visual-edit";
+import {
+  applySinglePageClasses,
+  applySinglePageRemove,
+  applySinglePageText,
+  applyVisualEdit,
+  describeChange,
+  ensureFontLoaded,
+  fontForClass,
+  parseSrc,
+  type FontOption,
+  type VisualEdit,
+} from "@/lib/builder/visual-edit";
+
+/* The fonts a set of edits puts in use — each must also be loaded by the site,
+   or the class names a face the browser does not have. */
+function fontsIn(edits: VisualEdit[]): FontOption[] {
+  const out = new Map<string, FontOption>();
+  for (const edit of edits) {
+    for (const change of edit.change.classes ?? []) {
+      const option = change.group === "fontFamily" ? fontForClass(change.value) : null;
+      if (option) out.set(option.id, option);
+    }
+  }
+  return [...out.values()];
+}
+
+/* Where a project's global styles live, in the order the scaffolds use. */
+const GLOBAL_CSS = ["app/globals.css", "src/app/globals.css", "src/index.css", "styles/globals.css", "src/styles/globals.css"];
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
 import { ownedProject } from "../backend/owned";
 
 const MOST = 50;
-const GROUPS = new Set(["textColor", "background", "fontSize", "fontWeight", "padding", "align", "radius"]);
+const GROUPS = new Set(["textColor", "background", "fontSize", "fontWeight", "fontFamily", "padding", "align", "radius"]);
 
 /* The request is a person's hand edits, so it is read narrowly: anything that
    is not one of these shapes is dropped rather than trusted. */
@@ -178,6 +205,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
     });
     if (done.length === 0) return NextResponse.json({ applied: 0, needsAi: missed, buildId: current.buildId });
+    for (const option of fontsIn(doneEdits)) html = ensureFontLoaded(html, option, "html");
     const { data: page, error: pageError } = await service
       .from("project_builds")
       .insert({
@@ -241,6 +269,20 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   if (applied.length === 0) {
     return NextResponse.json({ applied: 0, needsAi, buildId: current.buildId });
+  }
+
+  /* A face that was applied is loaded from the global stylesheet, so every
+     page that uses the class has it. A project with no global stylesheet
+     keeps the class, which falls back through its stack. */
+  const fonts = fontsIn(edits.filter((_, index) => !needsAi.some((miss) => miss.index === index)));
+  const stylesheet = GLOBAL_CSS.find((path) => files.has(path));
+  if (fonts.length > 0 && stylesheet) {
+    let css = files.get(stylesheet) as string;
+    for (const option of fonts) css = ensureFontLoaded(css, option, "css");
+    if (css !== files.get(stylesheet)) {
+      files.set(stylesheet, css);
+      touched.add(stylesheet);
+    }
   }
 
   const prompt = `Visual edit: ${applied.join("; ")}`.slice(0, 1000);

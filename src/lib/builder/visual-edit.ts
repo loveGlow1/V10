@@ -22,7 +22,15 @@
  * Pure and dependency-free, so the preview can run the same class logic to
  * show a change before it is applied, and so it can be tested offline. */
 
-export type ClassGroup = "textColor" | "background" | "fontSize" | "fontWeight" | "padding" | "align" | "radius";
+export type ClassGroup =
+  | "textColor"
+  | "background"
+  | "fontSize"
+  | "fontWeight"
+  | "fontFamily"
+  | "padding"
+  | "align"
+  | "radius";
 
 /* Which classes belong to which group. Base classes only: `md:text-lg` and
    `hover:bg-x` are somebody's responsive and interactive design and are left
@@ -32,6 +40,10 @@ const GROUPS: Record<ClassGroup, RegExp> = {
   background: /^bg-(?:\[[^\]]+\]|(?:black|white|transparent|current|inherit)|[a-z]+-\d{2,3}(?:\/\d+)?)$/,
   fontSize: /^text-(?:xs|sm|base|lg|xl|[2-9]xl|\[length:[^\]]+\])$/,
   fontWeight: /^font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
+  /* Tailwind's three stacks, and the `family-name:` arbitrary form the font
+     picker writes. Typed explicitly so `font-[600]` (a weight) is never read
+     as a family. */
+  fontFamily: /^font-(?:sans|serif|mono|\[family-name:[^\]]+\])$/,
   padding: /^p-(?:\d+(?:\.5)?|px|\[[^\]]+\])$/,
   align: /^text-(?:left|center|right|justify|start|end)$/,
   radius: /^rounded(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\[[^\]]+\]))?$/,
@@ -42,6 +54,80 @@ export function applyClassChange(className: string, group: ClassGroup, value: st
   const pattern = GROUPS[group];
   const kept = className.split(/\s+/).filter((name) => name && !pattern.test(name));
   return [...kept, ...(value ? [value] : [])].join(" ");
+}
+
+/* ── Fonts ─────────────────────────────────────────────────────────────────
+ *
+ * The typefaces the style panel offers. A class alone is not a font: the face
+ * has to be fetched by the site too, or the browser falls back and nothing
+ * visibly changes. So each carries its Google Fonts family spec, and saving
+ * one also makes sure the site loads it — a <link> in a single page's head,
+ * an @import at the top of a project's global stylesheet (ensureFontLoaded).
+ *
+ * The class has no quotes in it (Tailwind reads `_` as a space), because a
+ * class written into a JSX string must not be able to close that string. */
+export type FontOption = {
+  id: string;
+  label: string;
+  /** The Tailwind class written onto the element. */
+  className: string;
+  /** The CSS stack, for drawing the picker's own sample. */
+  stack: string;
+  /** `family=` value for fonts.googleapis.com/css2. */
+  google: string;
+};
+
+const sans = "ui-sans-serif,system-ui,sans-serif";
+const font = (id: string, label: string, family: string, fallback: string, google: string): FontOption => ({
+  id,
+  label,
+  className: `font-[family-name:${family.replace(/ /g, "_")},${fallback}]`,
+  stack: `"${family}", ${fallback.replace(/,/g, ", ")}`,
+  google,
+});
+
+export const FONT_OPTIONS: FontOption[] = [
+  font("inter", "Inter", "Inter", sans, "Inter:wght@400;500;600;700"),
+  font("geist", "Geist", "Geist", sans, "Geist:wght@400;500;600;700"),
+  font("space-grotesk", "Space Grotesk", "Space Grotesk", sans, "Space+Grotesk:wght@400;500;600;700"),
+  font("dm-sans", "DM Sans", "DM Sans", sans, "DM+Sans:wght@400;500;600;700"),
+  font("jakarta", "Jakarta", "Plus Jakarta Sans", sans, "Plus+Jakarta+Sans:wght@400;500;600;700"),
+  font("manrope", "Manrope", "Manrope", sans, "Manrope:wght@400;500;600;700"),
+  font("instrument-serif", "Instrument", "Instrument Serif", "Georgia,serif", "Instrument+Serif:ital@0;1"),
+  font("playfair", "Playfair", "Playfair Display", "Georgia,serif", "Playfair+Display:wght@400;600;700"),
+  font("source-serif", "Source Serif", "Source Serif 4", "Georgia,serif", "Source+Serif+4:wght@400;600;700"),
+  font("jetbrains-mono", "Mono", "JetBrains Mono", "ui-monospace,monospace", "JetBrains+Mono:wght@400;500;700"),
+];
+
+/** The stylesheet URL that loads one font. */
+export function fontHref(option: FontOption): string {
+  return `https://fonts.googleapis.com/css2?family=${option.google}&display=swap`;
+}
+
+export function fontForClass(value: string): FontOption | null {
+  return FONT_OPTIONS.find((option) => option.className === value) ?? null;
+}
+
+/* A marker on what was added, so it is added once however many elements are
+   set in the same face, and so it is recognisable as the picker's. */
+const fontMark = (option: FontOption) => `qs-font-${option.id}`;
+
+/**
+ * The page or stylesheet with this font loaded. Idempotent: a document that
+ * already fetches the family (by our marker or its own link) is unchanged.
+ *   html  — a <link> before </head> (or at the top, for a fragment)
+ *   css   — an @import as the very first line, where CSS requires it
+ */
+export function ensureFontLoaded(source: string, option: FontOption, kind: "html" | "css"): string {
+  const href = fontHref(option);
+  const family = option.google.split(":")[0];
+  if (source.includes(fontMark(option)) || source.includes(`family=${family}:`) || source.includes(`family=${family}&`)) {
+    return source;
+  }
+  if (kind === "css") return `@import url("${href}"); /* ${fontMark(option)} */\n${source}`;
+  const link = `<link rel="stylesheet" href="${href.replace(/&/g, "&amp;")}" data-${fontMark(option)}>`;
+  const head = source.search(/<\/head>/i);
+  return head >= 0 ? `${source.slice(0, head)}${link}\n${source.slice(head)}` : `${link}\n${source}`;
 }
 
 export type VisualChange = {
@@ -264,7 +350,10 @@ export function applyVisualEdit(source: string, edit: VisualEdit): VisualResult 
 export function describeChange(edit: VisualEdit): string {
   const parts: string[] = [];
   if (edit.change.text !== undefined) parts.push(`text → "${edit.change.text.slice(0, 40)}"`);
-  for (const change of edit.change.classes ?? []) parts.push(`${change.group} → ${change.value || "none"}`);
+  for (const change of edit.change.classes ?? []) {
+    const named = change.group === "fontFamily" ? fontForClass(change.value)?.label : null;
+    parts.push(`${change.group} → ${named ?? (change.value || "default")}`);
+  }
   if (edit.change.imageSrc) parts.push("image swapped");
   if (edit.change.remove) parts.push("removed");
   return `<${edit.tag}> in ${parseSrc(edit.src)?.path ?? "?"}: ${parts.join(", ")}`;
