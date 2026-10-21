@@ -43,6 +43,9 @@ export type Picked = {
   /* The computed size, e.g. "18px" — where the size steps start from when no
      size class says. */
   fontSize?: string;
+  /* The computed slant — "italic", "oblique" or "normal" — so the italic
+     button knows a heading is slanted even when its CSS, not a class, did it. */
+  fontStyle?: string;
   repeated: number;
   rect: PickedRect | null;
   /* Which click this was, so two elements written at the same place (a card
@@ -113,6 +116,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
      agent is changing the page it is held and tried again once the agent
      has finished — on top of its change, never under it. The first try is
      what the chat waits for before sending (trackTypedSave). */
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
   const saveHandEdits = useCallback(
     (edits: HandEdit[], forAgent: string[]) => {
       if (!projectId || edits.length === 0) return;
@@ -140,12 +144,24 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
         return toAgent(missed.length ? missed : all);
       };
       setSaveState("saving");
-      const post = () =>
-        fetch(`/api/projects/${projectId}/visual-edit`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ edits }),
-        }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string; needsAi?: { index: number }[] } | null }));
+      /* One save at a time, in the order they were made. Each one reads the
+         page and writes a new version of it, so two in flight together — a
+         style tapped while typed words are saving — would each start from the
+         page before the other, and the later would undo the earlier. */
+      const post = () => {
+        const run = saveChain.current.then(() =>
+          fetch(`/api/projects/${projectId}/visual-edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ edits }),
+          }).then(async (response) => ({ response, body: (await response.json().catch(() => null)) as { applied?: number; code?: string; needsAi?: { index: number }[] } | null })),
+        );
+        saveChain.current = run.then(
+          () => undefined,
+          () => undefined,
+        );
+        return run;
+      };
 
       const first = trackTypedSave(post().catch(() => null));
       void first.then(async (result) => {
@@ -211,6 +227,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
             text: typeof detail.text === "string" ? detail.text : null,
             imageSrc: typeof detail.imageSrc === "string" ? detail.imageSrc : null,
             fontSize: typeof detail.fontSize === "string" ? detail.fontSize : undefined,
+            fontStyle: typeof detail.fontStyle === "string" ? detail.fontStyle : undefined,
             repeated: typeof detail.repeated === "number" ? detail.repeated : 1,
             rect: rectFrom((detail as { rect?: unknown }).rect),
             pickId: typeof detail.pickId === "number" ? detail.pickId : 0,
@@ -289,6 +306,28 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     return () => window.removeEventListener("message", onMessage);
   }, [frameRef, projectId, touch]);
 
+  /* The editor says where on screen it begins (a viewport y), or null when it
+     covers nothing; the frame is told how much of its own bottom that hides,
+     in its own pixels, and keeps the element being edited above it. The frame
+     is sandboxed, so its height comes from the last rect it reported. */
+  const pickedRef = useRef<Picked | null>(null);
+  pickedRef.current = picked;
+  const lastCover = useRef(-1);
+  const coverBelow = useCallback(
+    (y: number | null) => {
+      const frame = frameRef.current;
+      if (!frame) return;
+      const box = frame.getBoundingClientRect();
+      if (box.height <= 0) return;
+      const inner = pickedRef.current?.rect?.viewportHeight || box.height;
+      const inset = y === null ? 0 : Math.round(Math.max(0, box.bottom - y) * (inner / box.height));
+      if (inset === lastCover.current) return;
+      lastCover.current = inset;
+      tellFrame({ cover: inset });
+    },
+    [frameRef, tellFrame],
+  );
+
   const deselect = useCallback(() => {
     setPicked(null);
     setPicks([]);
@@ -340,7 +379,12 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     return () => window.clearTimeout(timer);
   }, [saveState]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked };
+  /* A new selection is measured afresh: the editor reports again for it. */
+  useEffect(() => {
+    lastCover.current = -1;
+  }, [picked?.pickId, editMode]);
+
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow };
 }
 
 /* The page held still while somebody is typing into it. A build landing

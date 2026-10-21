@@ -28,6 +28,7 @@ export type ClassGroup =
   | "fontSize"
   | "fontWeight"
   | "fontFamily"
+  | "fontStyle"
   | "padding"
   | "align"
   | "radius";
@@ -44,6 +45,12 @@ const GROUPS: Record<ClassGroup, RegExp> = {
      picker writes. Typed explicitly so `font-[600]` (a weight) is never read
      as a family. */
   fontFamily: /^font-(?:sans|serif|mono|\[family-name:[^\]]+\])$/,
+  /* Slant. `not-italic` is a real value, not an absence: it is what makes
+     text upright when the page's own CSS (or a parent) set it italic. The
+     picker writes the important form (`!not-italic`): a rule like
+     `.hero h1 { font-style: italic }` outranks a single class, and measured
+     in Chromium the plain class lost to it and changed nothing. */
+  fontStyle: /^!?(?:italic|not-italic)$/,
   padding: /^p-(?:\d+(?:\.5)?|px|\[[^\]]+\])$/,
   align: /^text-(?:left|center|right|justify|start|end)$/,
   radius: /^rounded(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\[[^\]]+\]))?$/,

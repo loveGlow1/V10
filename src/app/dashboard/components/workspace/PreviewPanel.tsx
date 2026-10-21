@@ -473,7 +473,7 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow } = usePreviewBridge(frameRef, project?.id, !isDesktop);
   useEffect(() => {
     if (reloadAfterSave > 0) setReloads((count) => count + 1);
   }, [reloadAfterSave]);
@@ -1553,8 +1553,17 @@ export default function PreviewPanel({
                 allow="web-share"
                 className="min-h-0 flex-1 border-0 bg-white"
               />
-              <TypingStatus typing={typing} saveState={saveState} onDone={stopTyping} docked={!isDesktop} />
-              {editMode && picked && picks.length > 0 && project?.id && !typing ? (
+              {/* On a phone the editor sheet carries Done while typing, so the
+                  pill would only sit on top of it; it still says how a save went. */}
+              <TypingStatus
+                typing={typing && !(!isDesktop && editMode && picked && picks.length > 0 && project?.id)}
+                saveState={saveState}
+                onDone={stopTyping}
+                docked={!isDesktop}
+              />
+              {/* Up while typing too: style the words and ask the AI without
+                  leaving the sentence. */}
+              {editMode && picked && picks.length > 0 && project?.id ? (
                 <VisualEditPrompt
                   projectId={project.id}
                   picked={picked}
@@ -1564,6 +1573,9 @@ export default function PreviewPanel({
                   onEditText={editText}
                   onStyle={applyStyle}
                   onRemove={removePicked}
+                  typing={typing}
+                  onDoneTyping={stopTyping}
+                  onCover={coverBelow}
                   onSent={() => {
                     setPicked(null);
                     deselect();
