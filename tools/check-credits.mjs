@@ -236,6 +236,17 @@ try {
     "funding is counted at the top-up pack's own rate",
     "topup_usd_per_credit() disagrees with TOP_UP_PACK",
   );
+  /* Credit an administrator granted is the account's to use, card or no
+     card, and is not counted as funding. */
+  {
+    const status = /create or replace function public\.card_status\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    const funded = /create or replace function public\.funded_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    const grant = /create or replace function public\.grant_credits\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    has(/values \(p_user_id, p_action, p_credits, p_description, 'admin'\)/.test(grant), "credit granted by hand is marked as an administrator's");
+    has(/l\.source = 'admin'[\s\S]*then 'suggest'/.test(status), "an account holding administrator-granted credit may use it without a card");
+    has(/l\.source is distinct from 'admin'/.test(funded), "administrator-granted credit is not counted as funding");
+  }
+
   /* Funded counts in any currency — naira through Paystack as much as
      dollars through Stripe — valued in dollars at the day's rate. */
   {

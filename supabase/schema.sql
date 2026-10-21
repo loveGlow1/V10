@@ -938,8 +938,11 @@ begin
     where user_id = p_user_id
     returning * into v_balance;
 
-  insert into public.credit_ledger (user_id, action, credits, description)
-    values (p_user_id, p_action, p_credits, p_description);
+  -- Credit granted by hand is marked as such: an account may spend it
+  -- whether or not it has a card on file (see card_status), and it is not a
+  -- payment, so it does not count as funding.
+  insert into public.credit_ledger (user_id, action, credits, description, source)
+    values (p_user_id, p_action, p_credits, p_description, 'admin');
 
   return v_balance;
 end;
@@ -3710,6 +3713,9 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 --   'suggest'   no card, but the account has put at least $25 into QuickStark
 --               and has been with us more than two months: it is asked to add
 --               a card (and can dismiss the ask) but keeps working.
+--   'suggest'   also: an account holding credit an administrator granted it
+--               (credit_ledger.source = 'admin', written by grant_credits),
+--               while it has a balance — that credit is its to use.
 --   'required'  everyone else — new accounts, and any account funded below
 --               $25 — may not use the service until it adds a card.
 --
@@ -3727,6 +3733,10 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 -- Read by the server (src/lib/card-gate.ts) before any work is started, and
 -- by /api/payments/stripe/card for the screens. Service role only.
 alter table public.credit_ledger add column if not exists amount_usd numeric(10,2);
+-- Where a line came from when it was not a payment or a charge: 'admin' for
+-- credit granted by hand (grant_credits, or an administrator through the
+-- database). Earlier hand grants are marked by the migration that added it.
+alter table public.credit_ledger add column if not exists source text;
 comment on column public.credit_ledger.amount_usd is 'What was paid for this line, in US dollars, where known (Stripe Checkout settlements). Null for charges and grants.';
 
 create or replace function public.card_suggest_min_usd()
@@ -3783,13 +3793,14 @@ set search_path = ''
 as $$
   -- A line's dollar value, best known first: what it was worth on the day,
   -- then what it is worth now in the currency it was paid in, then — for a
-  -- top-up with no payment on it (granted by hand) — its credits at the pack
-  -- rate.
+  -- top-up with no payment recorded on it — its credits at the pack rate.
+  -- Credit granted by an administrator is not funding and is left out.
   select
     coalesce((
       select sum(coalesce(l.amount_usd, public.to_usd(l.paid_amount, l.paid_currency), l.credits * public.topup_usd_per_credit()))
         from public.credit_ledger l
        where l.user_id = p_user_id and l.action = 'topup' and l.credits > 0
+         and l.source is distinct from 'admin'
     ), 0)
     + coalesce((
       select sum(coalesce(l.amount_usd, public.to_usd(l.paid_amount, l.paid_currency), 0))
@@ -3819,6 +3830,16 @@ as $$
               or (c.exp_year * 100 + coalesce(c.exp_month, 12))
                  >= (extract(year from now())::int * 100 + extract(month from now())::int))
     ) then 'ok'
+    -- Credit granted by an administrator is the account's to use, card or no
+    -- card: while it holds a balance and has had such a grant, it works and
+    -- is only asked to add a card.
+    when exists (
+      select 1 from public.credit_ledger l
+       where l.user_id = p_user_id and l.source = 'admin' and l.credits > 0
+    ) and exists (
+      select 1 from public.credit_balances b
+       where b.user_id = p_user_id and (b.daily + b.rollover + b.monthly + b.top_up) > 0
+    ) then 'suggest'
     when public.funded_usd(p_user_id) >= public.card_suggest_min_usd()
      and exists (
        select 1 from auth.users u
