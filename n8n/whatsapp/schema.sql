@@ -21,6 +21,7 @@ alter table public.clients add column if not exists currency text not null defau
 alter table public.clients add column if not exists menu jsonb;
 alter table public.clients add column if not exists services_note text;
 alter table public.clients add column if not exists contact_email text;
+alter table public.clients add column if not exists contact_phone text;
 alter table public.clients add column if not exists active boolean not null default true;
 create unique index if not exists clients_instance_name_unique on public.clients (instance_name);
 create unique index if not exists clients_client_id_unique on public.clients (client_id);
