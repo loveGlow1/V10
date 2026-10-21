@@ -16,11 +16,12 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Sparkles, Type, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, GripVertical, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Sparkles, Type, X } from "lucide-react";
 
 import { FONT_OPTIONS, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
 import type { Picked, SaveState } from "./preview-bridge";
+import { useMovable } from "./use-movable";
 import { askChat } from "./visual-ask";
 
 /* Where the element was written, in words the edit path reads. */
@@ -137,6 +138,22 @@ function useFontSamples() {
    focus when it is meant to. */
 export function keepPageFocus(event: React.PointerEvent | React.MouseEvent) {
   if ((event.target as HTMLElement).closest("button")) event.preventDefault();
+}
+
+/* The handle an editor is dragged by — see use-movable. A button, so pressing
+   it never takes the caret out of the words being typed. */
+function MoveGrip({ grip, light = false }: { grip: ReturnType<typeof useMovable>["grip"]; light?: boolean }) {
+  return (
+    <button
+      type="button"
+      {...grip}
+      className={`flex h-8 w-6 shrink-0 items-center justify-center rounded-full ${
+        light ? "text-white/40 hover:text-white/80" : "text-white/45 hover:bg-white/[0.08] hover:text-white/85"
+      }`}
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
+  );
 }
 
 export function StyleBar({ picked, onStyle, dark = true }: { picked: Picked; onStyle: StyleChange; dark?: boolean }) {
@@ -406,7 +423,16 @@ function VisualEditSheet({
   /* Ask the agent, or style it by hand. */
   const [mode, setMode] = useState<"ask" | "style">("ask");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  /* Each shape can be dragged anywhere and stays where it was put: the bar
+     used while typing, and the sheet. */
+  const typingMove = useMovable<HTMLDivElement>("qs-editor-typing");
+  const sheetMove = useMovable<HTMLDivElement>("qs-editor-sheet");
+  const move = typing ? typingMove : sheetMove;
+  const attach = (node: HTMLDivElement | null) => {
+    sheetRef.current = node;
+    move.boxRef.current = node;
+  };
   /* The style row while typing: folded until asked for. */
   const [typingStyle, setTypingStyle] = useState(false);
   /* AI pressed while typing: the ask box only exists once typing has ended
@@ -440,6 +466,11 @@ function VisualEditSheet({
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!sheet || !onCover) return;
+    /* Put somewhere by hand: the page stays where it is. */
+    if (move.pinned) {
+      onCover(null);
+      return;
+    }
     const tell = () => onCover(sheet.getBoundingClientRect().top);
     tell();
     const observer = new ResizeObserver(tell);
@@ -448,7 +479,7 @@ function VisualEditSheet({
       observer.disconnect();
       onCover(null);
     };
-  }, [onCover, keyboard, picked.pickId, typing]);
+  }, [onCover, keyboard, picked.pickId, typing, move.pinned]);
 
   /* The keyboard's height, from the visual viewport: the sheet sits on top of
      it rather than behind it. */
@@ -519,10 +550,10 @@ function VisualEditSheet({
   if (typing && typingText !== null && onTypeLive) {
     return (
       <div
-        ref={sheetRef}
+        ref={attach}
         role="toolbar"
         aria-label="Edit the words"
-        style={{ bottom: keyboard + 8 }}
+        style={{ bottom: keyboard + 8, ...typingMove.style }}
         onPointerDown={keepPageFocus}
         onMouseDown={keepPageFocus}
         className="pointer-events-auto fixed inset-x-3 z-[70] rounded-[20px] border border-white/[0.1] bg-[#1c1c1f] p-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
@@ -533,7 +564,8 @@ function VisualEditSheet({
           </div>
         )}
         <div className="mb-2 flex items-center gap-1.5">
-          <p className={`min-w-0 flex-1 truncate pl-1 text-[12.5px] ${edited ? "text-[#f97316]" : "text-white/60"}`}>
+          <MoveGrip grip={typingMove.grip} />
+          <p className={`min-w-0 flex-1 truncate text-[12.5px] ${edited ? "text-[#f97316]" : "text-white/60"}`}>
             {edited ? "Edited · tap Done to save" : "Tap the words below to edit"}
           </p>
           {onStyle && (
@@ -610,10 +642,10 @@ function VisualEditSheet({
   if (typing) {
     return (
       <div
-        ref={sheetRef}
+        ref={attach}
         role="toolbar"
         aria-label="Typing in the page"
-        style={{ bottom: keyboard + 8 }}
+        style={{ bottom: keyboard + 8, ...typingMove.style }}
         onPointerDown={keepPageFocus}
         onMouseDown={keepPageFocus}
         className={`pointer-events-auto fixed inset-x-3 z-[70] border border-white/[0.1] bg-[#1c1c1f] shadow-[0_10px_30px_rgba(0,0,0,0.45)] ${
@@ -626,7 +658,8 @@ function VisualEditSheet({
           </div>
         )}
         <div className="flex h-9 items-center gap-1.5">
-          <p className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 text-[13px] font-semibold text-[#f97316]">
+          <MoveGrip grip={typingMove.grip} />
+          <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] font-semibold text-[#f97316]">
             <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#f97316]" />
             <span className="truncate">Typing</span>
           </p>
@@ -673,18 +706,25 @@ function VisualEditSheet({
     <div
       role="dialog"
       aria-label="Change what you picked"
-      ref={sheetRef}
-      style={{ bottom: keyboard }}
+      ref={attach}
+      style={{ bottom: keyboard, ...sheetMove.style }}
       onPointerDown={keepPageFocus}
       onMouseDown={keepPageFocus}
-      className="pointer-events-auto fixed inset-x-0 z-[70] rounded-t-[22px] border-t border-white/[0.1] bg-[#161618] px-4 pt-2.5 shadow-[0_-16px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:max(14px,env(safe-area-inset-bottom))]"
+      className={`pointer-events-auto fixed inset-x-0 z-[70] ${sheetMove.pinned ? "rounded-[22px] border" : "rounded-t-[22px] border-t"} border-white/[0.1] bg-[#161618] px-4 pt-2.5 shadow-[0_-16px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl [padding-bottom:max(14px,env(safe-area-inset-bottom))]`}
     >
       {/* While typing, the sheet folds to one row and the ask box: the
           keyboard already takes half a phone, and the words being typed have
           to stay in sight above both. Every element keeps a key so the ask
           box is the SAME textarea in both layouts — tapping it mid-sentence
           saves the words, opens Ask AI and keeps the keyboard up, in one tap. */}
-      <div key="handle" aria-hidden className={`mx-auto h-1 w-9 rounded-full bg-white/20 ${typing ? "mb-2" : "mb-2.5"}`} />
+      <button
+        key="handle"
+        type="button"
+        {...sheetMove.grip}
+        className={`-mt-2.5 flex h-6 w-full items-center justify-center ${typing ? "mb-0.5" : "mb-1"}`}
+      >
+        <span aria-hidden className="h-1 w-9 rounded-full bg-white/25" />
+      </button>
       <div key="header" className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           {typing ? (
@@ -859,7 +899,14 @@ function FloatingPrompt({
 }) {
   const [text, setText] = useState("");
   const [styling, setStyling] = useState(false);
-  const boxRef = useRef<HTMLFormElement>(null);
+  const boxRef = useRef<HTMLFormElement | null>(null);
+  /* Dragged by its grip, it stays where it was put — in the frame, across
+     picks — instead of following the element. */
+  const move = useMovable<HTMLFormElement>("qs-editor-prompt", { absolute: true });
+  const attach = (node: HTMLFormElement | null) => {
+    boxRef.current = node;
+    move.boxRef.current = node;
+  };
   const inputRef = useRef<HTMLInputElement>(null);
 
   /* Each new click puts the cursor back in the box; what was typed stays, so
@@ -893,7 +940,15 @@ function FloatingPrompt({
     const elementBottom = (rect.top + rect.height) * scaleY;
     const block = PROMPT_HEIGHT + (styling ? STYLE_PANEL_HEIGHT + GAP : 0);
 
-    if (elementBottom + GAP + block <= bounds.height - GAP) {
+    if (move.pin) {
+      /* Where it was put; the quick styles under it, or over it when the
+         frame has no room below. */
+      const top = move.pin.y;
+      const below = top + PROMPT_HEIGHT + GAP;
+      const panelTop = below + STYLE_PANEL_HEIGHT <= bounds.height - GAP ? below : Math.max(GAP, top - GAP - STYLE_PANEL_HEIGHT);
+      setPlace({ top, left: move.pin.x, width, panelTop });
+      onCover?.(null);
+    } else if (elementBottom + GAP + block <= bounds.height - GAP) {
       /* Below: pill first, styles under it. */
       const top = Math.max(GAP, elementBottom + GAP);
       setPlace({ top, left, width, panelTop: top + PROMPT_HEIGHT + GAP });
@@ -911,7 +966,7 @@ function FloatingPrompt({
       setPlace({ top, left, width, panelTop: top + PROMPT_HEIGHT + GAP });
       onCover?.(bounds.top + top - GAP);
     }
-  }, [picked.rect, docked, styling, onCover]);
+  }, [picked.rect, docked, styling, onCover, move.pin]);
 
   useEffect(() => () => onCover?.(null), [onCover]);
 
@@ -951,13 +1006,14 @@ function FloatingPrompt({
       </div>
     )}
     <form
-      ref={boxRef}
+      ref={attach}
       onSubmit={submit}
       style={style}
       onPointerDown={keepPageFocus}
       onMouseDown={keepPageFocus}
-      className="pointer-events-auto absolute z-30 flex h-11 items-center gap-2 rounded-full border border-white/[0.12] bg-[#1c1c1f]/95 pl-4 pr-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur-md"
+      className="pointer-events-auto absolute z-30 flex h-11 items-center gap-1.5 rounded-full border border-white/[0.12] bg-[#1c1c1f]/95 pl-1 pr-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur-md"
     >
+      <MoveGrip grip={move.grip} light />
       <input
         ref={inputRef}
         value={text}

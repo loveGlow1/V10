@@ -368,27 +368,46 @@ export const EDIT_MODE = `
     return true;
   }
   function displayText(root) {
-    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     var text = '';
     var map = [];
     var space = true;
-    while (walker.nextNode()) {
-      var node = walker.currentNode;
-      var ok = savable(node, root);
-      var value = node.textContent;
-      for (var i = 0; i < value.length; i += 1) {
-        var ch = value.charAt(i);
-        if (/\\s/.test(ch)) {
-          if (space) continue;
-          ch = ' ';
-          space = true;
-        } else {
-          space = false;
+    /* A line break, or the edge of a block, reads as a space — "Better
+       Care.<br>A Better Way" is two sentences, not "Care.A". It belongs to no
+       text node, so it can be typed beside but not deleted. */
+    function gap() {
+      if (space) return;
+      text += ' ';
+      map.push({ node: null, offset: 0, ok: false });
+      space = true;
+    }
+    function walk(parent) {
+      for (var child = parent.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) {
+          var ok = savable(child, root);
+          var value = child.textContent;
+          for (var i = 0; i < value.length; i += 1) {
+            var ch = value.charAt(i);
+            if (/\\s/.test(ch)) {
+              if (space) continue;
+              ch = ' ';
+              space = true;
+            } else {
+              space = false;
+            }
+            text += ch;
+            map.push({ node: child, offset: i, ok: ok });
+          }
+        } else if (child.nodeType === 1) {
+          if (child.tagName === 'BR') { gap(); continue; }
+          var display = getComputedStyle(child).display;
+          var block = display !== 'contents' && display.indexOf('inline') !== 0;
+          if (block) gap();
+          walk(child);
+          if (block) gap();
         }
-        text += ch;
-        map.push({ node: node, offset: i, ok: ok });
       }
     }
+    walk(root);
     if (text.charAt(text.length - 1) === ' ') { text = text.slice(0, -1); map.pop(); }
     return { text: text, map: map };
   }

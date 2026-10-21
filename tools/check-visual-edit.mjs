@@ -266,6 +266,17 @@ Changed: a bolder mark with a single vertical stroke.`;
      the field back. The runtime is a template literal: its regexes need their
      backslashes doubled, or the whole frame fails to parse. */
   has(/mirror: true, text: displayText\(element\)\.text/.test(rt) && /function applyLive\(wanted\)/.test(rt) && /report\('typingText', \{ text: old \}\)/.test(rt) && /typeof data\.liveText === 'string'/.test(rt), "on a phone the words are typed in a field and mirrored live into the page");
+  /* A line break between the words reads as a space in the field. */
+  has(/if \(child\.tagName === 'BR'\) \{ gap\(\); continue; \}/.test(rt), "a line break reads as a space in the phone's text field, not as words run together");
+  /* The editor can be put anywhere, like a window, and stays there. */
+  {
+    const movable = read2(new URL("../src/app/dashboard/components/workspace/use-movable.ts", import.meta.url), "utf8");
+    const overlay2 = read2(new URL("../src/app/dashboard/components/workspace/VisualEditOverlay.tsx", import.meta.url), "utf8");
+    has(/setPointerCapture/.test(movable) && /touchAction: "none"/.test(movable) && /onDoubleClick: \(\) => place\(null, true\)/.test(movable) && /localStorage\.setItem/.test(movable), "the editor is dragged by its grip, remembered, and put back by a double-click");
+    has(/const kept = clamp\(current\)/.test(movable) && /viewport\.height \+ viewport\.offsetTop/.test(movable), "a moved editor stays whole on screen and above the keyboard");
+    has(/useMovable<HTMLFormElement>\("qs-editor-prompt", \{ absolute: true \}\)/.test(overlay2) && /useMovable<HTMLDivElement>\("qs-editor-typing"\)/.test(overlay2) && /useMovable<HTMLDivElement>\("qs-editor-sheet"\)/.test(overlay2), "every shape of the editor can be moved: the prompt, the typing bar and the sheet");
+    has(/if \(move\.pinned\) \{\s*onCover\(null\);/.test(overlay2), "a moved editor does not push the page around");
+  }
   has(/if \(\/\\\\s\/\.test\(ch\)\)/.test(rt) && /replace\(\/\[\\\\r\\\\n\]\+\/g, ' '\)/.test(rt), "the mirror's regexes survive the template literal");
 }
 
