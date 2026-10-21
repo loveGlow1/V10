@@ -112,6 +112,12 @@ export default function Workspace({ projectId }: { projectId: string }) {
      this pane between the conversation and the Manage panes — the sheet is a
      layer over both rather than a third tab. */
   const [previewSheetOpen, setPreviewSheetOpen] = useState(openedOnPreview);
+  /* A version of the page landed that has not been looked at yet: the phone
+     bar's Preview button carries a dot until the preview is opened. The stamp
+     already there when the app opens is history, not news — the same rule the
+     chat's "Your Preview is ready" follows. */
+  const [previewFresh, setPreviewFresh] = useState(false);
+  const seenStamp = useRef<{ id: string | null; stamp: string | null } | null>(null);
   /* Whether the preview keeps its column. Desktop only: the pane's close button
      hands the whole width to the conversation, which is what someone writing a
      long prompt wants, and the control on the edge brings it back. Unrelated to
@@ -200,6 +206,24 @@ export default function Workspace({ projectId }: { projectId: string }) {
     openTab({ id: projectId, name: projectName });
   }, [projectId, projectName, openTab]);
 
+  useEffect(() => {
+    const id = project?.id ?? null;
+    const stamp = project?.last_build_at ?? null;
+    if (!seenStamp.current || seenStamp.current.id !== id) {
+      seenStamp.current = { id, stamp };
+      setPreviewFresh(false);
+      return;
+    }
+    if (stamp && stamp !== seenStamp.current.stamp) {
+      seenStamp.current = { id, stamp };
+      setPreviewFresh(true);
+    }
+  }, [project?.id, project?.last_build_at]);
+  useEffect(() => {
+    if (previewSheetOpen) setPreviewFresh(false);
+  }, [previewSheetOpen]);
+  const phonePreviewUrl = safeHttpUrl(project?.preview_url);
+
   return (
     <div className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-canvas">
       {/* The same light Home stands on, so moving between the two screens on a
@@ -223,6 +247,8 @@ export default function Workspace({ projectId }: { projectId: string }) {
         credits={credits}
         projectName={project?.name ?? "Loading…"}
         onBack={() => router.push("/dashboard")}
+        onPreview={phonePreviewUrl ? () => setPreviewSheetOpen(true) : undefined}
+        previewFresh={previewFresh}
       />
 
       <Sidebar
@@ -279,7 +305,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
           up, where the preview already has a column of its own. */}
       <PreviewSheet
         open={previewSheetOpen}
-        url={safeHttpUrl(project?.preview_url)}
+        url={phonePreviewUrl}
         title={project?.name ?? "App"}
         projectId={project?.id ?? null}
         lastBuildAt={project?.last_build_at ?? null}

@@ -190,12 +190,13 @@ export default function PreviewSheet({
                 <button
                   onClick={() => setEditMode((on) => !on)}
                   aria-pressed={editMode}
-                  aria-label={editMode ? "Close visual edit" : "Visual edit"}
-                  className={`flex h-9 w-9 items-center justify-center rounded-full text-ink transition-colors ${
-                    editMode ? "bg-layer/[0.2]" : "bg-layer/[0.08] hover:bg-layer/[0.12]"
+                  aria-label={editMode ? "Stop editing" : "Edit"}
+                  className={`flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors ${
+                    editMode ? "bg-[#2563eb] text-white hover:bg-[#1d4ed8]" : "bg-layer/[0.08] text-ink hover:bg-layer/[0.12]"
                   }`}
                 >
                   <MousePointerClick className="h-4 w-4" />
+                  Edit
                 </button>
               ) : null}
               {projectId ? (
