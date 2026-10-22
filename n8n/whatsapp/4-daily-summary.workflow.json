@@ -168,7 +168,6 @@
     1120,
     200
    ],
-   "disabled": true,
    "onError": "continueRegularOutput",
    "parameters": {
     "resource": "message",

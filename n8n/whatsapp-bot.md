@@ -48,7 +48,7 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
 
 ## Email
 
-Every alert, the daily report and error alerts also go by email through one Gmail login in n8n (credential named **Gmail account**). The three email steps (Engine → Email Alert, Daily Summary → Email Summary, Error Alerts → Email the Owner) stay switched off until that login exists; after adding it, select it on those three steps and switch them on.
+Every alert, the daily report and error alerts also go by email through one Gmail login in n8n (credential named **Gmail account**). The three email steps (Engine → Email Alert, Daily Summary → Email Summary, Error Alerts → Email the Owner) use it. On a new n8n, add the Gmail login with that name before publishing, or switch those three steps off until it exists.
 
 ## Settings
 

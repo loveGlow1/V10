@@ -775,7 +775,6 @@
    },
    "onError": "continueRegularOutput",
    "webhookId": "b1ff1a41-ed3f-4d53-a506-699de105536b",
-   "disabled": true,
    "credentials": {
     "gmailOAuth2": {
      "name": "Gmail account"
