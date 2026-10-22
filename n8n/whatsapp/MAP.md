@@ -27,7 +27,7 @@ flowchart LR
   N -- reply --> E
   E -- reply --> C
   N <-- settings, products, alert log --> S[(Supabase<br/>clients · inventory · bot_events)]
-  N <-- who is talking, handoffs, leads --> T[(n8n data table<br/>wa_contacts)]
+  N <-- who is talking, handoffs, leads, chat memory --> T[(Supabase<br/>wa_contacts)]
   N -- questions --> AI[Claude answers<br/>OpenAI credits for voice notes]
   F[Add a Business form] -- saves business --> S
   F -- creates instance + QR --> E
@@ -79,9 +79,9 @@ Workflow **WhatsApp Bot — Engine (all businesses)**. Two triggers: **Webhook**
 | --- | --- | --- |
 | 1 · Receive | Webhook → Parse Command → Settings | Keeps only new messages (`messages.upsert`). Drops groups, statuses and the bot's own replies. Reads the number, text, photo or voice note. A message your team types on the business phone is marked "agent". **Settings** reads the Evolution address and Supabase project from `wa_settings`. |
 | 2 · Which business? | Fetch Client Config → Client Active? → Business Profile | Finds the `clients` row whose `instance_name` matches the instance. Stops if there is none or `active` is false. Builds the menu, and the AI instructions if `ai_prompt` is empty. |
-| 3 · Who is talking? | Get Contact → Decide → Save Contact → Should Reply? | Loads the customer's state from `wa_contacts` (key `instance:phone`). Decide picks the command and handles handoff, `#close` and the spam limit. State is always saved; if the bot should stay quiet, it stops here. |
+| 3 · Who is talking? | Get Contact → Decide → Save Contact → Should Reply? | Loads the customer's state and recent chat from Supabase `wa_contacts` (key `instance:phone`). Decide picks the command and handles handoff, `#close` and the spam limit. State is always saved; if the bot should stay quiet, it stops here. |
 | 4 · Route | Route Command | Stock, sell/restock, reports (list/low/services), AI questions, or a fixed reply. |
-| 5 · AI answers | Has Voice? → Fetch Voice → Voice File → Transcribe Voice → Use Transcript; Has Photo? → Fetch Image → Photo File; AI Assistant (+ Claude, Conversation Memory, live_services) | Voice notes become text first. The AI sees the business instructions, the customer's name, the recent chat, and live products, prices and payment links. It tags hot leads `[[LEAD]]`. |
+| 5 · AI answers | Has Voice? → Fetch Voice → Voice File → Transcribe Voice → Use Transcript; Has Photo? → Fetch Image → Photo File; AI Assistant (+ Claude, live_services) → Remember Turn → Save History | Voice notes become text first. The AI sees the business instructions, the customer's name, the recent chat, and live products, prices and payment links. It tags hot leads `[[LEAD]]`. Each question and answer is saved with the contact (last 16 messages of the current chat), so the memory survives restarts and moves. |
 | 6 · Write the reply | Compose Reply | Writes every message: menu, about, products with Pay links, stock desk, receipts, handoff, chat closed. Also writes the owner-alert text. |
 | 7 · Alerts & logging | New Contact Alert → Expand Recipients → Loop Over Recipients → Send WhatsApp Message → Wait Between Sends; Has Alert? → Log Event / Email Alert; Is Lead? → Mark Lead | Sends the reply, alerts every `alert_numbers` phone, logs to `bot_events`, emails (when Gmail is on) and marks leads for follow-up. |
 | 8 · Follow-ups (hourly) | Every Hour → Get Clients → Recent Leads → Due Follow-ups → Send Follow-up → Mark Followed | A lead who went quiet 24–48 hours ago gets one check-in. Never sent while a person is handling the chat. |
@@ -93,7 +93,7 @@ Workflow **WhatsApp Bot — Engine (all businesses)**. Two triggers: **Webhook**
 | WhatsApp Bot — Add a Business | Form (n8n login) | Prepare Business → Create Client → Any Services? → Split Services → Create Products → Create WhatsApp → Scan to Connect (QR) |
 | WhatsApp Bot — Daily Summary | 08:00 Africa/Lagos | Get Clients → Last 24h Events → Build Summary → Send Summary |
 | WhatsApp Bot — Error Alerts | Engine failure | Compose Alert → WhatsApp the Owner. Must be published and set as the engine's Error Workflow. |
-| WhatsApp Bot — Setup / Move | Form (n8n login) | Ensure wa_settings → Ensure wa_contacts → Work Out Settings → Clear Old Settings → Save Settings → Get Businesses → Businesses To Repoint → Point WhatsApp Here → Build Report. See [Move to a new n8n](#move-to-a-new-n8n-one-click-setup). |
+| WhatsApp Bot — Setup / Move | Form (n8n login) | Ensure wa_settings → Work Out Settings → Clear Old Settings → Save Settings → Get Businesses → Businesses To Repoint → Point WhatsApp Here → Build Report. See [Move to a new n8n](#move-to-a-new-n8n-one-click-setup). |
 
 ## 3. How the bot behaves
 
@@ -181,8 +181,13 @@ Example `menu`:
 `item_name` (unique per business), `price` (number only), `quantity` (0 =
 unavailable), `description`, `payment_url` (any checkout link).
 
-Filled by the bot, read-only for you: `bot_events` (every alert) and the n8n
-data table `wa_contacts` (one row per business + customer).
+Filled by the bot, read-only for you: `bot_events` (every alert) and
+`wa_contacts` (one row per business + customer: state, lead times and the
+recent chat the AI remembers).
+
+A business's full AI instructions can live in `clients.ai_prompt`
+(QuickStark.Ai's do). When it is empty the engine builds them from `about`,
+`faqs`, `tone` and the menu.
 
 ## Add a new business
 
@@ -285,7 +290,7 @@ Open **WhatsApp Bot — Setup / Move**, publish it, and open its form. Check the
 values (they're pre-filled with today's setup), leave "Engine webhook address"
 empty, and press **Set up**. In one go it:
 
-- creates the `wa_settings` and `wa_contacts` data tables
+- creates the `wa_settings` data table (the only thing n8n stores: where Evolution and Supabase are)
 - saves the settings every workflow reads
 - points **every business's WhatsApp** at this n8n
 
@@ -304,7 +309,7 @@ Evolution address. It's safe to repeat.
 
 - **Voice notes on n8n Cloud** use n8n's built-in AI credits. On a self-hosted n8n, add an OpenAI login to the **Transcribe Voice** step.
 - **Data tables** need an n8n version that has them. Any current n8n Cloud plan does.
-- **Chats start fresh after a move.** Chats handed to a person and recent AI memory reset; business data is unaffected.
+- **Nothing is lost in a move.** Customer state, handoffs and the AI's chat memory are in Supabase, so chats carry on where they left off.
 
 ### Moving Supabase or Evolution too (rare)
 

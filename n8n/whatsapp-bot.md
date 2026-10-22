@@ -16,7 +16,7 @@ Evolution API on Railway (`evolution-api-production-4056.up.railway.app`).
 | **WhatsApp Bot — Daily Summary** | 08:00 Lagos: one report per business to its `alert_numbers` (WhatsApp) and `alert_email`, from `bot_events`. |
 | **WhatsApp Bot — Error Alerts** | Error workflow: WhatsApps and emails the platform owner when a run fails (email = `alert_email` of the business whose instance sends alerts). |
 | **WhatsApp Bot — Edit a Business** | n8n-login form: find a business, change prices, products, details or pause it on a pre-filled page, save in one click. |
-| **WhatsApp Bot — Setup / Move** | One-click setup on a new n8n: creates the data tables, saves `wa_settings`, repoints every business's WhatsApp. See MAP.md → *Move to a new n8n*. |
+| **WhatsApp Bot — Setup / Move** | One-click setup on a new n8n: creates and fills `wa_settings`, repoints every business's WhatsApp. See MAP.md → *Move to a new n8n*. |
 
 ## Adding a business
 
@@ -48,7 +48,7 @@ The bot is live as soon as WhatsApp connects. No workflow changes are needed.
 
 ## Email
 
-Every alert, the daily report and error alerts also go by email through one Gmail login in n8n (credential named **Gmail account**). The three email steps (Engine → Email Alert, Daily Summary → Email Summary, Error Alerts → Email the Owner) stay switched off until that login exists; after adding it, select it on those three steps and switch them on.
+Every alert, the daily report and error alerts also go by email through one Gmail login in n8n (credential named **Gmail account**). The three email steps (Engine → Email Alert, Daily Summary → Email Summary, Error Alerts → Email the Owner) use it. On a new n8n, add the Gmail login with that name before publishing, or switch those three steps off until it exists.
 
 ## Settings
 
@@ -58,10 +58,16 @@ No workflow has them written in.
 
 ## State
 
-- Per-customer conversation state (session, handoff to a person, rate limit,
-  lead/follow-up times) is in the n8n data table `wa_contacts`, keyed by
-  `instance:phone`, so the same customer can talk to several businesses.
-- Alerts are logged to Supabase `bot_events`.
+All data lives in Supabase; n8n holds only the workflows (backed up here) and
+`wa_settings` (where Evolution and Supabase are, recreated by Setup / Move).
+
+- `wa_contacts`: per-customer state (session, handoff to a person, rate limit,
+  lead/follow-up times) and the recent chat the AI remembers (last 16
+  messages), keyed by `instance:phone`, so the same customer can talk to
+  several businesses.
+- `bot_events`: every alert.
+- `clients.ai_prompt`: a business's full AI instructions (QuickStark.Ai's live
+  here); empty means they are built from the business's details.
 
 ## Files in `n8n/whatsapp/`
 
@@ -70,4 +76,4 @@ No workflow has them written in.
 - `WhatsApp-Bot-What-It-Does.pdf`: two-page overview of what the system does, for sharing.
 - `WhatsApp-Assistant-Dashboard-Architecture.pdf`: plan for a business dashboard (self sign-up, one-click setup, owners control their bot and inventory), comparing adding it to quickstark.tech with a separate site, plus the AI usage cost calculation, credit pricing and how to implement credits.
 - `1-setup-move.workflow.json` … `6-edit-a-business.workflow.json`: all six workflows, importable into any n8n (Workflows → Import from file). Logins are matched by name; data tables by name.
-- `schema.sql`: creates `clients`, `inventory` and `bot_events` on a fresh Supabase project.
+- `schema.sql`: creates `clients`, `inventory`, `bot_events` and `wa_contacts` on a fresh Supabase project.
