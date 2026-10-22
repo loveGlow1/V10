@@ -1,0 +1,193 @@
+{
+ "name": "WhatsApp Bot — Error Alerts",
+ "nodes": [
+  {
+   "id": "ae040c2a-0705-411a-ad0d-304a7390cf7e",
+   "name": "On Bot Failure",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {}
+  },
+  {
+   "id": "0ce6e92c-79c6-4f24-a5c8-8c40a5e1af2f",
+   "name": "Compose Alert",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    224,
+    0
+   ],
+   "parameters": {
+    "jsCode": "// What broke, where, and a link to the failed run — short enough for WhatsApp.\nconst j = $input.first().json || {};\nconst ex = j.execution || {};\nconst wf = j.workflow || {};\nconst err = ex.error || j.trigger?.error || {};\nconst node = ex.lastNodeExecuted || err.node?.name || 'unknown step';\nconst msg = String(err.message || err.description || 'Unknown error').slice(0, 400);\nconst text = [\n  '🚨 *WhatsApp bot error*',\n  `Workflow: ${wf.name || wf.id || 'unknown'}`,\n  `Step: ${node}`,\n  `Error: ${msg}`,\n  ex.url ? `Run: ${ex.url}` : null,\n  '',\n  '_Customers may not be getting replies until this is fixed._',\n].filter((l) => l !== null).join('\\n');\n// The same alert for the inbox: details as a table, the run as a link.\n// Turns a WhatsApp card (title line, *Label:* value rows, ━ dividers, a\n// \"Reply now\" link, an _italic_ footer) into an email that reads well in\n// Gmail and Outlook: inline styles and tables only.\nconst toEmail = (text, accent = '#4f46e5', note = '') => {\n  const esc = (s) => String(s).replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\n  const inline = (s) => esc(s)\n    .replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href=\"$1\" style=\"color:' + accent + ';text-decoration:none\">$1</a>')\n    .replace(/\\*([^*\\n]+)\\*/g, '<b>$1</b>').replace(/(^|\\s)_([^_\\n]+)_(?=\\s|$)/g, '$1<i>$2</i>');\n  const lines = String(text || '').split('\\n');\n  const title = lines.shift().replace(/[*_]/g, '').trim();\n  let rows = '', body = '', button = '', foot = '';\n  for (const raw of lines) {\n    const l = raw.trim();\n    if (!l || /^━+$/.test(l)) { if (!l && body) body += '<div style=\"height:8px\"></div>'; continue; }\n    const reply = l.match(/Reply now:\\*?\\s*(https?:\\/\\/\\S+)/);\n    if (reply) { button = reply[1]; continue; }\n    if (/^_.*_$/.test(l)) { foot = l.slice(1, -1); continue; }\n    const kv = l.match(/^\\*([^*]+):\\*\\s*(.*)$/);\n    if (kv) { rows += '<tr><td style=\"padding:10px 12px;border-bottom:1px solid #eef0f4;color:#6b7280;font-size:13px;width:34%;vertical-align:top\">' + esc(kv[1]) + '</td><td style=\"padding:10px 12px;border-bottom:1px solid #eef0f4;color:#111827;font-size:14px;font-weight:600;word-break:break-word\">' + inline(kv[2]) + '</td></tr>'; continue; }\n    // Report figures (\"🆕 New contacts: *3*\", two may share a line) become table rows too.\n    const stats = l.split(' · ').map((p) => p.match(/^([^*:]+):\\s*\\*([^*]+)\\*$/));\n    if (stats.every(Boolean)) { for (const m of stats) rows += '<tr><td style=\"padding:10px 12px;border-bottom:1px solid #eef0f4;color:#374151;font-size:14px\">' + esc(m[1].trim()) + '</td><td style=\"padding:10px 12px;border-bottom:1px solid #eef0f4;color:#111827;font-size:16px;font-weight:700;text-align:right\">' + esc(m[2]) + '</td></tr>'; continue; }\n    const head = l.match(/^\\*([^*]+)\\*$/);\n    body += head ? '<p style=\"margin:14px 0 6px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;font-weight:700\">' + esc(head[1]) + '</p>'\n      : '<p style=\"margin:4px 0;font-size:14px;line-height:1.55;color:#111827\">' + inline(l) + '</p>';\n  }\n  return '<!doctype html><html><body style=\"margin:0;padding:0;background:#f3f4f6\">'\n    + '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f3f4f6;padding:24px 12px\"><tr><td align=\"center\">'\n    + '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.08)\">'\n    + '<tr><td style=\"background:' + accent + ';padding:18px 24px;color:#ffffff;font-size:18px;font-weight:700\">' + esc(title) + '</td></tr>'\n    + '<tr><td style=\"padding:20px 24px\">'\n    + (rows ? '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;border:1px solid #eef0f4;border-radius:8px\">' + rows + '</table>' : '')\n    + body\n    + (button ? '<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:20px\"><tr><td style=\"background:#25d366;border-radius:8px\"><a href=\"' + esc(button) + '\" style=\"display:inline-block;padding:12px 22px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none\">Reply on WhatsApp →</a></td></tr></table>' : '')\n    + (note ? '<p style=\"margin:18px 0 0;font-size:13px;color:#6b7280\">' + inline(note) + '</p>' : '')\n    + '</td></tr>'\n    + '<tr><td style=\"padding:14px 24px;background:#f9fafb;border-top:1px solid #eef0f4;color:#9ca3af;font-size:12px\">' + (foot ? esc(foot) + ' · ' : '') + 'Sent by your WhatsApp assistant</td></tr>'\n    + '</table></td></tr></table></body></html>';\n};\nconst html = toEmail([\n  '🚨 *WhatsApp bot error*',\n  `*Workflow:* ${wf.name || wf.id || 'unknown'}`,\n  `*Step:* ${node}`,\n  `*Error:* ${msg}`,\n  ex.url ? `*Failed run:* ${ex.url}` : null,\n].filter((l) => l !== null).join('\\n'), '#dc2626', 'Customers may not be getting replies until this is fixed.');\nreturn [{ json: { text, html } }];"
+   }
+  },
+  {
+   "id": "0cd6416a-4138-4a76-bc6c-f256ea5248fd",
+   "name": "WhatsApp the Owner",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.3,
+   "position": [
+    448,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $json.evolution_url }}/message/sendText/{{ $json.alert_instance }}",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={\n  \"number\": \"{{ $json.owner_number }}\",\n  \"text\": {{ JSON.stringify($('Compose Alert').first().json.text) }},\n  \"linkPreview\": false\n}",
+    "options": {}
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "name": "Header Auth account"
+    }
+   }
+  },
+  {
+   "id": "7fc69990-6dd8-4c51-8997-5c799e02af05",
+   "name": "Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    120,
+    200
+   ],
+   "parameters": {
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    },
+    "limit": 1,
+    "operation": "get",
+    "resource": "row",
+    "returnAll": false
+   }
+  },
+  {
+   "id": "8b62f6a6-0a4c-45b3-8ca7-4353e3348d41",
+   "name": "Owner Business",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    448,
+    200
+   ],
+   "alwaysOutputData": true,
+   "onError": "continueRegularOutput",
+   "notes": "The owner's email is the alert email of the business whose WhatsApp sends error alerts.",
+   "parameters": {
+    "authentication": "oAuth2",
+    "operation": "getAll",
+    "projectRef": "={{ $('Settings').first().json.supabase_project_ref }}",
+    "tableId": "clients",
+    "limit": 1,
+    "matchType": "allFilters",
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "instance_name",
+       "condition": "eq",
+       "keyValue": "={{ $('Settings').first().json.alert_instance }}"
+      }
+     ]
+    }
+   },
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "b9a6773b-eceb-4333-a7c6-c294f22ddc4e",
+   "name": "Email the Owner",
+   "type": "n8n-nodes-base.gmail",
+   "typeVersion": 2.2,
+   "position": [
+    672,
+    200
+   ],
+   "disabled": true,
+   "onError": "continueRegularOutput",
+   "parameters": {
+    "resource": "message",
+    "operation": "send",
+    "sendTo": "={{ $json.alert_email }}",
+    "subject": "🚨 WhatsApp bot error",
+    "emailType": "html",
+    "message": "={{ $('Compose Alert').first().json.html }}",
+    "options": {
+     "appendAttribution": false,
+     "senderName": "WhatsApp Bot"
+    }
+   },
+   "credentials": {
+    "gmailOAuth2": {
+     "name": "Gmail account"
+    }
+   }
+  }
+ ],
+ "connections": {
+  "On Bot Failure": {
+   "main": [
+    [
+     {
+      "node": "Compose Alert",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Compose Alert": {
+   "main": [
+    [
+     {
+      "node": "Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Settings": {
+   "main": [
+    [
+     {
+      "node": "WhatsApp the Owner",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Owner Business",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Owner Business": {
+   "main": [
+    [
+     {
+      "node": "Email the Owner",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}

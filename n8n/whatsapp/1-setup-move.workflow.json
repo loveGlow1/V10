@@ -1,0 +1,567 @@
+{
+ "name": "WhatsApp Bot — Setup / Move",
+ "nodes": [
+  {
+   "id": "e86be185-6fc8-4263-939e-c4df6b67d0e9",
+   "name": "Setup / Move",
+   "type": "n8n-nodes-base.formTrigger",
+   "typeVersion": 2.6,
+   "position": [
+    0,
+    80
+   ],
+   "parameters": {
+    "authentication": "n8nUserAuth",
+    "formTitle": "WhatsApp Bot — Setup / Move",
+    "formDescription": "Run this once on a new n8n (or any time an address changes). It creates the data tables, saves the settings every workflow reads, and points every business's WhatsApp at this n8n.",
+    "responseMode": "lastNode",
+    "formFields": {
+     "values": [
+      {
+       "fieldLabel": "Evolution API address",
+       "fieldName": "evolution_url",
+       "fieldType": "text",
+       "requiredField": true,
+       "defaultValue": "https://evolution-api-production-4056.up.railway.app"
+      },
+      {
+       "fieldLabel": "Supabase project ref (the id in your Supabase URL)",
+       "fieldName": "supabase_project_ref",
+       "fieldType": "text",
+       "requiredField": true,
+       "defaultValue": "esuatccbicekcohzgcvd"
+      },
+      {
+       "fieldLabel": "Your WhatsApp number for error alerts",
+       "fieldName": "owner_number",
+       "fieldType": "text",
+       "requiredField": true,
+       "defaultValue": "2349032056805"
+      },
+      {
+       "fieldLabel": "Which WhatsApp instance sends your error alerts",
+       "fieldName": "alert_instance",
+       "fieldType": "text",
+       "requiredField": true,
+       "defaultValue": "quickstark_ai"
+      },
+      {
+       "fieldLabel": "Engine webhook address (leave empty to use this n8n)",
+       "fieldName": "engine_webhook_url",
+       "fieldType": "text",
+       "placeholder": "auto"
+      },
+      {
+       "fieldLabel": "Repoint every business's WhatsApp to this n8n",
+       "fieldName": "repoint",
+       "fieldType": "dropdown",
+       "fieldOptions": {
+        "values": [
+         {
+          "option": "Yes"
+         },
+         {
+          "option": "No"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "options": {
+     "buttonLabel": "Set up",
+     "appendAttribution": false
+    }
+   },
+   "webhookId": "b9239b1b-f110-4d86-961f-c00ffc30a55c"
+  },
+  {
+   "id": "55eac81d-bcc1-4b3f-96ee-4c2bbd2cf184",
+   "name": "Ensure wa_settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    224,
+    80
+   ],
+   "parameters": {
+    "resource": "table",
+    "operation": "create",
+    "tableName": "wa_settings",
+    "columns": {
+     "column": [
+      {
+       "name": "evolution_url",
+       "type": "string"
+      },
+      {
+       "name": "supabase_project_ref",
+       "type": "string"
+      },
+      {
+       "name": "engine_webhook_url",
+       "type": "string"
+      },
+      {
+       "name": "owner_number",
+       "type": "string"
+      },
+      {
+       "name": "alert_instance",
+       "type": "string"
+      }
+     ]
+    },
+    "options": {
+     "createIfNotExists": true
+    }
+   }
+  },
+  {
+   "id": "1a270fa6-80af-4aed-95d8-ab1d3c5a8d3f",
+   "name": "Ensure wa_contacts",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    448,
+    80
+   ],
+   "parameters": {
+    "resource": "table",
+    "operation": "create",
+    "tableName": "wa_contacts",
+    "columns": {
+     "column": [
+      {
+       "name": "ckey",
+       "type": "string"
+      },
+      {
+       "name": "client_id",
+       "type": "string"
+      },
+      {
+       "name": "instance",
+       "type": "string"
+      },
+      {
+       "name": "phone",
+       "type": "string"
+      },
+      {
+       "name": "name",
+       "type": "string"
+      },
+      {
+       "name": "session",
+       "type": "number"
+      },
+      {
+       "name": "last_at",
+       "type": "number"
+      },
+      {
+       "name": "handoff_since",
+       "type": "number"
+      },
+      {
+       "name": "agent_at",
+       "type": "number"
+      },
+      {
+       "name": "handoff_last",
+       "type": "number"
+      },
+      {
+       "name": "lead_at",
+       "type": "number"
+      },
+      {
+       "name": "followed_at",
+       "type": "number"
+      },
+      {
+       "name": "rate_start",
+       "type": "number"
+      },
+      {
+       "name": "rate_count",
+       "type": "number"
+      }
+     ]
+    },
+    "options": {
+     "createIfNotExists": true
+    }
+   }
+  },
+  {
+   "id": "a3dff2b9-7771-4a12-9619-5360174bf6dc",
+   "name": "Work Out Settings",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    672,
+    80
+   ],
+   "parameters": {
+    "jsCode": "// The values every WhatsApp workflow reads from wa_settings. The engine's\n// address is this n8n's own address unless one is typed in.\nconst f = $('Setup / Move').first().json;\nconst clean = (u) => { u = String(u || '').trim().replace(/\\/+$/, ''); return u && !/^https?:\\/\\//.test(u) ? 'https://' + u : u; };\nconst base = String($execution.resumeUrl || '').split('/webhook-waiting')[0];\nreturn [{ json: {\n  evolution_url: clean(f.evolution_url),\n  supabase_project_ref: String(f.supabase_project_ref || '').trim().replace(/^https?:\\/\\//, '').replace(/\\.supabase\\.co.*$/, ''),\n  engine_webhook_url: clean(f.engine_webhook_url) || base + '/webhook/faa757c3-e220-420d-bd89-803d5393f58e',\n  owner_number: String(f.owner_number || '').replace(/\\D/g, '').replace(/^0(\\d{10})$/, '234$1'),\n  alert_instance: String(f.alert_instance || '').trim(),\n  repoint: f.repoint !== 'No',\n} }];"
+   }
+  },
+  {
+   "id": "12460b39-9ac4-4cfb-ab84-dd7e2d2ddc37",
+   "name": "Clear Old Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    896,
+    80
+   ],
+   "parameters": {
+    "resource": "table",
+    "operation": "clear",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    }
+   }
+  },
+  {
+   "id": "b62780c9-d584-4853-bcf7-93597a5baf8a",
+   "name": "Save Settings",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    1120,
+    80
+   ],
+   "parameters": {
+    "resource": "row",
+    "operation": "insert",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "wa_settings"
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "evolution_url": "={{ $('Work Out Settings').first().json.evolution_url }}",
+      "supabase_project_ref": "={{ $('Work Out Settings').first().json.supabase_project_ref }}",
+      "engine_webhook_url": "={{ $('Work Out Settings').first().json.engine_webhook_url }}",
+      "owner_number": "={{ $('Work Out Settings').first().json.owner_number }}",
+      "alert_instance": "={{ $('Work Out Settings').first().json.alert_instance }}"
+     },
+     "matchingColumns": [],
+     "schema": [
+      {
+       "id": "evolution_url",
+       "displayName": "evolution_url",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "supabase_project_ref",
+       "displayName": "supabase_project_ref",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "engine_webhook_url",
+       "displayName": "engine_webhook_url",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "owner_number",
+       "displayName": "owner_number",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "alert_instance",
+       "displayName": "alert_instance",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "73db8508-7eaf-4f75-96ba-c0fe2cfc7653",
+   "name": "Get Businesses",
+   "type": "n8n-nodes-base.supabase",
+   "typeVersion": 1,
+   "position": [
+    1344,
+    80
+   ],
+   "parameters": {
+    "authentication": "oAuth2",
+    "resource": "row",
+    "operation": "getAll",
+    "projectRef": "={{ $('Work Out Settings').first().json.supabase_project_ref }}",
+    "tableId": "clients",
+    "returnAll": true
+   },
+   "alwaysOutputData": true,
+   "onError": "continueRegularOutput",
+   "credentials": {
+    "supabaseOAuth2Api": {
+     "name": "Supabase account"
+    }
+   }
+  },
+  {
+   "id": "a72a8a1d-3c79-4b70-9be2-386f83e6c97f",
+   "name": "Businesses To Repoint",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1568,
+    80
+   ],
+   "parameters": {
+    "jsCode": "// Every business with a WhatsApp instance, unless repointing was switched off.\n// Always returns at least one item so the report page is shown.\nconst s = $('Work Out Settings').first().json;\nconst list = s.repoint ? $input.all().map((i) => i.json).filter((c) => c && c.instance_name).map((c) => ({ json: { instance: c.instance_name, business: c.business_name || c.client_id } })) : [];\nreturn list.length ? list : [{ json: { none: true } }];"
+   }
+  },
+  {
+   "id": "018533a1-bda4-4d10-9f33-5929d491d36f",
+   "name": "Anything To Repoint?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1792,
+    80
+   ],
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "leftValue": "={{ $json.none !== true }}",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    }
+   }
+  },
+  {
+   "id": "c2a0bdb3-66d5-4e1b-9798-714ecc23857c",
+   "name": "Point WhatsApp Here",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.3,
+   "position": [
+    2016,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "={{ $('Work Out Settings').first().json.evolution_url }}/webhook/set/{{ $json.instance }}",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ webhook: { enabled: true, url: $('Work Out Settings').first().json.engine_webhook_url, byEvents: false, base64: false, events: ['MESSAGES_UPSERT'] } }) }}",
+    "options": {
+     "timeout": 20000
+    }
+   },
+   "onError": "continueRegularOutput",
+   "credentials": {
+    "httpHeaderAuth": {
+     "name": "Header Auth account"
+    }
+   }
+  },
+  {
+   "id": "6104fc26-824d-413a-8ae9-aad3b6fb6516",
+   "name": "Build Report",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2240,
+    80
+   ],
+   "parameters": {
+    "jsCode": "// One line per business: did its WhatsApp get pointed at this n8n?\nconst s = $('Work Out Settings').first().json;\nlet rows = [];\ntry {\n  const sent = $('Point WhatsApp Here').all();\n  const asked = $('Businesses To Repoint').all();\n  rows = sent.map((r, i) => {\n    const b = asked[i].json;\n    const ok = !r.json.error && !(Number(r.json.status) >= 400);\n    return { business: b.business, instance: b.instance, ok, why: ok ? '' : String((r.json.error && (r.json.error.message || r.json.error)) || r.json.message || 'failed').slice(0, 160) };\n  });\n} catch (e) { rows = []; }\nconst esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));\nconst table = rows.length\n  ? '<table style=\"width:100%;border-collapse:collapse;text-align:left\">' + rows.map((r) => '<tr><td style=\"padding:4px;border-bottom:1px solid #eee\">' + (r.ok ? '✅' : '❌') + ' ' + esc(r.business) + '</td><td style=\"padding:4px;border-bottom:1px solid #eee;color:#666\">' + esc(r.instance) + (r.ok ? '' : ' — ' + esc(r.why)) + '</td></tr>').join('') + '</table>'\n  : '<p style=\"color:#666\">' + (s.repoint ? 'No businesses found in Supabase (or Supabase could not be reached — check the Supabase credential and project ref).' : 'Repointing was switched off.') + '</p>';\nconst failed = rows.filter((r) => !r.ok).length;\nreturn [{ json: { html: '<div style=\"font-family:system-ui,sans-serif;max-width:560px;margin:24px auto\">'\n  + '<h2>✅ Settings saved</h2>'\n  + '<p>Evolution: <code>' + esc(s.evolution_url) + '</code><br/>Supabase project: <code>' + esc(s.supabase_project_ref) + '</code><br/>Engine webhook: <code>' + esc(s.engine_webhook_url) + '</code><br/>Error alerts to: <code>' + esc(s.owner_number) + '</code> via <code>' + esc(s.alert_instance) + '</code></p>'\n  + '<h3>WhatsApp numbers pointed here' + (rows.length ? ' (' + (rows.length - failed) + ' of ' + rows.length + ')' : '') + '</h3>' + table\n  + (failed ? '<p style=\"color:#b45309\">Failed ones: check the Header Auth credential (Name <b>apikey</b>, Value = Evolution global key) and that the instance exists, then submit this form again.</p>' : '')\n  + '<h3>Last checks</h3><ol><li>Publish the 4 WhatsApp Bot workflows (Engine, Add a Business, Daily Summary, Error Alerts).</li><li>In the Engine and Daily Summary: Workflow settings → Error workflow → <b>WhatsApp Bot — Error Alerts</b>.</li><li>Send “hi” to any business number.</li></ol></div>' } }];"
+   },
+   "executeOnce": true
+  },
+  {
+   "id": "e6c9fe78-b2f0-489d-816c-b88e04acfec5",
+   "name": "Setup Report",
+   "type": "n8n-nodes-base.form",
+   "typeVersion": 2.5,
+   "position": [
+    2464,
+    80
+   ],
+   "parameters": {
+    "operation": "completion",
+    "respondWith": "showText",
+    "responseText": "={{ $json.html }}"
+   },
+   "webhookId": "ccd7e657-8989-4b68-ba33-e27ad2a2d725"
+  }
+ ],
+ "connections": {
+  "Setup / Move": {
+   "main": [
+    [
+     {
+      "node": "Ensure wa_settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ensure wa_settings": {
+   "main": [
+    [
+     {
+      "node": "Ensure wa_contacts",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ensure wa_contacts": {
+   "main": [
+    [
+     {
+      "node": "Work Out Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Work Out Settings": {
+   "main": [
+    [
+     {
+      "node": "Clear Old Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Clear Old Settings": {
+   "main": [
+    [
+     {
+      "node": "Save Settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Settings": {
+   "main": [
+    [
+     {
+      "node": "Get Businesses",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Get Businesses": {
+   "main": [
+    [
+     {
+      "node": "Businesses To Repoint",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Businesses To Repoint": {
+   "main": [
+    [
+     {
+      "node": "Anything To Repoint?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Anything To Repoint?": {
+   "main": [
+    [
+     {
+      "node": "Point WhatsApp Here",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Build Report",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Point WhatsApp Here": {
+   "main": [
+    [
+     {
+      "node": "Build Report",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Report": {
+   "main": [
+    [
+     {
+      "node": "Setup Report",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}
