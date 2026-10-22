@@ -118,84 +118,6 @@
    }
   },
   {
-   "id": "1a270fa6-80af-4aed-95d8-ab1d3c5a8d3f",
-   "name": "Ensure wa_contacts",
-   "type": "n8n-nodes-base.dataTable",
-   "typeVersion": 1.1,
-   "position": [
-    448,
-    80
-   ],
-   "parameters": {
-    "resource": "table",
-    "operation": "create",
-    "tableName": "wa_contacts",
-    "columns": {
-     "column": [
-      {
-       "name": "ckey",
-       "type": "string"
-      },
-      {
-       "name": "client_id",
-       "type": "string"
-      },
-      {
-       "name": "instance",
-       "type": "string"
-      },
-      {
-       "name": "phone",
-       "type": "string"
-      },
-      {
-       "name": "name",
-       "type": "string"
-      },
-      {
-       "name": "session",
-       "type": "number"
-      },
-      {
-       "name": "last_at",
-       "type": "number"
-      },
-      {
-       "name": "handoff_since",
-       "type": "number"
-      },
-      {
-       "name": "agent_at",
-       "type": "number"
-      },
-      {
-       "name": "handoff_last",
-       "type": "number"
-      },
-      {
-       "name": "lead_at",
-       "type": "number"
-      },
-      {
-       "name": "followed_at",
-       "type": "number"
-      },
-      {
-       "name": "rate_start",
-       "type": "number"
-      },
-      {
-       "name": "rate_count",
-       "type": "number"
-      }
-     ]
-    },
-    "options": {
-     "createIfNotExists": true
-    }
-   }
-  },
-  {
    "id": "a3dff2b9-7771-4a12-9619-5360174bf6dc",
    "name": "Work Out Settings",
    "type": "n8n-nodes-base.code",
@@ -444,17 +366,6 @@
    ]
   },
   "Ensure wa_settings": {
-   "main": [
-    [
-     {
-      "node": "Ensure wa_contacts",
-      "type": "main",
-      "index": 0
-     }
-    ]
-   ]
-  },
-  "Ensure wa_contacts": {
    "main": [
     [
      {

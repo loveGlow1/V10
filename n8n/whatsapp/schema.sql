@@ -49,8 +49,53 @@ create table if not exists public.bot_events (
 );
 create index if not exists bot_events_client_created on public.bot_events (client_id, created_at desc);
 
+-- Per-customer WhatsApp state for every business, plus the recent chat (memory),
+-- so the bot remembers customers even if n8n restarts or moves.
+create table if not exists public.wa_contacts (
+  ckey text primary key,              -- instance:phone
+  client_id text,
+  instance text,
+  phone text,
+  name text,
+  session bigint,
+  last_at bigint,
+  handoff_since bigint,
+  agent_at bigint,
+  handoff_last bigint,
+  lead_at bigint,
+  followed_at bigint,
+  rate_start bigint,
+  rate_count bigint,
+  history text,                       -- JSON list of the last messages in this chat
+  history_session bigint,             -- which chat (session) the history belongs to
+  updated_at timestamptz not null default now()
+);
+create index if not exists wa_contacts_lead_at on public.wa_contacts (lead_at);
+
+-- The engine always inserts a contact's new state: if the contact exists, its row
+-- is updated instead, keeping what that step does not send (memory, lead times).
+create or replace function public.wa_contacts_upsert() returns trigger
+language plpgsql as $$
+begin
+  update public.wa_contacts set
+    client_id = new.client_id, instance = new.instance, phone = new.phone, name = new.name,
+    session = new.session, last_at = new.last_at, handoff_since = new.handoff_since,
+    agent_at = new.agent_at, handoff_last = new.handoff_last,
+    rate_start = new.rate_start, rate_count = new.rate_count,
+    lead_at = coalesce(new.lead_at, lead_at), followed_at = coalesce(new.followed_at, followed_at),
+    history = coalesce(new.history, history), history_session = coalesce(new.history_session, history_session),
+    updated_at = now()
+  where ckey = new.ckey;
+  if found then return null; end if;
+  new.updated_at := now();
+  return new;
+end $$;
+create or replace trigger wa_contacts_upsert before insert on public.wa_contacts
+  for each row execute function public.wa_contacts_upsert();
+
 -- Only the server (n8n) touches these tables: RLS on, no policies.
 alter table public.clients enable row level security;
 alter table public.inventory enable row level security;
 alter table public.bot_events enable row level security;
-revoke all on public.clients, public.inventory, public.bot_events from anon, authenticated;
+alter table public.wa_contacts enable row level security;
+revoke all on public.clients, public.inventory, public.bot_events, public.wa_contacts from anon, authenticated;
