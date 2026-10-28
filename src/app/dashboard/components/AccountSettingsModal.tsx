@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Bot, Building2, CalendarDays, Check, ChevronDown, Coins, CreditCard, Download, Eye, EyeOff, Info, KeyRound, LogIn, Pencil, Plus, Server, Settings, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Activity, Bot, Building2, CalendarDays, Check, Coins, CreditCard, ExternalLink, Eye, EyeOff, Info, KeyRound, Loader2, LogIn, Pencil, Plus, Server, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
@@ -15,6 +15,9 @@ import { requestSupportChat } from "../supportChat";
 import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useTheme } from "./ThemeProvider";
+import { PaymentMethod } from "./billing/CardWelcome";
+import { useCredits } from "../useCredits";
+import { PLANS, formatCredits } from "../credits";
 
 interface AccountSettingsModalProps {
   open: boolean;
@@ -65,18 +68,76 @@ const SECTION_META: Record<SectionId, { title: string; subtitle?: string }> = {
   credits: { title: "Credit Usage", subtitle: "Track your credit usage and history" },
 };
 
-type Transaction = {
+/* One line of the account's credit ledger, as the owner may read it (RLS:
+   "Owners read their ledger"). Payments and grants arrive positive; spending,
+   and a refunded top-up taken back, are negative. */
+type LedgerLine = {
   id: string;
-  plan: string;
-  cadence: string;
-  date: string;
-  amount: string;
+  action: string;
   credits: number;
+  description: string | null;
+  created_at: string;
+  project_id: string | null;
+  paid_amount: number | null;
+  paid_currency: string | null;
 };
 
-/* Billing is not connected, so there are no transactions to list. Rows render
-   from this the moment a billing service fills it. */
-const TRANSACTIONS: Transaction[] = [];
+const SPEND_ACTIONS = ["chat", "generate", "publish", "runtime"];
+const HISTORY_LIMIT = 200;
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function money(amount: number | null, currency: string | null): string | null {
+  if (amount === null || !currency) return null;
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency.toUpperCase() }).format(amount);
+  } catch {
+    return `${amount} ${currency.toUpperCase()}`;
+  }
+}
+
+/* The account's ledger and paid-through date, read when the panel opens on a
+   pane that shows them. */
+function useAccountRecords(active: boolean) {
+  const [lines, setLines] = useState<LedgerLine[] | null>(null);
+  const [paidThrough, setPaidThrough] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!active || !isSupabaseConfigured) return;
+    let live = true;
+    const client = createSupabaseBrowserClient();
+    void Promise.all([
+      client
+        .from("credit_ledger")
+        .select("id, action, credits, description, created_at, project_id, paid_amount, paid_currency")
+        .order("created_at", { ascending: false })
+        .limit(HISTORY_LIMIT),
+      client.from("credit_balances").select("paid_through").maybeSingle(),
+    ]).then(([ledger, balance]) => {
+      if (!live) return;
+      if (ledger.error) {
+        setFailed(true);
+        setLines([]);
+      } else {
+        setFailed(false);
+        setLines(
+          (ledger.data ?? []).map((row) => ({
+            ...(row as LedgerLine),
+            credits: Number((row as LedgerLine).credits),
+            paid_amount: (row as LedgerLine).paid_amount === null ? null : Number((row as LedgerLine).paid_amount),
+          })),
+        );
+      }
+      setPaidThrough((balance.data as { paid_through?: string | null } | null)?.paid_through ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [active]);
+  return { lines, paidThrough, failed };
+}
 
 /* A custom server is a name and an address. There is no key field: connecting
    means signing in on the server's own page — see src/lib/mcp/oauth.ts. */
@@ -172,9 +233,11 @@ export default function AccountSettingsModal({
      It is the models now, from the same provider the two pickers read, which
      is what makes "in use" a fact rather than a claim. */
   const { model, reach } = useModel();
+  const { balance, planId } = useCredits();
+  const plan = PLANS[planId];
   const { choice: themeChoice, resolved: resolvedTheme, setChoice: setThemeChoice } = useTheme();
   const [section, setSection] = useState<SectionId>(initialSection ?? "account");
-  const { selected: project, rename, remove } = useProjects();
+  const { selected: project, projects, rename, remove } = useProjects();
   const [projectDraft, setProjectDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -198,6 +261,31 @@ export default function AccountSettingsModal({
   const [configuring, setConfiguring] = useState<McpDraft | null>(null);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
+  const [portalBusy, setPortalBusy] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+
+  const records = useAccountRecords(open && (section === "plans" || section === "credits" || section === "usage"));
+  const purchases = (records.lines ?? []).filter((line) => !SPEND_ACTIONS.includes(line.action) && line.credits !== 0);
+  const spending = (records.lines ?? []).filter((line) => SPEND_ACTIONS.includes(line.action));
+  const projectUsed = project
+    ? spending.filter((line) => line.project_id === project.id).reduce((sum, line) => sum - line.credits, 0)
+    : 0;
+  const projectNames = new Map(projects.map((item) => [item.id, item.name]));
+
+  /* Receipts, invoices and the plan itself live with Stripe: the billing
+     portal on the account's own customer. */
+  async function openPortal() {
+    setPortalBusy(true);
+    setPortalError(null);
+    const response = await fetch("/api/payments/stripe/portal", { method: "POST" }).catch(() => null);
+    const body = (await response?.json().catch(() => ({}))) as { url?: string; error?: string } | undefined;
+    if (body?.url) {
+      window.location.assign(body.url);
+      return;
+    }
+    setPortalError(body?.error ?? "Billing could not be opened. Try again.");
+    setPortalBusy(false);
+  }
 
   useEffect(() => {
     if (!open) setEmailRevealed(false);
@@ -587,6 +675,31 @@ export default function AccountSettingsModal({
                 </button>
               </header>
 
+              {/* The rail is hidden on a phone, so the sections are a menu
+                  here instead — without it a phone could only ever see the
+                  pane the panel opened on. */}
+              <div className="border-b border-line/[0.07] px-6 py-3 sm:hidden">
+                <label htmlFor="settings-section" className="sr-only">
+                  Section
+                </label>
+                <select
+                  id="settings-section"
+                  value={section}
+                  onChange={(event) => setSection(event.target.value as SectionId)}
+                  className="h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
+                >
+                  {navGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.id === "account" ? "Account" : item.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
                 {section === "project" && (
                   <div className="py-6">
@@ -741,8 +854,8 @@ export default function AccountSettingsModal({
                     <p className="text-[15px] font-medium text-ink">No budget set</p>
                     <p className="mt-1.5 max-w-[560px] text-[13px] leading-relaxed text-muted">
                       A budget caps what a project may spend before it stops asking for more.
-                      Nothing meters a build yet, so there is no figure to cap — this is where the
-                      cap will be set once there is.
+                      Until per-project caps arrive, every project draws on your account&apos;s
+                      credits — see Usage &amp; Billing for what this one has used.
                     </p>
                     <div className="mt-4">
                       <ComingSoonBadge />
@@ -764,13 +877,20 @@ export default function AccountSettingsModal({
                         Upgrade Plan <Sparkles className="h-4 w-4" />
                       </button>
                     </div>
-                    {/* Credits are held against the account, not the project, and
-                        a per-project figure invented here would be fiction. */}
-                    <p className="mt-4 max-w-[560px] text-[13px] leading-relaxed text-muted">
-                      Credits are held against your account and shared by every project on it.
-                      When a build starts spending them, what {project?.name ?? "this project"} used
-                      will be broken out here.
-                    </p>
+                    {/* Credits are held against the account; what this project
+                        spent is read off the ledger lines that name it. */}
+                    <div className="mt-4 rounded-xl border border-line/[0.07] bg-layer/[0.02] px-6 py-4">
+                      <p className="text-[13px] text-muted">Used by {project?.name ?? "this project"}</p>
+                      <p className="mt-1 text-lg font-semibold text-ink">
+                        {records.lines === null ? "…" : `${formatCredits(projectUsed)} credits`}
+                      </p>
+                      <p className="mt-1 text-[12px] text-faint">
+                        {records.lines !== null && records.lines.length >= HISTORY_LIMIT
+                          ? `Across your last ${HISTORY_LIMIT} credit entries.`
+                          : "Since the project was made."}{" "}
+                        Credits are shared by every project on your account.
+                      </p>
+                    </div>
                     <button
                       onClick={() => setSection("plans")}
                       className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
@@ -804,7 +924,7 @@ export default function AccountSettingsModal({
                         )}
                       </Row>
 
-                      <Row title="Profile picture" description="This image will be displayed publicly">
+                      <Row title="Profile picture" description="Your initial, shown in the app. Picture uploads aren't available yet.">
                         <span className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
                           {initial}
                         </span>
@@ -818,6 +938,7 @@ export default function AccountSettingsModal({
                               onChange={(event) => setNameDraft(event.target.value)}
                               onKeyDown={(event) => event.key === "Enter" && saveName()}
                               autoFocus
+                              maxLength={80}
                               aria-label="Your name"
                               className="h-9 w-[180px] rounded-lg border border-line/[0.14] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
                             />
@@ -870,7 +991,7 @@ export default function AccountSettingsModal({
                             disabled={!account.id}
                             className="h-9 rounded-lg bg-solid px-4 text-sm font-semibold text-onSolid transition-all hover:brightness-95 disabled:opacity-50"
                           >
-                            Generate
+                            Show
                           </button>
                         )}
                       </Row>
@@ -883,13 +1004,12 @@ export default function AccountSettingsModal({
                     <div className="border-t border-line/[0.06] pb-6 pt-6">
                       <p className="text-[15px] font-medium text-ink">Personal Plan</p>
                       <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
-                        {/* No subscription record exists yet, so everyone is on Free. */}
-                        <span className="text-[28px] font-bold leading-none text-ink">Free</span>
+                        <span className="text-[28px] font-bold leading-none text-ink">{plan.name}</span>
                         <button
-                          onClick={onUpgradeClick}
-                          className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                          onClick={() => setSection("plans")}
+                          className="flex h-10 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-4 text-sm text-ink transition-colors hover:bg-layer/[0.07]"
                         >
-                          Upgrade Plan <Sparkles className="h-4 w-4" />
+                          Manage plan
                         </button>
                       </div>
                     </div>
@@ -898,54 +1018,74 @@ export default function AccountSettingsModal({
 
                 {section === "plans" && (
                   <div className="py-5">
-                    {/* No subscription record exists yet, so everyone is on Free. */}
-                    <div className="flex items-center justify-between gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5">
-                      <span className="text-[28px] font-bold leading-none text-ink">Free</span>
+                    {/* The plan the account is on, read with the balance (and
+                        when it is paid through, from credit_balances). */}
+                    <div className="flex flex-col items-start gap-4 rounded-xl border border-line/[0.07] bg-layer/[0.03] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-[28px] font-bold leading-none text-ink">{plan.name}</p>
+                        <p className="mt-2 text-[13px] text-muted">
+                          {planId === "free"
+                            ? "No monthly credits. Upgrade for a monthly allowance and every model."
+                            : `$${plan.monthlyPriceUsd}/month · ${plan.monthlyCredits} credits a month${
+                                records.paidThrough ? ` · paid through ${shortDate(records.paidThrough)}` : ""
+                              }`}
+                        </p>
+                      </div>
                       <button
                         onClick={onUpgradeClick}
-                        className="flex h-10 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
+                        className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-gradient-to-b from-[#F9E58A] to-[#F4D96B] px-4 text-sm font-semibold text-[#3a2e00] transition-all hover:brightness-105"
                       >
-                        Upgrade Plan <Sparkles className="h-4 w-4" />
+                        {planId === "pro" ? "Add credit" : "Upgrade Plan"} <Sparkles className="h-4 w-4" />
                       </button>
                     </div>
 
-                    <div className="mt-6 flex items-center justify-between">
-                      <p className="text-[15px] font-medium text-ink">Transactions</p>
-                      <span className="flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-muted">
-                        All <ChevronDown className="h-3.5 w-3.5" />
-                      </span>
-                    </div>
+                    <PaymentMethod />
 
-                    <div className="mt-3 min-h-[220px] rounded-xl border border-line/[0.07] bg-layer/[0.02]">
-                      {TRANSACTIONS.length === 0 ? (
-                        <div className="flex h-[220px] flex-col items-center justify-center px-6 text-center">
+                    <div className="mt-6 flex items-center justify-between gap-3">
+                      <p className="text-[15px] font-medium text-ink">Transactions</p>
+                      <button
+                        onClick={() => void openPortal()}
+                        disabled={portalBusy}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-soft transition-colors hover:text-ink disabled:opacity-50"
+                      >
+                        {portalBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                        Receipts &amp; invoices
+                      </button>
+                    </div>
+                    {portalError && <p className="mt-2 text-[13px] text-danger">{portalError}</p>}
+
+                    <div className="mt-3 rounded-xl border border-line/[0.07] bg-layer/[0.02]">
+                      {records.lines === null ? (
+                        <div className="flex h-[160px] items-center justify-center">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted" />
+                        </div>
+                      ) : purchases.length === 0 ? (
+                        <div className="flex h-[160px] flex-col items-center justify-center px-6 text-center">
                           <CalendarDays className="h-5 w-5 text-faint" />
-                          <p className="mt-3 text-sm text-soft">No transactions yet</p>
+                          <p className="mt-3 text-sm text-soft">{records.failed ? "Transactions couldn't be loaded" : "No transactions yet"}</p>
                           <p className="mt-1 text-[13px] text-muted">
-                            Charges and invoices appear here once billing is connected.
+                            {records.failed ? "Close and reopen settings to try again." : "Plans, top-ups and credit you receive appear here."}
                           </p>
                         </div>
                       ) : (
                         <ul className="divide-y divide-line/[0.06]">
-                          {TRANSACTIONS.map((transaction) => (
-                            <li key={transaction.id} className="flex items-center gap-4 px-4 py-3.5">
+                          {purchases.map((line) => (
+                            <li key={line.id} className="flex items-center gap-4 px-4 py-3.5">
                               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
                                 <CalendarDays className="h-4 w-4 text-muted" />
                               </span>
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm text-ink">
-                                  {transaction.plan} · {transaction.cadence}
+                                <p className="truncate text-sm text-ink">{line.description || (line.action === "topup" ? "Top-up" : "Credit")}</p>
+                                <p className="truncate text-[13px] text-muted">
+                                  {shortDate(line.created_at)}
+                                  {money(line.paid_amount, line.paid_currency) ? ` · ${money(line.paid_amount, line.paid_currency)}` : ""}
                                 </p>
-                                <p className="truncate text-[13px] text-muted">{transaction.date}</p>
                               </div>
-                              <span className="shrink-0 text-sm text-ink">{transaction.amount}</span>
-                              <span className="flex shrink-0 items-center gap-1.5 text-sm text-warn">
+                              <span className={`flex shrink-0 items-center gap-1.5 text-sm ${line.credits < 0 ? "text-danger" : "text-warn"}`}>
                                 <Coins className="h-3.5 w-3.5" />
-                                {transaction.credits}
+                                {line.credits > 0 ? "+" : ""}
+                                {formatCredits(line.credits)}
                               </span>
-                              <button className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
-                                Download <Download className="h-3.5 w-3.5" />
-                              </button>
                             </li>
                           ))}
                         </ul>
@@ -968,36 +1108,57 @@ export default function AccountSettingsModal({
                           {credits}
                         </p>
                       </div>
-                      {/* The breakdown needs a credits service to come from; the total is
-                          the figure the app already displayed. */}
-                      {["Plan credits", "Top-up credits", "Free credits"].map((label) => (
+                      {/* The buckets the balance is held in, spent in this order:
+                          the plan's month, what rolled over, then top-ups (which
+                          include free credit, and never expire). */}
+                      {(
+                        [
+                          ["Plan credits", "This month's allowance from your plan.", balance ? balance.daily + balance.monthly : null],
+                          ["Rolled over", "Unused plan credits carried into this cycle.", balance ? balance.rollover : null],
+                          ["Top-up credits", "Bought or given credit, including free credit. Never expires.", balance ? balance.topUp : null],
+                        ] as const
+                      ).map(([label, hint, value]) => (
                         <div key={label}>
-                          <p className="flex items-center gap-1 text-[13px] text-muted">
-                            {label} <Info className="h-3 w-3" />
+                          <p className="flex items-center gap-1 text-[13px] text-muted" title={hint}>
+                            {label} <Info className="h-3 w-3" aria-hidden />
                           </p>
-                          <p className="mt-2 text-lg text-faint">—</p>
+                          <p className={`mt-2 text-lg ${value === null ? "text-faint" : "text-ink"}`}>
+                            {value === null ? "—" : formatCredits(value)}
+                          </p>
                         </div>
                       ))}
                     </div>
 
                     <p className="mt-6 text-[15px] font-medium text-ink">Usage history</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {["Last week", "All projects", "All types"].map((filter) => (
-                        <span
-                          key={filter}
-                          className="flex h-9 items-center gap-2 rounded-lg border border-line/[0.08] bg-layer/[0.03] px-3 text-[13px] text-muted"
-                        >
-                          {filter} <ChevronDown className="h-3.5 w-3.5" />
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-3 flex h-[180px] flex-col items-center justify-center rounded-xl border border-line/[0.07] bg-layer/[0.02] px-6 text-center">
-                      <Coins className="h-5 w-5 text-faint" />
-                      <p className="mt-3 text-sm text-soft">No usage yet</p>
-                      <p className="mt-1 text-[13px] text-muted">
-                        Daily refreshes and spend appear here once a credits service is connected.
-                      </p>
+                    <div className="mt-3 rounded-xl border border-line/[0.07] bg-layer/[0.02]">
+                      {records.lines === null ? (
+                        <div className="flex h-[160px] items-center justify-center">
+                          <Loader2 className="h-4 w-4 animate-spin text-muted" />
+                        </div>
+                      ) : spending.length === 0 ? (
+                        <div className="flex h-[160px] flex-col items-center justify-center px-6 text-center">
+                          <Coins className="h-5 w-5 text-faint" />
+                          <p className="mt-3 text-sm text-soft">{records.failed ? "Usage couldn't be loaded" : "No usage yet"}</p>
+                          <p className="mt-1 text-[13px] text-muted">
+                            {records.failed ? "Close and reopen settings to try again." : "Each build, edit and publish appears here with what it cost."}
+                          </p>
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-line/[0.06]">
+                          {spending.map((line) => (
+                            <li key={line.id} className="flex items-center gap-4 px-4 py-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm text-ink">{line.description || line.action}</p>
+                                <p className="truncate text-[13px] text-muted">
+                                  {shortDate(line.created_at)}
+                                  {line.project_id && projectNames.get(line.project_id) ? ` · ${projectNames.get(line.project_id)}` : ""}
+                                </p>
+                              </div>
+                              <span className="shrink-0 text-sm text-soft">{formatCredits(line.credits)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
                 )}
