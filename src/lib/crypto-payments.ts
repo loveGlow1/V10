@@ -232,14 +232,19 @@ export type Purchase =
  *  reach: it stops a typo turning a $10 order into a $10,000 one. */
 export const MAX_TOP_UP_PACKS = 20;
 
-/** The range of a top-up typed in by hand, in whole dollars: from one pack's
- *  price ($15) to the old twenty packs. Only accounts that have paid for a
- *  plan may top up at all — see lib/top-up-access.ts. */
+/** Pay as you go: a top-up typed in by hand, in whole dollars, from one
+ *  pack's price ($15) to the most an account may add in a month. Only
+ *  accounts that have paid for a plan may top up at all, and no more than
+ *  MONTHLY_TOP_UP_CAP_USD a calendar month in total — see
+ *  lib/top-up-access.ts and top_up_room_usd in supabase/schema.sql. */
+export const MONTHLY_TOP_UP_CAP_USD = 10_000;
 export const MIN_TOP_UP_USD = TOP_UP_PACK.priceUsd;
-export const MAX_TOP_UP_USD = MAX_TOP_UP_PACKS * TOP_UP_PACK.priceUsd;
+export const MAX_TOP_UP_USD = MONTHLY_TOP_UP_CAP_USD;
 
 /** The credits a top-up of `usd` buys: the pack's rate, to the cent of a
- *  credit ($15 → 50, $20 → 66.67). */
+ *  credit ($15 → 50, $20 → 66.67, $10,000 → 33,333.33). The database
+ *  computes it the same way (top_up_credits_for) and holds a crypto order
+ *  to it. */
 export function topUpCreditsFor(usd: number): number {
   return Math.round(((usd * TOP_UP_PACK.credits) / TOP_UP_PACK.priceUsd) * 100) / 100;
 }

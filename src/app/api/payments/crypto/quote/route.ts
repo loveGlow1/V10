@@ -15,7 +15,7 @@ import { configuredCurrencies, walletFor } from "@/lib/crypto-payments-server";
 import { ratesFor } from "@/lib/crypto-rates";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { refuseTopUpWithoutPlan } from "@/lib/top-up-access";
+import { refuseTopUp } from "@/lib/top-up-access";
 
 /* What a purchase costs in each coin — the first screen of the checkout.
  *
@@ -73,7 +73,7 @@ export async function GET(request: Request) {
     );
   }
   if (purchase.kind === "topup") {
-    const refused = await refuseTopUpWithoutPlan(createSupabaseServiceClient(), user.id);
+    const refused = await refuseTopUp(createSupabaseServiceClient(), user.id, purchase.usd);
     if (refused) return refused;
   }
 

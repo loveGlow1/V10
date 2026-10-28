@@ -18,7 +18,7 @@ interface BillingModalProps {
 }
 
 /* One tap for the usual amounts; any other is typed. */
-const TOP_UP_PRESETS = [TOP_UP_PACK.priceUsd, 20, 50, 100] as const;
+const TOP_UP_PRESETS = [TOP_UP_PACK.priceUsd, 20, 100, 500, 1000] as const;
 
 export default function BillingModal({ open, onClose }: BillingModalProps) {
   /* Standard is preselected: it is the plan most people are choosing between the
@@ -46,15 +46,20 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
      shows the box — the payment routes refuse it anyway. */
   const [topUpAllowed, setTopUpAllowed] = useState<boolean | null>(null);
   const [topUpLockedReason, setTopUpLockedReason] = useState<string | null>(null);
+  /* What is left of this month's $10,000; the most one top-up can be. */
+  const [topUpRoom, setTopUpRoom] = useState<number>(MAX_TOP_UP_USD);
   useEffect(() => {
     if (!open) return;
     let live = true;
     void fetch("/api/payments/top-up", { cache: "no-store" })
-      .then((response) => (response.ok ? (response.json() as Promise<{ allowed?: boolean; reason?: string | null }>) : null))
+      .then((response) =>
+        response.ok ? (response.json() as Promise<{ allowed?: boolean; reason?: string | null; roomUsd?: number }>) : null,
+      )
       .then((body) => {
         if (!live || !body) return;
         setTopUpAllowed(body.allowed === true);
         setTopUpLockedReason(body.reason ?? null);
+        if (typeof body.roomUsd === "number") setTopUpRoom(Math.min(MAX_TOP_UP_USD, body.roomUsd));
       })
       .catch(() => undefined);
     return () => {
@@ -108,7 +113,8 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
   const planPrice = planPriceUsd(selectedPlan, annual ? 12 : 1);
   const priceText = `$${Number.isInteger(planPrice) ? planPrice : planPrice.toFixed(2)}`;
   const topUpAmount = Number(topUpUsd);
-  const topUpValid = Number.isInteger(topUpAmount) && topUpAmount >= MIN_TOP_UP_USD && topUpAmount <= MAX_TOP_UP_USD;
+  const topUpMax = Math.min(MAX_TOP_UP_USD, topUpRoom);
+  const topUpValid = Number.isInteger(topUpAmount) && topUpAmount >= MIN_TOP_UP_USD && topUpAmount <= topUpMax;
   const topUpPurchase: Purchase = { kind: "topup", usd: topUpValid ? topUpAmount : TOP_UP_PACK.priceUsd };
 
   return (
@@ -254,7 +260,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                   <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
                     <p className="text-sm font-semibold text-ink text-center">Or add credit</p>
                     <p className="mt-0.5 text-xs font-medium text-muted text-center">
-                      {topUpLockedReason ?? "Top-ups open once you've had a paid plan."} Then add any amount from ${MIN_TOP_UP_USD}.
+                      {topUpLockedReason ?? "Top-ups open once you've had a paid plan."}
                     </p>
                   </div>
                 ) : (
@@ -263,7 +269,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                   {/* Any whole-dollar amount, at the pack's rate. Balance only:
                       no amount unlocks a plan's models or perks. */}
                   <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
-                    {TOP_UP_PRESETS.map((usd) => (
+                    {TOP_UP_PRESETS.filter((usd) => usd <= topUpMax).map((usd) => (
                       <button
                         key={usd}
                         type="button"
@@ -281,19 +287,19 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                         type="number"
                         inputMode="numeric"
                         min={MIN_TOP_UP_USD}
-                        max={MAX_TOP_UP_USD}
+                        max={topUpMax}
                         step={1}
                         value={topUpUsd}
                         onChange={(event) => setTopUpUsd(event.target.value)}
                         aria-label="Amount in US dollars"
-                        className="w-14 bg-transparent outline-none"
+                        className="w-16 bg-transparent outline-none"
                       />
                     </label>
                   </div>
                   <p className="mt-2 text-xs font-medium text-muted text-center">
                     {topUpValid
-                      ? `${topUpCreditsFor(topUpAmount)} credits for $${topUpAmount}. One-off, never expire. Balance only — plans unlock every model. Plus applicable tax by card.`
-                      : `Enter a whole amount from $${MIN_TOP_UP_USD} to $${MAX_TOP_UP_USD}.`}
+                      ? `${topUpCreditsFor(topUpAmount).toLocaleString("en-US")} credits for $${topUpAmount.toLocaleString("en-US")}. One-off, never expire. Balance only — plans unlock every model. Plus applicable tax by card.`
+                      : `Enter a whole amount from $${MIN_TOP_UP_USD} to $${topUpMax.toLocaleString("en-US")}${topUpMax < MAX_TOP_UP_USD ? " — what is left of this month's $10,000" : ""}.`}
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <GatewayButton

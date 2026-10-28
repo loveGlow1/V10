@@ -27,7 +27,7 @@ import { rateFor } from "@/lib/crypto-rates";
 import { TOP_UP_PACK } from "@/app/dashboard/credits";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { refuseTopUpWithoutPlan } from "@/lib/top-up-access";
+import { refuseTopUp } from "@/lib/top-up-access";
 
 /* Where an order is created.
  *
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     );
   }
   if (purchase.kind === "topup") {
-    const refused = await refuseTopUpWithoutPlan(service, user.id);
+    const refused = await refuseTopUp(service, user.id, purchase.usd);
     if (refused) return refused;
   }
 
