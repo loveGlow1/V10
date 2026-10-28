@@ -152,20 +152,62 @@ export async function hasLiveSubscription(stripe: Stripe, customerId: string, ex
   return list.data.some((sub) => sub.id !== except && LIVE.includes(sub.status));
 }
 
+/** A plan as the card screens name it: which, when it ends or renews, and
+ *  whether that is a free trial's end. */
+export type RenewingPlan = { name: string; endsOn: string | null; trial: boolean };
+
+export function renewingPlanOf(subscription: Stripe.Subscription): RenewingPlan {
+  const planId = subscription.metadata?.plan_id;
+  const trial = subscription.status === "trialing";
+  const end = trial ? subscription.trial_end : (subscription.items.data[0]?.current_period_end ?? null);
+  return {
+    name: isPaidPlanId(planId) ? PLANS[planId].name : "Your plan",
+    endsOn: end ? new Date(end * 1000).toISOString() : null,
+    trial,
+  };
+}
+
+/**
+ * Stops the customer's plans renewing, the way the billing portal's Cancel
+ * does: a plan in good standing runs to the end of what was paid for (a
+ * trial to its last day, with no charge) and then ends; one already behind
+ * on payment ends now, so Stripe stops retrying a card about to be removed.
+ * The plan's credits run until its paid-through date either way.
+ */
+export async function cancelRenewals(stripe: Stripe, subscriptions: Stripe.Subscription[]): Promise<RenewingPlan[]> {
+  const cancelled: RenewingPlan[] = [];
+  for (const subscription of subscriptions) {
+    if (subscription.status === "active" || subscription.status === "trialing") {
+      await stripe.subscriptions.update(subscription.id, { cancel_at_period_end: true });
+      cancelled.push(renewingPlanOf(subscription));
+    } else {
+      await stripe.subscriptions.cancel(subscription.id);
+      cancelled.push({ ...renewingPlanOf(subscription), endsOn: new Date().toISOString() });
+    }
+  }
+  return cancelled;
+}
+
 export type RemoveCardResult =
-  | { ok: true }
+  | { ok: true; cancelled: RenewingPlan[] }
   | { ok: false; status: number; code: "no_card" | "card_in_use" | "stripe_unavailable"; reason: string };
 
 /**
  * The account's card taken off, from the app — as the billing portal's
- * Remove does it. Refused while a plan that renews depends on it (the way
- * most SaaS billing works: replace the card, or cancel the plan, first), so
- * nobody is left with a renewal that can only fail. A plan set to cancel at
+ * Remove does it. A plan that renews depends on the card, so removing it
+ * either cancels those plans first — asked for with `cancelPlan`, after the
+ * screen has said what that means — or is refused (card_in_use), so nobody
+ * is left with a renewal that can only fail. A plan already set to cancel at
  * the end of its period does not hold the card. The card is detached in
  * Stripe and forgotten here; the payment_method.detached webhook that
  * follows finds nothing left to do.
  */
-export async function removeCard(stripe: Stripe, service: SupabaseClient, userId: string): Promise<RemoveCardResult> {
+export async function removeCard(
+  stripe: Stripe,
+  service: SupabaseClient,
+  userId: string,
+  options: { cancelPlan?: boolean } = {},
+): Promise<RemoveCardResult> {
   const { data } = await service.from("payment_cards").select("payment_method_id, stripe_customer_id").eq("user_id", userId).maybeSingle();
   const row = data as { payment_method_id: string; stripe_customer_id: string } | null;
   if (!row) return { ok: false, status: 404, code: "no_card", reason: "There is no card on file." };
@@ -176,7 +218,14 @@ export async function removeCard(stripe: Stripe, service: SupabaseClient, userId
   } catch {
     return { ok: false, status: 502, code: "stripe_unavailable", reason: "Stripe couldn't be reached. Try again." };
   }
-  if (renewing.length > 0) {
+  let cancelled: RenewingPlan[] = [];
+  if (renewing.length > 0 && options.cancelPlan) {
+    try {
+      cancelled = await cancelRenewals(stripe, renewing);
+    } catch {
+      return { ok: false, status: 502, code: "stripe_unavailable", reason: "Your plan couldn't be cancelled. Nothing was changed — try again." };
+    }
+  } else if (renewing.length > 0) {
     return {
       ok: false,
       status: 409,
@@ -190,7 +239,7 @@ export async function removeCard(stripe: Stripe, service: SupabaseClient, userId
     if (error?.code !== "resource_missing") throw error;
   });
   await service.from("payment_cards").delete().eq("user_id", userId).eq("payment_method_id", row.payment_method_id);
-  return { ok: true };
+  return { ok: true, cancelled };
 }
 
 /**

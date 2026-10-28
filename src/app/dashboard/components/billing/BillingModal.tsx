@@ -259,7 +259,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     worth of credits is how a top-up becomes a cancellation. */}
                 {/* The card on file: replace or remove it here, without
                     leaving for Stripe's portal. */}
-                <PaymentMethod onManagePlan={() => void openPortal()} />
+                <PaymentMethod />
 
                 {topUpAllowed === false ? (
                   <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">

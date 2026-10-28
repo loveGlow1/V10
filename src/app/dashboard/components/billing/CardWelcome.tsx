@@ -25,8 +25,8 @@ import { useCredits } from "../../useCredits";
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
  *   PaymentMethod      the card on file in the Billing sheet: replace it, or
- *                      remove it after saying what that changes — refused
- *                      while a renewing plan depends on it.
+ *                      remove it after saying what that changes — and when a
+ *                      renewing plan depends on it, cancel the plan with it.
  *
  * The card is saved on Stripe's own page: the bank verifies it with a
  * zero-amount check and nothing is charged today. A new account's card also
@@ -49,8 +49,19 @@ type Status = {
   trial: { plan: string; priceUsd: number; credits: number; startsOn: string } | null;
   /* What removing the card would do: blocked by a renewing plan, and the
      card status the account would have afterwards. */
-  removal: { blocked: boolean; after: "ok" | "suggest" | "required" } | null;
+  removal: { blocked: boolean; plans: RenewingPlan[]; after: "ok" | "suggest" | "required" } | null;
 };
+
+type RenewingPlan = { name: string; endsOn: string | null; trial: boolean };
+
+/* What cancelling a plan means, in one sentence: a trial ends with no
+   charge; a paid plan runs to the end of what was paid for. */
+function cancelTerms(plan: RenewingPlan): string {
+  const day = plan.endsOn ? dayOf(plan.endsOn) : null;
+  return plan.trial
+    ? `Your ${plan.name} trial ends${day ? ` on ${day}` : ""} with no charge.`
+    : `Your ${plan.name} plan won't renew — you keep it${day ? ` until ${day}` : " to the end of this period"}.`;
+}
 
 function dayOf(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
@@ -450,9 +461,10 @@ const AFTER_REMOVAL: Record<"ok" | "suggest" | "required", string> = {
 
 /* The card on file, in the Billing sheet. Replace goes to Stripe's page and
    back (the old card comes off once the new one is saved — see rememberCard);
-   Remove asks first, saying what it changes, and is refused while a renewing
-   plan depends on the card. */
-export function PaymentMethod({ onManagePlan }: { onManagePlan?: () => void }) {
+   Remove asks first, saying what it changes. A card a renewing plan depends
+   on is removed only with the plan cancelled (to the end of what was paid;
+   a trial with no charge) — said before it is done. */
+export function PaymentMethod() {
   const status = useCardStatus();
   const [busy, setBusy] = useState<"replace" | "remove" | null>(null);
   const [asking, setAsking] = useState(false);
@@ -470,18 +482,19 @@ export function PaymentMethod({ onManagePlan }: { onManagePlan?: () => void }) {
       setBusy(null);
     }
   };
-  const remove = async () => {
+  const remove = async (cancelPlan: boolean) => {
     setBusy("remove");
     setNote(null);
-    const response = await fetch("/api/payments/stripe/card", { method: "DELETE" }).catch(() => null);
-    const body = (await response?.json().catch(() => ({}))) as { error?: string } | undefined;
+    const response = await fetch(`/api/payments/stripe/card${cancelPlan ? "?cancelPlan=1" : ""}`, { method: "DELETE" }).catch(() => null);
+    const body = (await response?.json().catch(() => ({}))) as { error?: string; cancelled?: RenewingPlan[] } | undefined;
     setBusy(null);
     if (!response?.ok) {
       setNote({ text: body?.error ?? "The card couldn't be removed. Try again.", ok: false });
       return;
     }
     setAsking(false);
-    setNote({ text: "Card removed.", ok: true });
+    const cancelled = body?.cancelled ?? [];
+    setNote({ text: ["Card removed.", ...cancelled.map(cancelTerms)].join(" "), ok: true });
     /* Removed on purpose: the gate waits until they next build. */
     try {
       window.sessionStorage.setItem(SKIPPED_GATE, "1");
@@ -541,25 +554,38 @@ export function PaymentMethod({ onManagePlan }: { onManagePlan?: () => void }) {
         <div className="mt-3 rounded-xl border border-line/15 bg-canvas px-3.5 py-3" role="alertdialog" aria-label="Remove card">
           {status.removal.blocked ? (
             <>
-              <p className="text-sm font-semibold text-ink">This card pays for your plan</p>
+              <p className="text-sm font-semibold text-ink">
+                {status.removal.plans.length === 1 ? `This card pays for your ${status.removal.plans[0].name} plan` : "This card pays for your plan"}
+              </p>
               <p className="mt-0.5 text-xs font-medium leading-relaxed text-muted">
-                Your plan renews on {label}. Replace the card, or cancel the plan first — then you can remove it.
+                Removing it cancels the plan. {status.removal.plans.map(cancelTerms).join(" ")}{" "}
+                {AFTER_REMOVAL[status.removal.after]}
               </p>
               <div className="mt-3 flex flex-wrap justify-end gap-1.5">
-                <button type="button" onClick={() => setAsking(false)} className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink">
-                  Keep card
+                <button
+                  type="button"
+                  onClick={() => setAsking(false)}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink disabled:opacity-50"
+                >
+                  Keep
                 </button>
-                {onManagePlan && (
-                  <button
-                    type="button"
-                    onClick={onManagePlan}
-                    className="h-8 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink hover:bg-layer/[0.06]"
-                  >
-                    Manage plan
-                  </button>
-                )}
-                <button type="button" onClick={() => void replace()} className="h-8 rounded-full bg-ink px-3 text-xs font-semibold text-canvas hover:opacity-90">
+                <button
+                  type="button"
+                  onClick={() => void replace()}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink hover:bg-layer/[0.06] disabled:opacity-50"
+                >
                   Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(true)}
+                  disabled={busy !== null}
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-danger px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy === "remove" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Cancel &amp; remove
                 </button>
               </div>
             </>
@@ -580,7 +606,7 @@ export function PaymentMethod({ onManagePlan }: { onManagePlan?: () => void }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void remove()}
+                  onClick={() => void remove(false)}
                   disabled={busy !== null}
                   className="flex h-8 items-center gap-1.5 rounded-full bg-danger px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
                 >

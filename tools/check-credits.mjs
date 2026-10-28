@@ -304,6 +304,10 @@ try {
         "a card can be removed in the app, but not while a renewing plan depends on it",
       );
       has(
+        /cancel_at_period_end: true/.test(stripeCard) && /options\.cancelPlan/.test(stripeCard) && /searchParams\.get\("cancelPlan"\) === "1"/.test(cardRoute),
+        "removing the card a plan renews on cancels the plan first, to the end of what was paid",
+      );
+      has(
         /subscriptions\.update\(subscription\.id, \{ default_payment_method: method\.id \}\)/.test(stripeCard) && /paymentMethods\.detach\(replaced\)/.test(stripeCard),
         "a replaced card hands its plans to the new card and comes off Stripe",
       );

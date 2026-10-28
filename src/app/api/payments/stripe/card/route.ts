@@ -12,6 +12,7 @@ import {
   liveSubscriptions,
   offersWelcomeTrial,
   removeCard,
+  renewingPlanOf,
 } from "@/lib/stripe-card";
 import { WELCOME_TRIAL_PLAN, WELCOME_TRIAL_PURCHASE, lineItemFor, trialEndFrom, welcomeTrialOffer } from "@/lib/stripe-plan";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -33,10 +34,12 @@ import { stripeSecretKey } from "@/lib/stripe-key";
  *      and verified by the bank, nothing charged. Who it is for is written
  *      onto the session here, on the server; the browser's return
  *      (./confirm) and the webhook record it.
- * DELETE { ok, status } — the card taken off (lib/stripe-card.ts
- *      removeCard): refused with 409 card_in_use while a renewing plan
- *      depends on it. GET's `removal` says beforehand what removing does:
- *      whether it is blocked, and the card status the account would have. */
+ * DELETE { ok, status, cancelled } — the card taken off (lib/stripe-card.ts
+ *      removeCard). With ?cancelPlan=1, plans renewing on it are cancelled
+ *      first (to the end of what was paid; a trial with no charge); without,
+ *      it is refused with 409 card_in_use while one depends on it. GET's
+ *      `removal` says beforehand what removing does: the plans it would
+ *      cancel, and the card status the account would have. */
 
 /* Every method Checkout could otherwise offer that is not a card. */
 const NOT_CARDS = [
@@ -71,11 +74,13 @@ export async function GET() {
     service.rpc("card_status_without_card", { p_user_id: user.id }).then(({ data }) => (typeof data === "string" ? data : "required")),
   ]);
   /* What removing the card would do, for the confirmation. */
-  const renewing =
+  const plans =
     status.card && status.customerId && secretKey
-      ? await liveSubscriptions(new Stripe(secretKey), status.customerId).then((subs) => subs.length > 0).catch(() => false)
-      : false;
-  const removal = status.card ? { blocked: renewing, after: without === "required" ? "required" : without === "suggest" ? "suggest" : "ok" } : null;
+      ? await liveSubscriptions(new Stripe(secretKey), status.customerId).then((subs) => subs.map(renewingPlanOf)).catch(() => [])
+      : [];
+  const removal = status.card
+    ? { blocked: plans.length > 0, plans, after: without === "required" ? "required" : without === "suggest" ? "suggest" : "ok" }
+    : null;
   const trial = !status.card && (await offersWelcomeTrial(service, user.id, status.welcomed)) ? welcomeTrialOffer(new Date()) : null;
   return NextResponse.json({
     status: gate,
@@ -187,7 +192,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ url: session.url });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const secretKey = stripeSecretKey();
   if (!secretKey) return NextResponse.json({ error: "Stripe is not configured on this deployment." }, { status: 503 });
   const user = await signedIn();
@@ -195,11 +200,12 @@ export async function DELETE() {
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Temporarily unavailable, please retry." }, { status: 503 });
 
-  const removed = await removeCard(new Stripe(secretKey), service, user.id).catch((error) => {
+  const cancelPlan = new URL(request.url).searchParams.get("cancelPlan") === "1";
+  const removed = await removeCard(new Stripe(secretKey), service, user.id, { cancelPlan }).catch((error) => {
     // eslint-disable-next-line no-console
     console.error("card: could not remove the card:", error);
     return { ok: false as const, status: 502, code: "stripe_unavailable" as const, reason: "The card couldn't be removed. Try again." };
   });
   if (!removed.ok) return NextResponse.json({ error: removed.reason, code: removed.code }, { status: removed.status });
-  return NextResponse.json({ ok: true, status: await cardStatusOf(service, user.id) });
+  return NextResponse.json({ ok: true, status: await cardStatusOf(service, user.id), cancelled: removed.cancelled });
 }
