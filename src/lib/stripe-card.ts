@@ -229,12 +229,51 @@ export async function customerFor(
 }
 
 /** A card taken off in Stripe (the billing portal's Remove) is off the
- *  account here too, so card_status asks for one again — free credit or not,
- *  unless the account has funded its way to "suggest". The welcome claim on
- *  its fingerprint stays: adding it back does not grant a second welcome. */
-export async function forgetCard(service: SupabaseClient, paymentMethodId: string): Promise<void> {
+ *  account here too. If the customer still has another card — the usual way
+ *  to replace one in the portal is to add the new card, then remove the old —
+ *  that card becomes the card on file; otherwise there is none, and
+ *  card_status asks for one again (free credit or not, unless the account
+ *  has paid). The welcome claim on the old fingerprint stays: adding it back
+ *  does not grant a second welcome. */
+export async function forgetCard(stripe: Stripe, service: SupabaseClient, paymentMethodId: string): Promise<void> {
+  const { data: row, error: readError } = await service
+    .from("payment_cards")
+    .select("user_id, stripe_customer_id")
+    .eq("payment_method_id", paymentMethodId)
+    .maybeSingle();
+  if (readError) throw new Error(`could not read the detached card: ${readError.message}`);
+  /* Not the card on file (an older one, or never ours): nothing to change. */
+  if (!row) return;
+  const { user_id: userId, stripe_customer_id: customerId } = row as { user_id: string; stripe_customer_id: string };
+
   const { error } = await service.from("payment_cards").delete().eq("payment_method_id", paymentMethodId);
   if (error) throw new Error(`could not remove the detached card: ${error.message}`);
+
+  const [cards, customer] = await Promise.all([
+    stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 10 }),
+    stripe.customers.retrieve(customerId),
+  ]);
+  const preferred = !customer.deleted ? customer.invoice_settings?.default_payment_method : null;
+  const preferredId = typeof preferred === "string" ? preferred : preferred?.id;
+  const next = cards.data.find((card) => card.id === preferredId && card.id !== paymentMethodId) ?? cards.data.find((card) => card.id !== paymentMethodId);
+  if (next) await rememberCard(stripe, service, userId, customerId, next);
+}
+
+/** A card Stripe changed in place — a new expiry from the bank's card
+ *  updater, or details edited in the portal — kept current here, so a
+ *  renewed card is not read as expired and the account locked. */
+export async function refreshCard(service: SupabaseClient, method: Stripe.PaymentMethod): Promise<void> {
+  if (!method.card) return;
+  const { error } = await service
+    .from("payment_cards")
+    .update({
+      brand: method.card.brand ?? null,
+      last4: method.card.last4 ?? null,
+      exp_month: method.card.exp_month ?? null,
+      exp_year: method.card.exp_year ?? null,
+    })
+    .eq("payment_method_id", method.id);
+  if (error) throw new Error(`could not refresh the card: ${error.message}`);
 }
 
 /** What the account has: its card, if any, and whether the welcome is had. */

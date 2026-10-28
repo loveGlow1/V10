@@ -112,6 +112,37 @@ export async function settleCheckoutSession(
   return "settled";
 }
 
+/* ── Refunds and disputes: a card top-up's credits go back ───────────────
+ *
+ * A top-up refunded in the Stripe Dashboard, in whole or in part, takes back
+ * its credits in the same proportion; a dispute takes them all while it is
+ * open. reverse_stripe_top_up keeps it once per amount, so a redelivered
+ * event changes nothing, and stops at zero for credit already spent. Plans
+ * are left to their subscription: a refunded month simply is not renewed. */
+export async function reverseTopUpForCharge(
+  service: SupabaseClient,
+  stripe: Stripe,
+  charge: Stripe.Charge,
+  disputed: boolean,
+): Promise<"reversed" | "skipped"> {
+  const paymentIntent = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+  if (!paymentIntent) return "skipped";
+  const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent, limit: 1 });
+  const session = sessions.data[0];
+  const grant = session ? readSessionGrant(session) : null;
+  if (!session || !grant || grant.credits === null) return "skipped";
+  const share = disputed ? 1 : charge.amount > 0 ? Math.min(1, charge.amount_refunded / charge.amount) : 0;
+  if (share <= 0) return "skipped";
+  const { error } = await service.rpc("reverse_stripe_top_up", {
+    p_session_id: session.id,
+    p_user_id: grant.userId,
+    p_target_credits: Math.round(grant.credits * share * 100) / 100,
+    p_reason: disputed ? "Top-up disputed" : share < 1 ? "Top-up partly refunded" : "Top-up refunded",
+  });
+  if (error) throw error;
+  return "reversed";
+}
+
 /** How far back the sweep looks. Stripe itself retries a failed webhook for up
  *  to three days, so this covers everything Stripe would still try to deliver
  *  and everything it has given up on in that window. */

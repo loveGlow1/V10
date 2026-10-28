@@ -279,6 +279,24 @@ try {
     const planItem = readFileSync(join(process.cwd(), "src/lib/stripe-plan.ts"), "utf8");
     has(/plan \? "subscription" : "payment"/.test(checkout) && /lineItemFor\(purchase\)/.test(checkout) && /recurring: \{ interval:/.test(planItem) && /subscription_data: \{ metadata \}/.test(checkout), "a plan bought by card is a subscription that renews until cancelled");
     has(/billing_reason === "subscription_create" && invoice\.amount_paid === 0\) return "skipped"/.test(fulfil), "a trial's $0 opening invoice grants no plan month");
+    /* Industry-standard money handling: refunds and disputes take credit
+       back once, a replaced card is not read as no card, and the monthly
+       top-up limit counts credit bought and open card checkouts. */
+    has(
+      /case "charge\.refunded"/.test(webhook) && /case "charge\.dispute\.created"/.test(webhook) && /reverse_stripe_top_up/.test(fulfil) &&
+        /create or replace function public\.reverse_stripe_top_up\(/.test(schema),
+      "a refunded or disputed top-up takes its credits back, once per amount",
+    );
+    has(
+      /case "payment_method\.automatically_updated"/.test(webhook) && /paymentMethods\.list\(\{ customer: customerId, type: "card"/.test(readFileSync(join(process.cwd(), "src/lib/stripe-card.ts"), "utf8")),
+      "a card renewed by the bank or replaced in the portal keeps the account unlocked",
+    );
+    const spent = /create or replace function public\.top_up_spent_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    has(
+      /l\.credits \* public\.topup_usd_per_credit\(\)\)/.test(spent) && !/amount_usd, public\.to_usd/.test(spent) &&
+        /status: "open"/.test(checkout) && /TOP_UP_SESSION_MINUTES \* 60/.test(checkout),
+      "the $10,000 monthly limit counts credit bought (before tax) and open card checkouts",
+    );
     has(/session\.mode === "subscription"\) return null;/.test(fulfil) && /case "invoice\.paid"/.test(webhook) && /p_session_id: invoice\.id/.test(fulfil), "each paid invoice settles one period, once — the first month is not granted twice");
     has(/recoverMissedInvoices/.test(readFileSync(join(process.cwd(), "src/app/api/cron/reconcile/route.ts"), "utf8")), "a renewal the webhook missed is settled by the sweep");
     has(/TEST_KEY\.test\(key\) && isProductionDeployment\(\)\) return null;/.test(key), "a Stripe test key never runs the live site");

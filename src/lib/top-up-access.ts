@@ -52,12 +52,18 @@ export function overCapMessage(room: number): string {
 }
 
 /** A 403 for a top-up of `usd` this account may not buy — no plan yet, or
- *  past this month's limit — or null to carry on. */
-export async function refuseTopUp(service: SupabaseClient | null, userId: string, usd: number): Promise<NextResponse | null> {
+ *  past this month's limit counting `pendingUsd` of checkouts it has open —
+ *  or null to carry on. */
+export async function refuseTopUp(
+  service: SupabaseClient | null,
+  userId: string,
+  usd: number,
+  pendingUsd = 0,
+): Promise<NextResponse | null> {
   if (!(await mayTopUp(service, userId))) {
     return NextResponse.json({ error: TOP_UP_NEEDS_PLAN_MESSAGE, code: TOP_UP_NEEDS_PLAN_CODE }, { status: 403 });
   }
-  const room = await topUpRoomUsd(service, userId);
+  const room = Math.max(0, (await topUpRoomUsd(service, userId)) - Math.ceil(pendingUsd));
   if (usd > room) return NextResponse.json({ error: overCapMessage(room), code: TOP_UP_OVER_CAP_CODE, roomUsd: room }, { status: 403 });
   return null;
 }
