@@ -443,7 +443,7 @@ try {
   const claude = wire.generationRequest(models.resolveModel("claude-opus-5"), SYSTEM, USER, IMAGES);
   is(claude.shape, "anthropic", "Claude uses the anthropic shape");
   is(claude.url, wire.ENDPOINTS.claude, "Claude posts to the messages endpoint");
-  is(claude.body.system, SYSTEM, "the system prompt is a top-level field");
+  has(claude.body.system.startsWith(SYSTEM) && claude.body.system.includes("[QuickStark policy]"), "the system prompt is a top-level field, with the safety policy on it", claude.body.system.slice(-80));
   is(claude.body.max_tokens, models.resolveModel("claude-opus-5").maxOutput, "the ceiling is max_tokens");
   is(claude.body.messages[0].content[0].type, "image", "an attached image leads the message");
   is(claude.body.content, undefined, "no stray OpenAI vocabulary");
@@ -453,7 +453,7 @@ try {
   const gpt = wire.generationRequest(models.modelById("gpt-5"), SYSTEM, USER, IMAGES);
   is(gpt.shape, "openai", "GPT uses the openai shape");
   is(gpt.body.messages[0].role, "system", "the system prompt is a message, not a field");
-  is(gpt.body.messages[0].content, SYSTEM, "and it carries the whole blueprint");
+  has(gpt.body.messages[0].content.startsWith(SYSTEM) && gpt.body.messages[0].content.includes("[QuickStark policy]"), "and it carries the whole blueprint, with the safety policy");
   is(gpt.body.system, undefined, "the anthropic field is NOT also sent");
   is(gpt.body.max_tokens, undefined, "max_tokens is not used — GPT-5 rejects it");
   is(gpt.body.max_completion_tokens, models.modelById("gpt-5").maxOutput, "max_completion_tokens is");
@@ -463,7 +463,7 @@ try {
   const gemini = wire.generationRequest(models.modelById("gemini-3-pro"), SYSTEM, USER, IMAGES);
   is(gemini.shape, "google", "Gemini uses the google shape");
   has(gemini.url.includes("gemini-3-pro:generateContent"), "the wire id rides in the path", gemini.url);
-  is(gemini.body.systemInstruction.parts[0].text, SYSTEM, "the blueprint goes in systemInstruction");
+  has(gemini.body.systemInstruction.parts[0].text.startsWith(SYSTEM) && gemini.body.systemInstruction.parts[0].text.includes("[QuickStark policy]"), "the blueprint goes in systemInstruction, with the safety policy");
   is(gemini.body.system, undefined, "not in an anthropic field");
   is(gemini.body.messages, undefined, "and not in an openai one");
   is(gemini.body.contents[0].parts[1].text, USER, "the brief is a part");

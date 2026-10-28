@@ -18,6 +18,7 @@ import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { refuseWithoutCard } from "@/lib/card-gate";
+import { screenRequest, withPolicy } from "@/lib/safety/policy";
 
 /* The agent: one turn of a session, streamed.
  *
@@ -82,6 +83,15 @@ export async function POST(request: Request) {
   const sessionId = typeof body?.id === "string" ? body.id : "";
   const message = readMessage(body?.message);
   if (!message) return NextResponse.json({ error: "Write a message first." }, { status: 400 });
+  /* Outside what QuickStark does, or an attempt to make the agent hand over
+     what is not theirs: refused before any model runs or anything is charged.
+     The grey areas are the model's to judge, under the same policy. */
+  const screened = screenRequest(message.parts.map((part) => ("text" in part && typeof part.text === "string" ? part.text : "")).join("\n"));
+  if (!screened.ok) {
+    // eslint-disable-next-line no-console
+    console.warn(`safety: agent request refused (${screened.kind}) for ${user.id}`);
+    return NextResponse.json({ error: screened.reply, code: "refused", reason: screened.kind }, { status: 422 });
+  }
 
   /* Read under the caller's own session: RLS returns it only to its owner. */
   const session = await loadSession(supabase, sessionId);
@@ -129,7 +139,7 @@ export async function POST(request: Request) {
     execute: async ({ writer }) => {
       const result = streamText({
         model: anthropic(MODEL.apiId as string),
-        instructions: INSTRUCTIONS + (session.project_id ? "" : "\n\nThis session is not linked to a project: you can talk, but not write files or run commands."),
+        instructions: withPolicy(INSTRUCTIONS + (session.project_id ? "" : "\n\nThis session is not linked to a project: you can talk, but not write files or run commands.")),
         messages: await convertToModelMessages(messages, { tools }),
         tools,
         stopWhen: isStepCount(20),

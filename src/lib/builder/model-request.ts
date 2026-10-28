@@ -1,4 +1,5 @@
 import type { Model, Provider } from "@/app/dashboard/models";
+import { withPolicy } from "@/lib/safety/policy";
 
 /* One build, three wire formats.
  *
@@ -101,6 +102,9 @@ export function generationRequest(
   images: ImageRef[] = [],
   answer: AnswerShape = "page",
 ): GenerationRequest {
+  /* What the model may and must not do — see lib/safety/policy.ts. Here,
+     because every build and edit is generated through this one function. */
+  system = withPolicy(system);
   const apiId = model.apiId;
   const maxOutput = model.maxOutput;
   if (!apiId || !maxOutput) {

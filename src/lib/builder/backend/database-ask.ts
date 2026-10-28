@@ -23,6 +23,8 @@
  *
  * Pure apart from generateSql, which asks a model and is imported lazily. */
 
+import { withPolicy } from "@/lib/safety/policy";
+
 /* ── Recognising a database request ─────────────────────────────────────── */
 
 const FENCED = /```(?:sql|postgres|postgresql|pgsql|psql)?\s*\n([\s\S]+?)```/i;
@@ -234,7 +236,7 @@ export async function generateSql(request: string, tables: string): Promise<{ ok
     const answer = await new Anthropic().messages.create({
       model: modelById("claude-sonnet-5").apiId ?? "claude-sonnet-5",
       max_tokens: 3000,
-      system: SYSTEM,
+      system: withPolicy(SYSTEM),
       messages: [{ role: "user", content: `The database now:\n${tables}\n\nThe request: ${request.trim()}` }],
     });
     const text = answer.content.map((block) => (block.type === "text" ? block.text : "")).join("").trim();
