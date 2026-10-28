@@ -135,12 +135,62 @@ export async function offersWelcomeTrial(service: SupabaseClient, userId: string
   return ((data as { plan_id?: string } | null)?.plan_id ?? "free") === "free";
 }
 
+const LIVE = ["trialing", "active", "past_due", "incomplete", "unpaid"];
+
+/** The customer's plans that are running or on trial. Throws when Stripe
+ *  cannot be read. */
+export async function liveSubscriptions(stripe: Stripe, customerId: string): Promise<Stripe.Subscription[]> {
+  const list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 });
+  return list.data.filter((sub) => LIVE.includes(sub.status) && !sub.cancel_at_period_end);
+}
+
 /** Whether the customer already has a plan running or on trial — other than
  *  `except`. A failed read answers yes: no second trial on a guess. */
 export async function hasLiveSubscription(stripe: Stripe, customerId: string, except?: string): Promise<boolean> {
   const list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }).catch(() => null);
   if (!list) return true;
-  return list.data.some((sub) => sub.id !== except && ["trialing", "active", "past_due", "incomplete", "unpaid"].includes(sub.status));
+  return list.data.some((sub) => sub.id !== except && LIVE.includes(sub.status));
+}
+
+export type RemoveCardResult =
+  | { ok: true }
+  | { ok: false; status: number; code: "no_card" | "card_in_use" | "stripe_unavailable"; reason: string };
+
+/**
+ * The account's card taken off, from the app — as the billing portal's
+ * Remove does it. Refused while a plan that renews depends on it (the way
+ * most SaaS billing works: replace the card, or cancel the plan, first), so
+ * nobody is left with a renewal that can only fail. A plan set to cancel at
+ * the end of its period does not hold the card. The card is detached in
+ * Stripe and forgotten here; the payment_method.detached webhook that
+ * follows finds nothing left to do.
+ */
+export async function removeCard(stripe: Stripe, service: SupabaseClient, userId: string): Promise<RemoveCardResult> {
+  const { data } = await service.from("payment_cards").select("payment_method_id, stripe_customer_id").eq("user_id", userId).maybeSingle();
+  const row = data as { payment_method_id: string; stripe_customer_id: string } | null;
+  if (!row) return { ok: false, status: 404, code: "no_card", reason: "There is no card on file." };
+
+  let renewing: Stripe.Subscription[];
+  try {
+    renewing = await liveSubscriptions(stripe, row.stripe_customer_id);
+  } catch {
+    return { ok: false, status: 502, code: "stripe_unavailable", reason: "Stripe couldn't be reached. Try again." };
+  }
+  if (renewing.length > 0) {
+    return {
+      ok: false,
+      status: 409,
+      code: "card_in_use",
+      reason: "Your plan renews on this card. Replace the card, or cancel the plan first, then remove it.",
+    };
+  }
+
+  await stripe.paymentMethods.detach(row.payment_method_id).catch((error: { code?: string }) => {
+    /* Already gone from Stripe is the outcome wanted; anything else is not. */
+    if (error?.code !== "resource_missing") throw error;
+  });
+  await service.from("payment_cards").delete().eq("user_id", userId).eq("payment_method_id", row.payment_method_id);
+  return { ok: true };
 }
 
 /**
@@ -175,6 +225,10 @@ export async function rememberCard(
       }
     : { brand: "link", last4: null, expMonth: null, expYear: null };
 
+  /* The card this one replaces, if any — one card on file per account. */
+  const { data: before } = await service.from("payment_cards").select("payment_method_id").eq("user_id", userId).maybeSingle();
+  const replaced = (before as { payment_method_id?: string } | null)?.payment_method_id ?? null;
+
   const { error: saveError } = await service.from("payment_cards").upsert(
     {
       user_id: userId,
@@ -196,6 +250,16 @@ export async function rememberCard(
   await stripe.customers
     .update(customerId, { invoice_settings: { default_payment_method: method.id } })
     .catch(() => undefined);
+
+  /* A replaced card: running plans move to the new one, then the old card
+     comes off Stripe, so the account has one card and renewals charge the
+     card it shows. Best effort — the new card is saved either way. */
+  if (replaced && replaced !== method.id) {
+    for (const subscription of await liveSubscriptions(stripe, customerId)) {
+      await stripe.subscriptions.update(subscription.id, { default_payment_method: method.id }).catch(() => undefined);
+    }
+    await stripe.paymentMethods.detach(replaced).catch(() => undefined);
+  }
 
   const { data, error } = await service.rpc("grant_card_welcome", {
     p_user_id: userId,

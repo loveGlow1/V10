@@ -11,6 +11,7 @@ import UpgradeButton from "./UpgradeButton";
 import { ANNUAL_DISCOUNT, PLANS, TOP_UP_PACK, planPriceUsd, type PlanId } from "../../credits";
 import { MAX_TOP_UP_USD, MIN_TOP_UP_USD, isPaidPlanId, topUpCreditsFor, type Purchase } from "@/lib/crypto-payments";
 import { useCredits } from "../../useCredits";
+import { PaymentMethod } from "./CardWelcome";
 
 interface BillingModalProps {
   open: boolean;
@@ -256,6 +257,10 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     needs one more publish today is not looking for a plan, and
                     making them take a monthly subscription to get one pack's
                     worth of credits is how a top-up becomes a cancellation. */}
+                {/* The card on file: replace or remove it here, without
+                    leaving for Stripe's portal. */}
+                <PaymentMethod onManagePlan={() => void openPortal()} />
+
                 {topUpAllowed === false ? (
                   <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
                     <p className="text-sm font-semibold text-ink text-center">Or add credit</p>

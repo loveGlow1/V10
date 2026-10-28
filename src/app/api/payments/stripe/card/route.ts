@@ -4,7 +4,15 @@ import Stripe from "stripe";
 import { SIGNUP_CREDITS } from "@/app/dashboard/credits";
 import { SITE_URL } from "@/lib/site";
 import { cardStatusOf } from "@/lib/card-gate";
-import { CARD_SESSION_KIND, cardStatus, customerFor, hasLiveSubscription, offersWelcomeTrial } from "@/lib/stripe-card";
+import {
+  CARD_SESSION_KIND,
+  cardStatus,
+  customerFor,
+  hasLiveSubscription,
+  liveSubscriptions,
+  offersWelcomeTrial,
+  removeCard,
+} from "@/lib/stripe-card";
 import { WELCOME_TRIAL_PLAN, WELCOME_TRIAL_PURCHASE, lineItemFor, trialEndFrom, welcomeTrialOffer } from "@/lib/stripe-plan";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
@@ -24,7 +32,11 @@ import { stripeSecretKey } from "@/lib/stripe-key";
  *      — see lib/stripe-plan.ts. For anyone else: setup mode, the card saved
  *      and verified by the bank, nothing charged. Who it is for is written
  *      onto the session here, on the server; the browser's return
- *      (./confirm) and the webhook record it. */
+ *      (./confirm) and the webhook record it.
+ * DELETE { ok, status } — the card taken off (lib/stripe-card.ts
+ *      removeCard): refused with 409 card_in_use while a renewing plan
+ *      depends on it. GET's `removal` says beforehand what removing does:
+ *      whether it is blocked, and the card status the account would have. */
 
 /* Every method Checkout could otherwise offer that is not a card. */
 const NOT_CARDS = [
@@ -51,11 +63,19 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Temporarily unavailable, please retry." }, { status: 503 });
-  const [status, gate, deadline] = await Promise.all([
+  const secretKey = stripeSecretKey();
+  const [status, gate, deadline, without] = await Promise.all([
     cardStatus(service, user.id),
     cardStatusOf(service, user.id),
     service.rpc("card_deadline", { p_user_id: user.id }).then(({ data }) => (typeof data === "string" ? data : null)),
+    service.rpc("card_status_without_card", { p_user_id: user.id }).then(({ data }) => (typeof data === "string" ? data : "required")),
   ]);
+  /* What removing the card would do, for the confirmation. */
+  const renewing =
+    status.card && status.customerId && secretKey
+      ? await liveSubscriptions(new Stripe(secretKey), status.customerId).then((subs) => subs.length > 0).catch(() => false)
+      : false;
+  const removal = status.card ? { blocked: renewing, after: without === "required" ? "required" : without === "suggest" ? "suggest" : "ok" } : null;
   const trial = !status.card && (await offersWelcomeTrial(service, user.id, status.welcomed)) ? welcomeTrialOffer(new Date()) : null;
   return NextResponse.json({
     status: gate,
@@ -66,6 +86,7 @@ export async function GET() {
     welcomeCredits: SIGNUP_CREDITS,
     deadline,
     trial,
+    removal,
   });
 }
 
@@ -164,4 +185,21 @@ export async function POST(request: Request) {
   });
   if (!session.url) return NextResponse.json({ error: "Stripe did not open a page. Try again." }, { status: 502 });
   return NextResponse.json({ url: session.url });
+}
+
+export async function DELETE() {
+  const secretKey = stripeSecretKey();
+  if (!secretKey) return NextResponse.json({ error: "Stripe is not configured on this deployment." }, { status: 503 });
+  const user = await signedIn();
+  if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
+  const service = createSupabaseServiceClient();
+  if (!service) return NextResponse.json({ error: "Temporarily unavailable, please retry." }, { status: 503 });
+
+  const removed = await removeCard(new Stripe(secretKey), service, user.id).catch((error) => {
+    // eslint-disable-next-line no-console
+    console.error("card: could not remove the card:", error);
+    return { ok: false as const, status: 502, code: "stripe_unavailable" as const, reason: "The card couldn't be removed. Try again." };
+  });
+  if (!removed.ok) return NextResponse.json({ error: removed.reason, code: removed.code }, { status: removed.status });
+  return NextResponse.json({ ok: true, status: await cardStatusOf(service, user.id) });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CreditCard, Loader2, LogOut, ShieldCheck, X } from "lucide-react";
+import { CreditCard, Loader2, LogOut, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
@@ -24,6 +24,9 @@ import { useCredits } from "../../useCredits";
  *                      cardNeeded — before any free credit is touched.
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
+ *   PaymentMethod      the card on file in the Billing sheet: replace it, or
+ *                      remove it after saying what that changes — refused
+ *                      while a renewing plan depends on it.
  *
  * The card is saved on Stripe's own page: the bank verifies it with a
  * zero-amount check and nothing is charged today. A new account's card also
@@ -33,7 +36,7 @@ import { useCredits } from "../../useCredits";
 
 type Status = {
   configured: boolean;
-  card: { brand: string | null; last4: string | null } | null;
+  card: { brand: string | null; last4: string | null; expMonth?: number | null; expYear?: number | null } | null;
   welcomed: boolean;
   welcomeCredits: number;
   /* ok, suggest (asked, keeps working) or required (the gate) — see
@@ -44,6 +47,9 @@ type Status = {
   deadline: string | null;
   /* The plan a new account's card starts, and when it first bills. */
   trial: { plan: string; priceUsd: number; credits: number; startsOn: string } | null;
+  /* What removing the card would do: blocked by a renewing plan, and the
+     card status the account would have afterwards. */
+  removal: { blocked: boolean; after: "ok" | "suggest" | "required" } | null;
 };
 
 function dayOf(iso: string): string {
@@ -82,6 +88,9 @@ function skippedGate(): boolean {
 const CHANGED = "qs:card-changed";
 /* Asks the gate to open again, over a skip: someone tried to build. */
 const NEEDED = "qs:card-needed";
+/* Holds the gate off for this visit: someone just removed their card on
+   purpose, and is asked again when they next build. */
+const HOLD = "qs:card-gate-hold";
 
 /* Back from Stripe with a card, its confirmation still on its way: the gate
    holds off rather than flashing "Add card" over "Card verified". */
@@ -331,8 +340,13 @@ export function CardGate() {
     setSkipped(skippedGate());
     /* A skip lasts until they try to build: then it is asked again. */
     const needed = () => setSkipped(false);
+    const hold = () => setSkipped(true);
     window.addEventListener(NEEDED, needed);
-    return () => window.removeEventListener(NEEDED, needed);
+    window.addEventListener(HOLD, hold);
+    return () => {
+      window.removeEventListener(NEEDED, needed);
+      window.removeEventListener(HOLD, hold);
+    };
   }, []);
 
   if (skipped || confirming || !status?.required || !status.configured) return null;
@@ -417,6 +431,173 @@ export function CardGate() {
           <LogOut className="h-3.5 w-3.5" /> Sign out
         </button>
       </div>
+    </div>
+  );
+}
+
+function brandName(brand: string | null): string {
+  if (!brand) return "Card";
+  if (brand === "link") return "Link";
+  const names: Record<string, string> = { amex: "American Express", diners: "Diners Club", unionpay: "UnionPay", jcb: "JCB" };
+  return names[brand] ?? brand.charAt(0).toUpperCase() + brand.slice(1);
+}
+
+const AFTER_REMOVAL: Record<"ok" | "suggest" | "required", string> = {
+  required: "You'll need to add a card again before you can build. Your credits stay on your account.",
+  suggest: "You can keep building, and we'll remind you to add a card.",
+  ok: "Nothing else changes — you can keep building.",
+};
+
+/* The card on file, in the Billing sheet. Replace goes to Stripe's page and
+   back (the old card comes off once the new one is saved — see rememberCard);
+   Remove asks first, saying what it changes, and is refused while a renewing
+   plan depends on the card. */
+export function PaymentMethod({ onManagePlan }: { onManagePlan?: () => void }) {
+  const status = useCardStatus();
+  const [busy, setBusy] = useState<"replace" | "remove" | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+
+  if (!status || !status.configured) return null;
+  const card = status.card;
+
+  const replace = async () => {
+    setBusy("replace");
+    setNote(null);
+    const failed = await startCardSetup();
+    if (failed) {
+      setNote({ text: failed, ok: false });
+      setBusy(null);
+    }
+  };
+  const remove = async () => {
+    setBusy("remove");
+    setNote(null);
+    const response = await fetch("/api/payments/stripe/card", { method: "DELETE" }).catch(() => null);
+    const body = (await response?.json().catch(() => ({}))) as { error?: string } | undefined;
+    setBusy(null);
+    if (!response?.ok) {
+      setNote({ text: body?.error ?? "The card couldn't be removed. Try again.", ok: false });
+      return;
+    }
+    setAsking(false);
+    setNote({ text: "Card removed.", ok: true });
+    /* Removed on purpose: the gate waits until they next build. */
+    try {
+      window.sessionStorage.setItem(SKIPPED_GATE, "1");
+    } catch {
+      /* Private mode: held for this page only. */
+    }
+    window.dispatchEvent(new Event(HOLD));
+    await readStatus(true);
+    window.dispatchEvent(new Event(CHANGED));
+  };
+
+  const label = card ? `${brandName(card.brand)}${card.last4 ? ` •••• ${card.last4}` : ""}` : null;
+  const expiry =
+    card?.expMonth && card.expYear ? `Expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}` : null;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3" role="region" aria-label="Payment method">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Payment method</p>
+      <div className="mt-2 flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-layer/[0.08] text-ink">
+          <CreditCard className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">{label ?? "No card on file"}</p>
+          <p className="text-xs font-medium text-muted">{card ? (expiry ?? "Saved with Stripe") : status.trial ? trialTerms(status.trial) : "Add one to build and to use your free credits."}</p>
+        </div>
+        {!asking && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void replace()}
+              disabled={busy !== null}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink transition-colors hover:bg-layer/[0.06] disabled:opacity-50"
+            >
+              {busy === "replace" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {card ? "Replace" : "Add card"}
+            </button>
+            {card && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNote(null);
+                  setAsking(true);
+                }}
+                disabled={busy !== null}
+                aria-label="Remove card"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-line/20 text-muted transition-colors hover:text-danger disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {asking && card && status.removal && (
+        <div className="mt-3 rounded-xl border border-line/15 bg-canvas px-3.5 py-3" role="alertdialog" aria-label="Remove card">
+          {status.removal.blocked ? (
+            <>
+              <p className="text-sm font-semibold text-ink">This card pays for your plan</p>
+              <p className="mt-0.5 text-xs font-medium leading-relaxed text-muted">
+                Your plan renews on {label}. Replace the card, or cancel the plan first — then you can remove it.
+              </p>
+              <div className="mt-3 flex flex-wrap justify-end gap-1.5">
+                <button type="button" onClick={() => setAsking(false)} className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink">
+                  Keep card
+                </button>
+                {onManagePlan && (
+                  <button
+                    type="button"
+                    onClick={onManagePlan}
+                    className="h-8 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink hover:bg-layer/[0.06]"
+                  >
+                    Manage plan
+                  </button>
+                )}
+                <button type="button" onClick={() => void replace()} className="h-8 rounded-full bg-ink px-3 text-xs font-semibold text-canvas hover:opacity-90">
+                  Replace
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-ink">Remove {label}?</p>
+              <p className="mt-0.5 text-xs font-medium leading-relaxed text-muted">
+                It comes off your account and off Stripe. {AFTER_REMOVAL[status.removal.after]}
+              </p>
+              <div className="mt-3 flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAsking(false)}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove()}
+                  disabled={busy !== null}
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-danger px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy === "remove" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Remove card
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {note && (
+        <p role="status" className={`mt-2 text-xs font-medium ${note.ok ? "text-muted" : "text-danger"}`}>
+          {note.text}
+        </p>
+      )}
     </div>
   );
 }

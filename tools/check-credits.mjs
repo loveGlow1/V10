@@ -216,7 +216,12 @@ try {
   /* No card, no service — unless the account has paid. A card payment is
      asked and keeps working; a crypto payment is open for 8 days, asked to
      day 15, then locked. Every route that starts work asks before it does. */
-  const cardStatusFn = /create or replace function public\.card_status\([\s\S]*?\$\$;/.exec(schema);
+  /* The rule is two functions: card_status (a valid card, else…) and
+     card_status_without_card (the rule for an account with none). */
+  const cardStatusBodies = [/create or replace function public\.card_status\([\s\S]*?\$\$;/, /create or replace function public\.card_status_without_card\([\s\S]*?\$\$;/]
+    .map((pattern) => pattern.exec(schema)?.[0])
+    .filter(Boolean);
+  const cardStatusFn = cardStatusBodies.length === 2 && /else public\.card_status_without_card\(p_user_id\)/.test(cardStatusBodies[0]) ? [cardStatusBodies.join("\n")] : null;
   has(
     cardStatusFn !== null &&
       /payment_cards/.test(cardStatusFn[0]) &&
@@ -291,6 +296,18 @@ try {
       /case "payment_method\.automatically_updated"/.test(webhook) && /paymentMethods\.list\(\{ customer: customerId, type: "card"/.test(readFileSync(join(process.cwd(), "src/lib/stripe-card.ts"), "utf8")),
       "a card renewed by the bank or replaced in the portal keeps the account unlocked",
     );
+    {
+      const stripeCard = readFileSync(join(process.cwd(), "src/lib/stripe-card.ts"), "utf8");
+      const cardRoute = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/card/route.ts"), "utf8");
+      has(
+        /export async function DELETE\(/.test(cardRoute) && /code: "card_in_use"/.test(stripeCard) && /paymentMethods\.detach\(row\.payment_method_id\)/.test(stripeCard),
+        "a card can be removed in the app, but not while a renewing plan depends on it",
+      );
+      has(
+        /subscriptions\.update\(subscription\.id, \{ default_payment_method: method\.id \}\)/.test(stripeCard) && /paymentMethods\.detach\(replaced\)/.test(stripeCard),
+        "a replaced card hands its plans to the new card and comes off Stripe",
+      );
+    }
     const spent = /create or replace function public\.top_up_spent_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     has(
       /l\.credits \* public\.topup_usd_per_credit\(\)\)/.test(spent) && !/amount_usd, public\.to_usd/.test(spent) &&
@@ -308,7 +325,7 @@ try {
   /* Credit an administrator granted is the account's to use, card or no
      card, and is not counted as funding. */
   {
-    const status = /create or replace function public\.card_status\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
+    const status = cardStatusFn?.[0] ?? "";
     const funded = /create or replace function public\.funded_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     const grant = /create or replace function public\.grant_credits\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     has(/values \(p_user_id, p_action, p_credits, p_description, 'admin'\)/.test(grant), "credit granted by hand is marked as an administrator's");
