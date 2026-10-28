@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { catalogueServer } from "@/app/dashboard/mcpServers";
 import { authorizeUrl, clientFor, discover, pkcePair, randomState, saveOpenConnection } from "@/lib/mcp/oauth";
+import { verifyConnector } from "@/lib/mcp/runtime";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -14,8 +15,11 @@ import { OAUTH_COOKIE, OAUTH_COOKIE_PATH, backTo, redirectUriFor, writeOAuthCook
  *   ?server=notion              a catalogue server
  *   ?server=custom:<uuid>       a custom server the person saved (name + URL)
  *
- * A custom server that answers without asking for credentials is saved as
- * connected on the spot; there is nothing to sign in to. */
+ * A server with nothing to sign in to (a catalogue one marked "none", or a
+ * custom one that answers without asking for credentials) is connected here,
+ * on the spot — but only once it has actually answered and listed tools the
+ * agent can use (verifyConnector). Nothing is ever marked connected because
+ * a button was pressed. */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,10 +47,17 @@ export async function GET(request: Request) {
   /* Which server, and its address. A custom one is read from the person's own
      row, under their session — so an id that is not theirs finds nothing. */
   const catalogue = catalogueServer(serverId);
+  async function connectOpen(url: string, label: string | null) {
+    const verified = await verifyConnector(url, null);
+    if (!verified.ok) return back(verified.reason);
+    const saved = await saveOpenConnection(service!, { userId: user!.id, serverId, name: label, url: catalogue ? null : url });
+    return back(saved ? "connected" : "failed");
+  }
   let name: string | null = null;
   let mcpUrl: string | null = null;
   if (catalogue) {
-    if (catalogue.auth !== "oauth" || !catalogue.url) return back("invalid");
+    if (!catalogue.url) return back("invalid");
+    if (catalogue.auth === "none") return connectOpen(catalogue.url, null);
     mcpUrl = catalogue.url;
   } else if (serverId.startsWith("custom:")) {
     const { data } = await supabase
@@ -67,10 +78,7 @@ export async function GET(request: Request) {
     console.error(`mcp-oauth: discovery failed for ${serverId}: ${found.reason}`);
     return back("unreachable");
   }
-  if (found.kind === "open") {
-    const saved = await saveOpenConnection(service, { userId: user.id, serverId, name, url: catalogue ? null : mcpUrl });
-    return back(saved ? "connected" : "failed");
-  }
+  if (found.kind === "open") return connectOpen(mcpUrl, name);
 
   const redirectUri = redirectUriFor(request);
   const client = await clientFor(catalogue, found, redirectUri);

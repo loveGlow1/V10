@@ -61,5 +61,18 @@ has(/assertPublicHttps\(connector\.url\)/.test(runtime) && /redirect: "error"/.t
 has(/connectorTools\(connectors\.ready\)/.test(agent) && /await closeConnectors\(\)/.test(agent), "the agent gets connector tools and closes them when the turn ends");
 has(/gatherConnectorContext\(service, user\.id, prompt\)/.test(build) && !/authorization_token|mcp_servers/.test(build), "a build reads connectors on the server; no token goes into the build request");
 
+/* "Connected" is never a button press: the server answers and lists tools
+   first, and the browser cannot switch a connection on or repoint it. */
+const authorize = read("src/app/api/integrations/mcp/authorize/route.ts");
+const callback = read("src/app/api/integrations/mcp/callback/route.ts");
+const settings = read("src/app/dashboard/components/AccountSettingsModal.tsx");
+const catalogue = read("src/app/dashboard/mcpServers.ts");
+const schema = read("supabase/schema.sql");
+has(/verifyConnector\(url, null\)[\s\S]*?saveOpenConnection/.test(authorize), "a connector with no sign-in is saved only after it answers with tools");
+has(/verifyConnector\(saved\.url, tokens\.accessToken\)[\s\S]*?saveOAuthConnection/.test(callback), "a sign-in is saved only after the server answers with its token");
+has(!/enabled: true/.test(settings) && !/\.update\(/.test(settings.slice(settings.indexOf("mcp_connections"))), "the settings pane never switches a connection on itself");
+has(!/url: null,/.test(catalogue), "every catalogue connector has a server behind it");
+has(/grant insert \(user_id, server_id, name, url\)\s+on public\.mcp_connections/.test(schema) && !/grant update[^;]*on public\.mcp_connections/.test(schema), "browsers cannot set enabled, or change a connection's url");
+
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);

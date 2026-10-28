@@ -241,7 +241,8 @@ create table if not exists public.mcp_connections (
   server_id   text not null,
   name        text,
   url         text,
-  enabled     boolean not null default true,
+  -- Set by the connect routes only, once the server answered and listed tools.
+  enabled     boolean not null default false,
   -- Connected by signing in, never by a pasted key. See
   -- migrations/20261020180000_mcp_oauth.sql and src/lib/mcp/oauth.ts.
   auth             text not null default 'none' check (auth in ('none', 'oauth')),
@@ -282,9 +283,9 @@ create policy "Owners delete their MCP connections"
 revoke all on public.mcp_connections from anon, authenticated;
 grant select (id, user_id, server_id, name, url, enabled, auth, token_expires_at, created_at, updated_at)
   on public.mcp_connections to authenticated;
-grant insert (user_id, server_id, name, url, enabled)
-  on public.mcp_connections to authenticated;
-grant update (name, url, enabled)
+-- The browser adds a custom server switched off and deletes its own rows;
+-- only the connect routes turn one on (migrations/20261029200000).
+grant insert (user_id, server_id, name, url)
   on public.mcp_connections to authenticated;
 grant delete on public.mcp_connections to authenticated;
 
