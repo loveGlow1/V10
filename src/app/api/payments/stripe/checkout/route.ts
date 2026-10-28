@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { stripeSecretKey } from "@/lib/stripe-key";
 import { customerFor } from "@/lib/stripe-card";
 import { lineItemFor } from "@/lib/stripe-plan";
+import { refuseTopUpWithoutPlan } from "@/lib/top-up-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Hosted Stripe Checkout — the card twin of /api/payments/crypto.
@@ -72,6 +73,10 @@ export async function POST(request: Request) {
   const purchase = readPurchase(body.purchase);
   if (!purchase) {
     return NextResponse.json({ error: "Choose a plan or a top-up to pay for." }, { status: 400 });
+  }
+  if (purchase.kind === "topup") {
+    const refused = await refuseTopUpWithoutPlan(createSupabaseServiceClient(), user.id);
+    if (refused) return refused;
   }
 
   const stripe = new Stripe(secretKey);

@@ -188,6 +188,10 @@ const STANDARD_CREDITS = 100;
 const STANDARD_PRICE_USD = 25;
 const PRO_CREDITS = 600;
 
+/* TOP_UP_PACK, declared before PLANS because the Free card quotes it; why
+   it is 50 for $15 is written beside TOP_UP_PACK below. */
+const TOP_UP_PACK_SIZE = { credits: 50, priceUsd: 15 } as const;
+
 export const PLANS: Record<PlanId, Plan> = {
   free: {
     id: "free",
@@ -217,7 +221,7 @@ export const PLANS: Record<PlanId, Plan> = {
          to answer, not one a person should hit mid-build. */
       "Credits do not refill — top up or upgrade to keep going",
       `Build with ${modelNames("free")}`,
-      "Add credit any time, any amount — balance only; a plan unlocks every model",
+      `Top up from $${TOP_UP_PACK_SIZE.priceUsd} once you've had a paid plan — balance only; a plan unlocks every model`,
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
     ],
   },
@@ -323,7 +327,7 @@ function addedModelNames(planId: PlanId): string {
    broken that; raising the price does not.
 
    check:credits enforces the ordering, so this cannot quietly invert again. */
-export const TOP_UP_PACK = { credits: 50, priceUsd: 15 } as const;
+export const TOP_UP_PACK = TOP_UP_PACK_SIZE;
 
 /* A paid plan can be bought a year at a time: twelve months for the monthly
    price less this share. The credits still arrive monthly, as they do on a
@@ -893,8 +897,8 @@ export function cannotAffordBuildMessage(
 
   const upgrade = nextPlanUp(planId);
   if (upgrade) {
-    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits, or top up any amount (${TOP_UP_PACK.credits} for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
+    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits; once you've had a paid plan you can also top up from $${TOP_UP_PACK.priceUsd} (${TOP_UP_PACK.credits} credits). Asking for a change to the page costs far less than a build.`;
   }
 
-  return `${opening} Top up any amount to keep building (${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
+  return `${opening} Top up from $${TOP_UP_PACK.priceUsd} to keep building (${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bitcoin, CreditCard, Loader2, X } from "lucide-react";
 import CryptoPaymentModal from "./CryptoPaymentModal";
@@ -41,6 +41,26 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
   const [cardBusy, setCardBusy] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
   const [topUpUsd, setTopUpUsd] = useState(String(TOP_UP_PACK.priceUsd));
+  /* Top-ups are for accounts that have had a paid plan; asked each time the
+     sheet opens, since buying a plan is what opens them. Unknown (null)
+     shows the box — the payment routes refuse it anyway. */
+  const [topUpAllowed, setTopUpAllowed] = useState<boolean | null>(null);
+  const [topUpLockedReason, setTopUpLockedReason] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void fetch("/api/payments/top-up", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ allowed?: boolean; reason?: string | null }>) : null))
+      .then((body) => {
+        if (!live || !body) return;
+        setTopUpAllowed(body.allowed === true);
+        setTopUpLockedReason(body.reason ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [open]);
 
   /* A paid plan renews on its card until it is cancelled — in Stripe's
      billing portal, which also changes the card and shows invoices. */
@@ -230,6 +250,14 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     needs one more publish today is not looking for a plan, and
                     making them take a monthly subscription to get one pack's
                     worth of credits is how a top-up becomes a cancellation. */}
+                {topUpAllowed === false ? (
+                  <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
+                    <p className="text-sm font-semibold text-ink text-center">Or add credit</p>
+                    <p className="mt-0.5 text-xs font-medium text-muted text-center">
+                      {topUpLockedReason ?? "Top-ups open once you've had a paid plan."} Then add any amount from ${MIN_TOP_UP_USD}.
+                    </p>
+                  </div>
+                ) : (
                 <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
                   <p className="text-sm font-semibold text-ink text-center">Or add credit</p>
                   {/* Any whole-dollar amount, at the pack's rate. Balance only:
@@ -287,6 +315,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     </GatewayButton>
                   </div>
                 </div>
+                )}
               </div>
             </motion.div>
           </>

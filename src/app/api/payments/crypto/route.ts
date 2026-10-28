@@ -27,6 +27,7 @@ import { rateFor } from "@/lib/crypto-rates";
 import { TOP_UP_PACK } from "@/app/dashboard/credits";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { refuseTopUpWithoutPlan } from "@/lib/top-up-access";
 
 /* Where an order is created.
  *
@@ -112,6 +113,10 @@ export async function POST(request: Request) {
       { error: "Name what is being bought: a paid plan, or a top-up amount." },
       { status: 400 },
     );
+  }
+  if (purchase.kind === "topup") {
+    const refused = await refuseTopUpWithoutPlan(service, user.id);
+    if (refused) return refused;
   }
 
   if (!isCryptoCurrencyId(body.currency)) {

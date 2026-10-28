@@ -232,9 +232,10 @@ export type Purchase =
  *  reach: it stops a typo turning a $10 order into a $10,000 one. */
 export const MAX_TOP_UP_PACKS = 20;
 
-/** The range of a top-up typed in by hand, in whole dollars. The ceiling is
- *  the old twenty packs. */
-export const MIN_TOP_UP_USD = 5;
+/** The range of a top-up typed in by hand, in whole dollars: from one pack's
+ *  price ($15) to the old twenty packs. Only accounts that have paid for a
+ *  plan may top up at all — see lib/top-up-access.ts. */
+export const MIN_TOP_UP_USD = TOP_UP_PACK.priceUsd;
 export const MAX_TOP_UP_USD = MAX_TOP_UP_PACKS * TOP_UP_PACK.priceUsd;
 
 /** The credits a top-up of `usd` buys: the pack's rate, to the cent of a
