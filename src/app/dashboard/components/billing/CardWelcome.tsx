@@ -47,6 +47,18 @@ function saidNotNow(): boolean {
   }
 }
 
+/* "Continue without card" on the gate, likewise for this visit. It only lets
+   them look around: the server still refuses credit-spending work without a
+   card (lib/card-gate.ts), so nothing is given away. */
+const SKIPPED_GATE = "qs-card-gate-skipped";
+function skippedGate(): boolean {
+  try {
+    return window.sessionStorage.getItem(SKIPPED_GATE) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const CHANGED = "qs:card-changed";
 
 /* Back from Stripe with a card, its confirmation still on its way: the gate
@@ -256,8 +268,9 @@ export function CardReturn() {
   );
 }
 
-/* No card, no service. Over everything, with no way past it but a card —
-   or out. What it says depends on who is looking: a new account is promised
+/* No card, no service. Over everything until they add a card, sign out, or
+   choose to continue without one for this visit — looking around, not
+   building. What it says depends on who is looking: a new account is promised
    its welcome, an older one the free credit it already holds, and one whose
    card has run out is asked for a valid one. */
 export function CardGate() {
@@ -265,8 +278,10 @@ export function CardGate() {
   const { balance } = useCredits();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState(false);
+  useEffect(() => setSkipped(skippedGate()), []);
 
-  if (confirming || !status?.required || !status.configured) return null;
+  if (skipped || confirming || !status?.required || !status.configured) return null;
   const holding = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;
   const title = status.card
     ? "Your card has expired"
@@ -288,6 +303,14 @@ export function CardGate() {
   const signOut = async () => {
     await createSupabaseBrowserClient().auth.signOut().catch(() => undefined);
     window.location.assign("/");
+  };
+  const continueWithout = () => {
+    setSkipped(true);
+    try {
+      window.sessionStorage.setItem(SKIPPED_GATE, "1");
+    } catch {
+      /* Private mode: skipped for this page only. */
+    }
   };
 
   return (
@@ -320,7 +343,16 @@ export function CardGate() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
           {status.card ? "Add a valid card" : "Add card"}
         </button>
-        <p className="mt-3 text-center text-[11.5px] text-muted">Secured by Stripe.</p>
+        <button
+          type="button"
+          onClick={continueWithout}
+          className="mt-2.5 flex h-11 w-full items-center justify-center rounded-xl border border-line/[0.12] text-[14px] font-medium text-ink transition-colors hover:bg-layer/[0.06]"
+        >
+          Continue without card
+        </button>
+        <p className="mt-3 text-center text-[11.5px] text-muted">
+          Secured by Stripe. Without a card you can look around, but building stays locked.
+        </p>
         <button
           type="button"
           onClick={() => void signOut()}
