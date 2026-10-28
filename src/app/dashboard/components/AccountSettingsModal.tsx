@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Bot, Building2, CalendarDays, Check, Coins, CreditCard, ExternalLink, Eye, EyeOff, Info, KeyRound, Loader2, LogIn, Pencil, Plus, Server, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
+import { Activity, Bot, Building2, CalendarDays, Check, Coins, CreditCard, ExternalLink, Eye, EyeOff, Info, KeyRound, Loader2, Pencil, Plus, Server, SlidersHorizontal, Sparkles, Trash2, UserPlus, Users, X } from "lucide-react";
 
 import { maskEmail } from "../account";
 import { ComingSoonBadge } from "./ComingSoon";
@@ -170,18 +170,21 @@ const FIELD =
 
 function McpForm({ draft, onChange, onCancel, onConnect, busy }: McpFormProps) {
   return (
-    <div className="mb-1 rounded-xl border border-line/[0.09] bg-layer/[0.03] p-4">
-      <label className="block text-[13px] text-soft">
+    <div className="rounded-xl border border-line/[0.1] bg-layer/[0.03] p-4">
+      <p className="text-sm font-semibold text-ink">Add custom connector</p>
+      <p className="mt-0.5 text-[12.5px] text-muted">Connect a remote MCP server by its address.</p>
+      <label className="mt-3 block text-[13px] text-soft">
         Name
         <input
           value={draft.name}
           onChange={(e) => onChange({ ...draft, name: e.target.value })}
-          placeholder="My MCP server"
+          placeholder="My connector"
+          maxLength={60}
           className={FIELD}
         />
       </label>
       <label className="mt-3 block text-[13px] text-soft">
-        Server URL
+        Remote MCP server URL
         <input
           type="url"
           inputMode="url"
@@ -192,25 +195,45 @@ function McpForm({ draft, onChange, onCancel, onConnect, busy }: McpFormProps) {
           className={FIELD}
         />
       </label>
-      <p className="mt-2 text-[12px] text-faint">
-        You will sign in on the server&apos;s own page. No key is pasted or stored in your browser.
-      </p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          onClick={onConnect}
-          disabled={busy}
-          className="rounded-lg bg-solid px-3.5 py-1.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
-        >
-          {busy ? "Connecting…" : "Connect"}
-        </button>
+      <div className="mt-3 flex gap-2 rounded-lg bg-warn/[0.08] px-3 py-2 text-[12px] leading-relaxed text-soft">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden />
+        <span>
+          Only use connectors from developers you trust. QuickStark doesn&apos;t review custom connectors. You&apos;ll sign in on
+          the server&apos;s own page — no key is pasted or stored in your browser.
+        </span>
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-2">
         <button
           onClick={onCancel}
-          className="rounded-lg border border-line/[0.09] px-3.5 py-1.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05]"
+          className="h-9 rounded-lg px-3.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
         >
           Cancel
         </button>
+        <button
+          onClick={onConnect}
+          disabled={busy || !draft.name.trim() || !draft.url.trim()}
+          className="h-9 rounded-lg bg-solid px-4 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
+        >
+          {busy ? "Adding…" : "Add"}
+        </button>
       </div>
     </div>
+  );
+}
+
+/* A connector's mark: its logo on its tint, or a server glyph. */
+function ConnectorLogo({ server, size = "md" }: { server: McpServer; size?: "md" | "lg" }) {
+  const box = size === "lg" ? "h-10 w-10 rounded-xl" : "h-9 w-9 rounded-lg";
+  return (
+    <span className={`flex shrink-0 items-center justify-center ${box} ${server.tint}`}>
+      {server.path ? (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`h-[18px] w-[18px] ${server.color}`}>
+          <path d={server.path} />
+        </svg>
+      ) : (
+        <Server className={`h-4 w-4 ${server.color}`} />
+      )}
+    </span>
   );
 }
 
@@ -275,6 +298,10 @@ export default function AccountSettingsModal({
   const [configuring, setConfiguring] = useState<McpDraft | null>(null);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
+  /* The MCP tab, as Claude's Connectors page: your connectors, or the
+     directory to browse; the search over the directory. */
+  const [mcpView, setMcpView] = useState<"yours" | "browse">("yours");
+  const [mcpQuery, setMcpQuery] = useState("");
   const [portalBusy, setPortalBusy] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
 
@@ -1272,131 +1299,196 @@ export default function AccountSettingsModal({
                       </div>
                     )}
 
-                    {agentTab === "mcp" && (
-                      <div className="mt-4 space-y-2">
-                        <button
-                          onClick={() => {
-                            setMcpError(null);
-                            setConfiguring({ name: "", url: "" });
-                          }}
-                          className="flex w-full items-center gap-3 rounded-xl border border-line/[0.07] bg-layer/[0.04] px-4 py-3.5 text-left transition-colors hover:bg-layer/[0.06]"
-                        >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
-                            <Plus className="h-4 w-4 text-soft" />
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm text-ink">New MCP Server</span>
-                            <span className="block truncate text-[13px] text-muted">Add a custom MCP server</span>
-                          </span>
-                        </button>
-
-                        {configuring && (
-                          <McpForm
-                            draft={configuring}
-                            onChange={setConfiguring}
-                            onCancel={() => setConfiguring(null)}
-                            onConnect={connectCustomServer}
-                            busy={mcpBusy === "new"}
-                          />
-                        )}
-
-                        {notice && (
-                          <p
-                            role="status"
-                            className={`rounded-lg px-3 py-2 text-[13px] ${
-                              notice.tone === "ok" ? "bg-accent/10 text-accent" : "bg-danger/10 text-danger"
-                            }`}
+                    {agentTab === "mcp" && (() => {
+                      /* Laid out as Claude's Connectors page: the ones you have, then
+                         a directory to browse and a custom connector to add. */
+                      const yours = mcpRows.filter(({ server, connected }) => connected || server.id.startsWith("custom:"));
+                      const query = mcpQuery.trim().toLowerCase();
+                      const directory = mcpRows.filter(
+                        ({ server }) =>
+                          !server.id.startsWith("custom:") &&
+                          (!query || `${server.name} ${server.description}`.toLowerCase().includes(query)),
+                      );
+                      const action = (server: McpServer, connected: boolean) => {
+                        const busy = mcpBusy === server.id;
+                        if (connected) {
+                          return (
+                            <button
+                              onClick={() => (server.auth === "none" ? toggleMcpServer(server.id, false) : removeMcpConnection(server.id))}
+                              disabled={busy}
+                              className="h-8 shrink-0 rounded-lg border border-line/[0.1] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.06] hover:text-ink disabled:opacity-50"
+                            >
+                              {busy ? "Disconnecting…" : "Disconnect"}
+                            </button>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={() => (server.auth === "none" ? toggleMcpServer(server.id, true) : signInToMcp(server.id))}
+                            disabled={busy}
+                            className="h-8 shrink-0 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
                           >
-                            {notice.server ? `${notice.server}: ` : ""}
-                            {notice.text}
-                          </p>
-                        )}
+                            {busy ? "Opening…" : "Connect"}
+                          </button>
+                        );
+                      };
+                      return (
+                        <div className="mt-4">
+                          {notice && (
+                            <p
+                              role="status"
+                              className={`mb-3 rounded-lg px-3 py-2 text-[13px] ${
+                                notice.tone === "ok" ? "bg-accent/10 text-accent" : "bg-danger/10 text-danger"
+                              }`}
+                            >
+                              {notice.server ? `${notice.server}: ` : ""}
+                              {notice.text}
+                            </p>
+                          )}
 
-                        {mcpRows.map(({ server, connected }) => (
-                          <div key={server.id}>
-                            <div className="flex items-center gap-3 px-1 py-2.5">
-                              <span
-                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${server.tint}`}
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[15px] font-medium text-ink">Connectors</p>
+                              <p className="mt-0.5 text-[13px] text-muted">
+                                Let your agents reach other apps and services for more context.
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setMcpError(null);
+                                  setMcpView(mcpView === "browse" ? "yours" : "browse");
+                                }}
+                                className="h-9 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3.5 text-[13px] text-ink transition-colors hover:bg-layer/[0.07]"
                               >
-                                {server.path ? (
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="currentColor"
-                                    aria-hidden
-                                    className={`h-[18px] w-[18px] ${server.color}`}
-                                  >
-                                    <path d={server.path} />
-                                  </svg>
-                                ) : (
-                                  <Server className={`h-4 w-4 ${server.color}`} />
-                                )}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="truncate text-sm text-ink">{server.name}</p>
-                                  {server.auth === "oauth" && !connected && (
-                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-layer/[0.07] px-1.5 py-0.5 text-[11px] text-soft">
-                                      <LogIn className="h-3 w-3" />
-                                      Sign-in needed
-                                    </span>
-                                  )}
-                                  {connected && (
-                                    <span className="flex shrink-0 items-center gap-1 rounded-md bg-accent/10 px-1.5 py-0.5 text-[11px] text-accent">
-                                      <Check className="h-3 w-3" />
-                                      Connected
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="truncate text-[13px] text-muted">{server.description}</p>
-                              </div>
-
-                              {server.auth === "oauth" ? (
-                                connected ? (
-                                  <button
-                                    onClick={() => removeMcpConnection(server.id)}
-                                    disabled={mcpBusy === server.id}
-                                    className="shrink-0 rounded-lg border border-line/[0.09] bg-layer/[0.05] px-3 py-2 text-[13px] text-ink transition-colors hover:bg-layer/[0.09] disabled:opacity-50"
-                                  >
-                                    {mcpBusy === server.id ? "Disconnecting…" : "Disconnect"}
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => signInToMcp(server.id)}
-                                    disabled={mcpBusy === server.id}
-                                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-transparent bg-solid px-3 py-2 text-[13px] text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
-                                  >
-                                    <LogIn className="h-3.5 w-3.5" />
-                                    {mcpBusy === server.id ? "Opening…" : "Sign in"}
-                                  </button>
-                                )
-                              ) : (
-                                <button
-                                  onClick={() => toggleMcpServer(server.id, !connected)}
-                                  disabled={mcpBusy === server.id}
-                                  aria-pressed={connected}
-                                  className={`shrink-0 rounded-lg border px-3 py-2 text-[13px] transition-colors disabled:opacity-50 ${
-                                    connected
-                                      ? "border-line/[0.09] bg-layer/[0.05] text-ink hover:bg-layer/[0.09]"
-                                      : "border-transparent bg-solid text-onSolid hover:bg-layer/90"
-                                  }`}
-                                >
-                                  {connected ? "Disable" : "Enable"}
-                                </button>
-                              )}
+                                {mcpView === "browse" ? "Your connectors" : "Browse connectors"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setMcpError(null);
+                                  setConfiguring({ name: "", url: "" });
+                                }}
+                                className="flex h-9 items-center gap-1.5 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
+                              >
+                                <Plus className="h-3.5 w-3.5" /> Add custom
+                              </button>
                             </div>
                           </div>
-                        ))}
 
-                        {mcpError && <p className="px-1 pt-1 text-[13px] text-danger">{mcpError}</p>}
+                          {configuring && (
+                            <div className="mt-4">
+                              <McpForm
+                                draft={configuring}
+                                onChange={setConfiguring}
+                                onCancel={() => setConfiguring(null)}
+                                onConnect={connectCustomServer}
+                                busy={mcpBusy === "new"}
+                              />
+                            </div>
+                          )}
 
-                        {/* Saying so beats letting a "Connected" badge imply a build
-                            step that has not been written. */}
-                        <p className="px-1 pt-2 text-[13px] text-faint">
-                          Connections are saved to your account. Nothing calls these servers during a
-                          build yet.
-                        </p>
-                      </div>
-                    )}
+                          {mcpView === "yours" ? (
+                            yours.length === 0 ? (
+                              <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-dashed border-line/[0.12] px-6 py-10 text-center">
+                                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-layer/[0.05]">
+                                  <Server className="h-4 w-4 text-muted" />
+                                </span>
+                                <p className="mt-3 text-sm font-medium text-ink">No connectors yet</p>
+                                <p className="mt-1 max-w-[320px] text-[13px] text-muted">
+                                  Browse the directory to connect an app, or add your own MCP server.
+                                </p>
+                                <button
+                                  onClick={() => setMcpView("browse")}
+                                  className="mt-4 h-9 rounded-lg bg-solid px-4 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
+                                >
+                                  Browse connectors
+                                </button>
+                              </div>
+                            ) : (
+                              <ul className="mt-4 divide-y divide-line/[0.06] rounded-xl border border-line/[0.07]">
+                                {yours.map(({ server, connected }) => (
+                                  <li key={server.id} className="flex items-center gap-3 px-4 py-3">
+                                    <ConnectorLogo server={server} />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-medium text-ink">{server.name}</p>
+                                      <p className="flex items-center gap-1.5 truncate text-[12.5px] text-muted">
+                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${connected ? "bg-accent" : "bg-faint"}`} aria-hidden />
+                                        {connected ? "Connected" : "Not connected — sign in to finish"}
+                                        {server.id.startsWith("custom:") ? " · Custom" : ""}
+                                      </p>
+                                    </div>
+                                    {action(server, connected)}
+                                    {server.id.startsWith("custom:") && !connected && (
+                                      <button
+                                        onClick={() => removeMcpConnection(server.id)}
+                                        disabled={mcpBusy === server.id}
+                                        aria-label={`Remove ${server.name}`}
+                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-layer/[0.06] hover:text-danger disabled:opacity-50"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )
+                          ) : (
+                            <>
+                              <label className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-line/[0.1] bg-layer/[0.03] px-3 focus-within:border-line/25">
+                                <span className="sr-only">Search connectors</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden className="h-4 w-4 text-muted">
+                                  <circle cx="11" cy="11" r="7" />
+                                  <path d="m20 20-3.5-3.5" />
+                                </svg>
+                                <input
+                                  value={mcpQuery}
+                                  onChange={(event) => setMcpQuery(event.target.value)}
+                                  placeholder="Search connectors"
+                                  className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+                                />
+                              </label>
+                              {directory.length === 0 ? (
+                                <p className="mt-6 text-center text-[13px] text-muted">
+                                  No connector matches “{mcpQuery}”. You can add it as a custom connector.
+                                </p>
+                              ) : (
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                  {directory.map(({ server, connected }) => (
+                                    <div key={server.id} className="flex flex-col rounded-xl border border-line/[0.08] bg-layer/[0.02] p-4">
+                                      <div className="flex items-start gap-3">
+                                        <ConnectorLogo server={server} size="lg" />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-sm font-medium text-ink">{server.name}</p>
+                                          <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-muted">{server.description}</p>
+                                        </div>
+                                      </div>
+                                      <div className="mt-3 flex items-center justify-between">
+                                        <span className="text-[12px] text-faint">{server.auth === "oauth" ? "Sign-in required" : "No sign-in"}</span>
+                                        {connected ? (
+                                          <span className="flex items-center gap-1 text-[12.5px] font-medium text-accent">
+                                            <Check className="h-3.5 w-3.5" /> Connected
+                                          </span>
+                                        ) : (
+                                          action(server, false)
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                          {mcpError && <p className="mt-3 text-[13px] text-danger">{mcpError}</p>}
+
+                          {/* Saying so beats letting a "Connected" badge imply a build
+                              step that has not been written. */}
+                          <p className="mt-4 text-[12.5px] text-faint">
+                            Connections are saved to your account. Builds don&apos;t call connectors yet.
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
