@@ -11,6 +11,7 @@ import { SendArrow } from "./marks";
 import { uploadAttachment, type Attachment } from "@/lib/project-attachments";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
+import { cardNeeded } from "./billing/CardWelcome";
 
 async function currentUserId(): Promise<string | null> {
   try {
@@ -169,6 +170,14 @@ export default function StartBuildButton({
     inFlight.current = true;
     setStarting(true);
     onError(null);
+
+    /* No card on an account that needs one: the gate opens over Home and the
+       prompt stays in the box. Nothing is opened, nothing is spent. */
+    if (await cardNeeded()) {
+      inFlight.current = false;
+      setStarting(false);
+      return;
+    }
 
     /* A flier opens in the same workspace a website is built in: a project
        like any other, its first message the brief. The Fliers tab's target

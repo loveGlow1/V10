@@ -23,6 +23,7 @@ import { publishedLabel, publishedUrl } from "@/lib/publish/naming";
 
 import QrCode from "../billing/QrCode";
 import { loadChecks, runChecks, type Check as CheckItem } from "./publish-checks";
+import { cardNeeded } from "../billing/CardWelcome";
 
 /* Taking a project live, and pointing a domain at it.
  *
@@ -330,6 +331,9 @@ export default function PublishPanel({
 
   async function publish() {
     if (!projectId || running) return;
+    /* Publishing spends credit: an account that must add a card is asked in
+       the gate first. */
+    if (await cardNeeded()) return;
     const first = !published;
     const base: PublishRun = { phase: "running", startedAt: Date.now(), webApp: Boolean(webApp), first };
     setRun(base);
