@@ -9,13 +9,16 @@ import PricingCard from "./PricingCard";
 import FeatureList from "./FeatureList";
 import UpgradeButton from "./UpgradeButton";
 import { ANNUAL_DISCOUNT, PLANS, TOP_UP_PACK, planPriceUsd, type PlanId } from "../../credits";
-import { isPaidPlanId, type Purchase } from "@/lib/crypto-payments";
+import { MAX_TOP_UP_USD, MIN_TOP_UP_USD, isPaidPlanId, topUpCreditsFor, type Purchase } from "@/lib/crypto-payments";
 import { useCredits } from "../../useCredits";
 
 interface BillingModalProps {
   open: boolean;
   onClose: () => void;
 }
+
+/* One tap for the usual amounts; any other is typed. */
+const TOP_UP_PRESETS = [TOP_UP_PACK.priceUsd, 20, 50, 100] as const;
 
 export default function BillingModal({ open, onClose }: BillingModalProps) {
   /* Standard is preselected: it is the plan most people are choosing between the
@@ -37,6 +40,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
      purchase from the same tables, and the webhook grants it. */
   const [cardBusy, setCardBusy] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
+  const [topUpUsd, setTopUpUsd] = useState(String(TOP_UP_PACK.priceUsd));
 
   /* A paid plan renews on its card until it is cancelled — in Stripe's
      billing portal, which also changes the card and shows invoices. */
@@ -83,7 +87,9 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
     : null;
   const planPrice = planPriceUsd(selectedPlan, annual ? 12 : 1);
   const priceText = `$${Number.isInteger(planPrice) ? planPrice : planPrice.toFixed(2)}`;
-  const topUpPurchase: Purchase = { kind: "topup", packs: 1 };
+  const topUpAmount = Number(topUpUsd);
+  const topUpValid = Number.isInteger(topUpAmount) && topUpAmount >= MIN_TOP_UP_USD && topUpAmount <= MAX_TOP_UP_USD;
+  const topUpPurchase: Purchase = { kind: "topup", usd: topUpValid ? topUpAmount : TOP_UP_PACK.priceUsd };
 
   return (
     <>
@@ -225,18 +231,48 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     making them take a monthly subscription to get one pack's
                     worth of credits is how a top-up becomes a cancellation. */}
                 <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3">
-                  <p className="text-sm font-semibold text-ink text-center">
-                    Or top up {TOP_UP_PACK.credits} credits for ${TOP_UP_PACK.priceUsd}
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium text-muted text-center">
-                    One-off. Top-up credits never expire. Plus applicable tax by card.
+                  <p className="text-sm font-semibold text-ink text-center">Or add credit</p>
+                  {/* Any whole-dollar amount, at the pack's rate. Balance only:
+                      no amount unlocks a plan's models or perks. */}
+                  <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+                    {TOP_UP_PRESETS.map((usd) => (
+                      <button
+                        key={usd}
+                        type="button"
+                        onClick={() => setTopUpUsd(String(usd))}
+                        className={`h-8 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                          topUpAmount === usd ? "border-ink bg-ink text-canvas" : "border-line/20 text-ink hover:bg-layer/[0.06]"
+                        }`}
+                      >
+                        ${usd}
+                      </button>
+                    ))}
+                    <label className="flex h-8 items-center gap-1 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink">
+                      $
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={MIN_TOP_UP_USD}
+                        max={MAX_TOP_UP_USD}
+                        step={1}
+                        value={topUpUsd}
+                        onChange={(event) => setTopUpUsd(event.target.value)}
+                        aria-label="Amount in US dollars"
+                        className="w-14 bg-transparent outline-none"
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-2 text-xs font-medium text-muted text-center">
+                    {topUpValid
+                      ? `${topUpCreditsFor(topUpAmount)} credits for $${topUpAmount}. One-off, never expire. Balance only — plans unlock every model. Plus applicable tax by card.`
+                      : `Enter a whole amount from $${MIN_TOP_UP_USD} to $${MAX_TOP_UP_USD}.`}
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <GatewayButton
                       small
                       icon={<CreditCard className="h-3.5 w-3.5" />}
                       busy={cardBusy === JSON.stringify(topUpPurchase)}
-                      disabled={cardBusy !== null}
+                      disabled={cardBusy !== null || !topUpValid}
                       onClick={() => payByCard(topUpPurchase)}
                     >
                       Card
@@ -244,7 +280,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     <GatewayButton
                       small
                       icon={<Bitcoin className="h-3.5 w-3.5" />}
-                      disabled={cardBusy !== null}
+                      disabled={cardBusy !== null || !topUpValid}
                       onClick={() => setCheckout(topUpPurchase)}
                     >
                       Crypto

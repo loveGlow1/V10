@@ -204,7 +204,7 @@ export function paymentFromRow(row: CryptoPaymentRow): CryptoPayment {
           planId: (row.plan_id ?? "standard") as "standard" | "pro",
           ...(Number(row.plan_months) === 12 ? { months: 12 as const } : {}),
         }
-      : { kind: "topup", packs: Number(row.packs ?? 1) };
+      : { kind: "topup", usd: Number(row.amount_usd) };
 
   return {
     id: row.id,

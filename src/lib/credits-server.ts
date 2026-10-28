@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { PLAN_ORDER, modelPlanFor, type PlanId } from "@/app/dashboard/credits";
+import { PLAN_ORDER, TOP_UP_UNLOCK_ENDED, modelPlanFor, type PlanId } from "@/app/dashboard/credits";
 
 /* Taking payment for work that has already happened.
  *
@@ -154,7 +154,8 @@ export async function currentBalance(
 }
 
 /**
- * Every credit this account has ever bought as a top-up. The ledger records
+ * Every credit this account bought as a top-up before TOP_UP_UNLOCK_ENDED —
+ * the only top-ups that still unlock models (see modelPlanFor). The ledger records
  * each purchase as a positive `topup` row — card and crypto alike — while the
  * signup bonus and plan grants are `grant`, so they do not count.
  *
@@ -163,7 +164,12 @@ export async function currentBalance(
  * bought, the safe direction since this unlocks the dearer models.
  */
 export async function toppedUpCredits(client: SupabaseClient, userId?: string): Promise<number> {
-  let query = client.from("credit_ledger").select("credits").eq("action", "topup").gt("credits", 0);
+  let query = client
+    .from("credit_ledger")
+    .select("credits")
+    .eq("action", "topup")
+    .gt("credits", 0)
+    .lt("created_at", TOP_UP_UNLOCK_ENDED);
   if (userId) query = query.eq("user_id", userId);
   const { data, error } = await query;
   if (error || !data) return 0;

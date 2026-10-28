@@ -24,6 +24,7 @@ import {
   type CryptoPaymentRow,
 } from "@/lib/crypto-payments-server";
 import { rateFor } from "@/lib/crypto-rates";
+import { TOP_UP_PACK } from "@/app/dashboard/credits";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
 
   if (!purchase) {
     return NextResponse.json(
-      { error: "Name what is being bought: a paid plan, or a number of top-up packs." },
+      { error: "Name what is being bought: a paid plan, or a top-up amount." },
       { status: 400 },
     );
   }
@@ -267,7 +268,9 @@ export async function POST(request: Request) {
     plan_id: purchase.kind === "plan" ? purchase.planId : null,
     /* How many months settling this grants: 12 on an annual plan. */
     plan_months: purchase.kind === "plan" && purchase.months === 12 ? 12 : 1,
-    packs: purchase.kind === "topup" ? purchase.packs : null,
+    /* Whole packs where the amount is one; a custom amount has none (its
+       credits and price are on the row either way). */
+    packs: purchase.kind === "topup" && Number.isInteger(purchase.usd / TOP_UP_PACK.priceUsd) ? purchase.usd / TOP_UP_PACK.priceUsd : null,
     credits: purchaseCredits(purchase),
     amount_usd: amountUsd,
     currency,

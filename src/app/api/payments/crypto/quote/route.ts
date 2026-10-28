@@ -57,6 +57,7 @@ export async function GET(request: Request) {
     kind: params.get("kind"),
     planId: params.get("planId"),
     packs: params.get("packs"),
+    usd: params.get("usd"),
     months: params.get("months"),
   });
 
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Name what is being bought: kind=plan with a paid planId, or kind=topup with a pack count.",
+          "Name what is being bought: kind=plan with a paid planId, or kind=topup with a usd amount.",
       },
       { status: 400 },
     );

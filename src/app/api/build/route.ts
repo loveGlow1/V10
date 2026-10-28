@@ -4451,8 +4451,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
   const beforeBuild = service ? await currentBalance(service, user.id) : null;
 
   const viewerPlan = beforeBuild?.planId ?? "free";
-  /* What the models are gated by — Standard for a Free account that has
-     topped up a month of it. See modelPlanFor. */
+  /* What the models are gated by — Standard for a Free account that topped
+     up a month of it before top-ups became balance only. See modelPlanFor. */
   const modelPlan = beforeBuild?.modelPlanId ?? "free";
 
   /* The model is settled HERE rather than further down, because affordability

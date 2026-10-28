@@ -1578,14 +1578,24 @@ create table if not exists public.crypto_payments (
   confirmed_at    timestamptz,
   updated_at      timestamptz not null default now(),
 
-  -- A plan order names a paid plan and no packs; a top-up order names packs and
-  -- no plan. Enforced here rather than trusted from the route, because this is
-  -- the shape settle_crypto_payment branches on.
+  -- A plan order names a paid plan and no packs; a top-up order names no
+  -- plan, and its packs when the amount is whole packs (a custom amount has
+  -- none — its credits and amount_usd say what it is). Enforced here rather
+  -- than trusted from the route, because this is the shape
+  -- settle_crypto_payment branches on.
   constraint crypto_payments_purchase_shape check (
     (purchase_kind = 'plan'  and plan_id is not null and plan_id <> 'free' and packs is null)
     or
-    (purchase_kind = 'topup' and packs is not null and packs > 0 and plan_id is null)
+    (purchase_kind = 'topup' and (packs is null or packs > 0) and plan_id is null)
   )
+);
+
+-- The shape above, on a table made before custom top-up amounts.
+alter table public.crypto_payments drop constraint if exists crypto_payments_purchase_shape;
+alter table public.crypto_payments add constraint crypto_payments_purchase_shape check (
+  (purchase_kind = 'plan'  and plan_id is not null and plan_id <> 'free' and packs is null)
+  or
+  (purchase_kind = 'topup' and (packs is null or packs > 0) and plan_id is null)
 );
 
 -- When somebody was last told this order needs a human.

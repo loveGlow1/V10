@@ -157,17 +157,24 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
   return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
 }
 
-/* What a Free account has to have spent on top-ups before every model opens
-   up: one month of Standard, so paying for credits outright and paying for
-   the plan reach the same models. Counted in purchased credits, because that
-   is what the ledger records, at the top-up pack's rate. */
+/* Top-ups are balance only: whatever the amount, they unlock no plan's
+   models or perks — those come with a plan. Until TOP_UP_UNLOCK_ENDED a Free
+   account whose top-ups reached a month of Standard was gated as Standard;
+   those accounts keep it, counting only top-ups bought before then (see
+   toppedUpCredits in lib/credits-server.ts). */
+export const TOP_UP_UNLOCK_ENDED = "2026-10-29T00:00:00Z";
+
+/* What a Free account had to have spent on top-ups, before
+   TOP_UP_UNLOCK_ENDED, for every model to open up: one month of Standard.
+   Counted in purchased credits, at the top-up pack's rate. */
 export function modelUnlockTopUpCredits(): number {
   return Math.ceil((PLANS.standard.monthlyPriceUsd / TOP_UP_PACK.priceUsd) * TOP_UP_PACK.credits);
 }
 
 /** The plan to gate MODELS by. A paid plan is itself; a Free account whose
- *  lifetime top-up purchases reach a month of Standard is gated as Standard.
- *  Credits, refills and everything else still follow the real plan. */
+ *  top-ups bought before TOP_UP_UNLOCK_ENDED reach a month of Standard is
+ *  gated as Standard. Credits, refills and everything else still follow the
+ *  real plan. */
 export function modelPlanFor(planId: PlanId, toppedUpCredits: number): PlanId {
   if (planId !== "free") return planId;
   return toppedUpCredits >= modelUnlockTopUpCredits() ? "standard" : "free";
@@ -210,7 +217,7 @@ export const PLANS: Record<PlanId, Plan> = {
          to answer, not one a person should hit mid-build. */
       "Credits do not refill — top up or upgrade to keep going",
       `Build with ${modelNames("free")}`,
-      `Top up $${STANDARD_PRICE_USD} or more to unlock every model`,
+      "Add credit any time, any amount — balance only; a plan unlocks every model",
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
     ],
   },
@@ -886,8 +893,8 @@ export function cannotAffordBuildMessage(
 
   const upgrade = nextPlanUp(planId);
   if (upgrade) {
-    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits, or top up ${TOP_UP_PACK.credits} for $${TOP_UP_PACK.priceUsd}. Asking for a change to the page costs far less than a build.`;
+    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits, or top up any amount (${TOP_UP_PACK.credits} for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
   }
 
-  return `${opening} Top up ${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd} to keep building. Asking for a change to the page costs far less than a build.`;
+  return `${opening} Top up any amount to keep building (${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
 }

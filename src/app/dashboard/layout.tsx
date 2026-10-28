@@ -57,8 +57,9 @@ export default async function DashboardLayout({ children }: { children: ReactNod
      the plan cannot reach, and a picker that renders every model unlocked and
      then corrects itself has already shown somebody a model they cannot use. */
   const planId: PlanId = PLAN_ORDER.find((id) => id === balanceRow?.plan_id) ?? 'free';
-  /* A Free account that has topped up a month of Standard picks models as
-     Standard does. Only read when it could change the answer. */
+  /* A Free account that topped up a month of Standard before top-ups became
+     balance only picks models as Standard does. Only read when it could
+     change the answer. */
   const modelPlanId: PlanId =
     planId === 'free' ? modelPlanFor(planId, await toppedUpCredits(supabase)) : planId;
 
