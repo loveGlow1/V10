@@ -114,8 +114,8 @@ export function CreditsProvider({
        was rendered with. */
     const plan = PLAN_ORDER.find((id) => id === data.plan_id) ?? "free";
     setPlanId(plan);
-    /* A top-up is the other moment a refresh happens, and it can unlock the
-       dearer models, so the purchase total is re-read with the plan. */
+    /* Read with the plan: top-ups bought before they became balance only
+       still unlock the dearer models (see modelPlanFor). */
     setModelPlanId(plan === "free" ? modelPlanFor(plan, await toppedUpCredits(client)) : plan);
   }, []);
 

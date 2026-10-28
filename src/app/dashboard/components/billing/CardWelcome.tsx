@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CreditCard, Loader2, LogOut, ShieldCheck, X } from "lucide-react";
+import { CreditCard, Loader2, LogOut, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
@@ -24,20 +24,53 @@ import { useCredits } from "../../useCredits";
  *                      cardNeeded — before any free credit is touched.
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
+ *   PaymentMethod      the card on file in the Billing sheet: replace it, or
+ *                      remove it after saying what that changes — and when a
+ *                      renewing plan depends on it, cancel the plan with it.
  *
- * The card is saved on Stripe's own page in setup mode: the bank verifies it
- * with a zero-amount check and nothing is charged. */
+ * The card is saved on Stripe's own page: the bank verifies it with a
+ * zero-amount check and nothing is charged today. A new account's card also
+ * starts a free month of a paid plan that bills on the same day next month
+ * unless cancelled (lib/stripe-plan.ts) — said here, before the card is
+ * added, and again on Stripe's page. */
 
 type Status = {
   configured: boolean;
-  card: { brand: string | null; last4: string | null } | null;
+  card: { brand: string | null; last4: string | null; expMonth?: number | null; expYear?: number | null } | null;
   welcomed: boolean;
   welcomeCredits: number;
   /* ok, suggest (asked, keeps working) or required (the gate) — see
      card_status in supabase/schema.sql. */
   status: "ok" | "suggest" | "required";
   required: boolean;
+  /* When a crypto-paid account without a card locks (card_deadline). */
+  deadline: string | null;
+  /* The plan a new account's card starts, and when it first bills. */
+  trial: { plan: string; priceUsd: number; credits: number; startsOn: string } | null;
+  /* What removing the card would do: blocked by a renewing plan, and the
+     card status the account would have afterwards. */
+  removal: { blocked: boolean; plans: RenewingPlan[]; after: "ok" | "suggest" | "required" } | null;
 };
+
+type RenewingPlan = { name: string; endsOn: string | null; trial: boolean };
+
+/* What cancelling a plan means, in one sentence: a trial ends with no
+   charge; a paid plan runs to the end of what was paid for. */
+function cancelTerms(plan: RenewingPlan): string {
+  const day = plan.endsOn ? dayOf(plan.endsOn) : null;
+  return plan.trial
+    ? `Your ${plan.name} trial ends${day ? ` on ${day}` : ""} with no charge.`
+    : `Your ${plan.name} plan won't renew — you keep it${day ? ` until ${day}` : " to the end of this period"}.`;
+}
+
+function dayOf(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+/* The terms, in one sentence, wherever a card is asked for. */
+function trialTerms(trial: NonNullable<Status["trial"]>): string {
+  return `Nothing is charged today. Your ${trial.plan} plan ($${trial.priceUsd}/month, ${trial.credits} credits a month) starts ${dayOf(trial.startsOn)} and renews monthly — cancel anytime before then in Billing.`;
+}
 
 /* "Not now" on the soft ask lasts for this visit: it is back next time, the
    way emergent.sh keeps asking. */
@@ -66,6 +99,9 @@ function skippedGate(): boolean {
 const CHANGED = "qs:card-changed";
 /* Asks the gate to open again, over a skip: someone tried to build. */
 const NEEDED = "qs:card-needed";
+/* Holds the gate off for this visit: someone just removed their card on
+   purpose, and is asked again when they next build. */
+const HOLD = "qs:card-gate-hold";
 
 /* Back from Stripe with a card, its confirmation still on its way: the gate
    holds off rather than flashing "Add card" over "Card verified". */
@@ -182,15 +218,19 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
         <p className="text-[13px] font-medium leading-snug text-ink">
           {used
             ? "That card already claimed free credits on another account"
-            : !status.welcomed
-              ? `Add a card to get your ${status.welcomeCredits} free credits`
-              : "Add a card to your account"}
+            : status.deadline
+              ? `Add a card by ${dayOf(status.deadline)} to keep building`
+              : !status.welcomed
+                ? `Add a card to get your ${status.welcomeCredits} free credits`
+                : "Add a card to your account"}
         </p>
         <p className="text-[12px] leading-snug text-muted">
           {error ??
             (used
               ? "Add a different card, or top up to keep building."
-              : "You can keep building. No charge — your bank just checks the card is real.")}
+              : status.trial
+                ? trialTerms(status.trial)
+                : "You can keep building. No charge — your bank just checks the card is real.")}
         </p>
       </div>
       <button
@@ -224,9 +264,11 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
 const SAID: Record<string, (credits: number) => string> = {
   granted: (credits) => `Card verified — ${credits} free credits added. You weren't charged.`,
   already: () => "Card saved. You weren't charged.",
-  card_used: () => "Card saved, but it already claimed free credits on another account. You weren't charged.",
+  card_used: () => "Card saved, but it already claimed free credits on another account, so no free month started. You weren't charged.",
   invalid: () => "Card saved. You weren't charged.",
 };
+
+type Trial = { plan: string; priceUsd: number; startsOn: string };
 
 export function CardReturn() {
   const { refresh } = useCredits();
@@ -251,14 +293,17 @@ export function CardReturn() {
       body: JSON.stringify({ sessionId }),
     })
       .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as { welcome?: string; error?: string };
+        const body = (await response.json().catch(() => ({}))) as { welcome?: string; error?: string; trial?: Trial | null };
         if (!response.ok) {
           setNote({ text: body.error ?? "The card could not be saved. Try again.", ok: false });
           return;
         }
         const fresh = await readStatus(true);
+        const said = (SAID[body.welcome ?? "already"] ?? SAID.already)(fresh?.welcomeCredits ?? 5);
         setNote({
-          text: (SAID[body.welcome ?? "already"] ?? SAID.already)(fresh?.welcomeCredits ?? 5),
+          text: body.trial
+            ? `${said} Your ${body.trial.plan} plan ($${body.trial.priceUsd}/month) starts ${dayOf(body.trial.startsOn)} — cancel anytime before then in Billing.`
+            : said,
           ok: body.welcome !== "card_used",
         });
         await refresh();
@@ -306,8 +351,13 @@ export function CardGate() {
     setSkipped(skippedGate());
     /* A skip lasts until they try to build: then it is asked again. */
     const needed = () => setSkipped(false);
+    const hold = () => setSkipped(true);
     window.addEventListener(NEEDED, needed);
-    return () => window.removeEventListener(NEEDED, needed);
+    window.addEventListener(HOLD, hold);
+    return () => {
+      window.removeEventListener(NEEDED, needed);
+      window.removeEventListener(HOLD, hold);
+    };
   }, []);
 
   if (skipped || confirming || !status?.required || !status.configured) return null;
@@ -360,7 +410,9 @@ export function CardGate() {
           {status.card
             ? "Add a valid card to keep using QuickStark."
             : "QuickStark needs a card on file before you can build."}{" "}
-          You won&apos;t be charged — your bank just confirms the card is real. It keeps free credit for real people.
+          {status.trial
+            ? trialTerms(status.trial)
+            : "You won't be charged — your bank just confirms the card is real. It keeps free credit for real people."}
         </p>
         {error ? <p className="mt-3 text-[12.5px] text-warn">{error}</p> : null}
         <button
@@ -390,6 +442,188 @@ export function CardGate() {
           <LogOut className="h-3.5 w-3.5" /> Sign out
         </button>
       </div>
+    </div>
+  );
+}
+
+function brandName(brand: string | null): string {
+  if (!brand) return "Card";
+  if (brand === "link") return "Link";
+  const names: Record<string, string> = { amex: "American Express", diners: "Diners Club", unionpay: "UnionPay", jcb: "JCB" };
+  return names[brand] ?? brand.charAt(0).toUpperCase() + brand.slice(1);
+}
+
+const AFTER_REMOVAL: Record<"ok" | "suggest" | "required", string> = {
+  required: "You'll need to add a card again before you can build. Your credits stay on your account.",
+  suggest: "You can keep building, and we'll remind you to add a card.",
+  ok: "Nothing else changes — you can keep building.",
+};
+
+/* The card on file, in the Billing sheet. Replace goes to Stripe's page and
+   back (the old card comes off once the new one is saved — see rememberCard);
+   Remove asks first, saying what it changes. A card a renewing plan depends
+   on is removed only with the plan cancelled (to the end of what was paid;
+   a trial with no charge) — said before it is done. */
+export function PaymentMethod() {
+  const status = useCardStatus();
+  const [busy, setBusy] = useState<"replace" | "remove" | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+
+  if (!status || !status.configured) return null;
+  const card = status.card;
+
+  const replace = async () => {
+    setBusy("replace");
+    setNote(null);
+    const failed = await startCardSetup();
+    if (failed) {
+      setNote({ text: failed, ok: false });
+      setBusy(null);
+    }
+  };
+  const remove = async (cancelPlan: boolean) => {
+    setBusy("remove");
+    setNote(null);
+    const response = await fetch(`/api/payments/stripe/card${cancelPlan ? "?cancelPlan=1" : ""}`, { method: "DELETE" }).catch(() => null);
+    const body = (await response?.json().catch(() => ({}))) as { error?: string; cancelled?: RenewingPlan[] } | undefined;
+    setBusy(null);
+    if (!response?.ok) {
+      setNote({ text: body?.error ?? "The card couldn't be removed. Try again.", ok: false });
+      return;
+    }
+    setAsking(false);
+    const cancelled = body?.cancelled ?? [];
+    setNote({ text: ["Card removed.", ...cancelled.map(cancelTerms)].join(" "), ok: true });
+    /* Removed on purpose: the gate waits until they next build. */
+    try {
+      window.sessionStorage.setItem(SKIPPED_GATE, "1");
+    } catch {
+      /* Private mode: held for this page only. */
+    }
+    window.dispatchEvent(new Event(HOLD));
+    await readStatus(true);
+    window.dispatchEvent(new Event(CHANGED));
+  };
+
+  const label = card ? `${brandName(card.brand)}${card.last4 ? ` •••• ${card.last4}` : ""}` : null;
+  const expiry =
+    card?.expMonth && card.expYear ? `Expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}` : null;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-line/15 bg-layer/[0.04] px-4 py-3" role="region" aria-label="Payment method">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Payment method</p>
+      <div className="mt-2 flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-layer/[0.08] text-ink">
+          <CreditCard className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">{label ?? "No card on file"}</p>
+          <p className="text-xs font-medium text-muted">{card ? (expiry ?? "Saved with Stripe") : status.trial ? trialTerms(status.trial) : "Add one to build and to use your free credits."}</p>
+        </div>
+        {!asking && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void replace()}
+              disabled={busy !== null}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink transition-colors hover:bg-layer/[0.06] disabled:opacity-50"
+            >
+              {busy === "replace" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {card ? "Replace" : "Add card"}
+            </button>
+            {card && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNote(null);
+                  setAsking(true);
+                }}
+                disabled={busy !== null}
+                aria-label="Remove card"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-line/20 text-muted transition-colors hover:text-danger disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {asking && card && status.removal && (
+        <div className="mt-3 rounded-xl border border-line/15 bg-canvas px-3.5 py-3" role="alertdialog" aria-label="Remove card">
+          {status.removal.blocked ? (
+            <>
+              <p className="text-sm font-semibold text-ink">
+                {status.removal.plans.length === 1 ? `This card pays for your ${status.removal.plans[0].name} plan` : "This card pays for your plan"}
+              </p>
+              <p className="mt-0.5 text-xs font-medium leading-relaxed text-muted">
+                Removing it cancels the plan. {status.removal.plans.map(cancelTerms).join(" ")}{" "}
+                {AFTER_REMOVAL[status.removal.after]}
+              </p>
+              <div className="mt-3 flex flex-wrap justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAsking(false)}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink disabled:opacity-50"
+                >
+                  Keep
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void replace()}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full border border-line/20 px-3 text-xs font-semibold text-ink hover:bg-layer/[0.06] disabled:opacity-50"
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(true)}
+                  disabled={busy !== null}
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-danger px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy === "remove" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Cancel &amp; remove
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-ink">Remove {label}?</p>
+              <p className="mt-0.5 text-xs font-medium leading-relaxed text-muted">
+                It comes off your account and off Stripe. {AFTER_REMOVAL[status.removal.after]}
+              </p>
+              <div className="mt-3 flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAsking(false)}
+                  disabled={busy !== null}
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted hover:text-ink disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(false)}
+                  disabled={busy !== null}
+                  className="flex h-8 items-center gap-1.5 rounded-full bg-danger px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {busy === "remove" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  Remove card
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {note && (
+        <p role="status" className={`mt-2 text-xs font-medium ${note.ok ? "text-muted" : "text-danger"}`}>
+          {note.text}
+        </p>
+      )}
     </div>
   );
 }

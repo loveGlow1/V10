@@ -77,8 +77,10 @@ export const REDEPLOY_COST = 1;
 export const MAX_SIGNUP_CREDITS = 5;
 
 /* Everything a new account ever gets for free: five credits, once — granted
- * when a card is saved and verified, never charged (grant_card_welcome in
- * supabase/schema.sql; until 2026-10 it was granted at signup itself).
+ * when a card is saved and verified, nothing charged that day
+ * (grant_card_welcome in supabase/schema.sql; until 2026-10 it was granted at
+ * signup itself). The same card starts a free month of Standard that bills
+ * a month later unless cancelled — see src/lib/stripe-plan.ts.
  *
  * They land in the top-up bucket rather than the daily one, which is what makes
  * them a one-time balance instead of an allowance — top-ups never expire and
@@ -155,17 +157,24 @@ export function modelAllowedOnPlan(model: Model, planId: PlanId): boolean {
   return PLAN_ORDER.indexOf(planId) >= PLAN_ORDER.indexOf(needed as PlanId);
 }
 
-/* What a Free account has to have spent on top-ups before every model opens
-   up: one month of Standard, so paying for credits outright and paying for
-   the plan reach the same models. Counted in purchased credits, because that
-   is what the ledger records, at the top-up pack's rate. */
+/* Top-ups are balance only: whatever the amount, they unlock no plan's
+   models or perks — those come with a plan. Until TOP_UP_UNLOCK_ENDED a Free
+   account whose top-ups reached a month of Standard was gated as Standard;
+   those accounts keep it, counting only top-ups bought before then (see
+   toppedUpCredits in lib/credits-server.ts). */
+export const TOP_UP_UNLOCK_ENDED = "2026-10-29T00:00:00Z";
+
+/* What a Free account had to have spent on top-ups, before
+   TOP_UP_UNLOCK_ENDED, for every model to open up: one month of Standard.
+   Counted in purchased credits, at the top-up pack's rate. */
 export function modelUnlockTopUpCredits(): number {
   return Math.ceil((PLANS.standard.monthlyPriceUsd / TOP_UP_PACK.priceUsd) * TOP_UP_PACK.credits);
 }
 
 /** The plan to gate MODELS by. A paid plan is itself; a Free account whose
- *  lifetime top-up purchases reach a month of Standard is gated as Standard.
- *  Credits, refills and everything else still follow the real plan. */
+ *  top-ups bought before TOP_UP_UNLOCK_ENDED reach a month of Standard is
+ *  gated as Standard. Credits, refills and everything else still follow the
+ *  real plan. */
 export function modelPlanFor(planId: PlanId, toppedUpCredits: number): PlanId {
   if (planId !== "free") return planId;
   return toppedUpCredits >= modelUnlockTopUpCredits() ? "standard" : "free";
@@ -178,6 +187,10 @@ export function modelPlanFor(planId: PlanId, toppedUpCredits: number): PlanId {
 const STANDARD_CREDITS = 100;
 const STANDARD_PRICE_USD = 25;
 const PRO_CREDITS = 600;
+
+/* TOP_UP_PACK, declared before PLANS because the Free card quotes it; why
+   it is 50 for $15 is written beside TOP_UP_PACK below. */
+const TOP_UP_PACK_SIZE = { credits: 50, priceUsd: 15 } as const;
 
 export const PLANS: Record<PlanId, Plan> = {
   free: {
@@ -196,7 +209,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Standard community support",
     features: [
-      `${SIGNUP_CREDITS} credits to start, on the house, once you add a card (never charged)`,
+      `${SIGNUP_CREDITS} credits to start, on the house, once you add a card — then Standard at $${STANDARD_PRICE_USD}/month from a month later, cancel anytime before`,
       /* "Change", not "build". The signup grant sits below the door for a build
          on the default model deliberately (see SIGNUP_CREDITS), so a card
          promising a free account the build it pictures is promising the one
@@ -208,7 +221,7 @@ export const PLANS: Record<PlanId, Plan> = {
          to answer, not one a person should hit mid-build. */
       "Credits do not refill — top up or upgrade to keep going",
       `Build with ${modelNames("free")}`,
-      `Top up $${STANDARD_PRICE_USD} or more to unlock every model`,
+      `Top up from $${TOP_UP_PACK_SIZE.priceUsd} once you've had a paid plan — balance only; a plan unlocks every model`,
       `Publishing from ${PUBLISH_COST} credits — top up or upgrade to go live`,
     ],
   },
@@ -314,7 +327,7 @@ function addedModelNames(planId: PlanId): string {
    broken that; raising the price does not.
 
    check:credits enforces the ordering, so this cannot quietly invert again. */
-export const TOP_UP_PACK = { credits: 50, priceUsd: 15 } as const;
+export const TOP_UP_PACK = TOP_UP_PACK_SIZE;
 
 /* A paid plan can be bought a year at a time: twelve months for the monthly
    price less this share. The credits still arrive monthly, as they do on a
@@ -884,8 +897,8 @@ export function cannotAffordBuildMessage(
 
   const upgrade = nextPlanUp(planId);
   if (upgrade) {
-    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits, or top up ${TOP_UP_PACK.credits} for $${TOP_UP_PACK.priceUsd}. Asking for a change to the page costs far less than a build.`;
+    return `${opening} No model on the ${PLANS[planId].name} plan fits that balance right now. ${upgrade.name} is $${upgrade.monthlyPriceUsd} a month for ${upgrade.monthlyCredits} credits; once you've had a paid plan you can also top up from $${TOP_UP_PACK.priceUsd} (${TOP_UP_PACK.credits} credits). Asking for a change to the page costs far less than a build.`;
   }
 
-  return `${opening} Top up ${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd} to keep building. Asking for a change to the page costs far less than a build.`;
+  return `${opening} Top up from $${TOP_UP_PACK.priceUsd} to keep building (${TOP_UP_PACK.credits} credits for $${TOP_UP_PACK.priceUsd}). Asking for a change to the page costs far less than a build.`;
 }

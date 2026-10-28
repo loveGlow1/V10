@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
+import { PLANS } from "@/app/dashboard/credits";
+import { isPaidPlanId } from "@/lib/crypto-payments";
+
 /* A card on file, for the welcome credit — see grant_card_welcome in
  * supabase/schema.sql.
  *
@@ -14,7 +17,13 @@ import type Stripe from "stripe";
  * client_reference_id, written on the server by /api/payments/stripe/card, so a
  * browser cannot claim a card for somebody else. Recording is idempotent: the
  * browser's return and the webhook both call recordCardSetup for the same
- * session, and the welcome is granted once. */
+ * session, and the welcome is granted once.
+ *
+ * A new account's card is saved differently: through a subscription-mode
+ * Checkout that starts a free month of a paid plan (lib/stripe-plan.ts).
+ * The card is the subscription's, kept here the same way. A card that cannot
+ * have the welcome (it claimed one elsewhere, or is not a card) ends that
+ * trial at once — the free month is for the free credit's new account. */
 
 export const CARD_SESSION_KIND = "card";
 
@@ -22,15 +31,18 @@ export type WelcomeOutcome = "granted" | "already" | "card_used" | "invalid";
 
 export type SavedCard = { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null };
 
+/** A welcome trial that is running: the plan and the day it first bills. */
+export type StartedTrial = { plan: string; priceUsd: number; startsOn: string };
+
 export type CardSetupResult =
-  | { ok: true; card: SavedCard; welcome: WelcomeOutcome }
+  | { ok: true; card: SavedCard; welcome: WelcomeOutcome; trial?: StartedTrial | null }
   | { ok: false; reason: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A Checkout Session this app opened to save a card, and whose. */
 export function cardSessionUser(session: Stripe.Checkout.Session): string | null {
-  if (session.mode !== "setup" || session.metadata?.kind !== CARD_SESSION_KIND) return null;
+  if ((session.mode !== "setup" && session.mode !== "subscription") || session.metadata?.kind !== CARD_SESSION_KIND) return null;
   const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
   return UUID.test(userId) ? userId : null;
 }
@@ -49,6 +61,8 @@ export async function recordCardSetup(
   if (!userId) return { ok: false, reason: "That was not a card being saved for this account." };
   if (session.status !== "complete") return { ok: false, reason: "The card was not saved — the page was closed before it finished." };
 
+  if (session.mode === "subscription") return recordTrialCard(stripe, service, userId, session);
+
   const setupIntentId = typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent?.id;
   if (!setupIntentId) return { ok: false, reason: "Stripe did not return the card." };
   const intent = await stripe.setupIntents.retrieve(setupIntentId, { expand: ["payment_method"] });
@@ -61,6 +75,171 @@ export async function recordCardSetup(
     typeof session.customer === "string" ? session.customer : (session.customer?.id ?? (typeof intent.customer === "string" ? intent.customer : intent.customer?.id));
   if (!customerId) return { ok: false, reason: "Stripe did not return the customer." };
   return rememberCard(stripe, service, userId, customerId, method);
+}
+
+/* The card behind a welcome trial: the subscription's own. Checkout
+   confirms it with a SetupIntent (the bank's check, nothing charged today). */
+async function recordTrialCard(
+  stripe: Stripe,
+  service: SupabaseClient,
+  userId: string,
+  session: Stripe.Checkout.Session,
+): Promise<CardSetupResult> {
+  const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subscriptionId) return { ok: false, reason: "Stripe did not return the plan." };
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ["default_payment_method", "pending_setup_intent.payment_method"],
+  });
+  const pending = subscription.pending_setup_intent;
+  const method =
+    subscription.default_payment_method && typeof subscription.default_payment_method !== "string"
+      ? subscription.default_payment_method
+      : pending && typeof pending !== "string" && pending.payment_method && typeof pending.payment_method !== "string"
+        ? pending.payment_method
+        : null;
+  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
+  const end = async () => {
+    if (subscription.status === "canceled") return;
+    await stripe.subscriptions.cancel(subscriptionId).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.warn("card trial: could not end a trial without a welcome:", error instanceof Error ? error.message : error);
+    });
+  };
+  if (!method) {
+    await end();
+    return { ok: false, reason: "Stripe did not return the card." };
+  }
+
+  const result = await rememberCard(stripe, service, userId, customerId, method);
+  /* No free credit for this card, so no free month either. A second trial
+     (two tabs, both finished) goes too. */
+  const others = result.ok && result.welcome === "already" ? await hasLiveSubscription(stripe, customerId, subscriptionId) : false;
+  if (!result.ok || result.welcome === "card_used" || result.welcome === "invalid" || others) {
+    await end();
+    return result.ok ? { ...result, trial: null } : result;
+  }
+  if (subscription.status === "canceled" || !subscription.trial_end) return { ...result, trial: null };
+  const planId = subscription.metadata?.plan_id;
+  const plan = isPaidPlanId(planId) ? PLANS[planId] : null;
+  return {
+    ...result,
+    trial: plan ? { plan: plan.name, priceUsd: plan.monthlyPriceUsd, startsOn: new Date(subscription.trial_end * 1000).toISOString() } : null,
+  };
+}
+
+/** Whether the account is due a welcome trial: it has not had its welcome
+ *  and is on Free. */
+export async function offersWelcomeTrial(service: SupabaseClient, userId: string, welcomed: boolean): Promise<boolean> {
+  if (welcomed) return false;
+  const { data } = await service.from("credit_balances").select("plan_id").eq("user_id", userId).maybeSingle();
+  return ((data as { plan_id?: string } | null)?.plan_id ?? "free") === "free";
+}
+
+const LIVE = ["trialing", "active", "past_due", "incomplete", "unpaid"];
+
+/** The customer's plans that are running or on trial. Throws when Stripe
+ *  cannot be read. */
+export async function liveSubscriptions(stripe: Stripe, customerId: string): Promise<Stripe.Subscription[]> {
+  const list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 });
+  return list.data.filter((sub) => LIVE.includes(sub.status) && !sub.cancel_at_period_end);
+}
+
+/** Whether the customer already has a plan running or on trial — other than
+ *  `except`. A failed read answers yes: no second trial on a guess. */
+export async function hasLiveSubscription(stripe: Stripe, customerId: string, except?: string): Promise<boolean> {
+  const list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }).catch(() => null);
+  if (!list) return true;
+  return list.data.some((sub) => sub.id !== except && LIVE.includes(sub.status));
+}
+
+/** A plan as the card screens name it: which, when it ends or renews, and
+ *  whether that is a free trial's end. */
+export type RenewingPlan = { name: string; endsOn: string | null; trial: boolean };
+
+export function renewingPlanOf(subscription: Stripe.Subscription): RenewingPlan {
+  const planId = subscription.metadata?.plan_id;
+  const trial = subscription.status === "trialing";
+  const end = trial ? subscription.trial_end : (subscription.items.data[0]?.current_period_end ?? null);
+  return {
+    name: isPaidPlanId(planId) ? PLANS[planId].name : "Your plan",
+    endsOn: end ? new Date(end * 1000).toISOString() : null,
+    trial,
+  };
+}
+
+/**
+ * Stops the customer's plans renewing, the way the billing portal's Cancel
+ * does: a plan in good standing runs to the end of what was paid for (a
+ * trial to its last day, with no charge) and then ends; one already behind
+ * on payment ends now, so Stripe stops retrying a card about to be removed.
+ * The plan's credits run until its paid-through date either way.
+ */
+export async function cancelRenewals(stripe: Stripe, subscriptions: Stripe.Subscription[]): Promise<RenewingPlan[]> {
+  const cancelled: RenewingPlan[] = [];
+  for (const subscription of subscriptions) {
+    if (subscription.status === "active" || subscription.status === "trialing") {
+      await stripe.subscriptions.update(subscription.id, { cancel_at_period_end: true });
+      cancelled.push(renewingPlanOf(subscription));
+    } else {
+      await stripe.subscriptions.cancel(subscription.id);
+      cancelled.push({ ...renewingPlanOf(subscription), endsOn: new Date().toISOString() });
+    }
+  }
+  return cancelled;
+}
+
+export type RemoveCardResult =
+  | { ok: true; cancelled: RenewingPlan[] }
+  | { ok: false; status: number; code: "no_card" | "card_in_use" | "stripe_unavailable"; reason: string };
+
+/**
+ * The account's card taken off, from the app — as the billing portal's
+ * Remove does it. A plan that renews depends on the card, so removing it
+ * either cancels those plans first — asked for with `cancelPlan`, after the
+ * screen has said what that means — or is refused (card_in_use), so nobody
+ * is left with a renewal that can only fail. A plan already set to cancel at
+ * the end of its period does not hold the card. The card is detached in
+ * Stripe and forgotten here; the payment_method.detached webhook that
+ * follows finds nothing left to do.
+ */
+export async function removeCard(
+  stripe: Stripe,
+  service: SupabaseClient,
+  userId: string,
+  options: { cancelPlan?: boolean } = {},
+): Promise<RemoveCardResult> {
+  const { data } = await service.from("payment_cards").select("payment_method_id, stripe_customer_id").eq("user_id", userId).maybeSingle();
+  const row = data as { payment_method_id: string; stripe_customer_id: string } | null;
+  if (!row) return { ok: false, status: 404, code: "no_card", reason: "There is no card on file." };
+
+  let renewing: Stripe.Subscription[];
+  try {
+    renewing = await liveSubscriptions(stripe, row.stripe_customer_id);
+  } catch {
+    return { ok: false, status: 502, code: "stripe_unavailable", reason: "Stripe couldn't be reached. Try again." };
+  }
+  let cancelled: RenewingPlan[] = [];
+  if (renewing.length > 0 && options.cancelPlan) {
+    try {
+      cancelled = await cancelRenewals(stripe, renewing);
+    } catch {
+      return { ok: false, status: 502, code: "stripe_unavailable", reason: "Your plan couldn't be cancelled. Nothing was changed — try again." };
+    }
+  } else if (renewing.length > 0) {
+    return {
+      ok: false,
+      status: 409,
+      code: "card_in_use",
+      reason: "Your plan renews on this card. Replace the card, or cancel the plan first, then remove it.",
+    };
+  }
+
+  await stripe.paymentMethods.detach(row.payment_method_id).catch((error: { code?: string }) => {
+    /* Already gone from Stripe is the outcome wanted; anything else is not. */
+    if (error?.code !== "resource_missing") throw error;
+  });
+  await service.from("payment_cards").delete().eq("user_id", userId).eq("payment_method_id", row.payment_method_id);
+  return { ok: true, cancelled };
 }
 
 /**
@@ -95,6 +274,10 @@ export async function rememberCard(
       }
     : { brand: "link", last4: null, expMonth: null, expYear: null };
 
+  /* The card this one replaces, if any — one card on file per account. */
+  const { data: before } = await service.from("payment_cards").select("payment_method_id").eq("user_id", userId).maybeSingle();
+  const replaced = (before as { payment_method_id?: string } | null)?.payment_method_id ?? null;
+
   const { error: saveError } = await service.from("payment_cards").upsert(
     {
       user_id: userId,
@@ -116,6 +299,16 @@ export async function rememberCard(
   await stripe.customers
     .update(customerId, { invoice_settings: { default_payment_method: method.id } })
     .catch(() => undefined);
+
+  /* A replaced card: running plans move to the new one, then the old card
+     comes off Stripe, so the account has one card and renewals charge the
+     card it shows. Best effort — the new card is saved either way. */
+  if (replaced && replaced !== method.id) {
+    for (const subscription of await liveSubscriptions(stripe, customerId)) {
+      await stripe.subscriptions.update(subscription.id, { default_payment_method: method.id }).catch(() => undefined);
+    }
+    await stripe.paymentMethods.detach(replaced).catch(() => undefined);
+  }
 
   const { data, error } = await service.rpc("grant_card_welcome", {
     p_user_id: userId,
@@ -149,12 +342,51 @@ export async function customerFor(
 }
 
 /** A card taken off in Stripe (the billing portal's Remove) is off the
- *  account here too, so card_status asks for one again — free credit or not,
- *  unless the account has funded its way to "suggest". The welcome claim on
- *  its fingerprint stays: adding it back does not grant a second welcome. */
-export async function forgetCard(service: SupabaseClient, paymentMethodId: string): Promise<void> {
+ *  account here too. If the customer still has another card — the usual way
+ *  to replace one in the portal is to add the new card, then remove the old —
+ *  that card becomes the card on file; otherwise there is none, and
+ *  card_status asks for one again (free credit or not, unless the account
+ *  has paid). The welcome claim on the old fingerprint stays: adding it back
+ *  does not grant a second welcome. */
+export async function forgetCard(stripe: Stripe, service: SupabaseClient, paymentMethodId: string): Promise<void> {
+  const { data: row, error: readError } = await service
+    .from("payment_cards")
+    .select("user_id, stripe_customer_id")
+    .eq("payment_method_id", paymentMethodId)
+    .maybeSingle();
+  if (readError) throw new Error(`could not read the detached card: ${readError.message}`);
+  /* Not the card on file (an older one, or never ours): nothing to change. */
+  if (!row) return;
+  const { user_id: userId, stripe_customer_id: customerId } = row as { user_id: string; stripe_customer_id: string };
+
   const { error } = await service.from("payment_cards").delete().eq("payment_method_id", paymentMethodId);
   if (error) throw new Error(`could not remove the detached card: ${error.message}`);
+
+  const [cards, customer] = await Promise.all([
+    stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 10 }),
+    stripe.customers.retrieve(customerId),
+  ]);
+  const preferred = !customer.deleted ? customer.invoice_settings?.default_payment_method : null;
+  const preferredId = typeof preferred === "string" ? preferred : preferred?.id;
+  const next = cards.data.find((card) => card.id === preferredId && card.id !== paymentMethodId) ?? cards.data.find((card) => card.id !== paymentMethodId);
+  if (next) await rememberCard(stripe, service, userId, customerId, next);
+}
+
+/** A card Stripe changed in place — a new expiry from the bank's card
+ *  updater, or details edited in the portal — kept current here, so a
+ *  renewed card is not read as expired and the account locked. */
+export async function refreshCard(service: SupabaseClient, method: Stripe.PaymentMethod): Promise<void> {
+  if (!method.card) return;
+  const { error } = await service
+    .from("payment_cards")
+    .update({
+      brand: method.card.brand ?? null,
+      last4: method.card.last4 ?? null,
+      exp_month: method.card.exp_month ?? null,
+      exp_year: method.card.exp_year ?? null,
+    })
+    .eq("payment_method_id", method.id);
+  if (error) throw new Error(`could not refresh the card: ${error.message}`);
 }
 
 /** What the account has: its card, if any, and whether the welcome is had. */

@@ -1578,14 +1578,24 @@ create table if not exists public.crypto_payments (
   confirmed_at    timestamptz,
   updated_at      timestamptz not null default now(),
 
-  -- A plan order names a paid plan and no packs; a top-up order names packs and
-  -- no plan. Enforced here rather than trusted from the route, because this is
-  -- the shape settle_crypto_payment branches on.
+  -- A plan order names a paid plan and no packs; a top-up order names no
+  -- plan, and its packs when the amount is whole packs (a custom amount has
+  -- none — its credits and amount_usd say what it is). Enforced here rather
+  -- than trusted from the route, because this is the shape
+  -- settle_crypto_payment branches on.
   constraint crypto_payments_purchase_shape check (
     (purchase_kind = 'plan'  and plan_id is not null and plan_id <> 'free' and packs is null)
     or
-    (purchase_kind = 'topup' and packs is not null and packs > 0 and plan_id is null)
+    (purchase_kind = 'topup' and (packs is null or packs > 0) and plan_id is null)
   )
+);
+
+-- The shape above, on a table made before custom top-up amounts.
+alter table public.crypto_payments drop constraint if exists crypto_payments_purchase_shape;
+alter table public.crypto_payments add constraint crypto_payments_purchase_shape check (
+  (purchase_kind = 'plan'  and plan_id is not null and plan_id <> 'free' and packs is null)
+  or
+  (purchase_kind = 'topup' and (packs is null or packs > 0) and plan_id is null)
 );
 
 -- When somebody was last told this order needs a human.
@@ -3711,18 +3721,22 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 -- Who must add a card, and who is only asked.
 --
 -- Like emergent.sh, a card on file is the price of free credit and of using
--- the service at all — with one softening for established customers:
+-- the service at all. Only accounts that have never put a card on file and
+-- never paid are locked; paying unlocks:
 --
---   'ok'        an unexpired card is on file.
---   'suggest'   no card, but the account has put at least $25 into QuickStark
---               and has been with us more than two months: it is asked to add
---               a card (and can dismiss the ask) but keeps working.
+--   'ok'        an unexpired card is on file; or the account paid in crypto
+--               less than card_crypto_remind_after() (8 days) ago.
+--   'suggest'   no card, but the account has paid by card before: asked to
+--               add one (and can dismiss the ask), keeps working.
+--   'suggest'   also: paid in crypto 8 to 15 days ago (card_crypto_lock_after):
+--               asked, with the date it locks (card_deadline).
 --   'suggest'   also: an account the owner gifted credit (credit_ledger.source
 --               = 'admin', written by grant_credits), until it has spent what
 --               it was gifted — that credit is its to use, card or no card.
 --               Signup credit is not: it waits for a card.
---   'required'  everyone else — new accounts, and any account funded below
---               $25 — may not use the service until it adds a card.
+--   'required'  everyone else — new accounts, accounts that took their card
+--               off without ever paying, and crypto payers past the 15 days —
+--               may not use the service until it adds a card.
 --
 -- "Funded" is credit put into the account, in dollars: every top-up line
 -- (card, crypto, or granted by hand) at the top-up pack's rate, and every plan
@@ -3731,8 +3745,9 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 -- crypto). A card counts while it
 -- has not expired.
 --
--- The $25, two months and the pack rate are card_suggest_min_usd(),
--- card_suggest_min_age() and topup_usd_per_credit(); keep the rate in step with
+-- card_status no longer reads card_suggest_min_usd() or
+-- card_suggest_min_age() (the old $25-and-two-months rule); they stay for
+-- anything else that does. The pack rate is topup_usd_per_credit(); keep it in step with
 -- TOP_UP_PACK in src/app/dashboard/credits.ts ($15 for 50 credits).
 --
 -- Read by the server (src/lib/card-gate.ts) before any work is started, and
@@ -3820,8 +3835,48 @@ as $$
     ), 0);
 $$;
 
-create or replace function public.card_status(p_user_id uuid)
-returns text
+-- Paid by card: a Stripe (or, earlier, Paystack) payment on the ledger.
+create or replace function public.card_funded(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.credit_ledger l
+     where l.user_id = p_user_id and l.credits > 0
+       and (l.dedupe_key like 'stripe:%' or l.dedupe_key like 'paystack:%')
+  );
+$$;
+
+-- When the account first paid in crypto, or null.
+create or replace function public.crypto_funded_at(p_user_id uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select min(coalesce(p.confirmed_at, p.updated_at)) from public.crypto_payments p
+   where p.user_id = p_user_id and p.status = 'confirmed';
+$$;
+
+-- A crypto payment unlocks the account without a card for a while: asked
+-- from card_crypto_remind_after(), locked from card_crypto_lock_after(), both
+-- counted from the first crypto payment.
+create or replace function public.card_crypto_remind_after()
+returns interval language sql immutable set search_path = '' as $$ select interval '8 days' $$;
+
+create or replace function public.card_crypto_lock_after()
+returns interval language sql immutable set search_path = '' as $$ select interval '15 days' $$;
+
+-- When an account with no card will be locked out for want of one: its first
+-- crypto payment plus card_crypto_lock_after(). Null when a card is on file,
+-- the account has paid by card, or there is no crypto payment — the screens
+-- show the date in the reminder.
+create or replace function public.card_deadline(p_user_id uuid)
+returns timestamptz
 language sql
 stable
 security definer
@@ -3834,7 +3889,25 @@ as $$
          and (c.exp_year is null
               or (c.exp_year * 100 + coalesce(c.exp_month, 12))
                  >= (extract(year from now())::int * 100 + extract(month from now())::int))
-    ) then 'ok'
+    ) or public.card_funded(p_user_id) then null
+    else public.crypto_funded_at(p_user_id) + public.card_crypto_lock_after()
+  end;
+$$;
+
+-- What card_status would say with no card on file: the rule for an account
+-- without one, and what the screens tell someone before they remove theirs.
+create or replace function public.card_status_without_card(p_user_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    -- Paid by card before: asked to put one on file again, keeps working.
+    when public.card_funded(p_user_id) then 'suggest'
+    -- Paid in crypto: unlocked, unasked, for the first while.
+    when public.crypto_funded_at(p_user_id) > now() - public.card_crypto_remind_after() then 'ok'
     -- Credit the owner gifted — granted by an administrator — is the
     -- account's to use, card or no card. Only that credit: the account may
     -- spend up to what it was gifted (net of corrections), counted from its
@@ -3855,14 +3928,199 @@ as $$
             where a.user_id = p_user_id and a.source = 'admin'
          )
     ) > 0 then 'suggest'
-    when public.funded_usd(p_user_id) >= public.card_suggest_min_usd()
-     and exists (
-       select 1 from auth.users u
-        where u.id = p_user_id and u.created_at <= now() - public.card_suggest_min_age()
-     ) then 'suggest'
+    -- Paid in crypto a while ago: asked, with the date, until the lock.
+    when public.crypto_funded_at(p_user_id) > now() - public.card_crypto_lock_after() then 'suggest'
     else 'required'
   end;
 $$;
+
+create or replace function public.card_status(p_user_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when exists (
+      select 1 from public.payment_cards c
+       where c.user_id = p_user_id
+         and (c.exp_year is null
+              or (c.exp_year * 100 + coalesce(c.exp_month, 12))
+                 >= (extract(year from now())::int * 100 + extract(month from now())::int))
+    ) then 'ok'
+    else public.card_status_without_card(p_user_id)
+  end;
+$$;
+
+-- Whether the account has ever paid for a paid plan — by card (Stripe, or
+-- earlier Paystack) or in crypto. Credit granted by hand and a trial's free
+-- month do not count. Top-ups are open only to such accounts (see
+-- src/lib/top-up-access.ts).
+create or replace function public.paid_for_plan(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.credit_ledger l
+     where l.user_id = p_user_id and l.action = 'grant' and l.credits > 0
+       and (l.dedupe_key like 'stripe:%' or l.dedupe_key like 'paystack:%')
+  ) or exists (
+    select 1 from public.crypto_payments p
+     where p.user_id = p_user_id and p.status = 'confirmed' and p.purchase_kind = 'plan'
+  );
+$$;
+
+revoke all on function public.paid_for_plan(uuid) from public, anon, authenticated;
+grant execute on function public.paid_for_plan(uuid) to service_role;
+
+-- Pay as you go: credit added by hand, any whole-dollar amount up to
+-- top_up_monthly_cap_usd() ($10,000) a calendar month (UTC) per account.
+--
+-- One formula for what a top-up buys, here and in the app
+-- (topUpCreditsFor in src/lib/crypto-payments.ts): dollars at the pack's
+-- rate, to the cent of a credit — $15 → 50, $20 → 66.67, $10,000 →
+-- 33,333.33.
+create or replace function public.top_up_monthly_cap_usd()
+returns numeric language sql immutable set search_path = '' as $$ select 10000::numeric $$;
+
+create or replace function public.top_up_credits_for(p_usd numeric)
+returns numeric
+language sql
+immutable
+set search_path = ''
+as $$
+  select round(p_usd / public.topup_usd_per_credit(), 2);
+$$;
+
+-- What the account has put in by hand this calendar month, in dollars of
+-- credit bought — every paid top-up line, card or crypto, valued at the
+-- pack's rate (the price before tax, in dollars, whatever currency it was
+-- paid in), plus every crypto top-up still open, so orders left waiting
+-- cannot stack past the cap. Open card checkouts are counted by the
+-- checkout route, which can see them. Credit granted by an administrator is
+-- not counted.
+create or replace function public.top_up_spent_usd(p_user_id uuid)
+returns numeric
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select round(
+    coalesce((
+      select sum(l.credits * public.topup_usd_per_credit())
+        from public.credit_ledger l
+       where l.user_id = p_user_id and l.action = 'topup' and l.credits > 0
+         and l.source is distinct from 'admin'
+         and l.created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'
+    ), 0)
+    + coalesce((
+      select sum(p.amount_usd)
+        from public.crypto_payments p
+       where p.user_id = p_user_id and p.purchase_kind = 'topup'
+         and (p.status = 'submitted' or (p.status = 'awaiting_payment' and p.expires_at > now()))
+         and p.created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'
+    ), 0), 2);
+$$;
+
+-- reverse_stripe_top_up — a card top-up refunded or disputed takes its
+-- credits back.
+--
+-- p_target_credits is how much of the top-up should be taken back in all, so
+-- far: its credits in proportion to what has been refunded, or all of them on
+-- a dispute. Called again with the same or a smaller target it does nothing;
+-- with a larger one (a second partial refund) it takes only the difference.
+-- Each target is one ledger line, 'stripe-reversal:<session>:<target in
+-- hundredths>', so a webhook delivered twice changes nothing.
+--
+-- Credit already spent cannot be taken back: the balance stops at zero and
+-- the line says how much was short. Returns the credits taken by this call.
+-- Service role only.
+create or replace function public.reverse_stripe_top_up(
+  p_session_id     text,
+  p_user_id        uuid,
+  p_target_credits numeric,
+  p_reason         text
+)
+returns numeric
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_bought   numeric;
+  v_done     numeric;
+  v_target   numeric;
+  v_owed     numeric;
+  v_top_up   numeric;
+  v_take     numeric;
+begin
+  select l.credits into v_bought
+    from credit_ledger l
+   where l.user_id = p_user_id and l.dedupe_key = 'stripe:' || p_session_id
+     and l.action = 'topup' and l.credits > 0;
+  if v_bought is null then
+    return 0;
+  end if;
+
+  -- One reversal at a time per account.
+  select b.top_up into v_top_up from credit_balances b where b.user_id = p_user_id for update;
+  if not found then
+    return 0;
+  end if;
+
+  v_target := least(round(greatest(p_target_credits, 0), 2), v_bought);
+  select round(coalesce(max(split_part(l.dedupe_key, ':', 3)::numeric / 100), 0), 2) into v_done
+    from credit_ledger l
+   where l.user_id = p_user_id and l.dedupe_key like 'stripe-reversal:' || p_session_id || ':%';
+  v_owed := v_target - v_done;
+  if v_owed <= 0 then
+    return 0;
+  end if;
+
+  v_take := least(v_owed, v_top_up);
+  update credit_balances set top_up = top_up - v_take where user_id = p_user_id;
+  insert into credit_ledger (user_id, action, credits, description, dedupe_key)
+    values (
+      p_user_id, 'topup', -v_take,
+      coalesce(p_reason, 'Top-up reversed')
+        || case when v_take < v_owed then ' (' || (v_owed - v_take) || ' credits already spent)' else '' end,
+      'stripe-reversal:' || p_session_id || ':' || (v_target * 100)::bigint
+    )
+    on conflict (user_id, dedupe_key) where dedupe_key is not null do nothing;
+  return v_take;
+end;
+$$;
+
+revoke all on function public.reverse_stripe_top_up(text, uuid, numeric, text) from public, anon, authenticated;
+grant execute on function public.reverse_stripe_top_up(text, uuid, numeric, text) to service_role;
+
+-- How much more the account may top up this month, in dollars.
+create or replace function public.top_up_room_usd(p_user_id uuid)
+returns numeric
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select greatest(0, public.top_up_monthly_cap_usd() - public.top_up_spent_usd(p_user_id));
+$$;
+
+revoke all on function public.top_up_spent_usd(uuid) from public, anon, authenticated;
+grant execute on function public.top_up_spent_usd(uuid) to service_role;
+revoke all on function public.top_up_room_usd(uuid) from public, anon, authenticated;
+grant execute on function public.top_up_room_usd(uuid) to service_role;
+
+-- A crypto top-up order credits exactly what its price buys. NOT VALID: it
+-- holds every order from here on; earlier ones were whole packs, which agree.
+alter table public.crypto_payments drop constraint if exists crypto_payments_top_up_credits;
+alter table public.crypto_payments add constraint crypto_payments_top_up_credits check (
+  purchase_kind <> 'topup' or credits = public.top_up_credits_for(amount_usd)
+) not valid;
 
 create or replace function public.card_required(p_user_id uuid)
 returns boolean
@@ -3878,6 +4136,14 @@ revoke all on function public.funded_usd(uuid) from public, anon, authenticated;
 grant execute on function public.funded_usd(uuid) to service_role;
 revoke all on function public.card_status(uuid) from public, anon, authenticated;
 grant execute on function public.card_status(uuid) to service_role;
+revoke all on function public.card_status_without_card(uuid) from public, anon, authenticated;
+grant execute on function public.card_status_without_card(uuid) to service_role;
+revoke all on function public.card_funded(uuid) from public, anon, authenticated;
+grant execute on function public.card_funded(uuid) to service_role;
+revoke all on function public.crypto_funded_at(uuid) from public, anon, authenticated;
+grant execute on function public.crypto_funded_at(uuid) to service_role;
+revoke all on function public.card_deadline(uuid) from public, anon, authenticated;
+grant execute on function public.card_deadline(uuid) to service_role;
 revoke all on function public.card_required(uuid) from public, anon, authenticated;
 grant execute on function public.card_required(uuid) to service_role;
 

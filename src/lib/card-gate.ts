@@ -2,16 +2,18 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripeSecretKey } from "@/lib/stripe-key";
 
-/* No card, no service — except for established customers.
+/* No card, no service — unless the account has paid.
  *
  * public.card_status() in supabase/schema.sql decides, the way emergent.sh
  * does it:
- *   ok        an unexpired card is on file.
- *   suggest   no card, but the account has put $25 or more in and has been
- *             with us over two months: asked to add one, keeps working.
- *   required  everyone else — new accounts and any account funded below $25 —
- *             must save a card first (Stripe setup mode, never charged; see
- *             src/lib/stripe-card.ts).
+ *   ok        an unexpired card is on file, or a crypto payment in the last
+ *             8 days.
+ *   suggest   no card, but the account paid by card before, or in crypto 8
+ *             to 15 days ago: asked to add one, keeps working.
+ *   required  everyone else — new accounts, cards taken off without ever
+ *             paying, crypto payers past 15 days — must save a card first
+ *             (see src/lib/stripe-card.ts; a new account's card starts a free
+ *             month of a plan, lib/stripe-plan.ts).
  *
  * Asked before work starts, in every route that spends credits. A database
  * error lets the request through and is logged: a hiccup reading this must not
@@ -19,7 +21,7 @@ import { stripeSecretKey } from "@/lib/stripe-key";
 
 export const CARD_REQUIRED_CODE = "card_required";
 export const CARD_REQUIRED_MESSAGE =
-  "Add a card to keep using QuickStark. You won't be charged — your bank just confirms the card is real.";
+  "Add a card to keep using QuickStark. Nothing is charged today — your bank just confirms the card is real.";
 
 export type CardStatus = "ok" | "suggest" | "required";
 

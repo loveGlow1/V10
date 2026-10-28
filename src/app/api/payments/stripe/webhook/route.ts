@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { alertOncePerDay, sendOperatorAlert } from "@/lib/operator-alert";
-import { cardSessionUser, forgetCard, recordCardSetup } from "@/lib/stripe-card";
-import { isSessionPaid, settleCheckoutSession, settlePaidInvoice } from "@/lib/stripe-fulfillment";
+import { cardSessionUser, forgetCard, recordCardSetup, refreshCard } from "@/lib/stripe-card";
+import { isSessionPaid, reverseTopUpForCharge, settleCheckoutSession, settlePaidInvoice } from "@/lib/stripe-fulfillment";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { stripeSecretKey } from "@/lib/stripe-key";
 
@@ -36,8 +36,15 @@ import { stripeSecretKey } from "@/lib/stripe-key";
  *   checkout.session.async_payment_failed    — a pending payment failed
  *   checkout.session.expired                 — abandoned; nothing to fulfill
  *   payment_method.detached                  — a card removed (billing portal):
- *                                             off the account, so the card
- *                                             gate asks for one again
+ *                                             off the account — another card
+ *                                             the customer has takes its place,
+ *                                             else the card gate asks again
+ *   payment_method.updated,
+ *   payment_method.automatically_updated     — a card's new expiry (the bank's
+ *                                             card updater) kept current
+ *   charge.refunded                          — a card top-up's credits back, in
+ *                                             proportion to what was refunded
+ *   charge.dispute.created                   — a disputed top-up's credits back
  */
 
 export const runtime = "nodejs";
@@ -107,7 +114,28 @@ export async function POST(request: Request) {
       case "payment_method.detached": {
         const service = createSupabaseServiceClient();
         if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
-        await forgetCard(service, event.data.object.id);
+        await forgetCard(stripe, service, event.data.object.id);
+        break;
+      }
+      case "payment_method.updated":
+      case "payment_method.automatically_updated": {
+        const service = createSupabaseServiceClient();
+        if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+        await refreshCard(service, event.data.object);
+        break;
+      }
+      case "charge.refunded": {
+        const service = createSupabaseServiceClient();
+        if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+        await reverseTopUpForCharge(service, stripe, event.data.object, false);
+        break;
+      }
+      case "charge.dispute.created": {
+        const service = createSupabaseServiceClient();
+        if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+        const dispute = event.data.object;
+        const charge = typeof dispute.charge === "string" ? await stripe.charges.retrieve(dispute.charge) : dispute.charge;
+        await reverseTopUpForCharge(service, stripe, charge, true);
         break;
       }
       default:

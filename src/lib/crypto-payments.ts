@@ -223,12 +223,31 @@ export type PaidPlanId = Exclude<PlanId, "free">;
 export type Purchase =
   /** A month, or a year, of a paid plan. `months` absent means one. */
   | { kind: "plan"; planId: PaidPlanId; months?: PlanMonths }
-  /** One or more top-up packs. */
-  | { kind: "topup"; packs: number };
+  /** Credit added by hand: any whole-dollar amount, credited at the top-up
+   *  pack's rate. Balance only — whatever the amount, it unlocks no plan's
+   *  models or perks; those come with a plan. */
+  | { kind: "topup"; usd: number };
 
 /** The most packs one order may carry. A cap rather than a limit anybody will
  *  reach: it stops a typo turning a $10 order into a $10,000 one. */
 export const MAX_TOP_UP_PACKS = 20;
+
+/** Pay as you go: a top-up typed in by hand, in whole dollars, from one
+ *  pack's price ($15) to the most an account may add in a month. Only
+ *  accounts that have paid for a plan may top up at all, and no more than
+ *  MONTHLY_TOP_UP_CAP_USD a calendar month in total — see
+ *  lib/top-up-access.ts and top_up_room_usd in supabase/schema.sql. */
+export const MONTHLY_TOP_UP_CAP_USD = 10_000;
+export const MIN_TOP_UP_USD = TOP_UP_PACK.priceUsd;
+export const MAX_TOP_UP_USD = MONTHLY_TOP_UP_CAP_USD;
+
+/** The credits a top-up of `usd` buys: the pack's rate, to the cent of a
+ *  credit ($15 → 50, $20 → 66.67, $10,000 → 33,333.33). The database
+ *  computes it the same way (top_up_credits_for) and holds a crypto order
+ *  to it. */
+export function topUpCreditsFor(usd: number): number {
+  return Math.round(((usd * TOP_UP_PACK.credits) / TOP_UP_PACK.priceUsd) * 100) / 100;
+}
 
 export function isPaidPlanId(value: unknown): value is PaidPlanId {
   return typeof value === "string" && value in PLANS && value !== "free";
@@ -237,7 +256,7 @@ export function isPaidPlanId(value: unknown): value is PaidPlanId {
 /** Reads a purchase out of whatever a caller sent, or returns null. */
 export function readPurchase(value: unknown): Purchase | null {
   if (!value || typeof value !== "object") return null;
-  const input = value as { kind?: unknown; planId?: unknown; packs?: unknown; months?: unknown };
+  const input = value as { kind?: unknown; planId?: unknown; packs?: unknown; usd?: unknown; months?: unknown };
 
   if (input.kind === "plan") {
     if (!isPaidPlanId(input.planId)) return null;
@@ -252,9 +271,15 @@ export function readPurchase(value: unknown): Purchase | null {
   }
 
   if (input.kind === "topup") {
+    /* A dollar amount; or, from older screens and links, a pack count. */
+    if (input.usd !== undefined && input.usd !== null && input.usd !== "") {
+      const usd = Number(input.usd);
+      if (!Number.isInteger(usd) || usd < MIN_TOP_UP_USD || usd > MAX_TOP_UP_USD) return null;
+      return { kind: "topup", usd };
+    }
     const packs = Number(input.packs);
     if (!Number.isInteger(packs) || packs < 1 || packs > MAX_TOP_UP_PACKS) return null;
-    return { kind: "topup", packs };
+    return { kind: "topup", usd: packs * TOP_UP_PACK.priceUsd };
   }
 
   return null;
@@ -264,7 +289,7 @@ export function readPurchase(value: unknown): Purchase | null {
 export function purchasePriceUsd(purchase: Purchase): number {
   return purchase.kind === "plan"
     ? planPriceUsd(purchase.planId, purchase.months === 12 ? 12 : 1)
-    : purchase.packs * TOP_UP_PACK.priceUsd;
+    : purchase.usd;
 }
 
 /** Months of plan a purchase covers: 1 for a monthly plan, 12 for annual, 0 for
@@ -279,7 +304,7 @@ export function planMonths(purchase: Purchase): PlanMonths | 0 {
 export function purchaseCredits(purchase: Purchase): number {
   return purchase.kind === "plan"
     ? PLANS[purchase.planId].monthlyCredits
-    : purchase.packs * TOP_UP_PACK.credits;
+    : topUpCreditsFor(purchase.usd);
 }
 
 /** The line item, as it reads on the order summary and in the ledger. */
@@ -289,9 +314,7 @@ export function purchaseLabel(purchase: Purchase): string {
       ? `${PLANS[purchase.planId].name} (annual)`
       : PLANS[purchase.planId].name;
   }
-  return purchase.packs === 1
-    ? `${TOP_UP_PACK.credits} credit top-up`
-    : `${purchase.packs} × ${TOP_UP_PACK.credits} credit top-up`;
+  return `${topUpCreditsFor(purchase.usd)} credit top-up`;
 }
 
 /** How the charge recurs, in the two words a summary line has room for. */

@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import {
-  purchaseCredits,
-  purchaseLabel,
-  purchasePriceUsd,
-  readPurchase,
-} from "@/lib/crypto-payments";
-import { ANNUAL_DISCOUNT, PLANS } from "@/app/dashboard/credits";
+import { purchaseCredits, readPurchase } from "@/lib/crypto-payments";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { stripeSecretKey } from "@/lib/stripe-key";
 import { customerFor } from "@/lib/stripe-card";
+import { lineItemFor } from "@/lib/stripe-plan";
+import { refuseTopUp } from "@/lib/top-up-access";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Hosted Stripe Checkout — the card twin of /api/payments/crypto.
@@ -42,10 +38,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  * never in .env (that file is committed). No key means every call is refused.
  */
 
-/* The Stripe tax category every QuickStark product is sold under: Software as
-   a Service, business use. Chosen by the owner; required by Managed Payments,
-   which rejects a line item without an eligible code. */
-const PRODUCT_TAX_CODE = "txcd_10103001";
+/* How long a top-up checkout stays open: Stripe's shortest allowed. */
+const TOP_UP_SESSION_MINUTES = 30;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,8 +77,26 @@ export async function POST(request: Request) {
   if (!purchase) {
     return NextResponse.json({ error: "Choose a plan or a top-up to pay for." }, { status: 400 });
   }
-
   const stripe = new Stripe(secretKey);
+  const service = createSupabaseServiceClient();
+  /* Every purchase is on the account's one Stripe customer — the one its
+     card is on — so the billing portal shows plans, top-ups and the card
+     together, and this account's unfinished checkouts can be found. */
+  const customer = service ? await customerFor(stripe, service, user).catch(() => null) : null;
+
+  /* A top-up counts card checkouts this account has open (each expires after
+     TOP_UP_SESSION_MINUTES) against the month's limit, so several tabs
+     opened at once cannot pass it between them. */
+  if (purchase.kind === "topup") {
+    if (!customer) return NextResponse.json({ error: "Temporarily unavailable, please retry." }, { status: 503 });
+    const open = await stripe.checkout.sessions.list({ customer, status: "open", limit: 100 }).catch(() => null);
+    if (!open) return NextResponse.json({ error: "Stripe couldn't be reached. Try again." }, { status: 502 });
+    const pendingUsd = open.data
+      .filter((session) => session.metadata?.kind === "topup")
+      .reduce((sum, session) => sum + (Number(session.metadata?.usd) || 0), 0);
+    const refused = await refuseTopUp(service, user.id, purchase.usd, pendingUsd);
+    if (refused) return refused;
+  }
 
   const credits = purchaseCredits(purchase);
   const plan = purchase.kind === "plan";
@@ -94,11 +106,7 @@ export async function POST(request: Request) {
   const metadata: Record<string, string> =
     purchase.kind === "plan"
       ? { user_id: user.id, kind: "plan", plan_id: purchase.planId, months: String(purchase.months === 12 ? 12 : 1) }
-      : { user_id: user.id, kind: "topup", credits: String(credits) };
-  /* A plan renews on the account's own Stripe customer — the one its card is
-     on — so the billing portal shows the plan beside the card. */
-  const service = plan ? createSupabaseServiceClient() : null;
-  const customer = plan && service ? await customerFor(stripe, service, user).catch(() => null) : null;
+      : { user_id: user.id, kind: "topup", credits: String(credits), usd: String(purchase.usd) };
 
   const params: Stripe.Checkout.SessionCreateParams = {
     // Checkout Studio
@@ -116,39 +124,18 @@ export async function POST(request: Request) {
        handles tax), invoice_creation (Stripe issues the invoice),
        payment_method_types / payment_method_configuration, tax_id_collection,
        custom_text and shipping. Every product needs an eligible tax code
-       (PRODUCT_TAX_CODE below). */
+       (PRODUCT_TAX_CODE in lib/stripe-plan.ts). */
     managed_payments: { enabled: true },
     mode,
     success_url: `${SITE_URL}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${SITE_URL}/dashboard?checkout=cancelled`,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(purchasePriceUsd(purchase) * 100),
-          ...(purchase.kind === "plan" ? { recurring: { interval: purchase.months === 12 ? ("year" as const) : ("month" as const) } } : {}),
-          product_data: {
-            name:
-              purchase.kind !== "plan"
-                ? `QuickStark ${purchaseLabel(purchase)}`
-                : purchase.months === 12
-                  ? `QuickStark ${PLANS[purchase.planId].name} plan — yearly`
-                  : `QuickStark ${PLANS[purchase.planId].name} plan — monthly`,
-            description:
-              purchase.kind !== "plan"
-                ? `${credits} credits. Top-up credits never expire.`
-                : purchase.months === 12
-                  ? `${credits} credits every month. Renews every year; cancel anytime. ${Math.round(ANNUAL_DISCOUNT * 100)}% less than monthly.`
-                  : `${credits} credits every month. Renews monthly; cancel anytime.`,
-            tax_code: PRODUCT_TAX_CODE,
-          },
-        },
-      },
-    ],
-    /* The account's own customer for a plan; otherwise the signed-in
-       account's email, so the buyer does not type it and the receipt goes
-       where the account's mail goes, and a Customer for every purchase. The
+    /* A top-up's checkout holds its place under the monthly limit, so it
+       lapses soon rather than after Stripe's default day. */
+    ...(plan ? {} : { expires_at: Math.floor(Date.now() / 1000) + TOP_UP_SESSION_MINUTES * 60 }),
+    line_items: [lineItemFor(purchase)],
+    /* The account's own customer; only if that could not be had (a plan
+       still sells), the signed-in account's email, so the buyer does not
+       type it and the receipt goes where the account's mail goes. The
        invoice and receipt are issued by Stripe under Managed Payments, so
        invoice_creation is not sent. */
     ...(customer
