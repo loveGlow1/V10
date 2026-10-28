@@ -201,6 +201,16 @@ function getSupabaseClientCreationFailureMessage(error: unknown) {
    at a time. Imported from credits.ts, which both checkouts charge from, so the card cannot
    advertise a figure the checkout does not take. */
 
+/* Where to go once signed in. The dashboard, unless the page that sent someone
+   here to sign in asked to have them back — /oauth/consent does, when an AI
+   assistant is being connected. Same-origin paths only, so `?next=` cannot
+   bounce anyone to another site off a real sign-in. */
+function afterSignIn(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  return next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard";
+}
+
 function formatPrice(value: number) {
   return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
 }
@@ -543,14 +553,9 @@ export default function LandingPage() {
     setAnnualTiers((current) => ({ ...current, [name]: !current[name] }));
   const heroAuthButtonsRowRef = useRef<HTMLDivElement | null>(null);
 
-  /* Where to go once signed in: the dashboard, or the same-site path a link
-     sent them here to finish (?next=) — connecting an MCP server, for one,
-     resumes rather than being lost to the sign-in. An API path is a full
-     navigation, not a client route. */
-  const afterSignIn = useCallback(() => {
-    const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") ?? "" : "";
-    return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/dashboard";
-  }, []);
+  /* Once signed in: afterSignIn() (the dashboard, or a same-site ?next=).
+     An API path — connecting an MCP server, for one — is a full navigation,
+     not a client route. */
   const goAfterSignIn = useCallback(
     (replace = false) => {
       const next = afterSignIn();
@@ -558,7 +563,7 @@ export default function LandingPage() {
       else if (replace) router.replace(next);
       else router.push(next);
     },
-    [afterSignIn, router],
+    [router],
   );
 
   // Redirect already-authenticated users straight on — the dashboard, or ?next=.
@@ -576,6 +581,15 @@ export default function LandingPage() {
 
     return () => subscription.unsubscribe();
   }, [goAfterSignIn]);
+
+  /* Sent here to sign in by a page that wants them back (see afterSignIn):
+     open the sign-in straight away rather than leaving them to find it. */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("signin") === "1") {
+      setAuthModalInitialStep("options");
+      setAuthModalOpen(true);
+    }
+  }, []);
 
   // The auth callback cannot render anything itself, so it hands failures back
   // on the URL. Show them once, then clear the parameter so a refresh is clean.

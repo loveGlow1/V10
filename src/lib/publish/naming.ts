@@ -29,6 +29,10 @@ import { PUBLISH_SUBDOMAIN, SITE_URL } from "@/lib/site";
  * check-publish.mjs compares the two and fails when they drift. */
 const APP_ROUTES = [
   "api", "auth", "dashboard", "preview", "pricing", "privacy", "terms", "site",
+  /* The MCP server's sign-in: the consent page, and the discovery documents
+     at /.well-known — listed as on disk and as a slug would spell it, since a
+     slug cannot start with a dot. See docs/MCP.md. */
+  "oauth", ".well-known", "well-known",
   /* Served from inside the (agent) route group: a group adds no segment, so
      its pages answer at the top level — /session/<id>. */
   "session",

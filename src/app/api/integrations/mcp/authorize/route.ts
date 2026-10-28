@@ -28,11 +28,12 @@ export async function GET(request: Request) {
   const user = supabase ? (await supabase.auth.getUser()).data.user : null;
   /* Signed out: to sign in, and straight back here afterwards, so the link
      that started this connection still finishes it (the home page honours a
-     same-site ?next=). */
+     same-site ?next=, and ?signin=1 opens its sign-in straight away). */
   if (!supabase || !user) {
     const here = new URL(request.url);
     const signIn = new URL("/", request.url);
     signIn.searchParams.set("next", `${here.pathname}${here.search}`);
+    signIn.searchParams.set("signin", "1");
     return NextResponse.redirect(signIn);
   }
 
