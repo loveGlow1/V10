@@ -6,6 +6,7 @@ import {
   verifySettlement,
 } from "@/lib/crypto-payments-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { sendCryptoReceipt } from "@/lib/crypto-receipt";
 
 /* Where a payment becomes credits.
  *
@@ -125,6 +126,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Could not settle that payment." }, { status: 500 });
     }
 
+    /* The customer's receipt — once per order; see lib/crypto-receipt.ts. */
+    await sendCryptoReceipt(service, paymentId);
     return NextResponse.json({ paymentId, status: "confirmed" });
   }
 

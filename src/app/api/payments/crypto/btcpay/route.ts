@@ -7,6 +7,7 @@ import {
   verifyBtcPayWebhook,
 } from "@/lib/btcpay";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { sendCryptoReceipt } from "@/lib/crypto-receipt";
 
 /* The thing that was missing: something that notices a payment arrived.
  *
@@ -143,6 +144,9 @@ export async function POST(request: Request) {
        success grants nothing twice. */
     return NextResponse.json({ error: "Could not settle that payment." }, { status: 500 });
   }
+
+  /* The customer's receipt — once per order; see lib/crypto-receipt.ts. */
+  await sendCryptoReceipt(service, invoice.orderId);
 
   return NextResponse.json({ ok: true, settled: true, paymentId: invoice.orderId });
 }

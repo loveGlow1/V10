@@ -240,6 +240,19 @@ export default function DashboardPage() {
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
+  /* ?settings=<pane> opens Settings on that pane (the old /dashboard/settings
+     address sends people here), and leaves the address bar. */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const pane = url.searchParams.get("settings");
+    if (!pane) return;
+    const panes: SettingsSection[] = ["project", "members", "budget", "usage", "account", "key", "agents", "preferences", "plans", "credits"];
+    setSettingsSection(panes.includes(pane as SettingsSection) ? (pane as SettingsSection) : "account");
+    setAccountSettingsOpen(true);
+    url.searchParams.delete("settings");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   /* Back from signing in to an MCP server (?mcp=…&server=…): Settings opens on
      the MCP tab saying how it went, and the parameters leave the address bar so
      a reload does not say it again. */

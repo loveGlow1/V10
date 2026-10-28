@@ -152,10 +152,12 @@ export async function POST(request: Request) {
     );
   }
 
+  /* Where the receipt goes: the address typed in, else the account's own, so
+     every deposit and plan bought in crypto has one, as a card payment does. */
   const receiptEmail =
     typeof body.receiptEmail === "string" && body.receiptEmail.trim()
       ? body.receiptEmail.trim().slice(0, 320)
-      : null;
+      : user.email ?? null;
 
   if (receiptEmail && !isPlausibleEmail(receiptEmail)) {
     return NextResponse.json(

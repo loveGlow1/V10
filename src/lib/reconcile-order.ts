@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addressFunding, btcToSats, fundingTxid } from "./chain-watch";
 import { decideLateOrder, decideOrder } from "./reconcile-decision";
 import type { AddressFunding } from "./chain-watch";
+import { sendCryptoReceipt } from "@/lib/crypto-receipt";
 
 /* Reconciling ONE order against the chain.
  *
@@ -165,6 +166,8 @@ export async function reconcileOrder(
     }
 
     if (txid) usedTxids.add(txid);
+    /* The customer's receipt — once per order; see lib/crypto-receipt.ts. */
+    await sendCryptoReceipt(service, order.id);
     return { kind: "settled", txid };
   }
 

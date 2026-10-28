@@ -26,7 +26,7 @@
  * No keys, no network.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -80,6 +80,13 @@ for (const file of sources(join(root, "src"))) {
    and a generated project's own tables are created per project at build time
    by provision.ts rather than declared here. */
 const NOT_TABLES = new Set(["project-attachments", "attachments", "avatars", "assets", "flyers"]);
+/* And every bucket the schema itself creates, read off its storage.buckets
+   inserts, so a bucket added there is never mistaken for a missing table. */
+for (const file of ["supabase/schema.sql", "supabase/assets-schema.sql"]) {
+  const path = join(root, file);
+  if (!existsSync(path)) continue;
+  for (const m of readFileSync(path, "utf8").matchAll(/insert into storage\.buckets[^;]*?values\s*\(\s*'([^']+)'/g)) NOT_TABLES.add(m[1]);
+}
 
 let failed = 0;
 const missing = [];

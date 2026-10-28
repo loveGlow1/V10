@@ -334,8 +334,20 @@ const NEXT_FILE_ROUTES = [
   "icon.tsx", "apple-icon.tsx", "opengraph-image.tsx", "twitter-image.tsx",
 ];
 
+/* A route group — a folder named in parentheses, like (agent) — adds no
+   segment of its own: the folders inside it are top-level routes. */
+const routeDirs = entries
+  .filter((entry) => entry.isDirectory())
+  .flatMap((entry) =>
+    /^\(.+\)$/.test(entry.name)
+      ? readdirSync(join(appDir, entry.name), { withFileTypes: true })
+          .filter((inner) => inner.isDirectory() && !inner.name.startsWith("[") && !inner.name.startsWith("_"))
+          .map((inner) => inner.name)
+      : [entry.name],
+  );
+
 const topLevel = [
-  ...entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+  ...routeDirs,
   ...entries
     .filter((entry) => !entry.isDirectory() && NEXT_FILE_ROUTES.includes(entry.name))
     .map((entry) => entry.name.replace(/\.[^.]+$/, "")),

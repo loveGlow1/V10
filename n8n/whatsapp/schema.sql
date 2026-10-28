@@ -75,7 +75,7 @@ create index if not exists wa_contacts_lead_at on public.wa_contacts (lead_at);
 -- The engine always inserts a contact's new state: if the contact exists, its row
 -- is updated instead, keeping what that step does not send (memory, lead times).
 create or replace function public.wa_contacts_upsert() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = public as $$
 begin
   update public.wa_contacts set
     client_id = new.client_id, instance = new.instance, phone = new.phone, name = new.name,

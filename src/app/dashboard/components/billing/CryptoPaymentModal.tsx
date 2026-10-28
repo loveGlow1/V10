@@ -259,7 +259,7 @@ export default function CryptoPaymentModal({
     const receiptEmail = email.trim();
 
     if (receiptEmail && !isPlausibleEmail(receiptEmail)) {
-      setError("That email address does not look right. Leave it blank to skip the receipt.");
+      setError("That email address does not look right. Leave it blank to use your account's email.");
       return;
     }
 
@@ -614,8 +614,8 @@ function CurrencyStep({
             />
           </label>
           <p className="mt-1.5 px-1 text-[11px] font-medium text-muted">
-            Optional. Credits land in your account either way — this is only where the receipt is
-            sent.
+            Optional. Leave it blank and the receipt goes to your account&apos;s email. Credits land
+            in your account either way.
           </p>
 
           {error && (
