@@ -148,6 +148,15 @@ export async function customerFor(
   return made.id;
 }
 
+/** A card taken off in Stripe (the billing portal's Remove) is off the
+ *  account here too, so card_status asks for one again — free credit or not,
+ *  unless the account has funded its way to "suggest". The welcome claim on
+ *  its fingerprint stays: adding it back does not grant a second welcome. */
+export async function forgetCard(service: SupabaseClient, paymentMethodId: string): Promise<void> {
+  const { error } = await service.from("payment_cards").delete().eq("payment_method_id", paymentMethodId);
+  if (error) throw new Error(`could not remove the detached card: ${error.message}`);
+}
+
 /** What the account has: its card, if any, and whether the welcome is had. */
 export async function cardStatus(
   service: SupabaseClient,

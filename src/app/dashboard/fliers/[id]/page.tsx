@@ -21,6 +21,8 @@ import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Download, Loader2, PenLine, RefreshCw, Trash2, X } from "lucide-react";
 
+import { cardNeeded } from "../../components/billing/CardWelcome";
+
 type Image = { path: string; provider: string; url: string | null };
 type Job = {
   id: string;
@@ -78,6 +80,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
   /* Four more of the same brief, as a new flier of their own. */
   async function more() {
     if (!job) return;
+    if (await cardNeeded()) return;
     setBusy("again");
     setNote(null);
     const response = await fetch("/api/flyers", {

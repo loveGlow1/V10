@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
 import { alertOncePerDay, sendOperatorAlert } from "@/lib/operator-alert";
-import { cardSessionUser, recordCardSetup } from "@/lib/stripe-card";
+import { cardSessionUser, forgetCard, recordCardSetup } from "@/lib/stripe-card";
 import { isSessionPaid, settleCheckoutSession, settlePaidInvoice } from "@/lib/stripe-fulfillment";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { stripeSecretKey } from "@/lib/stripe-key";
@@ -35,6 +35,9 @@ import { stripeSecretKey } from "@/lib/stripe-key";
  *                                             the first and every renewal
  *   checkout.session.async_payment_failed    — a pending payment failed
  *   checkout.session.expired                 — abandoned; nothing to fulfill
+ *   payment_method.detached                  — a card removed (billing portal):
+ *                                             off the account, so the card
+ *                                             gate asks for one again
  */
 
 export const runtime = "nodejs";
@@ -99,6 +102,12 @@ export async function POST(request: Request) {
         const service = createSupabaseServiceClient();
         if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
         await settlePaidInvoice(service, stripe, event.data.object);
+        break;
+      }
+      case "payment_method.detached": {
+        const service = createSupabaseServiceClient();
+        if (!service) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
+        await forgetCard(service, event.data.object.id);
         break;
       }
       default:

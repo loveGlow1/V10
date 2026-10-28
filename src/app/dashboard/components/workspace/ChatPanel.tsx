@@ -76,7 +76,7 @@ import {
   uploadAttachment,
   type Attachment,
 } from "@/lib/project-attachments";
-import { CardWelcomeBanner } from "../billing/CardWelcome";
+import { CardWelcomeBanner, cardNeeded } from "../billing/CardWelcome";
 
 /* What the panel renders, which is a stored message plus a key to render it by.
    The shape itself lives in @/lib/project-messages, because the thread is now
@@ -1252,6 +1252,10 @@ export default function ChatPanel({
        a resend behind a confirmation cannot slip past them into a spinner. The
        server refuses it too — this only saves the round trip. */
     if (paused) return;
+    /* An account that must add a card is asked in the gate, over the screen,
+       and the message stays in the box — not told in the thread after it was
+       sent. Answers behind a confirmation went through this already. */
+    if (!options.silent && (await cardNeeded())) return;
 
     /* Only an ordinary message is planned. Undo, the visual editor, the yes to
        a question the builder asked — those are answers, and keep doing what
@@ -1427,6 +1431,13 @@ export default function ChatPanel({
            stops in the middle. */
         for (const step of reply.steps ?? []) phases.show(step);
         await phases.flush();
+        /* Refused for want of a card (the last read said otherwise — the card
+           was removed since): the gate says so, not the thread. */
+        if (await cardNeeded(true)) {
+          if (prompt === undefined) setDraft(text);
+          setAttached(sent);
+          return;
+        }
         say(
           {
             from: "system",

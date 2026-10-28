@@ -19,6 +19,9 @@ import { useCredits } from "../../useCredits";
  *                      and holding the free credit it got at signup) sees
  *                      only this until it adds one. The server refuses its
  *                      work too — see lib/card-gate.ts. In the layout.
+ *                      "Continue without card" closes it, and it comes back
+ *                      the moment they try to send or build — see
+ *                      cardNeeded — before any free credit is touched.
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
  *
@@ -48,8 +51,9 @@ function saidNotNow(): boolean {
 }
 
 /* "Continue without card" on the gate, likewise for this visit. It only lets
-   them look around: the server still refuses credit-spending work without a
-   card (lib/card-gate.ts), so nothing is given away. */
+   them look around: the gate opens again on the next send (cardNeeded), and
+   the server still refuses credit-spending work without a card
+   (lib/card-gate.ts), so nothing is given away. */
 const SKIPPED_GATE = "qs-card-gate-skipped";
 function skippedGate(): boolean {
   try {
@@ -60,6 +64,8 @@ function skippedGate(): boolean {
 }
 
 const CHANGED = "qs:card-changed";
+/* Asks the gate to open again, over a skip: someone tried to build. */
+const NEEDED = "qs:card-needed";
 
 /* Back from Stripe with a card, its confirmation still on its way: the gate
    holds off rather than flashing "Add card" over "Card verified". */
@@ -103,6 +109,23 @@ function useCardStatus() {
     };
   }, [load]);
   return status;
+}
+
+/** Whether an action must wait for a card — and if so, the gate is opened
+ *  over the screen. Called before a send or a build, so the person is asked
+ *  in the gate rather than told in the composer, and before any free credit
+ *  is spent. `fresh` reads again rather than trusting the last minute's
+ *  answer: for after the server has refused. Any doubt lets the action
+ *  through; the server has the last word either way. */
+export async function cardNeeded(fresh = false): Promise<boolean> {
+  if (confirming) return false;
+  const status = await readStatus(fresh);
+  if (!status?.configured || !status.required) return false;
+  window.dispatchEvent(new Event(NEEDED));
+  /* And the gate redraws from this read — its own may be from before the
+     card was removed. */
+  window.dispatchEvent(new Event(CHANGED));
+  return true;
 }
 
 /** Off to Stripe's page to save a card, coming back to where this was. */
@@ -279,7 +302,13 @@ export function CardGate() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(false);
-  useEffect(() => setSkipped(skippedGate()), []);
+  useEffect(() => {
+    setSkipped(skippedGate());
+    /* A skip lasts until they try to build: then it is asked again. */
+    const needed = () => setSkipped(false);
+    window.addEventListener(NEEDED, needed);
+    return () => window.removeEventListener(NEEDED, needed);
+  }, []);
 
   if (skipped || confirming || !status?.required || !status.configured) return null;
   const holding = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;
@@ -351,7 +380,7 @@ export function CardGate() {
           Continue without card
         </button>
         <p className="mt-3 text-center text-[11.5px] text-muted">
-          Secured by Stripe. Without a card you can look around, but building stays locked.
+          Secured by Stripe. Without a card you can look around. You'll be asked again when you build.
         </p>
         <button
           type="button"
