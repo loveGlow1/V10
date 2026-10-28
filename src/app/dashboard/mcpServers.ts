@@ -43,8 +43,8 @@ export type McpServer = {
 };
 
 /* The servers offered out of the box — the Connectors directory in Settings.
-   A connection saved here is stored against the account; nothing runs the
-   server during a build yet, which the pane says plainly. */
+   A connection saved here is used read-only by the coding agent, and by a
+   build whose request draws on it — see lib/mcp/runtime.ts. */
 
 export const MCP_SERVERS: McpServer[] = [
   {

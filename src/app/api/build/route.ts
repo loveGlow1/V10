@@ -287,6 +287,7 @@ import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { screenRequest } from "@/lib/safety/policy";
+import { gatherConnectorContext } from "@/lib/mcp/runtime";
 
 /* Where a build is started.
  *
@@ -5783,10 +5784,21 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       ? composeBuildPrompt(kind.kind, buildBrief, promptContext)
       : systemPrompt;
 
+    /* What the request asks of the person's connected apps ("use my Stripe
+       products"), read here on the server and handed over as data — the
+       orchestrator never holds a token. See lib/mcp/runtime.ts. */
+    const fromConnectors = service ? await gatherConnectorContext(service, user.id, prompt) : null;
+    if (fromConnectors?.used.length) steps.mark("connectors", `Read ${fromConnectors.used.join(", ")}`, "for this build");
+
     const request = generationRequest(
       model,
       buildPrompt,
-      userMessage(project.name, buildBrief, [attachedText, referencedText].filter(Boolean).join("\n\n"), imageUrls.length),
+      userMessage(
+        project.name,
+        buildBrief,
+        [attachedText, referencedText, fromConnectors?.text ?? ""].filter(Boolean).join("\n\n"),
+        imageUrls.length,
+      ),
       imageUrls.map((url) => ({ url })),
       /* The same condition that decided treeInstructions above, because it is
          the same fact: this build's answer is a file tree rather than a

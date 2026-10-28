@@ -1550,10 +1550,12 @@ export default function AccountSettingsModal({
 
                           {mcpError && <p className="mt-3 text-[13px] text-danger">{mcpError}</p>}
 
-                          {/* Saying so beats letting a "Connected" badge imply a build
-                              step that has not been written. */}
-                          <p className="mt-4 text-[12.5px] text-faint">
-                            Connections are saved to your account. Builds don&apos;t call connectors yet.
+                          {/* What connecting does, and what it does not: reading is
+                              live, acting in someone's account is not offered. */}
+                          <p className="mt-4 text-[12.5px] leading-relaxed text-faint">
+                            Your agent can read from connected apps, and a build uses them when you ask — &ldquo;use my
+                            Stripe products&rdquo;, &ldquo;from my Notion page&rdquo;. They only read: nothing is changed
+                            in your accounts.
                           </p>
                         </div>
                       );

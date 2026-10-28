@@ -98,7 +98,7 @@ has(calls.some(([t, c, v]) => t === "project_builds" && c === "project_id" && v 
 const route = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
 has(/loadReferencedProjects\(supabase, prompt, project\.id\)/.test(route), "the build route reads references under the person's own session");
 has(/files\.blocks\.unshift\(\{ type: "text", text: referencedText \}\)/.test(route), "edits, questions and clarifications see the reference");
-has(/userMessage\(project\.name, buildBrief, \[attachedText, referencedText\]/.test(route), "a first build sees it");
+has(/userMessage\(\s*project\.name,\s*buildBrief,\s*\[attachedText, referencedText\b/.test(route), "a first build sees it");
 has(/referencedText \? `\$\{stageRequest \?\? prompt\}\\n\\n\$\{referencedText\}`/.test(route), "and so does a multi-file edit");
 
 rmSync(out, { recursive: true, force: true });
