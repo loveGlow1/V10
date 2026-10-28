@@ -165,8 +165,10 @@ type McpFormProps = {
   busy: boolean;
 };
 
+/* text-base below sm: a field under 16px makes iOS zoom in on focus, and the
+   page then sits zoomed and slides sideways. */
 const FIELD =
-  "mt-1.5 h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink placeholder:text-faint outline-none focus-visible:border-line/25";
+  "mt-1.5 h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-base text-ink sm:text-sm placeholder:text-faint outline-none focus-visible:border-line/25";
 
 function McpForm({ draft, onChange, onCancel, onConnect, busy }: McpFormProps) {
   return (
@@ -758,7 +760,7 @@ export default function AccountSettingsModal({
                   id="settings-section"
                   value={section}
                   onChange={(event) => setSection(event.target.value as SectionId)}
-                  className="h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
+                  className="h-10 w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-base text-ink sm:text-sm outline-none"
                 >
                   {navGroups.map((group) => (
                     <optgroup key={group.label} label={group.label}>
@@ -772,7 +774,7 @@ export default function AccountSettingsModal({
                 </select>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-6 py-2">
                 {section === "project" && (
                   <div className="py-6">
                     <p className="text-[13px] text-soft">Icon</p>
@@ -797,7 +799,7 @@ export default function AccountSettingsModal({
                           if (event.key === "Escape") setProjectDraft(project?.name ?? "");
                         }}
                         placeholder={project ? "Project name" : "No project yet"}
-                        className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+                        className="h-full min-w-0 flex-1 bg-transparent text-base text-ink sm:text-sm outline-none placeholder:text-faint"
                       />
                       <Pencil className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
                     </div>
@@ -1012,7 +1014,7 @@ export default function AccountSettingsModal({
                               autoFocus
                               maxLength={80}
                               aria-label="Your name"
-                              className="h-9 w-[180px] rounded-lg border border-line/[0.14] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
+                              className="h-9 w-[180px] rounded-lg border border-line/[0.14] bg-layer/[0.04] px-3 text-base text-ink sm:text-sm outline-none"
                             />
                             <button
                               onClick={saveName}
@@ -1408,22 +1410,34 @@ export default function AccountSettingsModal({
                                 Let your agents reach other apps and services for more context.
                               </p>
                             </div>
-                            <div className="flex gap-2">
+                            {/* An even pair across a phone, side by side beside the
+                                heading from sm up — one line each, never wrapping. */}
+                            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                               <button
                                 onClick={() => {
                                   setMcpError(null);
                                   setMcpView(mcpView === "browse" ? "yours" : "browse");
                                 }}
-                                className="h-9 rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3.5 text-[13px] text-ink transition-colors hover:bg-layer/[0.07]"
+                                className="flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3.5 text-[13px] text-ink transition-colors hover:bg-layer/[0.07]"
                               >
-                                {mcpView === "browse" ? "Your connectors" : "Browse connectors"}
+                                {mcpView === "browse" ? (
+                                  <>
+                                    <span className="sm:hidden">Yours</span>
+                                    <span className="hidden sm:inline">Your connectors</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="sm:hidden">Browse</span>
+                                    <span className="hidden sm:inline">Browse connectors</span>
+                                  </>
+                                )}
                               </button>
                               <button
                                 onClick={() => {
                                   setMcpError(null);
                                   setConfiguring({ name: "", url: "" });
                                 }}
-                                className="flex h-9 items-center gap-1.5 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
+                                className="flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
                               >
                                 <Plus className="h-3.5 w-3.5" /> Add custom
                               </button>
@@ -1462,12 +1476,14 @@ export default function AccountSettingsModal({
                             ) : (
                               <ul className="mt-4 divide-y divide-line/[0.06] rounded-xl border border-line/[0.07]">
                                 {yours.map(({ server, connected }) => (
-                                  <li key={server.id} className="flex items-center gap-3 px-4 py-3">
+                                  <li key={server.id} className="flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3">
                                     <ConnectorLogo server={server} />
-                                    <div className="min-w-0 flex-1">
+                                    {/* The details keep the row's width on a phone; the
+                                        buttons sit beneath them, under the name. */}
+                                    <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-0">
                                       <p className="truncate text-sm font-medium text-ink">{server.name}</p>
-                                      <p className="flex items-center gap-1.5 truncate text-[12.5px] text-muted">
-                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${connected ? "bg-accent" : "bg-faint"}`} aria-hidden />
+                                      <p className="flex items-start gap-1.5 text-[12.5px] leading-snug text-muted">
+                                        <span className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${connected ? "bg-accent" : "bg-faint"}`} aria-hidden />
                                         {connected ? "Connected" : "Not connected — sign in to finish"}
                                         {server.id.startsWith("custom:") ? " · Custom" : ""}
                                       </p>
@@ -1486,6 +1502,7 @@ export default function AccountSettingsModal({
                                         </p>
                                       ) : null}
                                     </div>
+                                    <div className="ml-12 flex items-center gap-1.5 sm:ml-0">
                                     {action(server, connected)}
                                     {server.id.startsWith("custom:") && !connected && (
                                       <button
@@ -1497,6 +1514,7 @@ export default function AccountSettingsModal({
                                         <Trash2 className="h-3.5 w-3.5" />
                                       </button>
                                     )}
+                                    </div>
                                   </li>
                                 ))}
                               </ul>
@@ -1513,7 +1531,7 @@ export default function AccountSettingsModal({
                                   value={mcpQuery}
                                   onChange={(event) => setMcpQuery(event.target.value)}
                                   placeholder="Search connectors"
-                                  className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+                                  className="h-full min-w-0 flex-1 bg-transparent text-base text-ink sm:text-sm outline-none placeholder:text-faint"
                                 />
                               </label>
                               {directory.length === 0 ? (
@@ -1572,7 +1590,7 @@ export default function AccountSettingsModal({
                     <select
                       id="language"
                       defaultValue="en"
-                      className="mt-2 h-10 w-[280px] max-w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none"
+                      className="mt-2 h-10 w-[280px] max-w-full rounded-lg border border-line/[0.1] bg-layer/[0.04] px-3 text-base text-ink sm:text-sm outline-none"
                     >
                       {/* Only English exists until the app is translated. */}
                       <option value="en">English</option>
