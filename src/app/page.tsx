@@ -201,6 +201,16 @@ function getSupabaseClientCreationFailureMessage(error: unknown) {
    at a time. Imported from credits.ts, which both checkouts charge from, so the card cannot
    advertise a figure the checkout does not take. */
 
+/* Where to go once signed in. The dashboard, unless the page that sent someone
+   here to sign in asked to have them back — /oauth/consent does, when an AI
+   assistant is being connected. Same-origin paths only, so `?next=` cannot
+   bounce anyone to another site off a real sign-in. */
+function afterSignIn(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  return next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard";
+}
+
 function formatPrice(value: number) {
   return `$${Number.isInteger(value) ? value : value.toFixed(2)}`;
 }
@@ -549,15 +559,24 @@ export default function LandingPage() {
     const supabase = createSupabaseBrowserClient();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) router.replace("/dashboard");
+      if (session) router.replace(afterSignIn());
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) router.replace("/dashboard");
+      if (session) router.replace(afterSignIn());
     });
 
     return () => subscription.unsubscribe();
   }, [router]);
+
+  /* Sent here to sign in by a page that wants them back (see afterSignIn):
+     open the sign-in straight away rather than leaving them to find it. */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("signin") === "1") {
+      setAuthModalInitialStep("options");
+      setAuthModalOpen(true);
+    }
+  }, []);
 
   // The auth callback cannot render anything itself, so it hands failures back
   // on the URL. Show them once, then clear the parameter so a refresh is clean.
@@ -628,7 +647,7 @@ export default function LandingPage() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider.toLowerCase() as Provider,
-        options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(afterSignIn())}` },
       });
       if (error) {
         // eslint-disable-next-line no-console
@@ -653,7 +672,7 @@ export default function LandingPage() {
         password: payload.password,
         options: {
           data: { full_name: payload.name },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(afterSignIn())}`,
         },
       });
       if (error) {
@@ -666,7 +685,7 @@ export default function LandingPage() {
         alert(`Almost there — confirm your email. We sent a link to ${payload.email}; opening it signs you in.`);
         closeAuthModal();
       } else {
-        router.push("/dashboard");
+        router.push(afterSignIn());
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -690,7 +709,7 @@ export default function LandingPage() {
         console.error("Supabase sign-in error:", error);
         alert(error.message);
       } else {
-        router.push("/dashboard");
+        router.push(afterSignIn());
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -761,7 +780,7 @@ export default function LandingPage() {
         alert(error.message);
         return false;
       }
-      router.push("/dashboard");
+      router.push(afterSignIn());
       return true;
     } catch (error) {
       // eslint-disable-next-line no-console
