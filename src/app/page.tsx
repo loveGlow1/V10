@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import type { Provider } from "@supabase/supabase-js";
@@ -543,21 +543,39 @@ export default function LandingPage() {
     setAnnualTiers((current) => ({ ...current, [name]: !current[name] }));
   const heroAuthButtonsRowRef = useRef<HTMLDivElement | null>(null);
 
-  // Redirect already-authenticated users straight to the dashboard.
+  /* Where to go once signed in: the dashboard, or the same-site path a link
+     sent them here to finish (?next=) — connecting an MCP server, for one,
+     resumes rather than being lost to the sign-in. An API path is a full
+     navigation, not a client route. */
+  const afterSignIn = useCallback(() => {
+    const next = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("next") ?? "" : "";
+    return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/dashboard";
+  }, []);
+  const goAfterSignIn = useCallback(
+    (replace = false) => {
+      const next = afterSignIn();
+      if (next.startsWith("/api/")) window.location.assign(next);
+      else if (replace) router.replace(next);
+      else router.push(next);
+    },
+    [afterSignIn, router],
+  );
+
+  // Redirect already-authenticated users straight on — the dashboard, or ?next=.
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) router.replace("/dashboard");
+      if (session) goAfterSignIn(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) router.replace("/dashboard");
+      if (session) goAfterSignIn(true);
     });
 
     return () => subscription.unsubscribe();
-  }, [router]);
+  }, [goAfterSignIn]);
 
   // The auth callback cannot render anything itself, so it hands failures back
   // on the URL. Show them once, then clear the parameter so a refresh is clean.
@@ -628,7 +646,7 @@ export default function LandingPage() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider.toLowerCase() as Provider,
-        options: { redirectTo: `${window.location.origin}/auth/callback?next=/dashboard` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(afterSignIn())}` },
       });
       if (error) {
         // eslint-disable-next-line no-console
@@ -653,7 +671,7 @@ export default function LandingPage() {
         password: payload.password,
         options: {
           data: { full_name: payload.name },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(afterSignIn())}`,
         },
       });
       if (error) {
@@ -666,7 +684,7 @@ export default function LandingPage() {
         alert(`Almost there — confirm your email. We sent a link to ${payload.email}; opening it signs you in.`);
         closeAuthModal();
       } else {
-        router.push("/dashboard");
+        goAfterSignIn();
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -690,7 +708,7 @@ export default function LandingPage() {
         console.error("Supabase sign-in error:", error);
         alert(error.message);
       } else {
-        router.push("/dashboard");
+        goAfterSignIn();
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -761,7 +779,7 @@ export default function LandingPage() {
         alert(error.message);
         return false;
       }
-      router.push("/dashboard");
+      goAfterSignIn();
       return true;
     } catch (error) {
       // eslint-disable-next-line no-console

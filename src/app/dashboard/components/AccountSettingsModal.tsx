@@ -237,6 +237,13 @@ function ConnectorLogo({ server, size = "md" }: { server: McpServer; size?: "md"
   );
 }
 
+/* The link that connects a server: a real address, so it can be opened again,
+   in a new tab, or after signing in (the route sends a signed-out visitor to
+   sign in and back). It is always there while the server is not connected. */
+function connectHref(serverId: string): string {
+  return `/api/integrations/mcp/authorize?server=${encodeURIComponent(serverId)}`;
+}
+
 /* What the sign-in round trip came back with, in words. */
 const MCP_NOTICES: Record<string, { tone: "ok" | "error"; text: string }> = {
   connected: { tone: "ok", text: "Connected." },
@@ -512,7 +519,31 @@ export default function AccountSettingsModal({
   function signInToMcp(serverId: string) {
     setMcpBusy(serverId);
     setMcpError(null);
-    window.location.assign(`/api/integrations/mcp/authorize?server=${encodeURIComponent(serverId)}`);
+    window.location.assign(connectHref(serverId));
+  }
+
+  /* Back from the provider's page by the browser's Back button, the panel
+     can come back from the page cache with a button still saying "Opening…".
+     Nothing is pending by then, so every connect link is live again. */
+  useEffect(() => {
+    if (!open) return;
+    setMcpBusy(null);
+    const restored = (event: PageTransitionEvent) => {
+      if (event.persisted) setMcpBusy(null);
+    };
+    window.addEventListener("pageshow", restored);
+    return () => window.removeEventListener("pageshow", restored);
+  }, [open]);
+
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      window.setTimeout(() => setCopiedUrl((current) => (current === url ? null : current)), 1600);
+    } catch {
+      /* No clipboard (an insecure context): the address is on screen to select. */
+    }
   }
 
   async function connectCustomServer() {
@@ -1322,14 +1353,30 @@ export default function AccountSettingsModal({
                             </button>
                           );
                         }
+                        if (server.auth === "none") {
+                          return (
+                            <button
+                              onClick={() => toggleMcpServer(server.id, true)}
+                              disabled={busy}
+                              className="h-8 shrink-0 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
+                            >
+                              {busy ? "Connecting…" : "Connect"}
+                            </button>
+                          );
+                        }
+                        /* A link, never a disabled button: pressing it again,
+                           or opening it in a new tab, always works. */
                         return (
-                          <button
-                            onClick={() => (server.auth === "none" ? toggleMcpServer(server.id, true) : signInToMcp(server.id))}
-                            disabled={busy}
-                            className="h-8 shrink-0 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
+                          <a
+                            href={connectHref(server.id)}
+                            onClick={() => {
+                              setMcpError(null);
+                              setMcpBusy(server.id);
+                            }}
+                            className="flex h-8 shrink-0 items-center rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90"
                           >
                             {busy ? "Opening…" : "Connect"}
-                          </button>
+                          </a>
                         );
                       };
                       return (
@@ -1343,6 +1390,14 @@ export default function AccountSettingsModal({
                             >
                               {notice.server ? `${notice.server}: ` : ""}
                               {notice.text}
+                              {notice.tone === "error" && mcpNotice?.serverId && mcpRows.some(({ server }) => server.id === mcpNotice.serverId) ? (
+                                <>
+                                  {" "}
+                                  <a href={connectHref(mcpNotice.serverId)} className="font-medium underline underline-offset-2">
+                                    Try again
+                                  </a>
+                                </>
+                              ) : null}
                             </p>
                           )}
 
@@ -1416,6 +1471,20 @@ export default function AccountSettingsModal({
                                         {connected ? "Connected" : "Not connected — sign in to finish"}
                                         {server.id.startsWith("custom:") ? " · Custom" : ""}
                                       </p>
+                                      {server.id.startsWith("custom:") && server.url ? (
+                                        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] text-faint">
+                                          <span className="truncate font-mono" title={server.url}>
+                                            {server.url}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => void copyUrl(server.url as string)}
+                                            className="shrink-0 rounded px-1 text-[11.5px] text-muted underline-offset-2 hover:text-ink hover:underline"
+                                          >
+                                            {copiedUrl === server.url ? "Copied" : "Copy"}
+                                          </button>
+                                        </p>
+                                      ) : null}
                                     </div>
                                     {action(server, connected)}
                                     {server.id.startsWith("custom:") && !connected && (
