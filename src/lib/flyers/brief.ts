@@ -15,6 +15,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import type { FlyerFormat, FlyerRequest, StyleIntent } from "./types";
+import { withPolicy } from "@/lib/safety/policy";
 
 export function formatFor(subtype: string | null | undefined, brief: string): FlyerFormat {
   if (/\b(story|stories|reel|reels|tiktok|9:16|vertical|status)\b/i.test(brief)) return "story";
@@ -61,7 +62,7 @@ export async function requestFromBrief(brief: string, subtype: string | null | u
     const message = await new Anthropic().messages.create({
       model: "claude-haiku-4-5",
       max_tokens: 600,
-      system: SYSTEM,
+      system: withPolicy(SYSTEM),
       messages: [{ role: "user", content: brief.slice(0, 3000) }],
     });
     const text = message.content
@@ -133,7 +134,7 @@ export async function reviseRequest(previous: FlyerRequest, change: string): Pro
     const message = await new Anthropic().messages.create({
       model: "claude-haiku-4-5",
       max_tokens: 700,
-      system: REVISE,
+      system: withPolicy(REVISE),
       messages: [{ role: "user", content: `CURRENT BRIEF:\n${JSON.stringify(current)}\n\nCHANGE:\n${text}` }],
     });
     const raw = message.content

@@ -286,6 +286,7 @@ import { reviewEligibility } from "@/lib/builder/review-round";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { screenRequest } from "@/lib/safety/policy";
 
 /* Where a build is started.
  *
@@ -751,6 +752,15 @@ async function handle(
 
   if (!prompt) {
     return NextResponse.json({ error: "Tell me what you'd like and I'll get started." }, { status: 400 });
+  }
+  /* Outside what QuickStark does, or an attempt to make it hand over what is
+     not theirs: refused here, before any model runs or anything is charged.
+     The grey areas are the model's to judge — see lib/safety/policy.ts. */
+  const screened = screenRequest(prompt);
+  if (!screened.ok) {
+    // eslint-disable-next-line no-console
+    console.warn(`safety: build request refused (${screened.kind}) for ${user.id}`);
+    return NextResponse.json({ error: screened.reply, code: "refused", reason: screened.kind }, { status: 422 });
   }
   /* Counted whatever happens, because the number is wanted twice: once in the
      sentence below if the brief is past the ceiling, and once by

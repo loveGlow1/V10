@@ -8,6 +8,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase-service';
 import type { FlyerRequest } from '@/lib/flyers/types';
 import { daysLeft, liveOutputs, type Output as StoredOutput } from '@/lib/flyers/trash';
 import { refuseWithoutCard } from "@/lib/card-gate";
+import { screenRequest } from "@/lib/safety/policy";
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -151,6 +152,9 @@ export async function POST(req: Request) {
 
   const raw = (await req.json().catch(() => null)) as Body | null;
   if (!raw) return NextResponse.json({ error: 'Say what the flier is for.' }, { status: 400 });
+  /* Refused before any model runs or anything is charged — lib/safety/policy.ts. */
+  const screened = screenRequest(typeof raw.brief === 'string' ? raw.brief : JSON.stringify(raw));
+  if (!screened.ok) return NextResponse.json({ error: screened.reply, code: 'refused', reason: screened.kind }, { status: 422 });
 
   let body: FlyerRequest;
   if (typeof raw.again === 'string') {

@@ -12,6 +12,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { PIPELINES, type PipelineId } from "./pipelines";
 import { normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIssue } from "./plan";
+import { withPolicy } from "@/lib/safety/policy";
 
 export const DIRECTOR_MODEL = "claude-sonnet-5";
 
@@ -84,7 +85,7 @@ export async function direct(input: DirectorInput): Promise<{ plan: ProductionPl
     const message = await new Anthropic().messages.create({
       model: DIRECTOR_MODEL,
       max_tokens: 8000,
-      system: systemFor(input.pipeline, input.answers),
+      system: withPolicy(systemFor(input.pipeline, input.answers)),
       messages: [{ role: "user", content }],
     });
     const raw = message.content

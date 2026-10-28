@@ -11,8 +11,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-database-ask");
 mkdirSync(out, { recursive: true });
@@ -31,6 +31,25 @@ writeFileSync(
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
+
+/* "@/x" to a relative path, and .js on every relative specifier — the module
+   imports lib/safety/policy, as every prompt does. Same as check-db-agent. */
+function fix(dir) {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) { fix(path); continue; }
+    if (!entry.endsWith(".js")) continue;
+    const text = readFileSync(path, "utf8")
+      .replace(/(from\s+["'])@\/([^"']+)(["'])/g, (_, a, spec, b) => {
+        let rel = relative(dirname(path), join(out, spec)).replace(/\\/g, "/");
+        if (!rel.startsWith(".")) rel = `./${rel}`;
+        return `${a}${rel}${b}`;
+      })
+      .replace(/(from\s+["'])(\.\.?\/[^"']+?)(["'])/g, (whole, a, spec, b) => (spec.endsWith(".js") ? whole : `${a}${spec}.js${b}`));
+    writeFileSync(path, text);
+  }
+}
+fix(join(out, "lib"));
 
 const { sqlFromMessage, isDatabaseAsk, judgeSql, formatRows, wrapSql } = await import(join(out, "lib/builder/backend/database-ask.js"));
 

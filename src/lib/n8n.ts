@@ -13,6 +13,7 @@ import type { Provider } from "@/app/dashboard/models";
 import { signBuildClaim } from "@/lib/build-signature";
 import { isBuildKind, type BuildKind } from "@/lib/builder/kinds";
 import { safeHttpUrl } from "@/lib/safe-url";
+import { withPolicy } from "@/lib/safety/policy";
 
 /* What kind of thing was built, as it is stored on `projects.intent`.
  *
@@ -196,6 +197,13 @@ function readResult(
 }
 
 /** Runs one build. Throws {@link BuilderError} with a status the route can pass on. */
+/* The orchestrator's model gets the same policy as every other — see
+   lib/safety/policy.ts — and the signature covers the request as sent. */
+function withPolicyRequest(request: BuildRequest): BuildRequest & { signature: string } {
+  const sent = { ...request, systemPrompt: withPolicy(request.systemPrompt) };
+  return { ...sent, signature: signBuildClaim(sent) ?? "" };
+}
+
 export async function startBuild(request: BuildRequest): Promise<BuildResult> {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
 
@@ -229,7 +237,7 @@ export async function startBuild(request: BuildRequest): Promise<BuildResult> {
          into the build step, which is called with no session behind it and has
          to be told which project it may write to. n8n never interprets it; it
          is an opaque field passed through. See src/lib/build-signature.ts. */
-      body: JSON.stringify({ ...request, signature: signBuildClaim(request) ?? "" }),
+      body: JSON.stringify(withPolicyRequest(request)),
       cache: "no-store",
       signal: controller.signal,
     });

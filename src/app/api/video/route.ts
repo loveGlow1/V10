@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { screenRequest } from "@/lib/safety/policy";
 import { PIPELINES, answersFor, isPipelineId } from "@/lib/video/pipelines";
 import { VIDEO_INTENT } from "@/lib/video/workspace";
 
@@ -34,6 +35,9 @@ export async function POST(request: Request) {
   const pipeline = PIPELINES[body.pipeline];
   const brief = typeof body.brief === "string" ? body.brief.trim().slice(0, 8000) : "";
   if (!brief) return NextResponse.json({ error: "Describe the video you want." }, { status: 400 });
+  /* Refused before any model runs or anything is charged — lib/safety/policy.ts. */
+  const screened = screenRequest(brief);
+  if (!screened.ok) return NextResponse.json({ error: screened.reply, code: "refused", reason: screened.kind }, { status: 422 });
   const given = body.answers && typeof body.answers === "object" ? (body.answers as Record<string, string>) : {};
 
   if (pipeline.needsConsent && body.consent !== true) {
