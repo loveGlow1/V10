@@ -80,7 +80,21 @@ type LedgerLine = {
   project_id: string | null;
   paid_amount: number | null;
   paid_currency: string | null;
+  dedupe_key: string | null;
+  source: string | null;
 };
+
+/* How a credit line came in, for the history: paid by card (with Stripe's
+   receipt), in crypto (receipted by email), given, or the welcome credit. */
+function sourceOf(line: LedgerLine): { label: string; receipt: boolean } {
+  if (line.credits < 0) return { label: "Refunded", receipt: false };
+  if (line.dedupe_key?.startsWith("stripe:")) return { label: "Card", receipt: true };
+  if (line.dedupe_key?.startsWith("paystack:")) return { label: "Card", receipt: false };
+  if (line.dedupe_key === "signup-bonus") return { label: "Free credit", receipt: false };
+  if (line.source === "admin") return { label: "Gift", receipt: false };
+  if (/paid in /i.test(line.description ?? "")) return { label: "Crypto", receipt: false };
+  return { label: "Credit", receipt: false };
+}
 
 const SPEND_ACTIONS = ["chat", "generate", "publish", "runtime"];
 const HISTORY_LIMIT = 200;
@@ -111,7 +125,7 @@ function useAccountRecords(active: boolean) {
     void Promise.all([
       client
         .from("credit_ledger")
-        .select("id, action, credits, description, created_at, project_id, paid_amount, paid_currency")
+        .select("id, action, credits, description, created_at, project_id, paid_amount, paid_currency, dedupe_key, source")
         .order("created_at", { ascending: false })
         .limit(HISTORY_LIMIT),
       client.from("credit_balances").select("paid_through").maybeSingle(),
@@ -1042,7 +1056,10 @@ export default function AccountSettingsModal({
                     <PaymentMethod />
 
                     <div className="mt-6 flex items-center justify-between gap-3">
-                      <p className="text-[15px] font-medium text-ink">Transactions</p>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-medium text-ink">Deposits &amp; purchases</p>
+                        <p className="text-[12px] text-muted">Every receipt is also emailed to you.</p>
+                      </div>
                       <button
                         onClick={() => void openPortal()}
                         disabled={portalBusy}
@@ -1069,7 +1086,9 @@ export default function AccountSettingsModal({
                         </div>
                       ) : (
                         <ul className="divide-y divide-line/[0.06]">
-                          {purchases.map((line) => (
+                          {purchases.map((line) => {
+                            const how = sourceOf(line);
+                            return (
                             <li key={line.id} className="flex items-center gap-4 px-4 py-3.5">
                               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-layer/[0.05]">
                                 <CalendarDays className="h-4 w-4 text-muted" />
@@ -1077,7 +1096,7 @@ export default function AccountSettingsModal({
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm text-ink">{line.description || (line.action === "topup" ? "Top-up" : "Credit")}</p>
                                 <p className="truncate text-[13px] text-muted">
-                                  {shortDate(line.created_at)}
+                                  {shortDate(line.created_at)} · {how.label}
                                   {money(line.paid_amount, line.paid_currency) ? ` · ${money(line.paid_amount, line.paid_currency)}` : ""}
                                 </p>
                               </div>
@@ -1086,8 +1105,19 @@ export default function AccountSettingsModal({
                                 {line.credits > 0 ? "+" : ""}
                                 {formatCredits(line.credits)}
                               </span>
+                              {how.receipt ? (
+                                <a
+                                  href={`/api/payments/receipt?line=${line.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex shrink-0 items-center gap-1 text-[13px] text-muted transition-colors hover:text-ink"
+                                >
+                                  Receipt <ExternalLink className="h-3 w-3" aria-hidden />
+                                </a>
+                              ) : null}
                             </li>
-                          ))}
+                            );
+                          })}
                         </ul>
                       )}
                     </div>

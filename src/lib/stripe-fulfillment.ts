@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { isPaidPlanId } from "@/lib/crypto-payments";
 import { recordPayment } from "@/lib/money";
 import { rememberCard } from "@/lib/stripe-card";
+import { chargeForInvoice, chargeForSession, sendStripeReceipt } from "@/lib/stripe-receipts";
 
 /* A paid Stripe Checkout Session becoming what it was bought for.
  *
@@ -71,6 +72,7 @@ export function isSessionPaid(session: Stripe.Checkout.Session): boolean {
 export async function settleCheckoutSession(
   service: SupabaseClient,
   session: Stripe.Checkout.Session,
+  stripe?: Stripe,
 ): Promise<"settled" | "skipped"> {
   const grant = readSessionGrant(session);
   if (!grant) {
@@ -108,6 +110,11 @@ export async function settleCheckoutSession(
       provider: "stripe",
       knownUsd,
     });
+  }
+
+  /* Stripe's receipt to the account's email — see lib/stripe-receipts.ts. */
+  if (stripe) {
+    await sendStripeReceipt(stripe, service, grant.userId, await chargeForSession(stripe, session.id).catch(() => null));
   }
   return "settled";
 }
@@ -188,7 +195,7 @@ export async function recoverMissedCheckouts(
   for (const session of paid) {
     if (done.has(`stripe:${session.id}`)) continue;
     try {
-      if ((await settleCheckoutSession(service, session)) === "settled") {
+      if ((await settleCheckoutSession(service, session, stripe)) === "settled") {
         recovered.push(session.id);
       }
     } catch (err) {
@@ -250,6 +257,12 @@ export async function settlePaidInvoice(
       currency: invoice.currency,
       provider: "stripe",
     });
+  }
+
+  /* Stripe's receipt for the month (or year) just paid, to the account's
+     email — the first payment and every renewal. */
+  if (invoice.amount_paid > 0) {
+    await sendStripeReceipt(stripe, service, plan.userId, await chargeForInvoice(stripe, invoice.id).catch(() => null));
   }
 
   /* The card the plan renews on is the account's card on file — so a new

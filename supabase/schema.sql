@@ -1590,6 +1590,10 @@ create table if not exists public.crypto_payments (
   )
 );
 
+-- When the customer's receipt for this order was emailed (lib/crypto-receipt.ts).
+-- Null until it is; claimed by stamping it, so an order is receipted once.
+alter table public.crypto_payments add column if not exists receipt_sent_at timestamptz;
+
 -- The shape above, on a table made before custom top-up amounts.
 alter table public.crypto_payments drop constraint if exists crypto_payments_purchase_shape;
 alter table public.crypto_payments add constraint crypto_payments_purchase_shape check (

@@ -312,6 +312,24 @@ try {
         "a replaced card hands its plans to the new card and comes off Stripe",
       );
     }
+    {
+      /* A receipt for every payment: Stripe's for card payments (top-ups,
+         plans and each renewal), a QuickStark one for crypto, once each. */
+      const receipts = readFileSync(join(process.cwd(), "src/lib/stripe-receipts.ts"), "utf8");
+      const crypto = readFileSync(join(process.cwd(), "src/lib/crypto-receipt.ts"), "utf8");
+      has(
+        /charges\.update\(charge\.id, \{ receipt_email: email \}\)/.test(receipts) && /if \(charge\.receipt_email\) return "already"/.test(receipts) &&
+          /sendStripeReceipt\(stripe, service, grant\.userId/.test(fulfil) && /sendStripeReceipt\(stripe, service, plan\.userId/.test(fulfil),
+        "every card top-up and plan payment gets Stripe's receipt, once",
+      );
+      has(
+        /\.is\("receipt_sent_at", null\)/.test(crypto) && /receipt_sent_at timestamptz/.test(schema) &&
+          ["src/app/api/payments/crypto/webhook/route.ts", "src/app/api/payments/crypto/btcpay/route.ts", "src/lib/reconcile-order.ts"].every((file) =>
+            /sendCryptoReceipt\(service,/.test(readFileSync(join(process.cwd(), file), "utf8")),
+          ),
+        "every crypto deposit and plan gets a receipt, once, from every path that settles it",
+      );
+    }
     const spent = /create or replace function public\.top_up_spent_usd\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
     has(
       /l\.credits \* public\.topup_usd_per_credit\(\)\)/.test(spent) && !/amount_usd, public\.to_usd/.test(spent) &&

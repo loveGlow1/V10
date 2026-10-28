@@ -92,12 +92,12 @@ export async function POST(request: Request) {
         /* "unpaid" here means a delayed payment method; wait for
            async_payment_succeeded. "no_payment_required" is a free checkout. */
         if (isSessionPaid(session)) {
-          await fulfill(session);
+          await fulfill(session, stripe);
         }
         break;
       }
       case "checkout.session.async_payment_succeeded":
-        await fulfill(event.data.object);
+        await fulfill(event.data.object, stripe);
         break;
       case "checkout.session.async_payment_failed":
         // eslint-disable-next-line no-console
@@ -173,10 +173,10 @@ export async function POST(request: Request) {
 /* Grants what the session was bought for. See stripe-fulfillment.ts. A session
    with nothing to grant is acknowledged; anything that might succeed on a
    retry throws, so Stripe re-delivers. */
-async function fulfill(session: Stripe.Checkout.Session) {
+async function fulfill(session: Stripe.Checkout.Session, stripe: Stripe) {
   const service = createSupabaseServiceClient();
   if (!service) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured.");
   }
-  await settleCheckoutSession(service, session);
+  await settleCheckoutSession(service, session, stripe);
 }

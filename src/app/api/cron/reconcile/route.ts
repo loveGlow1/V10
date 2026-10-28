@@ -19,6 +19,7 @@ import Stripe from "stripe";
 
 import { addressFunding } from "@/lib/chain-watch";
 import { recoverMissedCheckouts, recoverMissedInvoices } from "@/lib/stripe-fulfillment";
+import { sendPendingCryptoReceipts } from "@/lib/crypto-receipt";
 import { LATE_PAYMENT_DAYS } from "@/lib/crypto-payments";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { stripeSecretKey } from "@/lib/stripe-key";
@@ -363,8 +364,13 @@ export async function GET(request: Request) {
     );
   }
 
+  /* Receipts for crypto orders the database's own sweep settled, or whose
+     email failed the first time — see lib/crypto-receipt.ts. */
+  const receiptsSent = await sendPendingCryptoReceipts(service, now).catch(() => 0);
+
   return NextResponse.json({
     ...summary,
+    receiptsSent,
     /* Minutes since the previous sweep, and whether that gap says a scheduler
        has stopped. Reported alongside the counters because a sweep that is
        running alone is worth seeing even when it had nothing to do. */
