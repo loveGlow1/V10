@@ -26,7 +26,16 @@ export async function GET(request: Request) {
 
   const supabase = await createSupabaseServerClient();
   const user = supabase ? (await supabase.auth.getUser()).data.user : null;
-  if (!supabase || !user) return NextResponse.redirect(new URL("/", request.url));
+  /* Signed out: to sign in, and straight back here afterwards, so the link
+     that started this connection still finishes it (the home page honours a
+     same-site ?next=, and ?signin=1 opens its sign-in straight away). */
+  if (!supabase || !user) {
+    const here = new URL(request.url);
+    const signIn = new URL("/", request.url);
+    signIn.searchParams.set("next", `${here.pathname}${here.search}`);
+    signIn.searchParams.set("signin", "1");
+    return NextResponse.redirect(signIn);
+  }
 
   const service = createSupabaseServiceClient();
   if (!service) return back("unavailable");
