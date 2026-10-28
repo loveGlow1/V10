@@ -969,6 +969,9 @@ grant execute on function public.spend_credits_for(uuid, text, numeric, text, uu
 -- supabase/close-spend-credits.sql, which is run once, after the deployment
 -- charges through spend_credits_for.
 revoke all on function public.spend_credits(text, numeric, text, uuid, integer, integer) from public, anon;
+-- And from signed-in browsers: every charge goes through spend_credits_for on
+-- the server (see supabase/close-spend-credits.sql, which this now does).
+revoke execute on function public.spend_credits(text, numeric, text, uuid, integer, integer) from authenticated;
 
 revoke all on function public.ensure_credit_balance(uuid) from public, anon, authenticated;
 revoke all on function public.grant_credits(uuid, numeric, text, text) from public, anon, authenticated;
@@ -1834,7 +1837,7 @@ create index if not exists projects_user_active_idx
 create or replace function public.touch_project(p_project_id uuid)
 returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 begin
@@ -1854,7 +1857,7 @@ grant execute on function public.touch_project(uuid) to authenticated;
 create or replace function public.soft_delete_project(p_project_id uuid)
 returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 begin
@@ -1871,7 +1874,7 @@ grant execute on function public.soft_delete_project(uuid) to authenticated;
 create or replace function public.restore_project(p_project_id uuid)
 returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 begin
