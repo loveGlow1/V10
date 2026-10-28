@@ -529,6 +529,15 @@ export default function LandingPage() {
      card carries its own Annual switch, so a visitor can price one plan yearly while
      leaving the others on the monthly rate they are comparing against. */
   const [annualTiers, setAnnualTiers] = useState<Record<string, boolean>>({});
+  /* Sign in with Apple waits on an Apple Developer membership. Until then the
+     button stays, and pressing it says so instead of Supabase's "provider is
+     not enabled". Shown above the login modal, gone on its own. */
+  const [comingSoon, setComingSoon] = useState<string | null>(null);
+  useEffect(() => {
+    if (!comingSoon) return;
+    const timer = setTimeout(() => setComingSoon(null), 4000);
+    return () => clearTimeout(timer);
+  }, [comingSoon]);
 
   const toggleAnnualTier = (name: string) =>
     setAnnualTiers((current) => ({ ...current, [name]: !current[name] }));
@@ -610,6 +619,10 @@ export default function LandingPage() {
   }
 
   async function handleProviderAuth(provider: string) {
+    if (provider === "Apple") {
+      setComingSoon("Sign in with Apple is coming soon. For now, continue with Google, GitHub, Facebook or email.");
+      return;
+    }
     const supabase = getSupabaseOrWarn();
     if (!supabase) return;
     try {
@@ -1305,6 +1318,21 @@ export default function LandingPage() {
         onPhoneVerify={handlePhoneVerify}
         initialStep={authModalInitialStep}
       />
+
+      {comingSoon ? (
+        <div
+          role="status"
+          className="fixed inset-x-3 top-[max(12px,env(safe-area-inset-top))] z-[10001] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-line/[0.12] bg-canvas px-4 py-3 text-[13px] text-ink shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-layer/[0.08]">
+            <Apple className="h-4 w-4 text-ink" />
+          </span>
+          <p className="min-w-0 flex-1 leading-snug">{comingSoon}</p>
+          <button type="button" onClick={() => setComingSoon(null)} aria-label="Dismiss" className="text-muted transition-colors hover:text-ink">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
