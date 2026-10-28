@@ -3711,18 +3711,22 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 -- Who must add a card, and who is only asked.
 --
 -- Like emergent.sh, a card on file is the price of free credit and of using
--- the service at all — with one softening for established customers:
+-- the service at all. Only accounts that have never put a card on file and
+-- never paid are locked; paying unlocks:
 --
---   'ok'        an unexpired card is on file.
---   'suggest'   no card, but the account has put at least $25 into QuickStark
---               and has been with us more than two months: it is asked to add
---               a card (and can dismiss the ask) but keeps working.
+--   'ok'        an unexpired card is on file; or the account paid in crypto
+--               less than card_crypto_remind_after() (8 days) ago.
+--   'suggest'   no card, but the account has paid by card before: asked to
+--               add one (and can dismiss the ask), keeps working.
+--   'suggest'   also: paid in crypto 8 to 15 days ago (card_crypto_lock_after):
+--               asked, with the date it locks (card_deadline).
 --   'suggest'   also: an account the owner gifted credit (credit_ledger.source
 --               = 'admin', written by grant_credits), until it has spent what
 --               it was gifted — that credit is its to use, card or no card.
 --               Signup credit is not: it waits for a card.
---   'required'  everyone else — new accounts, and any account funded below
---               $25 — may not use the service until it adds a card.
+--   'required'  everyone else — new accounts, accounts that took their card
+--               off without ever paying, and crypto payers past the 15 days —
+--               may not use the service until it adds a card.
 --
 -- "Funded" is credit put into the account, in dollars: every top-up line
 -- (card, crypto, or granted by hand) at the top-up pack's rate, and every plan
@@ -3731,8 +3735,9 @@ grant execute on function public.grant_card_welcome(uuid, text) to service_role;
 -- crypto). A card counts while it
 -- has not expired.
 --
--- The $25, two months and the pack rate are card_suggest_min_usd(),
--- card_suggest_min_age() and topup_usd_per_credit(); keep the rate in step with
+-- card_status no longer reads card_suggest_min_usd() or
+-- card_suggest_min_age() (the old $25-and-two-months rule); they stay for
+-- anything else that does. The pack rate is topup_usd_per_credit(); keep it in step with
 -- TOP_UP_PACK in src/app/dashboard/credits.ts ($15 for 50 credits).
 --
 -- Read by the server (src/lib/card-gate.ts) before any work is started, and
@@ -3820,6 +3825,65 @@ as $$
     ), 0);
 $$;
 
+-- Paid by card: a Stripe (or, earlier, Paystack) payment on the ledger.
+create or replace function public.card_funded(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.credit_ledger l
+     where l.user_id = p_user_id and l.credits > 0
+       and (l.dedupe_key like 'stripe:%' or l.dedupe_key like 'paystack:%')
+  );
+$$;
+
+-- When the account first paid in crypto, or null.
+create or replace function public.crypto_funded_at(p_user_id uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select min(coalesce(p.confirmed_at, p.updated_at)) from public.crypto_payments p
+   where p.user_id = p_user_id and p.status = 'confirmed';
+$$;
+
+-- A crypto payment unlocks the account without a card for a while: asked
+-- from card_crypto_remind_after(), locked from card_crypto_lock_after(), both
+-- counted from the first crypto payment.
+create or replace function public.card_crypto_remind_after()
+returns interval language sql immutable set search_path = '' as $$ select interval '8 days' $$;
+
+create or replace function public.card_crypto_lock_after()
+returns interval language sql immutable set search_path = '' as $$ select interval '15 days' $$;
+
+-- When an account with no card will be locked out for want of one: its first
+-- crypto payment plus card_crypto_lock_after(). Null when a card is on file,
+-- the account has paid by card, or there is no crypto payment — the screens
+-- show the date in the reminder.
+create or replace function public.card_deadline(p_user_id uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when exists (
+      select 1 from public.payment_cards c
+       where c.user_id = p_user_id
+         and (c.exp_year is null
+              or (c.exp_year * 100 + coalesce(c.exp_month, 12))
+                 >= (extract(year from now())::int * 100 + extract(month from now())::int))
+    ) or public.card_funded(p_user_id) then null
+    else public.crypto_funded_at(p_user_id) + public.card_crypto_lock_after()
+  end;
+$$;
+
 create or replace function public.card_status(p_user_id uuid)
 returns text
 language sql
@@ -3835,6 +3899,10 @@ as $$
               or (c.exp_year * 100 + coalesce(c.exp_month, 12))
                  >= (extract(year from now())::int * 100 + extract(month from now())::int))
     ) then 'ok'
+    -- Paid by card before: asked to put one on file again, keeps working.
+    when public.card_funded(p_user_id) then 'suggest'
+    -- Paid in crypto: unlocked, unasked, for the first while.
+    when public.crypto_funded_at(p_user_id) > now() - public.card_crypto_remind_after() then 'ok'
     -- Credit the owner gifted — granted by an administrator — is the
     -- account's to use, card or no card. Only that credit: the account may
     -- spend up to what it was gifted (net of corrections), counted from its
@@ -3855,11 +3923,8 @@ as $$
             where a.user_id = p_user_id and a.source = 'admin'
          )
     ) > 0 then 'suggest'
-    when public.funded_usd(p_user_id) >= public.card_suggest_min_usd()
-     and exists (
-       select 1 from auth.users u
-        where u.id = p_user_id and u.created_at <= now() - public.card_suggest_min_age()
-     ) then 'suggest'
+    -- Paid in crypto a while ago: asked, with the date, until the lock.
+    when public.crypto_funded_at(p_user_id) > now() - public.card_crypto_lock_after() then 'suggest'
     else 'required'
   end;
 $$;
@@ -3878,6 +3943,12 @@ revoke all on function public.funded_usd(uuid) from public, anon, authenticated;
 grant execute on function public.funded_usd(uuid) to service_role;
 revoke all on function public.card_status(uuid) from public, anon, authenticated;
 grant execute on function public.card_status(uuid) to service_role;
+revoke all on function public.card_funded(uuid) from public, anon, authenticated;
+grant execute on function public.card_funded(uuid) to service_role;
+revoke all on function public.crypto_funded_at(uuid) from public, anon, authenticated;
+grant execute on function public.crypto_funded_at(uuid) to service_role;
+revoke all on function public.card_deadline(uuid) from public, anon, authenticated;
+grant execute on function public.card_deadline(uuid) to service_role;
 revoke all on function public.card_required(uuid) from public, anon, authenticated;
 grant execute on function public.card_required(uuid) to service_role;
 

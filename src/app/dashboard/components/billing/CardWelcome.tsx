@@ -25,8 +25,11 @@ import { useCredits } from "../../useCredits";
  *   CardReturn         back from Stripe: confirms the card, says what came of
  *                      it, refreshes the balance. Mounted once, in the layout.
  *
- * The card is saved on Stripe's own page in setup mode: the bank verifies it
- * with a zero-amount check and nothing is charged. */
+ * The card is saved on Stripe's own page: the bank verifies it with a
+ * zero-amount check and nothing is charged today. A new account's card also
+ * starts a free month of a paid plan that bills on the same day next month
+ * unless cancelled (lib/stripe-plan.ts) — said here, before the card is
+ * added, and again on Stripe's page. */
 
 type Status = {
   configured: boolean;
@@ -37,7 +40,20 @@ type Status = {
      card_status in supabase/schema.sql. */
   status: "ok" | "suggest" | "required";
   required: boolean;
+  /* When a crypto-paid account without a card locks (card_deadline). */
+  deadline: string | null;
+  /* The plan a new account's card starts, and when it first bills. */
+  trial: { plan: string; priceUsd: number; credits: number; startsOn: string } | null;
 };
+
+function dayOf(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+/* The terms, in one sentence, wherever a card is asked for. */
+function trialTerms(trial: NonNullable<Status["trial"]>): string {
+  return `Nothing is charged today. Your ${trial.plan} plan ($${trial.priceUsd}/month, ${trial.credits} credits a month) starts ${dayOf(trial.startsOn)} and renews monthly — cancel anytime before then in Billing.`;
+}
 
 /* "Not now" on the soft ask lasts for this visit: it is back next time, the
    way emergent.sh keeps asking. */
@@ -182,15 +198,19 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
         <p className="text-[13px] font-medium leading-snug text-ink">
           {used
             ? "That card already claimed free credits on another account"
-            : !status.welcomed
-              ? `Add a card to get your ${status.welcomeCredits} free credits`
-              : "Add a card to your account"}
+            : status.deadline
+              ? `Add a card by ${dayOf(status.deadline)} to keep building`
+              : !status.welcomed
+                ? `Add a card to get your ${status.welcomeCredits} free credits`
+                : "Add a card to your account"}
         </p>
         <p className="text-[12px] leading-snug text-muted">
           {error ??
             (used
               ? "Add a different card, or top up to keep building."
-              : "You can keep building. No charge — your bank just checks the card is real.")}
+              : status.trial
+                ? trialTerms(status.trial)
+                : "You can keep building. No charge — your bank just checks the card is real.")}
         </p>
       </div>
       <button
@@ -224,9 +244,11 @@ export function CardWelcomeBanner({ className = "" }: { className?: string }) {
 const SAID: Record<string, (credits: number) => string> = {
   granted: (credits) => `Card verified — ${credits} free credits added. You weren't charged.`,
   already: () => "Card saved. You weren't charged.",
-  card_used: () => "Card saved, but it already claimed free credits on another account. You weren't charged.",
+  card_used: () => "Card saved, but it already claimed free credits on another account, so no free month started. You weren't charged.",
   invalid: () => "Card saved. You weren't charged.",
 };
+
+type Trial = { plan: string; priceUsd: number; startsOn: string };
 
 export function CardReturn() {
   const { refresh } = useCredits();
@@ -251,14 +273,17 @@ export function CardReturn() {
       body: JSON.stringify({ sessionId }),
     })
       .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as { welcome?: string; error?: string };
+        const body = (await response.json().catch(() => ({}))) as { welcome?: string; error?: string; trial?: Trial | null };
         if (!response.ok) {
           setNote({ text: body.error ?? "The card could not be saved. Try again.", ok: false });
           return;
         }
         const fresh = await readStatus(true);
+        const said = (SAID[body.welcome ?? "already"] ?? SAID.already)(fresh?.welcomeCredits ?? 5);
         setNote({
-          text: (SAID[body.welcome ?? "already"] ?? SAID.already)(fresh?.welcomeCredits ?? 5),
+          text: body.trial
+            ? `${said} Your ${body.trial.plan} plan ($${body.trial.priceUsd}/month) starts ${dayOf(body.trial.startsOn)} — cancel anytime before then in Billing.`
+            : said,
           ok: body.welcome !== "card_used",
         });
         await refresh();
@@ -360,7 +385,9 @@ export function CardGate() {
           {status.card
             ? "Add a valid card to keep using QuickStark."
             : "QuickStark needs a card on file before you can build."}{" "}
-          You won&apos;t be charged — your bank just confirms the card is real. It keeps free credit for real people.
+          {status.trial
+            ? trialTerms(status.trial)
+            : "You won't be charged — your bank just confirms the card is real. It keeps free credit for real people."}
         </p>
         {error ? <p className="mt-3 text-[12.5px] text-warn">{error}</p> : null}
         <button

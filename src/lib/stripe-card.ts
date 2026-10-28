@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
+import { PLANS } from "@/app/dashboard/credits";
+import { isPaidPlanId } from "@/lib/crypto-payments";
+
 /* A card on file, for the welcome credit — see grant_card_welcome in
  * supabase/schema.sql.
  *
@@ -14,7 +17,13 @@ import type Stripe from "stripe";
  * client_reference_id, written on the server by /api/payments/stripe/card, so a
  * browser cannot claim a card for somebody else. Recording is idempotent: the
  * browser's return and the webhook both call recordCardSetup for the same
- * session, and the welcome is granted once. */
+ * session, and the welcome is granted once.
+ *
+ * A new account's card is saved differently: through a subscription-mode
+ * Checkout that starts a free month of a paid plan (lib/stripe-plan.ts).
+ * The card is the subscription's, kept here the same way. A card that cannot
+ * have the welcome (it claimed one elsewhere, or is not a card) ends that
+ * trial at once — the free month is for the free credit's new account. */
 
 export const CARD_SESSION_KIND = "card";
 
@@ -22,15 +31,18 @@ export type WelcomeOutcome = "granted" | "already" | "card_used" | "invalid";
 
 export type SavedCard = { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null };
 
+/** A welcome trial that is running: the plan and the day it first bills. */
+export type StartedTrial = { plan: string; priceUsd: number; startsOn: string };
+
 export type CardSetupResult =
-  | { ok: true; card: SavedCard; welcome: WelcomeOutcome }
+  | { ok: true; card: SavedCard; welcome: WelcomeOutcome; trial?: StartedTrial | null }
   | { ok: false; reason: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A Checkout Session this app opened to save a card, and whose. */
 export function cardSessionUser(session: Stripe.Checkout.Session): string | null {
-  if (session.mode !== "setup" || session.metadata?.kind !== CARD_SESSION_KIND) return null;
+  if ((session.mode !== "setup" && session.mode !== "subscription") || session.metadata?.kind !== CARD_SESSION_KIND) return null;
   const userId = session.client_reference_id ?? session.metadata?.user_id ?? "";
   return UUID.test(userId) ? userId : null;
 }
@@ -49,6 +61,8 @@ export async function recordCardSetup(
   if (!userId) return { ok: false, reason: "That was not a card being saved for this account." };
   if (session.status !== "complete") return { ok: false, reason: "The card was not saved — the page was closed before it finished." };
 
+  if (session.mode === "subscription") return recordTrialCard(stripe, service, userId, session);
+
   const setupIntentId = typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent?.id;
   if (!setupIntentId) return { ok: false, reason: "Stripe did not return the card." };
   const intent = await stripe.setupIntents.retrieve(setupIntentId, { expand: ["payment_method"] });
@@ -61,6 +75,72 @@ export async function recordCardSetup(
     typeof session.customer === "string" ? session.customer : (session.customer?.id ?? (typeof intent.customer === "string" ? intent.customer : intent.customer?.id));
   if (!customerId) return { ok: false, reason: "Stripe did not return the customer." };
   return rememberCard(stripe, service, userId, customerId, method);
+}
+
+/* The card behind a welcome trial: the subscription's own. Checkout
+   confirms it with a SetupIntent (the bank's check, nothing charged today). */
+async function recordTrialCard(
+  stripe: Stripe,
+  service: SupabaseClient,
+  userId: string,
+  session: Stripe.Checkout.Session,
+): Promise<CardSetupResult> {
+  const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subscriptionId) return { ok: false, reason: "Stripe did not return the plan." };
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+    expand: ["default_payment_method", "pending_setup_intent.payment_method"],
+  });
+  const pending = subscription.pending_setup_intent;
+  const method =
+    subscription.default_payment_method && typeof subscription.default_payment_method !== "string"
+      ? subscription.default_payment_method
+      : pending && typeof pending !== "string" && pending.payment_method && typeof pending.payment_method !== "string"
+        ? pending.payment_method
+        : null;
+  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
+  const end = async () => {
+    if (subscription.status === "canceled") return;
+    await stripe.subscriptions.cancel(subscriptionId).catch((error) => {
+      // eslint-disable-next-line no-console
+      console.warn("card trial: could not end a trial without a welcome:", error instanceof Error ? error.message : error);
+    });
+  };
+  if (!method) {
+    await end();
+    return { ok: false, reason: "Stripe did not return the card." };
+  }
+
+  const result = await rememberCard(stripe, service, userId, customerId, method);
+  /* No free credit for this card, so no free month either. A second trial
+     (two tabs, both finished) goes too. */
+  const others = result.ok && result.welcome === "already" ? await hasLiveSubscription(stripe, customerId, subscriptionId) : false;
+  if (!result.ok || result.welcome === "card_used" || result.welcome === "invalid" || others) {
+    await end();
+    return result.ok ? { ...result, trial: null } : result;
+  }
+  if (subscription.status === "canceled" || !subscription.trial_end) return { ...result, trial: null };
+  const planId = subscription.metadata?.plan_id;
+  const plan = isPaidPlanId(planId) ? PLANS[planId] : null;
+  return {
+    ...result,
+    trial: plan ? { plan: plan.name, priceUsd: plan.monthlyPriceUsd, startsOn: new Date(subscription.trial_end * 1000).toISOString() } : null,
+  };
+}
+
+/** Whether the account is due a welcome trial: it has not had its welcome
+ *  and is on Free. */
+export async function offersWelcomeTrial(service: SupabaseClient, userId: string, welcomed: boolean): Promise<boolean> {
+  if (welcomed) return false;
+  const { data } = await service.from("credit_balances").select("plan_id").eq("user_id", userId).maybeSingle();
+  return ((data as { plan_id?: string } | null)?.plan_id ?? "free") === "free";
+}
+
+/** Whether the customer already has a plan running or on trial — other than
+ *  `except`. A failed read answers yes: no second trial on a guess. */
+export async function hasLiveSubscription(stripe: Stripe, customerId: string, except?: string): Promise<boolean> {
+  const list = await stripe.subscriptions.list({ customer: customerId, status: "all", limit: 20 }).catch(() => null);
+  if (!list) return true;
+  return list.data.some((sub) => sub.id !== except && ["trialing", "active", "past_due", "incomplete", "unpaid"].includes(sub.status));
 }
 
 /**

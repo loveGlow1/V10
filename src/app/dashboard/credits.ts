@@ -77,8 +77,10 @@ export const REDEPLOY_COST = 1;
 export const MAX_SIGNUP_CREDITS = 5;
 
 /* Everything a new account ever gets for free: five credits, once — granted
- * when a card is saved and verified, never charged (grant_card_welcome in
- * supabase/schema.sql; until 2026-10 it was granted at signup itself).
+ * when a card is saved and verified, nothing charged that day
+ * (grant_card_welcome in supabase/schema.sql; until 2026-10 it was granted at
+ * signup itself). The same card starts a free month of Standard that bills
+ * a month later unless cancelled — see src/lib/stripe-plan.ts.
  *
  * They land in the top-up bucket rather than the daily one, which is what makes
  * them a one-time balance instead of an allowance — top-ups never expire and
@@ -196,7 +198,7 @@ export const PLANS: Record<PlanId, Plan> = {
     },
     support: "Standard community support",
     features: [
-      `${SIGNUP_CREDITS} credits to start, on the house, once you add a card (never charged)`,
+      `${SIGNUP_CREDITS} credits to start, on the house, once you add a card — then Standard at $${STANDARD_PRICE_USD}/month from a month later, cancel anytime before`,
       /* "Change", not "build". The signup grant sits below the door for a build
          on the default model deliberately (see SIGNUP_CREDITS), so a card
          promising a free account the build it pictures is promising the one

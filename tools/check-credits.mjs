@@ -213,24 +213,26 @@ try {
     "grant_card_welcome() is callable from a browser",
   );
 
-  /* No card, no service — except established customers, who are asked and
-     keep working. Every route that starts work asks before it does. */
+  /* No card, no service — unless the account has paid. A card payment is
+     asked and keeps working; a crypto payment is open for 8 days, asked to
+     day 15, then locked. Every route that starts work asks before it does. */
   const cardStatusFn = /create or replace function public\.card_status\([\s\S]*?\$\$;/.exec(schema);
   has(
     cardStatusFn !== null &&
       /payment_cards/.test(cardStatusFn[0]) &&
       /exp_year \* 100/.test(cardStatusFn[0]) &&
-      /funded_usd\(p_user_id\) >= public\.card_suggest_min_usd\(\)/.test(cardStatusFn[0]) &&
-      /created_at <= now\(\) - public\.card_suggest_min_age\(\)/.test(cardStatusFn[0]) &&
+      /when public\.card_funded\(p_user_id\) then 'suggest'/.test(cardStatusFn[0]) &&
+      /crypto_funded_at\(p_user_id\) > now\(\) - public\.card_crypto_remind_after\(\) then 'ok'/.test(cardStatusFn[0]) &&
+      /crypto_funded_at\(p_user_id\) > now\(\) - public\.card_crypto_lock_after\(\) then 'suggest'/.test(cardStatusFn[0]) &&
       /else 'required'/.test(cardStatusFn[0]),
-    "a card is required unless one is on file; only accounts funded $25+ and over two months old are merely asked",
+    "a card is required unless one is on file or the account paid; card payers are asked, crypto payers are open 8 days, asked to 15, then locked",
     "card_status() lets an account without a valid card through that should be required to add one",
   );
   const sqlNumber = (name) => {
     const body = new RegExp(`create or replace function public\\.${name}\\(\\)[\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$`).exec(schema);
     return body ? body[1] : "";
   };
-  has(/25::numeric/.test(sqlNumber("card_suggest_min_usd")) && /'2 months'/.test(sqlNumber("card_suggest_min_age")), "the soft ask starts at $25 funded and two months with us");
+  has(/'8 days'/.test(sqlNumber("card_crypto_remind_after")) && /'15 days'/.test(sqlNumber("card_crypto_lock_after")), "a crypto payment is asked for a card after 8 days and locked after 15");
   has(
     new RegExp(`\\(${credits.TOP_UP_PACK.priceUsd}::numeric / ${credits.TOP_UP_PACK.credits}\\)`).test(sqlNumber("topup_usd_per_credit")),
     "funding is counted at the top-up pack's own rate",
@@ -243,11 +245,18 @@ try {
   {
     const cardRoute = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/card/route.ts"), "utf8");
     const stripeCard = readFileSync(join(process.cwd(), "src/lib/stripe-card.ts"), "utf8");
-    const session = /checkout\.sessions\.create\(\{[\s\S]*?\}\);/.exec(cardRoute)?.[0] ?? "";
+    const session = [...cardRoute.matchAll(/checkout\.sessions\.create\(\{[\s\S]*?\}\);/g)].map((m) => m[0]).find((m) => /mode: "setup"/.test(m)) ?? "";
     has(
       /mode: "setup"/.test(session) && /currency: "usd"/.test(session) && /managed_payments: \{ enabled: false \}/.test(session) && /excluded_payment_method_types: NOT_CARDS/.test(session) && !/payment_method_types:/.test(session.replace(/excluded_payment_method_types/g, "")),
       "the card page is opened the way Stripe accepts it, offering cards only",
       "the setup session sends parameters Stripe refuses, or offers methods that are not cards",
+    );
+    /* A new account's card starts a free month of a plan, the terms on
+       Stripe's own page; a card with no welcome ends it at once. */
+    has(
+      /mode: "subscription"/.test(cardRoute) && /trial_end: Math\.floor\(trialEndFrom\(/.test(cardRoute) && /missing_payment_method: "cancel"/.test(cardRoute) && /hasLiveSubscription\(stripe, customerId\)/.test(cardRoute) && /result\.welcome === "card_used"/.test(stripeCard),
+      "a new account's card starts a month's free trial, billed the same day next month, once per account",
+      "the welcome trial is missing, can run twice, or survives a card that had no welcome",
     );
     has(/`link:\$\{linkEmail\}`/.test(stripeCard), "a card saved through Link is accepted, and claims free credit once by its email");
     const welcome = /create or replace function public\.grant_card_welcome\([\s\S]*?\$\$;/.exec(schema)?.[0] ?? "";
@@ -267,7 +276,9 @@ try {
     const fulfil = readFileSync(join(process.cwd(), "src/lib/stripe-fulfillment.ts"), "utf8");
     const webhook = readFileSync(join(process.cwd(), "src/app/api/payments/stripe/webhook/route.ts"), "utf8");
     const key = readFileSync(join(process.cwd(), "src/lib/stripe-key.ts"), "utf8");
-    has(/plan \? "subscription" : "payment"/.test(checkout) && /recurring: \{ interval:/.test(checkout) && /subscription_data: \{ metadata \}/.test(checkout), "a plan bought by card is a subscription that renews until cancelled");
+    const planItem = readFileSync(join(process.cwd(), "src/lib/stripe-plan.ts"), "utf8");
+    has(/plan \? "subscription" : "payment"/.test(checkout) && /lineItemFor\(purchase\)/.test(checkout) && /recurring: \{ interval:/.test(planItem) && /subscription_data: \{ metadata \}/.test(checkout), "a plan bought by card is a subscription that renews until cancelled");
+    has(/billing_reason === "subscription_create" && invoice\.amount_paid === 0\) return "skipped"/.test(fulfil), "a trial's $0 opening invoice grants no plan month");
     has(/session\.mode === "subscription"\) return null;/.test(fulfil) && /case "invoice\.paid"/.test(webhook) && /p_session_id: invoice\.id/.test(fulfil), "each paid invoice settles one period, once — the first month is not granted twice");
     has(/recoverMissedInvoices/.test(readFileSync(join(process.cwd(), "src/app/api/cron/reconcile/route.ts"), "utf8")), "a renewal the webhook missed is settled by the sweep");
     has(/TEST_KEY\.test\(key\) && isProductionDeployment\(\)\) return null;/.test(key), "a Stripe test key never runs the live site");

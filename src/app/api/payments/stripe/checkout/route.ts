@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
-import {
-  purchaseCredits,
-  purchaseLabel,
-  purchasePriceUsd,
-  readPurchase,
-} from "@/lib/crypto-payments";
-import { ANNUAL_DISCOUNT, PLANS } from "@/app/dashboard/credits";
+import { purchaseCredits, readPurchase } from "@/lib/crypto-payments";
 import { SITE_URL } from "@/lib/site";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { stripeSecretKey } from "@/lib/stripe-key";
 import { customerFor } from "@/lib/stripe-card";
+import { lineItemFor } from "@/lib/stripe-plan";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* Hosted Stripe Checkout — the card twin of /api/payments/crypto.
@@ -41,11 +36,6 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
  * STRIPE_SECRET_KEY is a secret: set it in Vercel → Environment Variables,
  * never in .env (that file is committed). No key means every call is refused.
  */
-
-/* The Stripe tax category every QuickStark product is sold under: Software as
-   a Service, business use. Chosen by the owner; required by Managed Payments,
-   which rejects a line item without an eligible code. */
-const PRODUCT_TAX_CODE = "txcd_10103001";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,36 +106,12 @@ export async function POST(request: Request) {
        handles tax), invoice_creation (Stripe issues the invoice),
        payment_method_types / payment_method_configuration, tax_id_collection,
        custom_text and shipping. Every product needs an eligible tax code
-       (PRODUCT_TAX_CODE below). */
+       (PRODUCT_TAX_CODE in lib/stripe-plan.ts). */
     managed_payments: { enabled: true },
     mode,
     success_url: `${SITE_URL}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${SITE_URL}/dashboard?checkout=cancelled`,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(purchasePriceUsd(purchase) * 100),
-          ...(purchase.kind === "plan" ? { recurring: { interval: purchase.months === 12 ? ("year" as const) : ("month" as const) } } : {}),
-          product_data: {
-            name:
-              purchase.kind !== "plan"
-                ? `QuickStark ${purchaseLabel(purchase)}`
-                : purchase.months === 12
-                  ? `QuickStark ${PLANS[purchase.planId].name} plan — yearly`
-                  : `QuickStark ${PLANS[purchase.planId].name} plan — monthly`,
-            description:
-              purchase.kind !== "plan"
-                ? `${credits} credits. Top-up credits never expire.`
-                : purchase.months === 12
-                  ? `${credits} credits every month. Renews every year; cancel anytime. ${Math.round(ANNUAL_DISCOUNT * 100)}% less than monthly.`
-                  : `${credits} credits every month. Renews monthly; cancel anytime.`,
-            tax_code: PRODUCT_TAX_CODE,
-          },
-        },
-      },
-    ],
+    line_items: [lineItemFor(purchase)],
     /* The account's own customer for a plan; otherwise the signed-in
        account's email, so the buyer does not type it and the receipt goes
        where the account's mail goes, and a Customer for every purchase. The

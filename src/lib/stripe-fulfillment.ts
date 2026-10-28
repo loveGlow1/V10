@@ -198,6 +198,9 @@ export async function settlePaidInvoice(
 ): Promise<"settled" | "skipped"> {
   const plan = invoicePlan(invoice);
   if (!plan || invoice.status !== "paid" || !invoice.id) return "skipped";
+  /* The $0 invoice a free trial opens with grants nothing: the plan's month
+     is the one billed when the trial ends (see lib/stripe-plan.ts). */
+  if (invoice.billing_reason === "subscription_create" && invoice.amount_paid === 0) return "skipped";
 
   const { error } = await service.rpc("settle_stripe_checkout", {
     p_session_id: invoice.id,

@@ -202,7 +202,7 @@ export default function BillingModal({ open, onClose }: BillingModalProps) {
                     promotional one that disagreed with it. */}
                 <p className="text-muted text-xs font-medium text-center mt-3">
                   {PLANS[selectedPlan].monthlyPriceUsd === 0
-                    ? "Add a card to start — it is never charged on Free. Upgrade whenever you need more."
+                    ? `Add a card to start — nothing is charged today. A month later it moves to Standard at $${PLANS.standard.monthlyPriceUsd}/month unless you cancel first in Billing.`
                     : annual
                       ? `${priceText} a year — ${PLANS[selectedPlan].monthlyCredits} credits every month. By card it renews every year until you cancel, plus applicable tax (added at checkout where your country requires it). By crypto, ${priceText} for 12 months, paid once.`
                       : `${priceText} a month. By card it renews every month until you cancel, plus applicable tax (added at checkout where your country requires it). By crypto, ${priceText} for one month, paid once.`}
