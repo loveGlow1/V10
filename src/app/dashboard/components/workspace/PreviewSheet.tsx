@@ -288,8 +288,11 @@ export default function PreviewSheet({
                   }}
                   /* Generated from someone's prompt and served from another
                      origin: scripts and forms, and no same-origin reach back
-                     into the dashboard around it. */
-                  sandbox="allow-scripts allow-forms allow-popups"
+                     into the dashboard around it. Downloads and the share
+                     sheet as on a desktop, so a flier, a video or a page's
+                     "Download" works from the phone's preview too. */
+                  sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+                  allow="web-share"
                   className="h-full w-full border-0 bg-white"
                 />
                 {/* Over the frame rather than instead of it, so the frame is

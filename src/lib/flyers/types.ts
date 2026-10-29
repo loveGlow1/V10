@@ -19,6 +19,12 @@ export interface BrandKit {
   fonts?: { heading?: string; body?: string };
   vibe?: string;
   logoUrl?: string;
+  /** The flier's own logo, in the flyers bucket (<user>/brand/…). Never drawn
+      by a model: stamped onto every image after it is made, in the same
+      corner, so every version and every change carries the same mark. Kept
+      from one revision to the next until another logo is attached or the
+      person asks for none — see logo.ts. */
+  logoPath?: string;
   referenceImageUrls?: string[];
 }
 

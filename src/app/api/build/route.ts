@@ -864,6 +864,7 @@ async function handle(
       target: body.target,
       requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
       origin: new URL(request.url).origin,
+      attachmentIds: Array.isArray(body.attachmentIds) ? (body.attachmentIds.filter((id) => typeof id === "string") as string[]) : undefined,
     });
     if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
     steps.mark("flier", "Started four versions", "the image models are working on them");
