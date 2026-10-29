@@ -282,9 +282,17 @@ export function canRenderApp(tree: FileTree): boolean {
     (so its @/ alias, which points at src/, lands where the runtime looks), and
     the way back to each real path for the visual editor. */
 export function previewView(tree: FileTree): { tree: FileTree; origin: Record<string, string> } {
+  const pages = pagesRouterView(tree);
+  if (pages) return pages;
   const rooted = tree.some((file) => /^app\/(?:.*\/)?page\.[jt]sx?$/.test(file.path));
   const underSrc = tree.some((file) => /^src\/app\/(?:.*\/)?page\.[jt]sx?$/.test(file.path));
   if (rooted || !underSrc) return { tree, origin: {} };
+  return withoutSrc(tree);
+}
+
+/* src/ taken off, so a project's @/ alias (pointing at src/) lands where the
+   runtime looks; and the way back to each real path for the visual editor. */
+function withoutSrc(tree: FileTree): { tree: FileTree; origin: Record<string, string> } {
   const taken = new Set(tree.filter((file) => !file.path.startsWith("src/")).map((file) => file.path));
   const origin: Record<string, string> = {};
   const view: FileTree = [];
@@ -297,6 +305,51 @@ export function previewView(tree: FileTree): { tree: FileTree; origin: Record<st
     }
   }
   return { tree: view, origin };
+}
+
+/* A Pages Router project — pages/index.tsx, pages/blog/[slug].tsx, maybe
+   under src/ — read as the App Router tree the renderer runs. Every page gets
+   a stand-in app/…/page.tsx that renders it, and pages/_app becomes the root
+   layout wrapping each page the way _app does. The stored files are not
+   touched: an edit still goes to pages/, and so does a push.
+
+   What a preview cannot do here is run getServerSideProps or
+   getStaticProps — there is no server — so a page that needs them renders
+   with empty props, as it would before its data arrived. */
+const PAGE_FILE = /^pages\/(.+)\.(tsx|jsx|ts|js)$/;
+
+export function pagesRouterView(stored: FileTree): { tree: FileTree; origin: Record<string, string> } | null {
+  if (stored.some((file) => /^(src\/)?app\/(?:.*\/)?page\.[jt]sx?$/.test(file.path))) return null;
+  const rootedPages = stored.some((file) => /^pages\/.+\.[jt]sx?$/.test(file.path));
+  const srcPages = !rootedPages && stored.some((file) => /^src\/pages\/.+\.[jt]sx?$/.test(file.path));
+  const base = srcPages ? withoutSrc(stored) : { tree: stored, origin: {} as Record<string, string> };
+  const tree = base.tree;
+  const pages = tree
+    .map((file) => ({ file, match: file.path.match(PAGE_FILE) }))
+    .filter(({ match }) => match && !/^(api\/|_document$|_error$|404$|500$)/.test(match[1]));
+  const routes = pages.filter(({ match }) => match![1] !== "_app");
+  if (routes.length === 0) return null;
+
+  const view: FileTree = [...tree];
+  const taken = new Set(tree.map((file) => file.path));
+  const importPath = (from: string, to: string) => {
+    const up = from.split("/").length - 1;
+    return `${"../".repeat(up)}${to.replace(/\.(tsx|jsx|ts|js)$/, "")}`;
+  };
+  for (const { file, match } of routes) {
+    const route = match![1].replace(/(^|\/)index$/, "");
+    const at = `app/${route ? `${route}/` : ""}page.tsx`;
+    if (taken.has(at)) continue;
+    view.push({ path: at, content: `import Page from "${importPath(at, file.path)}";\nexport default function Route(props: any) {\n  return <Page {...props} />;\n}\n` });
+  }
+  const app = pages.find(({ match }) => match![1] === "_app");
+  if (app && !taken.has("app/layout.tsx")) {
+    view.push({
+      path: "app/layout.tsx",
+      content: `import App from "${importPath("app/layout.tsx", app.file.path)}";\nexport default function RootLayout({ children }: { children: any }) {\n  const Current = () => children;\n  return <App Component={Current} pageProps={{}} />;\n}\n`,
+    });
+  }
+  return { tree: view, origin: base.origin };
 }
 
 const SPA_ENTRIES = [

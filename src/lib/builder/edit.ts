@@ -32,6 +32,7 @@ import {
   QUESTION_SYSTEM,
   PLAN_ADDENDUM,
   SOURCE_SYSTEM,
+  projectConventions,
   clarifyPrompt,
   editPrompt,
   linesPrompt,
@@ -1330,7 +1331,7 @@ export async function editSource(
   }
 
   const first = await ask(
-    SOURCE_SYSTEM,
+    SOURCE_SYSTEM + projectConventions(tree.map((entry) => entry.path)),
     sourcePrompt(
       userMessage,
       file.path,
@@ -1433,7 +1434,7 @@ export async function editSource(
     });
 
     const second = await ask(
-      SOURCE_SYSTEM,
+      SOURCE_SYSTEM + projectConventions(tree.map((entry) => entry.path)),
       retryPrompt(
         userMessage,
         file.content,

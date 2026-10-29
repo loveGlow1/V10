@@ -41,8 +41,11 @@ export type FileTree = ProjectFile[];
  * a generation that went wrong, not a project that got big.
  */
 
-/** Files in a tree. A real Next.js marketing site is twenty to forty. */
-const MAX_FILES = 120;
+/** Files in a tree. A real Next.js marketing site is twenty to forty; an app
+    brought in from GitHub with a component library can be a few hundred. The
+    same 200 the GitHub reader takes (lib/github/push.ts), so a project that
+    imports can also be edited, synced and saved. */
+const MAX_FILES = 200;
 
 /** One file. Past this it is not source, it is something embedded by mistake.
  *
@@ -55,7 +58,7 @@ const MAX_FILES = 120;
 export const MAX_FILE_BYTES = 256_000;
 
 /** The whole tree, which is what actually gets stored per version. */
-const MAX_TREE_BYTES = 3_000_000;
+const MAX_TREE_BYTES = 5_000_000;
 
 /** Segments in a path. Deep enough for app/(marketing)/pricing/page.tsx. */
 const MAX_DEPTH = 8;
@@ -179,7 +182,7 @@ export function readTree(value: unknown): FileTree {
     throw new TreeError("That build produced no files.", 422);
   }
   if (entries.length > MAX_FILES) {
-    throw new TreeError(`That build produced ${entries.length} files, which is more than a project this size has.`, 422);
+    throw new TreeError(`That project has ${entries.length} files — more than the ${MAX_FILES} a project here can hold.`, 422);
   }
 
   const tree: FileTree = [];

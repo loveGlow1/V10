@@ -319,6 +319,38 @@ IF IT CANNOT BE DONE HERE:
 - If the change genuinely belongs in a different file, emit no blocks and say so in one sentence, naming the file you would change.
 - If the request is ambiguous about which element it means, emit no blocks and ask one question.`;
 
+/* ── A project that was not made here ──────────────────────────────────────
+ *
+ * SOURCE_SYSTEM describes a project this platform scaffolded: app/ at the
+ * root, design tokens in app/tokens.css, the generated Supabase client. A
+ * project brought in from GitHub has none of that — its own styling, its own
+ * folders, perhaps the Pages Router — and a model told about tokens that do
+ * not exist writes classes that style nothing, or an app/ directory beside a
+ * pages/ one that breaks the build. So for such a project the system prompt
+ * says what it actually is, and to follow it. Pure. */
+export function projectConventions(paths: readonly string[]): string {
+  const has = (pattern: RegExp) => paths.some((path) => pattern.test(path));
+  const ownTokens = has(/^app\/tokens\.css$/);
+  const pagesRouter = !has(/^(src\/)?app\/(?:.*\/)?page\.[jt]sx?$/) && has(/^(src\/)?pages\/.+\.[jt]sx?$/);
+  const underSrc = has(/^src\/(app|pages)\//);
+  if (ownTokens && !pagesRouter && !underSrc) return "";
+  const lines = [
+    "",
+    "",
+    "THIS PROJECT WAS NOT MADE HERE — it was brought in from GitHub, and its own conventions win over anything above:",
+    "- There is no app/tokens.css and there may be no bg-ground/text-ink tokens: style it the way its own files already do (its Tailwind config, CSS modules or stylesheets). Do not introduce a new design system.",
+    "- There may be no @/lib/supabase. Use only what its files already import.",
+  ];
+  if (pagesRouter) {
+    lines.push(
+      `- It uses the Pages Router: routes are files in ${underSrc ? "src/pages/" : "pages/"}, the shell is pages/_app, data comes from getStaticProps/getServerSideProps, and navigation is next/router. Never create an app/ directory and never use next/navigation or "use client" here.`,
+    );
+  } else if (underSrc) {
+    lines.push("- Its App Router lives under src/app/, and its @/ imports point into src/. Keep new files under src/.");
+  }
+  return lines.join("\n");
+}
+
 /* ── The same file, by line number ────────────────────────────────────────
  *
  * The third attempt on a project file, and the counterpart of LINES_SYSTEM on

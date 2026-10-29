@@ -366,9 +366,27 @@ export function isNextProject(tree: FileTree): boolean {
   return false;
 }
 
+/**
+ * A Next.js project laid out its own way — brought in from GitHub with the
+ * Pages Router (pages/ or src/pages/) or the App Router under src/app/ —
+ * rather than the root app/ tree this platform makes.
+ *
+ * Every rule in this file is written for that root app/ tree, and read
+ * against another layout they are wrong: "no pages" for a pages/ project that
+ * has a dozen, a missing root layout for a src/app one that has it. So they
+ * stand aside for these, and `next build` at deploy is the judge, as it is for
+ * any Next.js project. Nothing is repaired in them either.
+ */
+export function hasOwnLayout(tree: FileTree): boolean {
+  if (tree.some((file) => /^app\//.test(file.path))) return false;
+  return tree.some((file) => /^(src\/)?pages\/.+\.[jt]sx?$/.test(file.path) || /^src\/app\/.+\.[jt]sx?$/.test(file.path));
+}
+
 export function inspectStructure(tree: FileTree): Finding[] {
   /* Not a Next.js project: none of this is about it. See isNextProject. */
   if (!isNextProject(tree)) return [];
+  /* Laid out its own way: see hasOwnLayout. */
+  if (hasOwnLayout(tree)) return [];
 
   const findings: Finding[] = [];
   const paths = new Set(tree.map((file) => file.path));
@@ -679,6 +697,7 @@ export type Repair = {
  * it does not understand changes nothing.
  */
 export function repairStructure(tree: FileTree): { tree: FileTree; repairs: Repair[] } {
+  if (hasOwnLayout(tree)) return { tree, repairs: [] };
   /* Same guard, and it matters more here: this one REWRITES somebody's files.
      A single page is returned by identity, untouched. See isNextProject. */
   if (!isNextProject(tree)) return { tree, repairs: [] };
