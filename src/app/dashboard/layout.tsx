@@ -10,6 +10,7 @@ import { toppedUpCredits } from '@/lib/credits-server';
 import { WorkspaceTabsProvider } from './WorkspaceTabsContext';
 import { ModelProvider } from './useModel';
 import { CardGate, CardReturn } from './components/billing/CardWelcome';
+import ScrollCalm from './components/ScrollCalm';
 
 export const metadata: Metadata = {
   title: "QuickStark.Ai | Dashboard",
@@ -87,6 +88,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-[#12203a]/40 via-[#0d0d0f] to-[#0d0d0f] [html[data-theme=light]_&]:hidden" />
 
       {children}
+      {/* Decoration pauses while the page scrolls, so the scroll gets every frame. */}
+      <ScrollCalm />
       {/* Back from saving a card on Stripe's page: confirmed and announced. */}
       <CardReturn />
       {/* No card, no service, for an account that has never paid. */}

@@ -47,5 +47,14 @@ has(unlocked.length === 0, `every dimmed full-screen overlay holds the page stil
 has(/html:has\(\[aria-modal="true"\]\),\s*html:has\(\[aria-modal="true"\]\) body \{\s*overflow: hidden;/.test(css), "an open dialog freezes the page under it");
 has(/useBodyScrollLock\(shown\)/.test(readFileSync("src/app/dashboard/components/billing/CardWelcome.tsx", "utf8")), "the Add-a-card sheet pins the dashboard behind it");
 
+/* Scrolling the dashboard: nothing heavy runs while it moves. */
+const thumb = readFileSync("src/app/dashboard/components/PageThumbnail.tsx", "utf8");
+has(/srcDoc=\{stilledHtml/.test(thumb) && /animation-play-state:paused/.test(thumb) && /clearInterval\(i\)/.test(thumb), "a project thumbnail is stilled once drawn, not left running");
+has(/rootMargin: "800px"/.test(thumb), "thumbnails are drawn well before they scroll into view");
+const inset = readFileSync("src/hooks/use-keyboard-inset.ts", "utf8");
+has(/if \(overlap === last\) return;/.test(inset) && /requestAnimationFrame\(write\)/.test(inset), "the keyboard inset restyles the page only when it changes");
+has(/requestAnimationFrame\(\(\) => \{\s*frame = 0;\s*read\(\);/.test(readFileSync("src/app/dashboard/components/ScrollToEnds.tsx", "utf8")), "the scroll arrows measure at most once a frame");
+has(/<ScrollCalm \/>/.test(readFileSync("src/app/dashboard/layout.tsx", "utf8")) && /html\.qs-scrolling \.qs-edge-glow/.test(css), "decoration pauses while the dashboard scrolls");
+
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);

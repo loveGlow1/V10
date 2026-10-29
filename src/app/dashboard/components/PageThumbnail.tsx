@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { avatarFor } from "../projectColours";
 
@@ -57,6 +57,25 @@ const THUMB_WIDTH = 1280;
    a quota error on a large page must cost the tile nothing. A miss is always
    survivable, because a miss is just the fetch this had before. */
 const CACHE_LIMIT = 256 * 1024;
+
+/* A tile is a picture of a page, not a running one.
+ *
+ * The frame runs the whole built site — its Tailwind script, its carousels,
+ * its looping animations, its videos — and it kept running all of it for as
+ * long as the tile was on screen, every tile at once, while the dashboard was
+ * being scrolled. That was the stutter. So once the page has had time to
+ * style itself and finish its entrance animations, it is stilled where it
+ * stands: animations paused on their current frame (not removed, which would
+ * snap a faded-in heading back to invisible), transitions off, every timer and
+ * interval cleared, animation-frame loops starved, videos paused. It looks
+ * exactly as it did; it just stops costing anything. */
+const FREEZE_AFTER_MS = 1500;
+const FREEZE = `<script>(function(){function f(){try{var s=document.createElement("style");s.textContent="*,*::before,*::after{animation-play-state:paused!important;transition:none!important}";(document.head||document.documentElement).appendChild(s);var id=setTimeout(function(){},0);for(var i=0;i<=id;i++){clearTimeout(i);clearInterval(i)}var n=function(){return 0};window.requestAnimationFrame=n;window.setInterval=n;window.setTimeout=n;document.querySelectorAll("video,audio").forEach(function(m){try{m.pause()}catch(e){}})}catch(e){}}function a(){setTimeout(f,${FREEZE_AFTER_MS})}if(document.readyState==="complete")a();else addEventListener("load",a)})();</script>`;
+
+function stilled(html: string): string {
+  const at = html.lastIndexOf("</body>");
+  return at === -1 ? html + FREEZE : html.slice(0, at) + FREEZE + html.slice(at);
+}
 
 function cacheKey(projectId: string, stamp?: string | null) {
   return `quickstark:thumb:${projectId}:${stamp ?? "live"}`;
@@ -216,9 +235,10 @@ function PageFrame({
           observer.disconnect();
         }
       },
-      /* A little ahead of the fold, so a tile is drawn by the time it arrives
-         rather than blinking in under the reader. */
-      { rootMargin: "300px" },
+      /* Well ahead of the fold — about a screen — so a tile is drawn and
+         stilled by the time it arrives rather than starting up under the
+         reader's finger mid-scroll. */
+      { rootMargin: "800px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
@@ -257,6 +277,7 @@ function PageFrame({
   }, [near, hasPage, projectId, stamp, html]);
 
   const scale = box ? box.width / THUMB_WIDTH : 0;
+  const stilledHtml = useMemo(() => (html ? stilled(html) : null), [html]);
 
   return (
     <span
@@ -282,7 +303,7 @@ function PageFrame({
 
       {html && box ? (
         <iframe
-          srcDoc={html}
+          srcDoc={stilledHtml ?? undefined}
           title={`${name} preview`}
           aria-hidden
           tabIndex={-1}
