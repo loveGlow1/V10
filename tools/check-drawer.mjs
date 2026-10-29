@@ -56,5 +56,16 @@ has(/if \(overlap === last\) return;/.test(inset) && /requestAnimationFrame\(wri
 has(/requestAnimationFrame\(\(\) => \{\s*frame = 0;\s*read\(\);/.test(readFileSync("src/app/dashboard/components/ScrollToEnds.tsx", "utf8")), "the scroll arrows measure at most once a frame");
 has(/<ScrollCalm \/>/.test(readFileSync("src/app/dashboard/layout.tsx", "utf8")) && /html\.qs-scrolling \.qs-edge-glow/.test(css), "decoration pauses while the dashboard scrolls");
 
+/* Every 3D mark has a box of its own. Unsized, the canvas started at the
+   browser's default 300×150 inside a 28px slot: the mark drew five times too
+   big, cropped, its highlights showing as white blocks until it settled —
+   the header's white flash on load. */
+const marks = [];
+for (const file of files) {
+  for (const tag of readFileSync(file, "utf8").match(/<Q3DCanvas\b[^>]*\/>/g) ?? []) marks.push([file, tag]);
+}
+const unsized = marks.filter(([, tag]) => !/className="[^"]*\bh-(?:\d|full|\[)[^"]*\bw-|className="[^"]*\bw-(?:\d|full|\[)[^"]*\bh-/.test(tag));
+has(marks.length > 0 && unsized.length === 0, `every 3D mark is given its own size${unsized.length ? `: ${unsized.map(([f]) => f).join(", ")}` : ""}`);
+
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);
