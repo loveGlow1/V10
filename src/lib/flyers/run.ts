@@ -8,6 +8,8 @@ import { generateIdeogram } from './providers/ideogram';
 import { generateGemini } from './providers/gemini';
 import { generateMiniMaxImage } from './providers/minimax';
 import { generateN8nImage } from './providers/n8n';
+import { allowedText, checkImageText } from './check';
+import { loadLogo, stampLogo } from './logo';
 import type { FlyerRequest, GenOutput, Provider } from './types';
 
 /* Created on first use rather than at import: createClient throws without a
@@ -90,6 +92,17 @@ async function runProvider(p: Provider, req: FlyerRequest, n: number): Promise<G
   return { provider: p, images };
 }
 
+/* Only images whose lettering is what was asked for go on (check.ts): the
+   rest are dropped here, so they are never shown and never charged. */
+async function keepReadable(images: Buffer[], req: FlyerRequest): Promise<{ kept: Buffer[]; dropped: string[] }> {
+  const allowed = allowedText(req.spec, req.brand.name);
+  const verdicts = await Promise.all(images.map((image) => checkImageText(image, allowed, req.spec.textMode === 'ai')));
+  return {
+    kept: images.filter((_, i) => verdicts[i].ok),
+    dropped: verdicts.filter((verdict) => !verdict.ok).map((verdict) => verdict.reason),
+  };
+}
+
 export async function runFlyerJob(jobId: string, userId: string, input: FlyerRequest) {
   await admin().from('flyer_jobs')
     .update({ status: 'running', updated_at: new Date().toISOString() })
@@ -100,17 +113,37 @@ export async function runFlyerJob(jobId: string, userId: string, input: FlyerReq
     const stage = req.stage ?? 'preview';
     const n = Math.min(Math.max(req.variants ?? (stage === 'preview' ? 4 : 1), 1), 4);
 
+    /* The flier's own logo, stamped on every image that is kept (logo.ts).
+       Only ever from the owner's own folder. */
+    const logo = req.brand.logoPath && isOwnPreviewPath(req.brand.logoPath, userId) ? await loadLogo(admin(), req.brand.logoPath) : null;
+
     let result: GenOutput | null = null;
     const failures: string[] = [];
+    let unreadable = 0;
     for (const p of providerChain(req)) {
       try {
-        result = await runProvider(p, req, n);
+        const made = await runProvider(p, req, n);
+        const { kept, dropped } = await keepReadable(made.images, req);
+        if (dropped.length) failures.push(`${p}: dropped ${dropped.length} for their lettering (${dropped.join('; ')})`);
+        unreadable += dropped.length;
+        /* A whole set with the wrong words is a model failing at this brief:
+           the next one is asked, and none of it is charged. */
+        if (!kept.length) continue;
+        result = { provider: made.provider, images: logo ? await Promise.all(kept.map((image) => stampLogo(image, logo))) : kept };
         break;
       } catch (e) {
         failures.push(`${p}: ${msg(e)}`);
       }
     }
-    if (!result) throw new Error(failures.length ? `All providers failed -> ${failures.join(' | ')}` : 'No image provider is connected (GEMINI_API_KEY, OPENAI_API_KEY or IDEOGRAM_API_KEY).');
+    if (!result) {
+      throw new Error(
+        unreadable
+          ? `The images came back with the wrong lettering, so none were kept and nothing was charged -> ${failures.join(' | ')}`
+          : failures.length
+            ? `All providers failed -> ${failures.join(' | ')}`
+            : 'No image provider is connected (GEMINI_API_KEY, OPENAI_API_KEY or IDEOGRAM_API_KEY).',
+      );
+    }
 
     const outputs: { provider: Provider; stage: string; path: string }[] = [];
     for (const [i, buf] of result.images.entries()) {

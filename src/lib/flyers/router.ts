@@ -91,7 +91,9 @@ export function refsFor(req: FlyerRequest, p: Provider): string[] {
   const shots = (req.brand.referenceImageUrls ?? []).filter(isPublicHttpsUrl);
   if (p === 'ideogram-v3') return shots.slice(0, 3);                 // style refs only, no logo
   if (p === 'minimax-image' || p.startsWith('n8n-')) return [];       // no image input
-  const all = ([req.brand.logoUrl, ...shots].filter(Boolean) as string[]).filter(isPublicHttpsUrl);
+  /* Never the logo: a model given it redraws it, differently each time. It is
+     stamped on afterwards instead (logo.ts). Style references only. */
+  const all = shots;
   if (p === 'nano-banana-2' || p === 'nano-banana-pro') return all.slice(0, 14);
   return all.slice(0, 4);                                            // OpenAI edits
 }

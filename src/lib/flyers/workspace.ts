@@ -27,7 +27,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentBalance } from "@/lib/credits-server";
 import { recordMessage } from "@/lib/thread-server";
 
+import { loadAttachments } from "@/lib/builder/attachments";
+
 import { requestFromBrief, reviseRequest } from "./brief";
+import { keepLogo, logoAttachment, wantsNoLogo } from "./logo";
 import { providerChain } from "./router";
 import { flyerJobCost, runFlyerJob } from "./run";
 import { imageUrl } from "./links";
@@ -59,6 +62,8 @@ export async function startFlierTurn(input: {
   requestId: string;
   /** This app's address, for the image links the thread keeps. */
   origin: string;
+  /** Files attached to this message: one of them may be the flier's logo. */
+  attachmentIds?: string[];
 }): Promise<FlierTurn> {
   const { supabase, service, userId, project, prompt } = input;
 
@@ -89,6 +94,20 @@ export async function startFlierTurn(input: {
   request.variants = 4;
   request.stage = "preview";
   request.siteId = project.id;
+
+  /* The logo: a new one when one is attached ("here's our logo", or a file
+     named like one), none when asked for none, and otherwise the one this
+     flier already has — carried in the revised request — so every version
+     keeps the same mark. See logo.ts. */
+  if (wantsNoLogo(prompt)) delete request.brand.logoPath;
+  else if (service && input.attachmentIds?.length) {
+    const attached = await loadAttachments(input.attachmentIds, project.id, userId);
+    const pick = logoAttachment(prompt, attached);
+    if (pick >= 0) {
+      const path = await keepLogo(service, userId, attached[pick]);
+      if (path) request.brand.logoPath = path;
+    }
+  }
 
   if (providerChain(request).length === 0) {
     return { ok: false, status: 503, error: "No image model is connected yet, so nothing could be made. Nothing was charged." };

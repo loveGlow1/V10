@@ -126,7 +126,7 @@ const n8nProvider = readFileSync(join(root, "src/lib/flyers/providers/n8n.ts"), 
 has(/\/webhook\/api\/v1\/flier-image/.test(n8nProvider) && /WEBHOOK_TOKEN_HEADER/.test(n8nProvider) && /gpt-image-1-mini/.test(n8nProvider), "it calls the Flier Image workflow with the app's token, on the model the gateway allows");
 has(/\^https\?:/.test(n8nProvider), "and takes MiniMax's http:// image links as well as https");
 const promptSrc = readFileSync(join(root, "src/lib/flyers/prompt.ts"), "utf8");
-has(/no logo, brand mark, signature or watermark/.test(promptSrc), "the prompt forbids invented logos and stray words");
+has(/No logo, emblem, monogram, brand mark, icon with letters, signature or watermark/.test(promptSrc) && /No other words, letters or numbers anywhere/.test(promptSrc), "the prompt forbids invented logos and stray words");
 has(/ili9dNrgumg2JjXU/.test(readFileSync(join(root, "n8n/flier-image.workflow.ts"), "utf8")), "the workflow is mirrored in the repo");
 has(/providerChain\(\{ \.\.\.body, stage \}\)\.length === 0[\s\S]{0,300}status: 503/.test(flyersApi), "and the flier is refused up front, before a job is made or anything is charged");
 const statusApi = readFileSync(join(root, "src/app/api/flyers/[id]/route.ts"), "utf8");
