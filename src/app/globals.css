@@ -1392,3 +1392,23 @@ body {
     backdrop-filter: none !important;
   }
 }
+
+/* ── The page stands still under any open dialog ────────────────────────────
+ *
+ * Every dialog and sheet here is in the page only while it is open, and marks
+ * itself aria-modal. So while one exists, the page under it does not scroll:
+ * a swipe that runs off the end of a sheet stops there instead of dragging the
+ * dashboard underneath (it used to, behind the Add-a-card sheet). The dialog's
+ * own content still scrolls, contained, and the hook useBodyScrollLock pins
+ * the page as well for browsers older than :has. A dialog added later gets
+ * this by being a dialog; tools/check-drawer.mjs keeps every full-screen
+ * overlay marked as one. */
+html:has([aria-modal="true"]),
+html:has([aria-modal="true"]) body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+[aria-modal="true"] {
+  overscroll-behavior: contain;
+}

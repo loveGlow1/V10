@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { CreditCard, Loader2, LogOut, ShieldCheck, Trash2, X } from "lucide-react";
 
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
 import { useCredits } from "../../useCredits";
@@ -360,7 +361,11 @@ export function CardGate() {
     };
   }, []);
 
-  if (skipped || confirming || !status?.required || !status.configured) return null;
+  const shown = !(skipped || confirming || !status?.required || !status?.configured);
+  /* The dashboard stays put behind it: a swipe on the sheet never scrolls the
+     page underneath. */
+  useBodyScrollLock(shown);
+  if (!shown || !status) return null;
   const holding = balance ? balance.daily + balance.rollover + balance.monthly + balance.topUp : 0;
   const title = status.card
     ? "Your card has expired"
@@ -398,7 +403,7 @@ export function CardGate() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="card-gate-title"
-        className="w-full max-w-[440px] rounded-t-[24px] border border-line/[0.1] bg-canvas px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] sm:rounded-2xl sm:pb-6"
+        className="max-h-[92dvh] w-full max-w-[440px] overflow-y-auto overscroll-contain rounded-t-[24px] border border-line/[0.1] bg-canvas px-6 pb-[max(20px,env(safe-area-inset-bottom))] pt-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] sm:rounded-2xl sm:pb-6"
       >
         <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#22c55e]/15 text-[#16a34a] dark:text-[#4ade80]">
           <ShieldCheck className="h-5 w-5" />

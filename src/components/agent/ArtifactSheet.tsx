@@ -3,6 +3,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
+import { useMediaQuery } from "@/hooks/use-media-query";
+
 export type Artifact =
   | { kind: "file"; path: string; content: string }
   | { kind: "diff"; path: string; find: string; replace: string }
@@ -15,6 +18,10 @@ export type Artifact =
 export default function ArtifactSheet({ artifact, onClose }: { artifact: Artifact | null; onClose: () => void }) {
   const [drag, setDrag] = useState(0);
   const start = useRef<number | null>(null);
+  /* A sheet over the thread below lg, so the thread holds still under it; a
+     side panel from lg up, beside a thread that still scrolls. */
+  const sheet = !useMediaQuery("(min-width: 1024px)");
+  useBodyScrollLock(sheet && !!artifact);
 
   useEffect(() => {
     if (!artifact) return;
