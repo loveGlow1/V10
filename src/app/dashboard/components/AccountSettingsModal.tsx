@@ -252,7 +252,8 @@ const MCP_NOTICES: Record<string, { tone: "ok" | "error"; text: string }> = {
   cancelled: { tone: "error", text: "Sign-in was cancelled. Nothing was connected." },
   expired: { tone: "error", text: "That sign-in took too long or was started elsewhere. Try again." },
   failed: { tone: "error", text: "The server did not issue a token. Try again." },
-  unreachable: { tone: "error", text: "That server could not be reached, or did not say where to sign in." },
+  unreachable: { tone: "error", text: "That server could not be reached, or did not say where to sign in. Nothing was connected." },
+  "no-tools": { tone: "error", text: "That server answered but offers no tools your agent can use, so it was not connected." },
   "no-oauth": { tone: "error", text: "That server does not let apps sign in to it automatically." },
   unavailable: { tone: "error", text: "Sign-in for this server is not set up on this deployment yet." },
   invalid: { tone: "error", text: "That server is not one you have added." },
@@ -572,7 +573,7 @@ export default function AccountSettingsModal({
     setMcpError(null);
     const { error } = await createSupabaseBrowserClient()
       .from("mcp_connections")
-      .insert({ user_id: account.id, server_id: serverId, name, url, enabled: false });
+      .insert({ user_id: account.id, server_id: serverId, name, url });
     if (error) {
       setMcpBusy(null);
       setMcpError(describeMcpError(error));
@@ -590,41 +591,6 @@ export default function AccountSettingsModal({
       .from("mcp_connections")
       .delete()
       .eq("server_id", serverId);
-
-    setMcpBusy(null);
-    if (error) {
-      setMcpError(describeMcpError(error));
-      return;
-    }
-    await loadMcpConnections();
-  }
-
-  /* A server with nothing to sign in to is a straight on/off. */
-  async function toggleMcpServer(serverId: string, enable: boolean) {
-    if (!enable) {
-      await removeMcpConnection(serverId);
-      return;
-    }
-    if (!isSupabaseConfigured) return;
-    if (!account.id) {
-      setMcpError("Your session is still loading — try again in a moment.");
-      return;
-    }
-    setMcpBusy(serverId);
-    setMcpError(null);
-
-    /* Insert, and on a row that is already there switch it on. Not an upsert:
-       PostgREST's ON CONFLICT sets every column it was given, user_id and
-       server_id included, and the browser is deliberately not allowed to
-       update those — so an upsert here was refused every time ("permission
-       denied"), measured against the live grants. */
-    const client = createSupabaseBrowserClient();
-    let { error } = await client
-      .from("mcp_connections")
-      .insert({ user_id: account.id, server_id: serverId, enabled: true });
-    if (error?.code === "23505") {
-      ({ error } = await client.from("mcp_connections").update({ enabled: true }).eq("server_id", serverId));
-    }
 
     setMcpBusy(null);
     if (error) {
@@ -1347,7 +1313,7 @@ export default function AccountSettingsModal({
                         if (connected) {
                           return (
                             <button
-                              onClick={() => (server.auth === "none" ? toggleMcpServer(server.id, false) : removeMcpConnection(server.id))}
+                              onClick={() => removeMcpConnection(server.id)}
                               disabled={busy}
                               className="h-8 shrink-0 rounded-lg border border-line/[0.1] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.06] hover:text-ink disabled:opacity-50"
                             >
@@ -1355,19 +1321,11 @@ export default function AccountSettingsModal({
                             </button>
                           );
                         }
-                        if (server.auth === "none") {
-                          return (
-                            <button
-                              onClick={() => toggleMcpServer(server.id, true)}
-                              disabled={busy}
-                              className="h-8 shrink-0 rounded-lg bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 disabled:opacity-50"
-                            >
-                              {busy ? "Connecting…" : "Connect"}
-                            </button>
-                          );
-                        }
                         /* A link, never a disabled button: pressing it again,
-                           or opening it in a new tab, always works. */
+                           or opening it in a new tab, always works. Every
+                           connector goes through the server, which checks it
+                           really answers before it shows as connected — one
+                           with no sign-in included. */
                         return (
                           <a
                             href={connectHref(server.id)}

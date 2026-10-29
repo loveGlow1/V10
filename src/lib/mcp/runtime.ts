@@ -169,6 +169,26 @@ export async function connectorTools(connectors: LiveConnector[]): Promise<Conne
   };
 }
 
+export type Verified = { ok: true; tools: number } | { ok: false; reason: "unreachable" | "no-tools" };
+
+/**
+ * Before a connection is saved as connected: actually talk to the server, as
+ * the person (their token, if it signs in), and list its tools. Connected
+ * means the agent can use it — the server answered, and offers at least one
+ * read-only tool, the only kind runtime.ts ever hands to a model. Never a row
+ * written on a button press alone.
+ */
+export async function verifyConnector(url: string, token: string | null): Promise<Verified> {
+  const live = await connectorTools([{ serverId: "verify", name: "verify", url, token }]);
+  try {
+    if (live.failed.length > 0) return { ok: false, reason: "unreachable" };
+    const tools = Object.keys(live.tools).length;
+    return tools > 0 ? { ok: true, tools } : { ok: false, reason: "no-tools" };
+  } finally {
+    await live.close();
+  }
+}
+
 const GATHER = `You prepare facts for a website or web app that is about to be built. The person's request names one or more of their connected apps. Use the tools to read what the request needs from them — products and prices, page text, issues, designs, whatever it names — and nothing else.
 
 Answer with a short factual brief the builder can use as content: names, prices, descriptions, copy, links, counts. Plain text or simple lists. Do not design the page or write code. If a tool fails or the data is not there, say so in one line.`;

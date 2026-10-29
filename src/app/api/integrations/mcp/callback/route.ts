@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { catalogueServer } from "@/app/dashboard/mcpServers";
 import { exchangeCode, saveOAuthConnection } from "@/lib/mcp/oauth";
+import { verifyConnector } from "@/lib/mcp/runtime";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -12,7 +13,9 @@ import { OAUTH_COOKIE, OAUTH_COOKIE_PATH, backTo, readOAuthCookie } from "../oau
  *
  * The state must match, the signed-in person must be the one who left, and
  * only then is the code exchanged — server-side, with the PKCE verifier — and
- * the tokens stored sealed. They land on Home with the MCP tab open. */
+ * the tokens stored sealed — after the server has answered with them and
+ * listed tools the agent can use, so "Connected" is never a sign-in that
+ * leads nowhere. They land on Home with the MCP tab open. */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +50,13 @@ export async function GET(request: Request) {
     // eslint-disable-next-line no-console
     console.error(`mcp-oauth: code exchange failed for ${user.id} on ${saved.serverId}`);
     return back("failed");
+  }
+
+  const verified = await verifyConnector(saved.url, tokens.accessToken);
+  if (!verified.ok) {
+    // eslint-disable-next-line no-console
+    console.error(`mcp-oauth: ${saved.serverId} signed in but ${verified.reason} for ${user.id}`);
+    return back(verified.reason);
   }
 
   const custom = !catalogueServer(saved.serverId);
