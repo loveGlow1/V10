@@ -1408,11 +1408,17 @@ html:has([aria-modal="true"]) body {
  * of light runs along its edge. No soft blur round it — that read as dust. It
  * follows the flat mark and the 3D canvas alike. Dark theme only; on a light
  * ground the mark already stands out. */
-.qs-mark-glow {
+/* The flat mark only — the <svg> itself, or the one Q3DCanvas paints first.
+   Never the 3D canvas: Safari drops a WebGL canvas's alpha under a CSS
+   filter, so its clear corners showed as a black square, and flashed white
+   while it started. The 3D mark is lit by its own exposure instead (lit). */
+svg.qs-mark-glow,
+.qs-mark-glow > svg {
   filter: brightness(1.6) drop-shadow(0 0 0.5px rgb(255 255 255 / 0.42));
 }
 
-html[data-theme="light"] .qs-mark-glow {
+html[data-theme="light"] svg.qs-mark-glow,
+html[data-theme="light"] .qs-mark-glow > svg {
   filter: none;
 }
 

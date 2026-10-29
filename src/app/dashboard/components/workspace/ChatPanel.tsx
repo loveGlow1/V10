@@ -1946,7 +1946,7 @@ export default function ChatPanel({
                 the same screen often enough that running them the same way
                 reads as one motion duplicated; running them opposite reads as
                 two marks, which is what they are. */}
-            <Q3DCanvas scale={1.1} spinDirection={-1} className="qs-mark-glow h-14 w-14 shrink-0" />
+            <Q3DCanvas scale={1.1} spinDirection={-1} lit className="qs-mark-glow h-14 w-14 shrink-0" />
             {/* The landing page's own wordmark treatment, brought across so the
                 greeting is in the brand's voice rather than in plain white and
                 a flat green. The time of day takes the silver gradient and its

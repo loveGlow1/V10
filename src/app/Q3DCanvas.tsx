@@ -29,7 +29,12 @@ export default function Q3DCanvas({
   spinAxisTiltDeg,
   spinDirection,
   paused,
+  lit,
 }: {
+  /** On a near-black ground: the mark brighter — the flat one by its CSS
+   *  (.qs-mark-glow), the 3D one by its exposure. Never a CSS filter on the
+   *  canvas itself; see Q3DCanvasScene. */
+  lit?: boolean;
   /** Held still on its last frame: see Q3DCanvasScene. */
   paused?: boolean;
   scale?: number;
@@ -122,6 +127,7 @@ export default function Q3DCanvas({
           spinAxisTiltDeg={spinAxisTiltDeg}
           spinDirection={spinDirection}
           paused={paused}
+          exposure={lit ? 2.6 : undefined}
           className="h-full w-full"
           style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
           onPainted={() => setPainted(true)}

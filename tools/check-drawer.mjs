@@ -67,5 +67,13 @@ for (const file of files) {
 const unsized = marks.filter(([, tag]) => !/className="[^"]*\bh-(?:\d|full|\[)[^"]*\bw-|className="[^"]*\bw-(?:\d|full|\[)[^"]*\bh-/.test(tag));
 has(marks.length > 0 && unsized.length === 0, `every 3D mark is given its own size${unsized.length ? `: ${unsized.map(([f]) => f).join(", ")}` : ""}`);
 
+/* No CSS filter ever reaches a WebGL canvas: Safari drops its alpha under
+   one, and the mark's clear corners showed as a black square that flashed
+   white on every reload. The flat mark is lit by CSS, the 3D one by its
+   renderer's exposure (lit). */
+has(!/^\s*\.qs-mark-glow\s*\{/m.test(css) && /svg\.qs-mark-glow,\s*\.qs-mark-glow > svg \{/.test(css), "the mark's light is on the flat svg only, never on a 3D canvas");
+const unlit = marks.filter(([, tag]) => /qs-mark-glow/.test(tag) && !/\blit\b/.test(tag));
+has(unlit.length === 0, `a lit 3D mark is lit by its renderer${unlit.length ? `: ${unlit.map(([f]) => f).join(", ")}` : ""}`);
+
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);
