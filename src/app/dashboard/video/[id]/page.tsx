@@ -15,6 +15,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowUp, Check, Download, Loader2, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Upload, Wand2, X } from "lucide-react";
 
+import SaveFileButton from "@/components/SaveFileButton";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
@@ -42,6 +43,10 @@ const HEALTH: Record<string, string> = {
   "no-adapter": "Not connected yet",
   "not-configured": "Not configured on the server",
 };
+
+/* A file name from a title: the same rule the file routes use. */
+const slug = (title: string) =>
+  (title || "video").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "video";
 
 function download(name: string, body: string, type: string) {
   const url = URL.createObjectURL(new Blob([body], { type }));
@@ -603,13 +608,13 @@ function FinishedVideo({ url, plan, renders, title }: { url: string; plan: Produ
         {withMusic && music && <audio ref={musicRef} src={music} />}
       </div>
       <div className="mt-2.5 flex flex-wrap gap-2">
-        <a href={url} download={`${title || "video"}.mp4`} className="flex h-9 items-center gap-1.5 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
-          <Download className="h-4 w-4" /> Download MP4
-        </a>
+        <SaveFileButton url={url} name={`${slug(title)}.mp4`} type="video/mp4" className="flex h-9 items-center gap-1.5 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
+          Download MP4
+        </SaveFileButton>
         {withMusic && music && (
-          <a href={music} download={`${title || "video"}-music.mp3`} className="flex h-9 items-center gap-1.5 rounded-full border border-line/[0.1] px-3.5 text-[13px] text-ink">
-            <Download className="h-4 w-4" /> Music track
-          </a>
+          <SaveFileButton url={music} name={`${slug(title)}-music.mp3`} type="audio/mpeg" className="flex h-9 items-center gap-1.5 rounded-full border border-line/[0.1] px-3.5 text-[13px] text-ink">
+            Music track
+          </SaveFileButton>
         )}
       </div>
       <p className="mt-1.5 text-[11.5px] text-muted">
@@ -718,11 +723,13 @@ function SceneByScene({ plan, renders }: { plan: ProductionPlan; renders: Render
         </span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {scenes.map((entry) => (
-          <a key={entry.scene.n} href={entry.clip ?? "#"} download className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2.5 text-[11.5px] text-soft hover:text-ink">
-            <Download className="h-3 w-3" /> Clip {entry.scene.n}
-          </a>
-        ))}
+        {scenes.map((entry) =>
+          entry.clip ? (
+            <SaveFileButton key={entry.scene.n} url={entry.clip} name={`clip-${entry.scene.n}.mp4`} type="video/mp4" iconClassName="h-3 w-3" className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2.5 text-[11.5px] text-soft hover:text-ink">
+              Clip {entry.scene.n}
+            </SaveFileButton>
+          ) : null,
+        )}
       </div>
       <p className="mt-1.5 text-[11.5px] text-muted">
         {scenes.length < plan.scenes.length ? `${plan.scenes.length - scenes.length} scene(s) still missing. ` : ""}
