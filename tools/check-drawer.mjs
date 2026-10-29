@@ -17,7 +17,7 @@ const has = (ok, label) => {
 
 has(!/\{open && \(/.test(src), "the drawer is always mounted, not built on open");
 has(/translate-x-0/.test(src) && /-translate-x-full/.test(src), "opening is a CSS transform");
-has(!/Q3DCanvas/.test(src), "no 3D (WebGL) mark inside the drawer");
+has(!/<Q3DCanvas(?![^>]*paused=\{!settled\})/.test(src) && /setSettled\(true\)/.test(src), "the 3D mark is held still while the drawer slides");
 has(!/fixed inset-0[^"`]*backdrop-blur/.test(src), "no full-screen blur behind the drawer");
 has(!/body\.style\.position\s*=\s*"fixed"/.test(src), "the scroll lock does not relayout the page");
 has(/inert=\{!open\}/.test(src), "a closed drawer takes no taps or focus");

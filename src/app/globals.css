@@ -1326,7 +1326,7 @@ body {
 /* ── Loading, error and not-found screens (StatusScreen.tsx) ─────────────────
  *
  * The loader waits a beat before it shows, so a fast load never flashes it;
- * then the mark breathes and a thin bar runs along the top. */
+ * then a thin bar runs along the top under the spinning mark. */
 .qs-status-in {
   animation: qs-status-in 240ms ease-out 180ms both;
 }
@@ -1334,15 +1334,6 @@ body {
 @keyframes qs-status-in {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-.qs-status-mark {
-  animation: qs-status-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes qs-status-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.96); }
-  50% { opacity: 1; transform: scale(1); }
 }
 
 .qs-status-bar {
@@ -1368,12 +1359,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qs-status-mark,
   .qs-status-bar::after {
     animation: none;
-  }
-  .qs-status-mark {
-    opacity: 0.8;
   }
 }
 

@@ -357,7 +357,12 @@ export default function Q3DCanvasScene({
   style,
   onPainted,
   onContextLost,
+  paused = false,
 }: {
+  /** Hold the last frame and draw nothing more until unpaused — so a mark
+   *  inside something that is animating (the phone drawer sliding in) costs
+   *  nothing while it moves. */
+  paused?: boolean;
   scale?: number;
   className?: string;
   /** Degrees to tilt the spin axis from Y toward the camera. Zero — the default
@@ -382,6 +387,7 @@ export default function Q3DCanvasScene({
 }) {
   return (
     <Canvas
+      frameloop={paused ? "never" : "always"}
       className={className}
       style={{ width: "100%", height: "100%", ...style }}
       /* Only wires up context loss. The hand-over from the flat mark is
