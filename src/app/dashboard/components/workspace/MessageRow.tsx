@@ -9,6 +9,8 @@ import {
   isConnectSupabaseHref,
 } from "@/lib/builder/backend/connect-link";
 
+import SaveFileButton from "@/components/SaveFileButton";
+
 import QMark from "../../../QMark";
 
 import BuildActivity, { type ActivityStep } from "./BuildActivity";
@@ -282,7 +284,6 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
   /* An image that will not load was deleted by its owner (Recently deleted
      keeps it 15 days): said in its place rather than left a broken box. */
   const [gone, setGone] = useState<Set<string>>(() => new Set());
-  const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
   return (
     <>
       <div className="mt-3 grid max-w-[520px] grid-cols-2 gap-2">
@@ -302,14 +303,17 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
                 className="block h-auto w-full"
               />
             </button>
-            <a
-              href={download(image.href)}
-              download
-              aria-label={`Download version ${index + 1}`}
+            <SaveFileButton
+              url={image.href}
+              name={`flier-version-${index + 1}.png`}
+              type="image/png"
+              prefetch
+              iconOnly
+              label={`Download version ${index + 1}`}
               className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white backdrop-blur transition-opacity hover:bg-black/80"
             >
-              <Download className="h-4 w-4" />
-            </a>
+              Download
+            </SaveFileButton>
           </div>
         ))}
       </div>
@@ -326,14 +330,16 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={open} alt="Full size" onClick={(event) => event.stopPropagation()} className="max-h-[78vh] w-auto max-w-full rounded-2xl" />
-          <a
-            href={download(open)}
-            download
-            onClick={(event) => event.stopPropagation()}
+          <SaveFileButton
+            url={open}
+            name={`flier-version-${images.findIndex((image) => image.href === open) + 1}.png`}
+            type="image/png"
+            prefetch
+            stopPropagation
             className="inline-flex h-11 items-center gap-2 rounded-full bg-accent px-5 text-[14px] font-semibold text-onSolid"
           >
-            <Download className="h-4 w-4" /> Download
-          </a>
+            Download
+          </SaveFileButton>
         </div>
       )}
     </>
@@ -343,7 +349,6 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
 /* A reply's video, in the conversation: it plays right here, and Download
    saves the MP4 itself — the file route answers with it as an attachment. */
 function ReplyVideos({ videos }: { videos: { label: string; href: string }[] }) {
-  const download = (href: string) => `${href}${href.includes("?") ? "&" : "?"}download=1`;
   const [gone, setGone] = useState<Set<string>>(() => new Set());
   return (
     <div className="mt-3 flex max-w-[520px] flex-col gap-3">
@@ -364,13 +369,15 @@ function ReplyVideos({ videos }: { videos: { label: string; href: string }[] }) 
           />
           <div className="flex items-center justify-between gap-3 border-t border-line/[0.08] bg-panel px-3 py-2">
             <span className="text-[12.5px] text-muted">MP4{videos.length > 1 ? ` · ${index + 1}` : ""}</span>
-            <a
-              href={download(video.href)}
-              download
+            <SaveFileButton
+              url={video.href}
+              name={`video${videos.length > 1 ? `-${index + 1}` : ""}.mp4`}
+              type="video/mp4"
+              iconClassName="h-3.5 w-3.5"
               className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3.5 text-[13px] font-semibold text-onSolid transition-opacity hover:opacity-90"
             >
-              <Download className="h-3.5 w-3.5" /> Download
-            </a>
+              Download
+            </SaveFileButton>
           </div>
         </div>
       ))}
