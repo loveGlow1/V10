@@ -1415,3 +1415,11 @@ html:has([aria-modal="true"]) body {
 html[data-theme="light"] .qs-mark-glow {
   filter: none;
 }
+
+/* While anything scrolls (ScrollCalm.tsx), the decorative loops pause on the
+   frame they are on and resume where they left off, so the scroll is not
+   competing with them for frames. */
+html.qs-scrolling .qs-edge-glow,
+html.qs-scrolling .metal-shimmer {
+  animation-play-state: paused;
+}

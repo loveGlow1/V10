@@ -70,8 +70,19 @@ export default function ScrollToEnds({
 
     read();
 
+    /* Measured once a frame at most: reading scrollHeight forces a layout,
+       and a scroll fires many events a frame. */
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        read();
+      });
+    };
+
     const source: HTMLElement | Window = el ?? window;
-    source.addEventListener("scroll", read, { passive: true });
+    source.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", read);
 
     /* Scrolling is not the only thing that changes the answer. A reply landing
@@ -84,7 +95,8 @@ export default function ScrollToEnds({
     if (el) mutate.observe(el, { childList: true, subtree: true });
 
     return () => {
-      source.removeEventListener("scroll", read);
+      cancelAnimationFrame(frame);
+      source.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", read);
       resize.disconnect();
       mutate.disconnect();
