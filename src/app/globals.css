@@ -1403,12 +1403,13 @@ html:has([aria-modal="true"]) body {
 /* ── The mark, lifted off a dark ground ─────────────────────────────────────
  *
  * The mark is obsidian: on the landing page it sits on a bright halo, but on
- * the dashboard's near-black it all but disappeared. A faint light along its
- * own outline — drop-shadow follows the silhouette of the flat mark and of
- * the 3D canvas alike — so it reads without looking lit up. Dark theme only;
- * on a light ground the mark already stands out. */
+ * the dashboard's near-black it all but disappeared. Lit rather than haloed:
+ * its own highlights are brightened, as if a light caught it, and a hairline
+ * of light runs along its edge. No soft blur round it — that read as dust. It
+ * follows the flat mark and the 3D canvas alike. Dark theme only; on a light
+ * ground the mark already stands out. */
 .qs-mark-glow {
-  filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.32)) drop-shadow(0 0 7px rgb(255 255 255 / 0.16));
+  filter: brightness(1.6) drop-shadow(0 0 0.5px rgb(255 255 255 / 0.42));
 }
 
 html[data-theme="light"] .qs-mark-glow {
