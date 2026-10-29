@@ -358,7 +358,13 @@ export default function Q3DCanvasScene({
   onPainted,
   onContextLost,
   paused = false,
+  exposure = 1.0,
 }: {
+  /** How brightly the scene is exposed: 1 as designed, more for a mark on a
+   *  near-black ground (see Q3DCanvas's `lit`). Lit here, in the renderer,
+   *  because a CSS filter on a WebGL canvas makes Safari drop its alpha —
+   *  the transparent corners turn black, and white while it starts. */
+  exposure?: number;
   /** Hold the last frame and draw nothing more until unpaused — so a mark
    *  inside something that is animating (the phone drawer sliding in) costs
    *  nothing while it moves. */
@@ -397,7 +403,7 @@ export default function Q3DCanvasScene({
           gl.domElement.addEventListener("webglcontextlost", onContextLost, { once: true });
         }
       }}
-      gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
+      gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: exposure }}
       /* A FLOOR of 2, not a ceiling of 2, and the floor is the part that
          matters. This clamps the device's own pixel ratio into the range, so
          the old [1, 2] meant a display reporting 1 got a backing store the

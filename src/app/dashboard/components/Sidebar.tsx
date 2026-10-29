@@ -369,7 +369,7 @@ export default function Sidebar({
                       mark, paused while it slides. Not on a desktop, where
                       the drawer never shows. */}
                   {armed && !isDesktop ? (
-                    <Q3DCanvas scale={0.65} paused={!settled} className="qs-mark-glow h-9 w-9" />
+                    <Q3DCanvas scale={0.65} paused={!settled} lit className="qs-mark-glow h-9 w-9" />
                   ) : (
                     <QMark scale={0.65} className="qs-mark-glow h-9 w-9" />
                   )}
