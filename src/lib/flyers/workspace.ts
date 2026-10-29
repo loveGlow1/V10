@@ -27,7 +27,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentBalance } from "@/lib/credits-server";
 import { recordMessage } from "@/lib/thread-server";
 
+import { loadAttachments } from "@/lib/builder/attachments";
+
 import { requestFromBrief, reviseRequest } from "./brief";
+import { keepLogo, logoAttachment, wantsNoLogo } from "./logo";
 import { providerChain } from "./router";
 import { flyerJobCost, runFlyerJob } from "./run";
 import { imageUrl } from "./links";
@@ -59,6 +62,8 @@ export async function startFlierTurn(input: {
   requestId: string;
   /** This app's address, for the image links the thread keeps. */
   origin: string;
+  /** Files attached to this message: one of them may be the flier's logo. */
+  attachmentIds?: string[];
 }): Promise<FlierTurn> {
   const { supabase, service, userId, project, prompt } = input;
 
@@ -89,6 +94,20 @@ export async function startFlierTurn(input: {
   request.variants = 4;
   request.stage = "preview";
   request.siteId = project.id;
+
+  /* The logo: a new one when one is attached ("here's our logo", or a file
+     named like one), none when asked for none, and otherwise the one this
+     flier already has — carried in the revised request — so every version
+     keeps the same mark. See logo.ts. */
+  if (wantsNoLogo(prompt)) delete request.brand.logoPath;
+  else if (service && input.attachmentIds?.length) {
+    const attached = await loadAttachments(input.attachmentIds, project.id, userId);
+    const pick = logoAttachment(prompt, attached);
+    if (pick >= 0) {
+      const path = await keepLogo(service, userId, attached[pick]);
+      if (path) request.brand.logoPath = path;
+    }
+  }
 
   if (providerChain(request).length === 0) {
     return { ok: false, status: 503, error: "No image model is connected yet, so nothing could be made. Nothing was charged." };
@@ -266,19 +285,35 @@ h2{max-width:1100px;margin:32px auto 6px;font-size:15px}.sub{max-width:1100px;ma
 .save{background:#f97316;color:#111}.close{background:rgba(255,255,255,.12);color:#fff}#note{color:#a1a1aa;font-size:13px;min-height:18px;margin:0}
 </style></head><body>
 ${body}
-<div id="view" role="dialog" aria-modal="true" aria-label="Flier, full size"><img alt="Flier, full size"><div class="row"><a class="btn save" id="save" target="_blank" rel="noopener" download>Download</a><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
+<div id="view" role="dialog" aria-modal="true" aria-label="Flier, full size"><img alt="Flier, full size"><div class="row"><button class="btn save" id="save" type="button">Download</button><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
 <script>
 (function(){
   var view=document.getElementById('view'),img=view.querySelector('img'),note=document.getElementById('note'),current=null;
-  document.querySelectorAll('.card[data-src]').forEach(function(card){card.addEventListener('click',function(){current={src:card.dataset.src,name:card.dataset.name};img.src=current.src;var save=document.getElementById('save');save.href=card.dataset.download;save.setAttribute('download',card.dataset.name);note.textContent='';view.classList.add('open');});});
+  /* Saving: the image is fetched the moment it is opened, so the tap on
+     Download is the tap that saves it — on a phone the share sheet (Save
+     Image puts it in Photos), which only opens straight from a tap; on a
+     computer a .png download. A link to the file route instead, opened in a
+     new tab, was blocked on phones: the tab inherited this frame's sandbox. */
+  var save=document.getElementById('save');
+  var phone=/iphone|ipad|ipod|android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/macintosh/i.test(navigator.userAgent));
+  function fetchFile(c){if(!c.file&&!c.loading){c.loading=fetch(c.src).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob();}).then(function(b){c.file=new File([b],c.name,{type:b.type||'image/png'});return c.file;});c.loading.catch(function(){c.loading=null;});}return c.loading||Promise.resolve(c.file);}
+  function canShare(f){try{return typeof navigator.share==='function'&&navigator.canShare&&navigator.canShare({files:[f]});}catch(e){return false;}}
+  function downloadFile(f){var u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u);},60000);note.textContent='Saved '+f.name;}
+  document.querySelectorAll('.card[data-src]').forEach(function(card){card.addEventListener('click',function(){current={src:card.dataset.src,name:card.dataset.name,href:card.dataset.download};img.src=current.src;save.textContent=phone?'Save to Photos':'Download';note.textContent='';view.classList.add('open');fetchFile(current);});});
+  save.addEventListener('click',function(){
+    var c=current;if(!c)return;
+    if(c.file){
+      if(phone&&canShare(c.file)){navigator.share({files:[c.file],title:c.name}).catch(function(e){if(e&&e.name!=='AbortError')downloadFile(c.file);});}
+      else downloadFile(c.file);
+      return;
+    }
+    note.textContent='Preparing…';
+    fetchFile(c).then(function(f){if(phone&&canShare(f)){note.textContent='Ready — tap Save to Photos again.';}else downloadFile(f);}).catch(function(){note.textContent='It could not be saved here. Long-press the image and choose Save.';window.open(c.href,'_blank');});
+  });
   function close(){view.classList.remove('open');}
   document.getElementById('close').addEventListener('click',close);
   view.addEventListener('click',function(e){if(e.target===view)close();});
   document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
-  /* Download is a link to the app's own file route, which answers with the
-     image as an attachment: the browser saves a clean PNG, nothing else. It
-     opens in a new tab because this preview is sandboxed; the tab is the
-     download and closes itself. */
 })();
 </script></body></html>`;
 }

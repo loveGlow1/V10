@@ -126,7 +126,7 @@ const n8nProvider = readFileSync(join(root, "src/lib/flyers/providers/n8n.ts"), 
 has(/\/webhook\/api\/v1\/flier-image/.test(n8nProvider) && /WEBHOOK_TOKEN_HEADER/.test(n8nProvider) && /gpt-image-1-mini/.test(n8nProvider), "it calls the Flier Image workflow with the app's token, on the model the gateway allows");
 has(/\^https\?:/.test(n8nProvider), "and takes MiniMax's http:// image links as well as https");
 const promptSrc = readFileSync(join(root, "src/lib/flyers/prompt.ts"), "utf8");
-has(/no logo, brand mark, signature or watermark/.test(promptSrc), "the prompt forbids invented logos and stray words");
+has(/No logo, emblem, monogram, brand mark, icon with letters, signature or watermark/.test(promptSrc) && /No other words, letters or numbers anywhere/.test(promptSrc), "the prompt forbids invented logos and stray words");
 has(/ili9dNrgumg2JjXU/.test(readFileSync(join(root, "n8n/flier-image.workflow.ts"), "utf8")), "the workflow is mirrored in the repo");
 has(/providerChain\(\{ \.\.\.body, stage \}\)\.length === 0[\s\S]{0,300}status: 503/.test(flyersApi), "and the flier is refused up front, before a job is made or anything is charged");
 const statusApi = readFileSync(join(root, "src/app/api/flyers/[id]/route.ts"), "utf8");
@@ -144,7 +144,7 @@ has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.te
 );
 const studio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");
 const projectsPage = readFileSync(join(root, "src/app/dashboard/projects/page.tsx"), "utf8");
-has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /void save\(open\)/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
+has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /<SaveFileButton url=\{open\.url\}/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
 has(/typeof raw\.again === 'string'[\s\S]{0,500}stage: 'preview', variants: 4/.test(flyersApi), "4 more versions reuse the brief as new drafts");
 has(/href="\/dashboard\/fliers"[\s\S]{0,200}Fliers/.test(projectsPage), "the Projects page's last tab is Fliers");
 /* Fliers open in the workspace, like a website. */
@@ -174,7 +174,7 @@ const wsSrc = readFileSync(join(root, "src/lib/flyers/workspace.ts"), "utf8");
 has(/links: ok \? liveOutputs\(done\?\.outputs\)\.map\(\(output, index\) => \(\{ label: `image:\$\{index \+ 1\}`/.test(wsSrc), "the ready message carries the images");
 has(/<ReplyImages images=\{images\} \/>/.test(row) && /!link\.label\.startsWith\("image:"\)/.test(row), "the chat shows them as pictures, not chips");
 has(/attachment; filename=/.test(fileApi) && /liveOutputs\(job\.outputs\)/.test(fileApi) && /createSupabaseServerClient/.test(fileApi), "Download is the image itself as an attachment — the owner's, and never a deleted one");
-has(/data-download=/.test(wsSrc) && /id="save" target="_blank"/.test(wsSrc), "the preview's Download uses the same clean file");
+has(/data-download=/.test(wsSrc) && /navigator\.share\(\{files:\[c\.file\]/.test(wsSrc) && /window\.open\(c\.href/.test(wsSrc), "the preview's Download saves the same clean file — the share sheet on a phone, the file route as the fallback");
 /* Nano Banana on fal. */
 const falProv = readFileSync(join(root, "src/lib/flyers/providers/fal.ts"), "utf8");
 const routerSrc = readFileSync(join(root, "src/lib/flyers/router.ts"), "utf8");

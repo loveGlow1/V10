@@ -180,6 +180,27 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
   var FILE=${JSON.stringify(input.videoId ? `${input.origin}/api/video/${input.videoId}/file` : "")};
   var $=function(id){return document.getElementById(id)};
   var state=null,scenes=[],i=0,playing=false,t0=0,elapsedBefore=0,timer=null,lastKey='';
+  /* On a phone, Download saves the MP4 to Photos through the share sheet,
+     which opens only straight from a tap — so the first tap fetches it and
+     the second shares it. A link opened in a new tab inherited this frame's
+     sandbox there and saved nothing. A computer keeps the link. */
+  var phone=/iphone|ipad|ipod|android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/macintosh/i.test(navigator.userAgent));
+  var saved={src:'',file:null,loading:null};
+  if(phone)$('finaldl').addEventListener('click',function(e){
+    var src=state&&state.final;if(!src)return;
+    e.preventDefault();
+    var dl=$('finaldl'),name=(($('title').textContent||'video').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'video')+'.mp4';
+    if(saved.src!==src)saved={src:src,file:null,loading:null};
+    function share(f){
+      var ok=false;try{ok=typeof navigator.share==='function'&&navigator.canShare&&navigator.canShare({files:[f]})}catch(x){}
+      if(ok){navigator.share({files:[f],title:f.name}).catch(function(){});return}
+      var u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000);
+    }
+    if(saved.file){share(saved.file);return}
+    if(saved.loading)return;
+    dl.textContent='Preparing…';
+    saved.loading=fetch(src).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob()}).then(function(b){saved.file=new File([b],name,{type:b.type||'video/mp4'});dl.textContent='Save to Photos'}).catch(function(){saved.loading=null;dl.textContent='Download MP4';window.open(dl.href,'_blank')});
+  });
   var RATIO={'9:16':'9 / 16','1:1':'1 / 1','16:9':'16 / 9','4:5':'4 / 5'};
   function media(n,engine){var r=(state.renders||[]).find(function(x){return x.scene===n&&x.engine===engine&&x.status==='done'&&x.url});return r?r.url:null}
   function job(n){var rs=(state.renders||[]).filter(function(x){return x.scene===n&&(x.engine==='video'||x.engine==='avatar')});if(!rs.length)return'';if(rs.some(function(x){return x.status==='done'}))return'done';if(rs.some(function(x){return x.status==='failed'}))return'fail';return'run'}
