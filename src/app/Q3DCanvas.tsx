@@ -28,7 +28,10 @@ export default function Q3DCanvas({
   withBackdrop = false,
   spinAxisTiltDeg,
   spinDirection,
+  paused,
 }: {
+  /** Held still on its last frame: see Q3DCanvasScene. */
+  paused?: boolean;
   scale?: number;
   className?: string;
   withBackdrop?: boolean;
@@ -118,6 +121,7 @@ export default function Q3DCanvas({
           withBackdrop={withBackdrop}
           spinAxisTiltDeg={spinAxisTiltDeg}
           spinDirection={spinDirection}
+          paused={paused}
           className="h-full w-full"
           style={{ gridArea: STACKED, opacity: painted ? 1 : 0, transition: FADE }}
           onPainted={() => setPainted(true)}

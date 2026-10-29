@@ -1326,7 +1326,7 @@ body {
 /* ── Loading, error and not-found screens (StatusScreen.tsx) ─────────────────
  *
  * The loader waits a beat before it shows, so a fast load never flashes it;
- * then the mark breathes and a thin bar runs along the top. */
+ * then a thin bar runs along the top under the spinning mark. */
 .qs-status-in {
   animation: qs-status-in 240ms ease-out 180ms both;
 }
@@ -1334,15 +1334,6 @@ body {
 @keyframes qs-status-in {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-.qs-status-mark {
-  animation: qs-status-breathe 1.8s ease-in-out infinite;
-}
-
-@keyframes qs-status-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(0.96); }
-  50% { opacity: 1; transform: scale(1); }
 }
 
 .qs-status-bar {
@@ -1368,12 +1359,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qs-status-mark,
   .qs-status-bar::after {
     animation: none;
-  }
-  .qs-status-mark {
-    opacity: 0.8;
   }
 }
 
@@ -1411,4 +1398,19 @@ html:has([aria-modal="true"]) body {
 
 [aria-modal="true"] {
   overscroll-behavior: contain;
+}
+
+/* ── The mark, lifted off a dark ground ─────────────────────────────────────
+ *
+ * The mark is obsidian: on the landing page it sits on a bright halo, but on
+ * the dashboard's near-black it all but disappeared. A faint light along its
+ * own outline — drop-shadow follows the silhouette of the flat mark and of
+ * the 3D canvas alike — so it reads without looking lit up. Dark theme only;
+ * on a light ground the mark already stands out. */
+.qs-mark-glow {
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.32)) drop-shadow(0 0 7px rgb(255 255 255 / 0.16));
+}
+
+html[data-theme="light"] .qs-mark-glow {
+  filter: none;
 }

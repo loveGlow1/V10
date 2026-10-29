@@ -24,7 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import QMark from "../../QMark";
-import { BrandMark } from "../../StatusScreen";
+import Q3DCanvas from "../../Q3DCanvas";
 import { maskEmail } from "../account";
 import ProjectRowMenu from "./ProjectRowMenu";
 import { ManageMark } from "./workspace/panelMarks";
@@ -117,6 +117,9 @@ interface SidebarProps {
   onManageApp?: () => void;
 }
 
+/* How long the drawer takes to slide in; the className below says the same. */
+const SLIDE_MS = 280;
+
 export default function Sidebar({
   open,
   onClose,
@@ -138,6 +141,29 @@ export default function Sidebar({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [emailRevealed, setEmailRevealed] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  /* The 3D mark, kept out of the slide. `settled` is true once the drawer has
+     finished sliding in, and only then does the mark draw: the first open
+     slides in with the flat mark (QMark, the same one the landing page shows
+     before its 3D mark is ready) and starts the 3D one when it lands, which
+     then fades in over it exactly as it does there; later opens slide with
+     the 3D mark held on its last frame and set it spinning on arrival. Drawn
+     during the slide, the renderer cost up to half a second of frozen frames
+     on a phone. */
+  const [settled, setSettled] = useState(false);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setSettled(false);
+      return;
+    }
+    /* The slide's own length (duration-[280ms] below), plus a frame. A timer
+       rather than transitionend, which a browser may never fire. */
+    const timer = window.setTimeout(() => {
+      setSettled(true);
+      setArmed(true);
+    }, SLIDE_MS + 20);
+    return () => window.clearTimeout(timer);
+  }, [open]);
   /* The project the panel names. Read from the same place the switcher and the
      list read it, so the drawer cannot name a project the rest of the app has
      moved on from. */
@@ -339,13 +365,14 @@ export default function Sidebar({
                     className through to it, so without one the mark had no box and the
                     36px frame clipped it to a sliver. */}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center">
-                  {/* The flat mark, not the 3D one. Measured on a phone-speed
-                      CPU, the 3D renderer cost up to half a second of frozen
-                      frames on each open — even built ahead and paused — which
-                      is the stutter the slide was meant to hide. This is the
-                      same mark the loading screen shows, and it paints with
-                      the drawer. */}
-                  <BrandMark className="h-7 w-7 text-ink/85" />
+                  {/* Flat until the first slide has landed, then the 3D
+                      mark, paused while it slides. Not on a desktop, where
+                      the drawer never shows. */}
+                  {armed && !isDesktop ? (
+                    <Q3DCanvas scale={0.65} paused={!settled} className="qs-mark-glow h-9 w-9" />
+                  ) : (
+                    <QMark scale={0.65} className="qs-mark-glow h-9 w-9" />
+                  )}
                 </div>
                 <span className="text-lg font-bold tracking-tight text-ink">
                   QuickStark<span className="text-accent">.Ai</span>
@@ -461,7 +488,7 @@ export default function Sidebar({
                                 is a grey smudge. The apps list is where a page
                                 is worth drawing. */}
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.06]">
-                              <QMark scale={1.85} className="h-5 w-5" />
+                              <QMark scale={1.85} className="qs-mark-glow h-5 w-5" />
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium text-ink">

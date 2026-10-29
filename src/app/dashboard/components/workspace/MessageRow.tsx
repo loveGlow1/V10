@@ -150,7 +150,7 @@ export default function MessageRow({
       {/* The assistant signs with the mark, in a quiet tile down the left so
           the reply itself reads as a document beside it. */}
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line/[0.1] bg-layer/[0.06] sm:h-8 sm:w-8">
-        <QMark scale={1.85} className="h-[18px] w-[18px]" />
+        <QMark scale={1.85} className="qs-mark-glow h-[18px] w-[18px]" />
       </div>
 
       <div
