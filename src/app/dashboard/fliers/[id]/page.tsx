@@ -19,7 +19,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Download, Loader2, PenLine, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, Loader2, PenLine, RefreshCw, Trash2, X } from "lucide-react";
+
+import SaveFileButton, { isPhone } from "@/components/SaveFileButton";
 
 import { cardNeeded } from "../../components/billing/CardWelcome";
 
@@ -42,9 +44,7 @@ function fileName(headline: string) {
   return `${(headline || "flier").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "flier"}.png`;
 }
 
-const isPhone = () =>
-  typeof navigator !== "undefined" &&
-  (/iphone|ipad|ipod|android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent)));
+
 
 export default function FlierStudioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -52,7 +52,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Image | null>(null);
-  const [busy, setBusy] = useState<null | "again" | "save" | "delete">(null);
+  const [busy, setBusy] = useState<null | "again" | "delete">(null);
   const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -118,35 +118,6 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
     setOpen(null);
     setNote("Moved to Recently deleted — it can be put back for 15 days.");
     void load();
-  }
-
-  async function save(image: Image) {
-    if (!image.url || !job) return;
-    setBusy("save");
-    setNote(null);
-    try {
-      const blob = await (await fetch(image.url)).blob();
-      const file = new File([blob], fileName(job.headline), { type: blob.type || "image/png" });
-      if (isPhone() && navigator.canShare?.({ files: [file] })) {
-        /* The share sheet's "Save Image" puts it straight into Photos. */
-        await navigator.share({ files: [file], title: job.headline || "Flier" }).catch((reason: unknown) => {
-          if ((reason as { name?: string })?.name !== "AbortError") throw reason;
-        });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        setNote(`Downloaded ${file.name}`);
-      }
-    } catch {
-      setNote("The image could not be saved. Long-press it and choose Save to Photos instead.");
-    }
-    setBusy(null);
   }
 
   if (error) {
@@ -226,10 +197,9 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
             <div className="w-full max-w-md animate-pulse rounded-2xl bg-layer/[0.06]" style={{ aspectRatio: ratio }} />
           )}
           {job.images[0]?.url && (
-            <button type="button" onClick={() => void save(job.images[0])} disabled={busy === "save"} className={`${button} bg-accent text-onSolid`}>
-              {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            <SaveFileButton url={job.images[0].url} name={fileName(job.headline)} type="image/png" prefetch className={`${button} bg-accent text-onSolid`}>
               {isPhone() ? "Save to Photos" : "Download PNG"}
-            </button>
+            </SaveFileButton>
           )}
         </section>
       ) : (
@@ -308,18 +278,11 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={open.url} alt={job.headline} onClick={(event) => event.stopPropagation()} className="max-h-[75vh] w-auto max-w-full rounded-2xl" />
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              void save(open);
-            }}
-            disabled={busy === "save"}
-            className={`${button} bg-accent text-onSolid`}
-          >
-            {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {isPhone() ? "Save to Photos" : "Download PNG"}
-          </button>
+          {open.url && (
+            <SaveFileButton url={open.url} name={fileName(job.headline)} type="image/png" prefetch stopPropagation className={`${button} bg-accent text-onSolid`}>
+              {isPhone() ? "Save to Photos" : "Download PNG"}
+            </SaveFileButton>
+          )}
           <button
             type="button"
             onClick={(event) => {

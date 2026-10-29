@@ -144,7 +144,7 @@ has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.te
 );
 const studio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");
 const projectsPage = readFileSync(join(root, "src/app/dashboard/projects/page.tsx"), "utf8");
-has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /void save\(open\)/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
+has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /<SaveFileButton url=\{open\.url\}/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
 has(/typeof raw\.again === 'string'[\s\S]{0,500}stage: 'preview', variants: 4/.test(flyersApi), "4 more versions reuse the brief as new drafts");
 has(/href="\/dashboard\/fliers"[\s\S]{0,200}Fliers/.test(projectsPage), "the Projects page's last tab is Fliers");
 /* Fliers open in the workspace, like a website. */
