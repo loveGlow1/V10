@@ -42,6 +42,7 @@ export function ComingSoonModal({ open, onClose }: { open: boolean; onClose: () 
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={(event) => event.stopPropagation()}
             role="dialog"
+            aria-modal="true"
             aria-label={MOBILE_APPS.title}
             className="w-full max-w-md overflow-hidden rounded-[24px] border border-line/[0.08] bg-panel shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
           >

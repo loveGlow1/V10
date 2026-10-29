@@ -5,7 +5,8 @@
  * blurred the whole page behind it and pinned the body with position: fixed.
  * Each of those is pinned out here. */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const src = readFileSync("src/app/dashboard/components/Sidebar.tsx", "utf8");
 let failed = 0;
@@ -24,6 +25,27 @@ has(!/bg-panel\/\[0\.\d+\] p-4/.test(src), "the panel is opaque, so the page nev
 
 const css = readFileSync("src/app/globals.css", "utf8");
 has(/@media \(max-width: 767px\) \{\s*\.fixed\.inset-0\[class\*="backdrop-blur"\] \{\s*-webkit-backdrop-filter: none !important;\s*backdrop-filter: none !important;/.test(css), "no full-screen blur behind any dialog on a phone");
+
+/* The page behind a dialog never moves. Every full-screen dimmed overlay is
+   a marked dialog (the global rule in globals.css then freezes the page) or
+   pins the page itself; the drawer has its own lock, above. */
+const files = [];
+const walk = (dir) => {
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) walk(path);
+    else if (path.endsWith(".tsx")) files.push(path);
+  }
+};
+walk("src");
+const unlocked = files.filter((file) => {
+  if (file.endsWith("Sidebar.tsx")) return false;
+  const text = readFileSync(file, "utf8");
+  return /fixed inset-0[^"`]*bg-black\//.test(text) && !/aria-modal="true"/.test(text) && !/useBodyScrollLock\(/.test(text);
+});
+has(unlocked.length === 0, `every dimmed full-screen overlay holds the page still${unlocked.length ? `: ${unlocked.join(", ")}` : ""}`);
+has(/html:has\(\[aria-modal="true"\]\),\s*html:has\(\[aria-modal="true"\]\) body \{\s*overflow: hidden;/.test(css), "an open dialog freezes the page under it");
+has(/useBodyScrollLock\(shown\)/.test(readFileSync("src/app/dashboard/components/billing/CardWelcome.tsx", "utf8")), "the Add-a-card sheet pins the dashboard behind it");
 
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);

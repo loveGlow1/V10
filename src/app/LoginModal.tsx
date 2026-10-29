@@ -300,7 +300,7 @@ export default function LoginModal({ isOpen, onClose, onProviderAuth, onEmailSig
     "flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-line/10 bg-neutral-900/60 text-sm sm:text-base font-semibold text-ink transition hover:border-emerald-500/30";
 
   return (
-    <div className="fixed inset-0 z-[10000] flex min-h-dvh w-full flex-col overflow-y-auto bg-black text-ink">
+    <div role="dialog" aria-modal="true" aria-label="Sign in" className="fixed inset-0 z-[10000] flex min-h-dvh w-full flex-col overflow-y-auto overscroll-contain bg-black text-ink">
       <button
         onClick={handleClose}
         className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-line/20 text-ink/80 transition hover:border-line/40 hover:text-ink"

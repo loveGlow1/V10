@@ -100,8 +100,10 @@ export default function Popover({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md space-y-4 rounded-[24px] border border-line/[0.08] bg-panel p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
+        className="max-h-[92dvh] w-full max-w-md space-y-4 overflow-y-auto overscroll-contain rounded-[24px] border border-line/[0.08] bg-panel p-5 shadow-[0_24px_80px_rgba(0,0,0,0.7)] backdrop-blur-2xl"
       >
         <div className="flex items-center justify-between pb-1">
           <h3 className="text-base font-semibold tracking-tight text-ink">{title}</h3>
