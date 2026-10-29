@@ -18,6 +18,7 @@ import { isSafeExternalOrigin } from "@/lib/preview/safe-frame";
 import { withSinglePageEdit } from "@/lib/builder/preview/single-page-edit";
 import { staticEntryOf, staticSiteDocument } from "@/lib/builder/preview/static-preview";
 import { repoAssetMap } from "@/lib/github/repo-assets";
+import { sourceZip } from "@/lib/builder/source-zip";
 
 /* Serves the page a build produced.
  *
@@ -403,6 +404,23 @@ export async function GET(
        toStandalone runs Tailwind over this page's own markup and puts the
        result in the file, so what leaves here has no external reference of any
        kind. See src/lib/standalone-page.ts. */
+    /* An app is its source, not a page: every file at its path, and its
+       pictures, as a .zip that runs with npm install && npm run dev — made
+       here or brought in from GitHub alike. See lib/builder/source-zip.ts. */
+    const source = await currentTree(supabase, projectId);
+    if (source.tree.length > 0 && !isSinglePage(source.tree)) {
+      const pictures = await repoAssetMap(supabase, projectId).catch(() => ({}) as Record<string, string>);
+      const zip = await sourceZip(source.tree, pictures);
+      return new Response(Buffer.from(zip), {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${fileNameFor(project?.name).replace(/\.html$/, "")}.zip"`,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+
     let file = build.html as string;
     try {
       file = (await toStandalone(file)).html;

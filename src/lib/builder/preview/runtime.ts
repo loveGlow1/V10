@@ -1275,6 +1275,10 @@ ${EDIT_MODE}
       delete rest.height;
     }
     if (typeof rest.src === 'object' && rest.src) rest.src = rest.src.src || '';
+    /* "/logo.svg" from public/, as stored — the same as a plain <img> gets in
+       jsxFactory. next/image is a component, so it never passed through it. */
+    var stored = assetUrl(rest.src);
+    if (stored) rest.src = stored;
     rest.ref = ref;
     return React.createElement('img', rest);
   });
@@ -1288,6 +1292,41 @@ ${EDIT_MODE}
       forward: function () {},
       refresh: function () {}
     };
+  }
+
+  function pagesRouterStatic() {
+    var go = function (to) {
+      navigate(typeof to === 'string' ? to : (to && to.pathname) || '/');
+      return Promise.resolve(true);
+    };
+    return {
+      push: go,
+      replace: go,
+      prefetch: function () { return Promise.resolve(); },
+      back: function () { window.history.back(); },
+      reload: function () {},
+      events: { on: function () {}, off: function () {}, emit: function () {} }
+    };
+  }
+
+  function pagesRouter() {
+    var pathname = usePathname();
+    var params = useParams() || {};
+    var search = useSearchParams();
+    var query = {};
+    search.forEach(function (value, key) { query[key] = value; });
+    Object.keys(params).forEach(function (key) { query[key] = params[key]; });
+    var qs = search.toString();
+    return Object.assign(pagesRouterStatic(), {
+      pathname: pathname,
+      route: pathname,
+      asPath: pathname + (qs ? '?' + qs : ''),
+      query: query,
+      isReady: true,
+      isFallback: false,
+      isPreview: false,
+      basePath: ''
+    });
   }
 
   function usePathname() {
@@ -1515,6 +1554,16 @@ ${EDIT_MODE}
           redirect: function (to) { navigate(to); },
           notFound: function () { throw new Error('NEXT_NOT_FOUND'); }
         };
+      case 'next/router':
+        /* The Pages Router's router, for a project imported from GitHub that
+           was written for it: the same navigation underneath, in the shape
+           pages/ code reads — query, asPath, isReady, events. */
+        return {
+          __esModule: true,
+          useRouter: pagesRouter,
+          withRouter: function (C) { return function (props) { return React.createElement(C, Object.assign({}, props, { router: pagesRouter() })); }; },
+          default: pagesRouterStatic()
+        };
       case 'next/head':
         return { __esModule: true, default: function () { return null; } };
       case 'next/script':
@@ -1568,7 +1617,12 @@ ${EDIT_MODE}
     }
 
     if (specifier.indexOf('next/font') === 0) {
-      return new Proxy({ __esModule: true }, { get: function () { return fontLoader()(); } });
+      /* Every font is a function to call — Geist({ subsets: ['latin'] }) —
+         that returns the class names. Handing back the result instead made
+         every create-next-app project fail on its first line. */
+      return new Proxy({ __esModule: true }, {
+        get: function (target, key) { return key === '__esModule' ? true : fontLoader(); }
+      });
     }
     if (specifier.indexOf('next/') === 0) return emptyModule(specifier);
     return null;

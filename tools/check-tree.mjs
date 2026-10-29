@@ -189,7 +189,8 @@ const huge = Object.fromEntries(
   Array.from({ length: 40 }, (_, i) => [`components/c${i}.tsx`, "x".repeat(200_000)]),
 );
 has(threw(huge) !== null, "a tree larger than a project is refused");
-has(threw(Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`c${i}.ts`, "x"]))) !== null, "and one with too many files in it");
+has(threw(Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`c${i}.ts`, "x"]))) !== null, "and one with too many files in it");
+has(threw(Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`c${i}.ts`, "x"]))) === null, "but an app of 200 files, as GitHub imports can be, is kept");
 
 // ── The old shape, as a tree ──────────────────────────────────────────────
 /* Every page already stored is one HTML document and none will be regenerated.
