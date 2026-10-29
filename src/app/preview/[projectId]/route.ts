@@ -19,6 +19,9 @@ import { withSinglePageEdit } from "@/lib/builder/preview/single-page-edit";
 import { staticEntryOf, staticSiteDocument } from "@/lib/builder/preview/static-preview";
 import { repoAssetMap } from "@/lib/github/repo-assets";
 import { sourceZip } from "@/lib/builder/source-zip";
+import { withSnapshotBridge } from "@/lib/builder/preview/snapshot";
+import { connectionFor } from "@/lib/github/oauth";
+import { readRepoArchive } from "@/lib/github/push";
 
 /* Serves the page a build produced.
  *
@@ -93,6 +96,54 @@ function notFound(message: string) {
    rather than taken from a query parameter — a caller-supplied filename is a
    header injection waiting to happen, and this one is only ever read out of a
    row the caller already owns. */
+/* Everything the project's linked repository holds at its last known commit,
+   for a download that is the repository exactly. Read with the owner's own
+   GitHub connection — the link row is the caller's own (RLS), and so is the
+   connection. Null when there is no link, no connection, or no archive. */
+async function linkedRepositoryFiles(
+  supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>,
+  projectId: string,
+): Promise<Record<string, Uint8Array> | null> {
+  const service = createSupabaseServiceClient();
+  const { data: link } = await supabase
+    .from("project_github_repos")
+    .select("user_id, owner, repo, branch, html_url, private, last_commit_sha")
+    .eq("project_id", projectId)
+    .maybeSingle<{ user_id: string; owner: string; repo: string; branch: string; html_url: string; private: boolean; last_commit_sha: string | null }>();
+  if (link?.last_commit_sha) {
+    const connection = service ? await connectionFor(service, link.user_id).catch(() => null) : null;
+    if (!connection) return null;
+    return readRepoArchive(
+      connection.token,
+      { owner: link.owner, name: link.repo, branch: link.branch, url: link.html_url, private: link.private },
+      link.last_commit_sha,
+    );
+  }
+
+  /* Imported from somebody else's repository, so not linked to it: its first
+     build says where it came from and at which commit ("Imported from GitHub:
+     owner/name", "… from GitHub (abc1234)"), and that snapshot is what the
+     project started as. Read with the caller's own connection. */
+  const { data: first } = await supabase
+    .from("project_builds")
+    .select("user_id, prompt, html, model")
+    .eq("project_id", projectId)
+    .in("model", ["github-import", "github-fork"])
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle<{ user_id: string; prompt: string | null; html: string | null; model: string }>();
+  const from = first?.prompt?.match(/from GitHub: ([\w.-]+)\/([\w.-]+)/);
+  const at = first?.html?.match(/from GitHub \(([0-9a-f]{7,40})\)/);
+  if (!first || !from || !at) return null;
+  const connection = service ? await connectionFor(service, first.user_id).catch(() => null) : null;
+  if (!connection) return null;
+  return readRepoArchive(
+    connection.token,
+    { owner: from[1], name: from[2], branch: "main", url: `https://github.com/${from[1]}/${from[2]}`, private: false },
+    at[1],
+  );
+}
+
 function fileNameFor(name: string | null | undefined): string {
   const slug = (name ?? "")
     .toLowerCase()
@@ -276,6 +327,12 @@ export async function GET(
   const { projectId } = await context.params;
   const params = new URL(request.url).searchParams;
   const asDownload = params.get("download") === "1";
+  /* What Download can offer for this project — see downloadKind below. */
+  const wantsKind = params.get("download") === "kind";
+  /* ?download=1&format=html   a single page as one standalone file
+     ?download=1&format=source the project's files as a .zip, untouched
+     An app is always the .zip; a single page with no format is the file. */
+  const format = params.get("format");
   /* A project built as a file tree has more than one thing to serve. `?files=1`
      lists what it contains and `?file=app/page.tsx` returns one of them, so the
      workspace can show a project as a project. Neither is reachable on a
@@ -296,6 +353,11 @@ export async function GET(
      under the caller's session, like everything else here. See
      lib/flyers/workspace.ts. */
   const { data: owner } = await supabase.from("projects").select("intent").eq("id", projectId).maybeSingle<{ intent: string | null }>();
+  /* A flier or a video downloads its images or its MP4, from their own
+     buttons; Download has nothing more to offer for it. */
+  if (wantsKind && (owner?.intent === VIDEO_INTENT || owner?.intent === FLIER_INTENT)) {
+    return Response.json({ kind: "media" });
+  }
   if (owner?.intent === VIDEO_INTENT && !wantsListing && wantsFile === null) {
     const { data: video } = await supabase
       .from("video_projects")
@@ -380,7 +442,7 @@ export async function GET(
     });
   }
 
-  if (asDownload) {
+  if (asDownload || wantsKind) {
     /* Read for the file name only, and after the build: a project with no build
        never reaches here, so this is not a round trip anyone pays for on the
        path that matters. RLS answers it too, so a name cannot leak from a
@@ -391,30 +453,27 @@ export async function GET(
       .eq("id", projectId)
       .maybeSingle();
 
-    /* Compiled on the way out, and this is what makes a download worth having.
-       The page styles itself with the Tailwind play CDN, which is fine at a URL
-       and useless in a file: opened from disk — Quick Look on a phone, an email
-       attachment, a tab with no connection — that script is a request nobody
-       makes. Not one utility class resolves, nothing errors, and what renders
-       is the raw document: default serif, blue underlined links, an inline icon
-       a screen tall because `h-5 w-5` meant nothing. It looks broken. It is
-       unstyled, which looks the same and is worse, because whoever opened it
-       cannot tell which.
-
-       toStandalone runs Tailwind over this page's own markup and puts the
-       result in the file, so what leaves here has no external reference of any
-       kind. See src/lib/standalone-page.ts. */
-    /* An app is its source, not a page: every file at its path, and its
-       pictures, as a .zip that runs with npm install && npm run dev — made
-       here or brought in from GitHub alike. See lib/builder/source-zip.ts. */
+    /* What this project is, for the download menu:
+         page    one HTML page           → the file, the page as shown, or both with its code
+         static  a site of static files  → its files with the page as shown, or the page as shown
+         app     Next.js, React, a backend → its source as a .zip, exactly as it is */
     const source = await currentTree(supabase, projectId);
-    if (source.tree.length > 0 && !isSinglePage(source.tree)) {
+    const multi = source.tree.length > 0 && !isSinglePage(source.tree);
+    const kind = !multi ? "page" : staticEntryOf(source.tree) && !canRenderApp(source.tree) ? "static" : "app";
+    if (wantsKind) return Response.json({ kind, name: project?.name ?? null });
+
+    const base = fileNameFor(project?.name).replace(/\.html$/, "");
+    /* The files, untouched — an app always, a static site or a page when its
+       code is asked for. A project linked to GitHub comes with everything
+       the repository holds (lib/builder/source-zip.ts). */
+    if (multi || format === "source") {
       const pictures = await repoAssetMap(supabase, projectId).catch(() => ({}) as Record<string, string>);
-      const zip = await sourceZip(source.tree, pictures);
-      return new Response(Buffer.from(zip), {
+      const repository = await linkedRepositoryFiles(supabase, projectId);
+      const tree = multi ? source.tree : [{ path: "index.html", content: build.html as string }];
+      return new Response(Buffer.from(await sourceZip(tree, pictures, repository)), {
         headers: {
           "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename="${fileNameFor(project?.name).replace(/\.html$/, "")}.zip"`,
+          "Content-Disposition": `attachment; filename="${base}.zip"`,
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
         },
@@ -695,7 +754,8 @@ export async function GET(
      ?diagnostics=1, which is a document about the build, not the page. */
   /* A flier keeps its designed size and is scaled as a whole — see
      lib/flyers/fit.ts. */
-  const page = wantsDiagnostics ? (build.html as string) : withFlierFit(withSinglePageEdit(build.html as string));
+  /* And the "page as shown" listener, for Download (preview/snapshot.ts). */
+  const page = wantsDiagnostics ? (build.html as string) : withSnapshotBridge(withFlierFit(withSinglePageEdit(build.html as string)));
 
   return new Response(page, {
     headers: {

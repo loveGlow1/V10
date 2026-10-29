@@ -1,16 +1,25 @@
-/* A project's source, as a .zip — what Download gives for an app.
+/* A project's files, as a .zip — what Download gives for an app, and the
+ * "code" half of a page's download.
  *
- * A single-page build downloads as its page (preview route). An app — made
- * here, or brought in from GitHub — is a tree of source files, and the page
- * the preview route used to hand over for one was a line of summary ("owner/
- * name — 112 files"), which is not the project. This is: every source file at
- * its own path, and the project's pictures fetched into the paths they came
- * from, so the folder runs as `npm install && npm run dev` exactly as it does
- * from the repository.
+ * Exactly the project, with nothing added and nothing rewritten:
+ *
+ *   - every source file at its own path, byte for byte as stored;
+ *   - its pictures, fetched into the paths they came from;
+ *   - for a project linked to a GitHub repository, everything else the
+ *     repository holds at its last known commit — lockfiles, fonts, binaries,
+ *     config this platform never reads — with the project's own files on top.
+ *     The same rule a push uses (lib/github/push.ts): a source file that the
+ *     project has since deleted is left out, and anything that is not project
+ *     source is kept as the repository has it.
+ *
+ * So the folder is what GitHub would give, with the work done here applied —
+ * and it runs with the project's own `npm install && npm run dev`.
  *
  * Server-only. */
 
 import { zipSync, strToU8 } from "fflate";
+
+import { isProjectSource } from "@/lib/github/push";
 
 import type { FileTree } from "./tree";
 
@@ -19,19 +28,22 @@ import type { FileTree } from "./tree";
 const MOST_PICTURES = 80;
 const PICTURE_TIMEOUT_MS = 8_000;
 
-const README_NOTE = `# Downloaded from QuickStark
-
-Run it locally:
-
-    npm install
-    npm run dev
-
-Environment variables are not included. Copy them from your project's settings
-into a .env.local file if the app needs them.
-`;
-
-export async function sourceZip(tree: FileTree, pictures: Record<string, string>): Promise<Uint8Array> {
+export async function sourceZip(
+  tree: FileTree,
+  pictures: Record<string, string>,
+  repository?: Record<string, Uint8Array> | null,
+  extra?: Record<string, string>,
+): Promise<Uint8Array> {
   const files: Record<string, Uint8Array> = {};
+  const own = new Set(tree.map((file) => file.path));
+
+  if (repository) {
+    for (const [path, content] of Object.entries(repository)) {
+      /* Deleted here since: source the project no longer has stays out. */
+      if (!own.has(path) && isProjectSource(path, content.length)) continue;
+      files[path] = content;
+    }
+  }
   for (const file of tree) files[file.path] = strToU8(file.content);
 
   const wanted = Object.entries(pictures)
@@ -50,7 +62,6 @@ export async function sourceZip(tree: FileTree, pictures: Record<string, string>
     );
   }
 
-  if (!files["README.md"]) files["README.md"] = strToU8(README_NOTE);
-  else files["QUICKSTARK.md"] = strToU8(README_NOTE);
+  for (const [path, content] of Object.entries(extra ?? {})) if (!files[path]) files[path] = strToU8(content);
   return zipSync(files, { level: 6 });
 }

@@ -408,3 +408,41 @@ export async function readRepoPictures(
   }
   return { ok: true, value: out };
 }
+
+/* ── The repository, whole ───────────────────────────────────────────────
+ *
+ * Every file at one commit — lockfiles, fonts, pictures, binaries, all of what
+ * a project here does not carry — for a download that is the repository
+ * exactly (lib/builder/source-zip.ts). GitHub's own archive, unpacked, with
+ * its "<owner>-<name>-<sha>/" folder taken off every path. Null when it cannot
+ * be had in reasonable time or size; the download then carries the project's
+ * own files, which is what it did before. */
+const MOST_ARCHIVE_BYTES = 60_000_000;
+
+export async function readRepoArchive(token: string, repo: RepoRef, sha: string): Promise<Record<string, Uint8Array> | null> {
+  try {
+    const response = await fetch(
+      `${GITHUB_API}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/zipball/${encodeURIComponent(sha)}`,
+      {
+        headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
+        redirect: "follow",
+        cache: "no-store",
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+    if (!response.ok) return null;
+    if (Number(response.headers.get("content-length") ?? 0) > MOST_ARCHIVE_BYTES) return null;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MOST_ARCHIVE_BYTES) return null;
+    const { unzipSync } = await import("fflate");
+    const files: Record<string, Uint8Array> = {};
+    for (const [path, content] of Object.entries(unzipSync(bytes))) {
+      const at = path.indexOf("/");
+      const inner = at < 0 ? path : path.slice(at + 1);
+      if (inner && !inner.endsWith("/")) files[inner] = content;
+    }
+    return files;
+  } catch {
+    return null;
+  }
+}

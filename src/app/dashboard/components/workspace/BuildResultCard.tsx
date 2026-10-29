@@ -1,5 +1,6 @@
 "use client";
 
+import { useProjectDownload } from "@/components/DownloadDialog";
 import React, { useEffect, useState } from "react";
 import { Download, Rocket } from "lucide-react";
 
@@ -102,6 +103,7 @@ export default function BuildResultCard({
   /** Opens the publish flow the preview header already owns. */
   onPublish?: () => void;
 }) {
+  const download = useProjectDownload({ projectId: result.projectId });
   return (
     <div className="mt-2.5 overflow-hidden rounded-2xl border border-line/[0.1] bg-layer/[0.02]">
       {/* The page itself, the same component the apps list draws it with —
@@ -136,14 +138,14 @@ export default function BuildResultCard({
                 Content-Disposition, so the browser saves it and the page it is
                 on never navigates. */}
             {result.hasPage && (
-              <a
-                href={`/preview/${result.projectId}?download=1`}
-                download
+              <button
+                type="button"
+                onClick={download.open}
                 className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-line/[0.12] bg-layer/[0.04] text-[13px] font-medium text-ink transition-colors hover:bg-layer/[0.08]"
               >
                 <Download className="h-4 w-4 shrink-0" />
                 Download
-              </a>
+              </button>
             )}
             <button
               onClick={onPublish}
