@@ -156,7 +156,7 @@ export default function SaveFileButton({
   };
 
   return (
-    <button type="button" onClick={onClick} aria-label={label} aria-busy={phase === "preparing"} className={className}>
+    <button type="button" onClick={onClick} aria-label={label} aria-busy={phase === "preparing"} className={`${className ?? ""} whitespace-nowrap`}>
       {phase === "preparing" ? <Loader2 className={`${iconClassName} animate-spin`} /> : <Download className={iconClassName} />}
       {iconOnly ? null : phase === "preparing" ? "Preparing…" : phase === "ready" ? "Save to Photos" : children}
     </button>
