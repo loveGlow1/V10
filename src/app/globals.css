@@ -1376,3 +1376,19 @@ body {
     opacity: 0.8;
   }
 }
+
+/* ── No full-screen blur on phones ──────────────────────────────────────────
+ *
+ * A backdrop-filter on a layer that covers the whole screen re-blurs every
+ * pixel of the page behind it on every frame it animates, and on a phone that
+ * is the difference between a sheet that glides open and one that stutters
+ * (measured on the drawer: up to 2.5s of frozen frames). Behind a modal the
+ * page is already dimmed to near-black, so the blur is barely visible there
+ * anyway. One rule here rather than a per-dialog fix, so a dialog added later
+ * cannot bring the stutter back; asserted by tools/check-drawer.mjs. */
+@media (max-width: 767px) {
+  .fixed.inset-0[class*="backdrop-blur"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
