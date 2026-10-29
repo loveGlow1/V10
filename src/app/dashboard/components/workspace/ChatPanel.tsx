@@ -1946,7 +1946,7 @@ export default function ChatPanel({
                 the same screen often enough that running them the same way
                 reads as one motion duplicated; running them opposite reads as
                 two marks, which is what they are. */}
-            <Q3DCanvas scale={1.1} spinDirection={-1} className="h-14 w-14 shrink-0" />
+            <Q3DCanvas scale={1.1} spinDirection={-1} className="qs-mark-glow h-14 w-14 shrink-0" />
             {/* The landing page's own wordmark treatment, brought across so the
                 greeting is in the brand's voice rather than in plain white and
                 a flat green. The time of day takes the silver gradient and its
@@ -2007,7 +2007,7 @@ export default function ChatPanel({
              when the stored message takes this one's place. */
           <div className="flex min-w-0 max-w-full gap-3 py-5 sm:gap-4">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line/[0.1] bg-layer/[0.06] sm:h-8 sm:w-8">
-              <QMark scale={1.85} className="h-[18px] w-[18px]" />
+              <QMark scale={1.85} className="qs-mark-glow h-[18px] w-[18px]" />
             </div>
             <div className="min-w-0 max-w-[720px] flex-1">
               {/* The answer, as it is written.

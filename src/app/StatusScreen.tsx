@@ -15,7 +15,7 @@ export function LoadingScreen({ label = "Loading" }: { label?: string }) {
   return (
     <div role="status" aria-live="polite" className="qs-status-in fixed inset-0 z-[100] flex items-center justify-center bg-brandBg">
       <div aria-hidden className="qs-status-bar" />
-      <Q3DCanvas scale={1.1} spinDirection={-1} className="h-20 w-20" />
+      <Q3DCanvas scale={1.1} spinDirection={-1} className="qs-mark-glow h-20 w-20" />
       <span className="sr-only">{label}…</span>
     </div>
   );
@@ -36,7 +36,7 @@ export function MessageScreen({
   return (
     <main className="flex min-h-[100dvh] items-center justify-center bg-brandBg px-6 py-16 text-ink">
       <div className="flex w-full max-w-sm flex-col items-center text-center">
-        <Q3DCanvas scale={1.1} spinDirection={-1} className="h-20 w-20" />
+        <Q3DCanvas scale={1.1} spinDirection={-1} className="qs-mark-glow h-20 w-20" />
         <h1 className="mt-6 text-[20px] font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-[15px] leading-relaxed text-muted">{body}</p>
         <div className="mt-7 flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:justify-center">{actions}</div>

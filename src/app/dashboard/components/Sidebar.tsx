@@ -369,9 +369,9 @@ export default function Sidebar({
                       mark, paused while it slides. Not on a desktop, where
                       the drawer never shows. */}
                   {armed && !isDesktop ? (
-                    <Q3DCanvas scale={0.65} paused={!settled} className="h-9 w-9" />
+                    <Q3DCanvas scale={0.65} paused={!settled} className="qs-mark-glow h-9 w-9" />
                   ) : (
-                    <QMark scale={0.65} className="h-9 w-9" />
+                    <QMark scale={0.65} className="qs-mark-glow h-9 w-9" />
                   )}
                 </div>
                 <span className="text-lg font-bold tracking-tight text-ink">
@@ -488,7 +488,7 @@ export default function Sidebar({
                                 is a grey smudge. The apps list is where a page
                                 is worth drawing. */}
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.07] bg-layer/[0.06]">
-                              <QMark scale={1.85} className="h-5 w-5" />
+                              <QMark scale={1.85} className="qs-mark-glow h-5 w-5" />
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium text-ink">

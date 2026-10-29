@@ -1399,3 +1399,18 @@ html:has([aria-modal="true"]) body {
 [aria-modal="true"] {
   overscroll-behavior: contain;
 }
+
+/* ── The mark, lifted off a dark ground ─────────────────────────────────────
+ *
+ * The mark is obsidian: on the landing page it sits on a bright halo, but on
+ * the dashboard's near-black it all but disappeared. A faint light along its
+ * own outline — drop-shadow follows the silhouette of the flat mark and of
+ * the 3D canvas alike — so it reads without looking lit up. Dark theme only;
+ * on a light ground the mark already stands out. */
+.qs-mark-glow {
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 0.32)) drop-shadow(0 0 7px rgb(255 255 255 / 0.16));
+}
+
+html[data-theme="light"] .qs-mark-glow {
+  filter: none;
+}
