@@ -35,7 +35,7 @@ async function fetchFile(url: string, name: string, type: string): Promise<File>
   return new File([blob], name, { type: blob.type || type });
 }
 
-function downloadBlob(file: File) {
+export function downloadBlob(file: File) {
   const href = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = href;
@@ -46,7 +46,7 @@ function downloadBlob(file: File) {
   window.setTimeout(() => URL.revokeObjectURL(href), 60_000);
 }
 
-const canShareFile = (file: File) => {
+export const canShareFile = (file: File) => {
   try {
     return typeof navigator.share === "function" && Boolean(navigator.canShare?.({ files: [file] }));
   } catch {

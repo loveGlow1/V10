@@ -1,5 +1,6 @@
 "use client";
 
+import { useProjectDownload } from "@/components/DownloadDialog";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Download, MoreHorizontal } from "lucide-react";
@@ -28,6 +29,7 @@ export default function ProjectRowMenu({ project }: { project: Project }) {
   const [confirming, setConfirming] = useState(false);
   const [draft, setDraft] = useState(project.name);
   const rootRef = useRef<HTMLDivElement>(null);
+  const download = useProjectDownload({ projectId: project.id });
 
   useEffect(() => {
     if (!open) return;
@@ -134,16 +136,18 @@ export default function ProjectRowMenu({ project }: { project: Project }) {
                   disabled, on an app that has not been built — there is no file
                   to offer and saying so twice is noise. */}
               {safeHttpUrl(project.preview_url) && (
-                <a
+                <button
+                  type="button"
                   role="menuitem"
-                  href={`/preview/${project.id}?download=1`}
-                  download
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    setOpen(false);
+                    download.open();
+                  }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-layer/[0.06]"
                 >
                   <Download className="h-4 w-4 shrink-0 text-muted" />
                   Download
-                </a>
+                </button>
               )}
               <button
                 role="menuitem"

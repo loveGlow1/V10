@@ -1,5 +1,6 @@
 "use client";
 
+import { useProjectDownload } from "@/components/DownloadDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -467,6 +468,9 @@ export default function PreviewPanel({
   const [routes, setRoutes] = useState<{ pattern: string; href: string }[]>([]);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [route, setRoute] = useState("/");
+  /* Download, with the choices this project's kind has; "page as shown" is
+     read from this frame, so it is what is on screen. */
+  const download = useProjectDownload({ projectId: project?.id, frame: () => frameRef.current });
 
   /* ── The visual editor ─────────────────────────────────────────────────
    *
@@ -2025,14 +2029,9 @@ export default function PreviewPanel({
                 </button>
 
                 {previewUrl ? (
-                  <a
-                    href={`/preview/${project?.id}?download=1`}
-                    download
-                    aria-label="Download this page"
-                    className={manageAction}
-                  >
+                  <button type="button" onClick={download.open} aria-label="Download this project" className={manageAction}>
                     <Download className="h-4 w-4" />
-                  </a>
+                  </button>
                 ) : (
                   <button disabled aria-label="Nothing to download yet" className={manageAction}>
                     <Download className="h-4 w-4" />

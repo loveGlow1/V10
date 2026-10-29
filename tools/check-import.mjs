@@ -37,7 +37,7 @@ has(/key === '__esModule' \? true : fontLoader\(\)/.test(runtime), "next/font gi
 has(/var stored = assetUrl\(rest\.src\);\s*if \(stored\) rest\.src = stored;/.test(runtime), "next/image finds a picture in public/");
 has(/if \(hasOwnLayout\(tree\)\) return \[\];/.test(structure) && /if \(hasOwnLayout\(tree\)\) return \{ tree, repairs: \[\] \};/.test(structure), "structure checks and repairs stand aside for an imported layout");
 has(/export function projectConventions/.test(prompts) && (edit.match(/SOURCE_SYSTEM \+ projectConventions\(/g) ?? []).length === 2, "the editor is told the project's own conventions");
-has(/sourceZip\(source\.tree, pictures\)/.test(route) && /application\/zip/.test(route), "Download gives an app's source as a .zip");
+has(/sourceZip\(tree, pictures, repository\)/.test(route) && /application\/zip/.test(route), "Download gives an app's source as a .zip");
 const maxFiles = Number(tree.match(/const MAX_FILES = (\d+);/)?.[1]);
 const mostRead = Number(push.match(/const MOST_FILES_READ = (\d+);/)?.[1]);
 has(maxFiles >= mostRead, `a project as large as an import reads (${mostRead}) can be stored and edited (${maxFiles})`);

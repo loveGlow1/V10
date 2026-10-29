@@ -1,5 +1,6 @@
 "use client";
 
+import { useProjectDownload } from "@/components/DownloadDialog";
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -38,6 +39,7 @@ export default function QuickActionsSheet({
   onOpenCode?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const download = useProjectDownload({ projectId: project?.id });
   const [info, setInfo] = useState(false);
   /* Phones have no tab strip, so its + lives here as a row. */
   const { startNew, starting } = useNewProject();
@@ -170,16 +172,24 @@ export default function QuickActionsSheet({
                   </button>
                 ) : null}
 
-                {codeHref && (
-                  <a
-                    href={codeHref}
-                    onClick={onClose}
-                    {...(repoUrl ? { target: "_blank", rel: "noreferrer" } : { download: "" })}
-                    className={row}
-                  >
-                    {repoUrl ? "View Code" : "Download Code"}
+                {codeHref && repoUrl && (
+                  <a href={codeHref} onClick={onClose} target="_blank" rel="noreferrer" className={row}>
+                    View Code
                     <TerminalSquare className="h-5 w-5 text-soft" />
                   </a>
+                )}
+                {codeHref && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      download.open();
+                    }}
+                    className={row}
+                  >
+                    Download
+                    <TerminalSquare className="h-5 w-5 text-soft" />
+                  </button>
                 )}
 
                 <button onClick={() => setInfo(true)} className={row}>
