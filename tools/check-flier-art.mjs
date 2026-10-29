@@ -174,7 +174,7 @@ const wsSrc = readFileSync(join(root, "src/lib/flyers/workspace.ts"), "utf8");
 has(/links: ok \? liveOutputs\(done\?\.outputs\)\.map\(\(output, index\) => \(\{ label: `image:\$\{index \+ 1\}`/.test(wsSrc), "the ready message carries the images");
 has(/<ReplyImages images=\{images\} \/>/.test(row) && /!link\.label\.startsWith\("image:"\)/.test(row), "the chat shows them as pictures, not chips");
 has(/attachment; filename=/.test(fileApi) && /liveOutputs\(job\.outputs\)/.test(fileApi) && /createSupabaseServerClient/.test(fileApi), "Download is the image itself as an attachment — the owner's, and never a deleted one");
-has(/data-download=/.test(wsSrc) && /id="save" target="_blank"/.test(wsSrc), "the preview's Download uses the same clean file");
+has(/data-download=/.test(wsSrc) && /navigator\.share\(\{files:\[c\.file\]/.test(wsSrc) && /window\.open\(c\.href/.test(wsSrc), "the preview's Download saves the same clean file — the share sheet on a phone, the file route as the fallback");
 /* Nano Banana on fal. */
 const falProv = readFileSync(join(root, "src/lib/flyers/providers/fal.ts"), "utf8");
 const routerSrc = readFileSync(join(root, "src/lib/flyers/router.ts"), "utf8");
