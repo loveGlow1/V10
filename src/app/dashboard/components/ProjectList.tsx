@@ -231,12 +231,32 @@ export default function ProjectList() {
     [ranked, load],
   );
 
-  /* Nothing at all until the first read is in — a section that appears and then
-     rearranges itself is worse than a moment of quiet. After that it stays,
-     empty or not, because the link in its corner is the only way to the
-     Projects page from here and a route that appears once you have four
-     projects is a route nobody finds. */
-  if (ranked === null) return null;
+  /* Until the first read is in: the section's own shape, in placeholder rows
+     the same size as the real ones, so nothing below moves when they arrive —
+     and a slow network shows "loading", never a list that looks empty. After
+     that it stays, empty or not, because the link in its corner is the only
+     way to the Projects page from here. */
+  if (ranked === null) {
+    return (
+      <section aria-busy="true" aria-label="Loading your projects" className="mt-[120px] w-full max-w-[720px] md:mt-16">
+        <div className="flex items-center justify-between gap-4 px-1">
+          <div className="qs-skeleton h-5 w-40 rounded-md" />
+          <div className="qs-skeleton h-9 w-24 rounded-full md:h-8 md:w-20 md:rounded-lg" />
+        </div>
+        <div className="mt-5 divide-y divide-line/[0.08] border-b border-line/[0.08] md:mt-4 md:space-y-1 md:divide-y-0 md:border-b-0">
+          {Array.from({ length: SHOWN }, (_, index) => (
+            <div key={index} className="flex items-center gap-5 px-2 py-5 md:gap-4 md:px-3 md:py-3">
+              <div className="qs-skeleton h-11 w-11 shrink-0 rounded-xl" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="qs-skeleton h-4 rounded-md" style={{ width: `${62 - index * 12}%` }} />
+                <div className="qs-skeleton h-3 w-28 rounded-md" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   /* Derived rather than read straight out of state, so a window narrowed from
      a desktop that had chosen Published does not leave a phone-width layout

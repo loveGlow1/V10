@@ -23,8 +23,8 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import Q3DCanvas from "../../Q3DCanvas";
 import QMark from "../../QMark";
+import { BrandMark } from "../../StatusScreen";
 import { maskEmail } from "../account";
 import ProjectRowMenu from "./ProjectRowMenu";
 import { ManageMark } from "./workspace/panelMarks";
@@ -188,37 +188,23 @@ export default function Sidebar({
   }, [accountMenuOpen]);
 
   /* Hold the page still while the drawer is open.
-     `overscroll-contain` alone stops a scroll *inside* the drawer from continuing
-     into the page, but it does nothing about a drag that starts on the dim backdrop,
-     and iOS Safari will still rubber-band the document underneath. Pinning the body
-     is what actually freezes it. The scroll position is saved and restored, because
-     `position: fixed` otherwise throws the page back to the top on close. */
+     `overflow: hidden` on the root and the body stops the page scrolling
+     (iOS Safari honours it on both since 16) without moving it: pinning the
+     body with `position: fixed` relaid the whole page out in the same frame
+     the slide started, which was a visible hitch on opening, and threw the
+     scroll position about on close. A drag that starts on the backdrop does
+     nothing (touch-none), and one inside the drawer stays there
+     (overscroll-contain). */
   useEffect(() => {
     if (!open || isDesktop) return;
-
+    const root = document.documentElement;
     const { body } = document;
-    const scrollY = window.scrollY;
-    const previous = {
-      position: body.style.position,
-      top: body.style.top,
-      left: body.style.left,
-      right: body.style.right,
-      overflow: body.style.overflow,
-    };
-
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.left = "0";
-    body.style.right = "0";
+    const previous = { root: root.style.overflow, body: body.style.overflow };
+    root.style.overflow = "hidden";
     body.style.overflow = "hidden";
-
     return () => {
-      body.style.position = previous.position;
-      body.style.top = previous.top;
-      body.style.left = previous.left;
-      body.style.right = previous.right;
-      body.style.overflow = previous.overflow;
-      window.scrollTo(0, scrollY);
+      root.style.overflow = previous.root;
+      body.style.overflow = previous.body;
     };
   }, [open, isDesktop]);
 
@@ -314,21 +300,27 @@ export default function Sidebar({
   ];
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+    /* Always mounted, slid in and out by the compositor.
+     *
+     * It used to be built on every open: the whole tree mounted, the 3D mark
+     * started a WebGL renderer and compiled its shaders, and the account card
+     * fetched the signed-in user — all in the frames the slide was meant to
+     * play in, behind a full-screen backdrop blur. That is the stutter on
+     * opening, and the name popping in after. Now it is built once with the
+     * page and an open is a transform: nothing to mount, nothing to fetch.
+     * Closed, it is off screen, invisible once the slide has finished, and
+     * inert, so it takes no taps, no focus and is not read out. */
+    <>
+          <div
+            aria-hidden
             onClick={onClose}
-            className="fixed inset-0 z-40 touch-none bg-black/60 backdrop-blur-sm md:hidden"
+            className={`fixed inset-0 z-40 touch-none bg-black/60 transition-opacity duration-200 ease-out md:hidden ${
+              open ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
           />
-          <motion.aside
-            initial={{ x: "-100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "-100%" }}
-            transition={{ duration: 0.28, ease: "easeOut" }}
+          <aside
+            inert={!open}
+            aria-hidden={!open}
             /* The panel is lit rather than outlined: a hairline down its open edge,
                a pixel of light along the top, and a wide soft shadow thrown onto the
                page behind it. Nothing here reads as a border on its own.
@@ -338,7 +330,7 @@ export default function Sidebar({
                used to sit here was doing nothing visible behind an opaque panel and
                cost a full-height filter pass on every frame of the page behind it —
                which is what made scrolling feel heavy. */
-            className="fixed top-0 left-0 z-50 flex h-[100dvh] w-[min(300px,84vw)] flex-col overflow-hidden overscroll-contain border-r border-line/[0.09] bg-panel/[0.97] p-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] md:hidden"
+            className={`fixed top-0 left-0 z-50 flex h-[100dvh] w-[min(300px,84vw)] flex-col overflow-hidden overscroll-contain transition-[transform,visibility] duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform ${open ? "visible translate-x-0" : "invisible -translate-x-full"} border-r border-line/[0.09] bg-panel p-4 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),18px_0_60px_rgba(0,0,0,0.55)] md:hidden`}
           >
             {/* Header: 3D Canvas Logo & QuickStark.Ai Brand */}
             <div className="mb-5 flex shrink-0 items-center justify-between">
@@ -347,7 +339,13 @@ export default function Sidebar({
                     className through to it, so without one the mark had no box and the
                     36px frame clipped it to a sliver. */}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center">
-                  <Q3DCanvas scale={0.65} className="h-9 w-9" />
+                  {/* The flat mark, not the 3D one. Measured on a phone-speed
+                      CPU, the 3D renderer cost up to half a second of frozen
+                      frames on each open — even built ahead and paused — which
+                      is the stutter the slide was meant to hide. This is the
+                      same mark the loading screen shows, and it paints with
+                      the drawer. */}
+                  <BrandMark className="h-7 w-7 text-ink/85" />
                 </div>
                 <span className="text-lg font-bold tracking-tight text-ink">
                   QuickStark<span className="text-accent">.Ai</span>
@@ -685,9 +683,7 @@ export default function Sidebar({
                 </div>
               </div>
             </div>
-          </motion.aside>
-        </>
-      )}
-    </AnimatePresence>
+          </aside>
+    </>
   );
 }

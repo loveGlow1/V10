@@ -1231,9 +1231,18 @@ body {
     rgb(var(--ink) / 0.95) 352deg,
     transparent 360deg
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  /* Longhands, prefixed first. The `mask` shorthand resets the composite in
+     engines that parse it differently (iOS Safari among them), and an
+     uncomposited mask hides nothing: the whole cone of light was painted
+     across the box as a white wedge. */
+  -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  -webkit-mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
   -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-clip: content-box, border-box;
+  mask-origin: content-box, border-box;
+  mask-composite: exclude;
   animation:
     qs-edge-orbit 6s linear infinite,
     qs-edge-flicker 4.3s steps(1, end) infinite;
@@ -1276,5 +1285,110 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .qs-edge-glow {
     animation: qs-edge-orbit 30s linear infinite;
+  }
+}
+
+/* A browser that cannot cut the ring out of the cone shows no light at all,
+   rather than the cone. */
+@supports not ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
+  .qs-edge-glow,
+  .qs-edge-halo {
+    display: none;
+  }
+}
+
+/* A placeholder block while something loads: a faint tile with a slow sheen. */
+.qs-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgb(var(--layer) / 0.06);
+}
+
+.qs-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.05), transparent);
+  animation: qs-skeleton-sheen 1.6s ease-in-out infinite;
+}
+
+@keyframes qs-skeleton-sheen {
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-skeleton::after {
+    animation: none;
+  }
+}
+
+/* ── Loading, error and not-found screens (StatusScreen.tsx) ─────────────────
+ *
+ * The loader waits a beat before it shows, so a fast load never flashes it;
+ * then the mark breathes and a thin bar runs along the top. */
+.qs-status-in {
+  animation: qs-status-in 240ms ease-out 180ms both;
+}
+
+@keyframes qs-status-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.qs-status-mark {
+  animation: qs-status-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes qs-status-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.qs-status-bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgb(var(--ink) / 0.06);
+}
+
+.qs-status-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(var(--brandGreen-rgb) / 0.9), transparent);
+  animation: qs-status-run 1.2s ease-in-out infinite;
+}
+
+@keyframes qs-status-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-status-mark,
+  .qs-status-bar::after {
+    animation: none;
+  }
+  .qs-status-mark {
+    opacity: 0.8;
+  }
+}
+
+/* ── No full-screen blur on phones ──────────────────────────────────────────
+ *
+ * A backdrop-filter on a layer that covers the whole screen re-blurs every
+ * pixel of the page behind it on every frame it animates, and on a phone that
+ * is the difference between a sheet that glides open and one that stutters
+ * (measured on the drawer: up to 2.5s of frozen frames). Behind a modal the
+ * page is already dimmed to near-black, so the blur is barely visible there
+ * anyway. One rule here rather than a per-dialog fix, so a dialog added later
+ * cannot bring the stutter back; asserted by tools/check-drawer.mjs. */
+@media (max-width: 767px) {
+  .fixed.inset-0[class*="backdrop-blur"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
