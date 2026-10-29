@@ -1,0 +1,73 @@
+# Database migrations, applied to production without anyone pasting SQL.
+#
+#   On a merge to main  the migration files that merge ADDED are applied, in
+#                       filename order. Editing a file that is already applied
+#                       does nothing: write a new migration instead.
+#   By hand             Actions → Database migrations → Run workflow, with the
+#                       filenames to apply (space-separated). For a migration
+#                       that was merged before this workflow existed.
+#
+# Each file is one transaction, recorded in supabase_migrations.schema_migrations,
+# and skipped if already recorded — see tools/apply-migrations.sh.
+#
+# Needs one repository secret, SUPABASE_DB_URL: the database's Session pooler
+# connection string (Supabase → Connect), password filled in. The session
+# pooler, because GitHub's runners have no IPv6 and the direct host has no
+# IPv4. Runs in the `production` environment, so a required reviewer can be
+# added there (Settings → Environments) to approve each run before it touches
+# the database.
+name: Database migrations
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/migrations/**.sql"]
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Migration filenames to apply, space-separated (e.g. 20261029180000_rls_tightening.sql)"
+        required: true
+
+concurrency:
+  group: database-migrations
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Choose the files
+        id: files
+        env:
+          BEFORE: ${{ github.event.before }}
+          INPUT: ${{ github.event.inputs.files }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            list=""
+            for name in $INPUT; do
+              if ! [[ "$name" =~ ^[0-9]{14}_[a-z0-9_]+\.sql$ ]]; then
+                echo "::error::Not a migration filename: $name"; exit 1
+              fi
+              list="$list supabase/migrations/$name"
+            done
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            list=""
+          else
+            list=$(git diff --name-only --diff-filter=A "$BEFORE" "$GITHUB_SHA" -- 'supabase/migrations/*.sql' | sort | tr '\n' ' ')
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "Files: ${list:-none}"
+      - name: Apply
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          FILES: ${{ steps.files.outputs.list }}
+        # FILES is split on spaces on purpose; every entry is a validated
+        # migration path, so no entry contains one.
+        run: tools/apply-migrations.sh $FILES
