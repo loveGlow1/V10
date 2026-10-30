@@ -48,6 +48,13 @@ export type ProductionPlan = {
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
 
+/* QuickStark's own name is always said and shown in full: "QuickStark.ai",
+   never a bare "QuickStark". Pure. */
+export const BRAND = "QuickStark.ai";
+export function withBrand(text: string): string {
+  return text.replace(/\bQuick ?Stark(?:\.ai\b|\.Ai\b|\.AI\b)?(?!\.\w)/gi, BRAND);
+}
+
 /* The longest clip one generation makes: a 4s MiniMax-H3 clip took ~126s
    against the n8n instance's 180s run limit (render.ts). A scene longer than
    this would freeze on its last frame, so QA splits it into clips that fit. */
@@ -237,6 +244,21 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
   if (spec.needsReference === "product" && !Object.keys(plan.locks).some((key) => /product/i.test(key))) {
     issues.push({ scene: null, issue: "No product lock — upload a product image or describe the product so it stays identical in every scene.", repaired: false });
   }
+
+  /* The brand, in full, wherever it is said or shown. */
+  let branded = 0;
+  for (const scene of plan.scenes) {
+    for (const key of ["voiceover", "onScreenText"] as const) {
+      const fixed = withBrand(scene[key]);
+      if (fixed !== scene[key]) {
+        scene[key] = fixed;
+        branded += 1;
+      }
+    }
+  }
+  if (plan.cta) plan.cta = withBrand(plan.cta);
+  if (plan.title) plan.title = withBrand(plan.title);
+  if (branded) issues.push({ scene: null, issue: `The name is said and shown as ${BRAND} throughout.`, repaired: true });
 
   /* Ads and social end on the call to action. */
   if (["commercial_ad", "ugc_influencer", "social_video", "product_showcase"].includes(plan.pipeline) && plan.cta) {

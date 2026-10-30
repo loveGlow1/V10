@@ -44,6 +44,7 @@ RULES FOR EVERY VIDEO:
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - Anything that must look the same in more than one scene (product, creator, characters, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
+- When the video names QuickStark itself, the name is always "QuickStark.ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
 - Never depict or imitate a real, identifiable person or brand the user did not supply. No unsafe, hateful or sexual content.
 - Write in the language the answers ask for (default English).
 
