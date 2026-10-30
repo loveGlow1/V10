@@ -30,7 +30,7 @@ import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import type { ProductionPlan } from "@/lib/video/plan";
-import { dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob, voiceIdFor } from "@/lib/video/render";
+import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob, voiceIdFor } from "@/lib/video/render";
 
 
 /** Step 5 for one video: every clip and voice line of its current version, sent. The render route and the workspace both start renders here. */
@@ -190,7 +190,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene?.motionPrompt || job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim()), languageFor(answers)) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {
