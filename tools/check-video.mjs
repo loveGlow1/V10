@@ -103,11 +103,10 @@ has(cloneLong.plan.scenes.length === 1, "a clone's presenter scene stays whole �
 const narratedJobs = R.jobsFor(L.normalizePlan({ scenes: [{ duration: 5, visual: "a", voiceover: "Hi there.", motionPrompt: "creator smiles" }, { duration: 5, visual: "b", motionPrompt: "logo spins" }] }, "ugc_influencer", {}), {});
 const clips = narratedJobs.filter((j) => j.kind === "clip");
 has(clips.every((j) => j.prompt.includes(R.NO_LETTERING)), "every clip is asked for no lettering of its own — the captions are added at the cut");
-has(clips[0].prompt.includes(R.NO_SPEECH) && !clips[1].prompt.includes(R.NO_SPEECH), "a clip under a voice line is asked for no speech; one without keeps its sound");
-has(R.clipPrompt("x".repeat(3000), true).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
+has(clips.every((j) => j.prompt.includes(R.NO_SPEECH)), "no clip is asked to speak — every spoken word comes from the voice model");
+has(R.clipPrompt("x".repeat(3000)).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
 const composeSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
-has(/clip\.audio && !hasVoice \?/.test(composeSrc), "under a voice line, the clip's own sound is left out — the script is the only voice");
-has(clips[1].prompt.includes(R.clearSpeech("English")) && R.clipPrompt("x", false, "French").includes("clear, natural French"), "a clip that keeps its sound is asked for clear words in the video's language — no mumbling");
+has(/clip\.audio && \(talking \|\| !narrated\) \?/.test(composeSrc) && /const narrated = plan\.scenes\.some/.test(composeSrc), "in a narrated video no scene keeps the clip's own sound — the script is the only voice (a lip-synced clip's sound is that voice, and stays)");
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
 has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
 has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");

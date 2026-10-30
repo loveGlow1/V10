@@ -66,20 +66,17 @@ export function languageFor(answers: Record<string, string>): string {
   return LANGUAGES.includes(answers.language ?? "") ? answers.language : "auto";
 }
 
-/* MiniMax-H3 makes a clip with its own sound, and left to itself it has the
-   person on screen speak lines it invents, burns subtitles for them ("Hey
-   guys, look at these designs"), and mumbles half-words that are no language
-   at all ("here we do a stark A"). The script's own voice line and captions
-   are added at the cut, so a clip is asked for picture alone: no lettering of
-   its own, no speech where a voice line will play, and where its sound is
-   kept, only clear words in the video's language. Pure. */
+/* MiniMax-H3 makes every clip with its own sound, and has no setting for it:
+   left to itself, the person on screen speaks lines it invents, burns
+   subtitles for them ("Hey guys, look at these designs") and mumbles
+   half-words in no language ("here we do a stark A"). Speech is never the
+   video model's job here: every spoken word comes from the voice model,
+   which reads the script exactly. A clip is asked for picture and room sound
+   only. Pure. */
 export const NO_LETTERING = "No subtitles, captions, titles or any added on-screen text.";
-export const NO_SPEECH = "No dialogue: the person does not talk, mouth words or mumble; natural ambient room sound only.";
-export const clearSpeech = (language: string) =>
-  `If anyone speaks, every word is clear, natural ${language}: no mumbling, no made-up or half-formed words.`;
-export function clipPrompt(prompt: string, narrated: boolean, language = "English"): string {
-  const spoken = !language || language === "auto" ? "English" : language;
-  const rules = `${NO_LETTERING} ${narrated ? NO_SPEECH : clearSpeech(spoken)}`;
+export const NO_SPEECH = "No dialogue: nobody talks, mouths words or mumbles; natural ambient sound only.";
+export function clipPrompt(prompt: string): string {
+  const rules = `${NO_LETTERING} ${NO_SPEECH}`;
   return `${prompt.slice(0, 2000 - rules.length - 1)} ${rules}`;
 }
 
@@ -104,7 +101,7 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       kind: "clip",
       n: scene.n,
       duration: Math.min(MAX_CLIP_SECONDS, Math.max(4, scene.duration)),
-      prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim()), language),
+      prompt: clipPrompt(scene.motionPrompt || scene.visual),
       /* Photo → Video animates the photo itself: it is the first frame. */
       ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
     });
