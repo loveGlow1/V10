@@ -145,6 +145,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const fontPath = await font();
     const [width, height] = FRAME[plan.aspect] ?? FRAME["16:9"];
     const segments: string[] = [];
+    const narrated = plan.scenes.some((scene) => scene.voiceover.trim());
 
     for (const scene of plan.scenes) {
       const talking = pick(scene.n, "avatar");
@@ -171,10 +172,11 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       const args = ["-hide_banner", "-y", "-i", clipPath, "-f", "lavfi", "-t", String(seconds), "-i", "anullsrc=r=44100:cl=stereo"];
       if (hasVoice) args.push("-i", voicePath);
       /* A clip's own sound is the video model's: room tone at best, at worst
-         the person speaking lines it made up, or mumbling words in no
-         language. Under a voice line it is left out, so the script is the
-         only voice anybody hears. */
-      const bed = clip.audio && !hasVoice ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.9,apad[bed]` : `[1:a]anull[bed]`;
+         lines it made up or mumbled words in no language. In a narrated video
+         it is left out of every scene, so the script is the only voice; a
+         video with no narration keeps it as its sound bed. A lip-synced clip
+         is the exception: its sound is the voice line itself. */
+      const bed = clip.audio && (talking || !narrated) ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.9,apad[bed]` : `[1:a]anull[bed]`;
       const audio = hasVoice
         ? `${bed};[2:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5,adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]atrim=0:${seconds},afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3[a]`
         : `${bed};[bed]atrim=0:${seconds},afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3[a]`;
