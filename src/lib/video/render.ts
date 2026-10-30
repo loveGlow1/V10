@@ -66,6 +66,18 @@ export function languageFor(answers: Record<string, string>): string {
   return LANGUAGES.includes(answers.language ?? "") ? answers.language : "auto";
 }
 
+/* MiniMax-H3 makes a clip with its own sound, and left to itself it has the
+   person on screen speak lines it invents and burns subtitles for them ("Hey
+   guys, look at these designs"). The script's own voice line and captions are
+   added at the cut, so the clip is asked for picture alone: no lettering of its
+   own, and no speech where a voice line will play. Pure. */
+export const NO_LETTERING = "No subtitles, captions, titles or any added on-screen text.";
+export const NO_SPEECH = "No dialogue: the person does not talk; natural ambient room sound only.";
+export function clipPrompt(prompt: string, narrated: boolean): string {
+  const rules = narrated ? `${NO_LETTERING} ${NO_SPEECH}` : NO_LETTERING;
+  return `${prompt.slice(0, 2000 - rules.length - 1)} ${rules}`;
+}
+
 /** Every job a plan needs: a clip per scene, a voice line per spoken scene. */
 export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, opts: { firstFrameUrl?: string | null } = {}): RenderJob[] {
   const voiceId = voiceIdFor(answers);
@@ -87,7 +99,7 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       kind: "clip",
       n: scene.n,
       duration: Math.min(MAX_CLIP_SECONDS, Math.max(4, scene.duration)),
-      prompt: scene.motionPrompt || scene.visual,
+      prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim())),
       /* Photo → Video animates the photo itself: it is the first frame. */
       ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
     });

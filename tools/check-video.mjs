@@ -100,6 +100,13 @@ const timeline = L.qaAndRepair(L.normalizePlan({ scenes: [2, 8, 10, 6, 4].map((d
 has(timeline.plan.scenes.every((s, i) => s.duration <= 6 && s.n === i + 1) && L.totalSeconds(timeline.plan) === 30, "the UGC template's timeline renders as clips that fit, numbered in order", timeline.plan.scenes.map((s) => s.duration).join(","));
 const cloneLong = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 12, visual: "presenter talks to camera", voiceover: "hi there. bye now.", motionPrompt: "x", engine: "avatar" }] }, "clone", { length: "12s" }));
 has(cloneLong.plan.scenes.length === 1, "a clone's presenter scene stays whole — it is made from their photo, not a clip");
+const narratedJobs = R.jobsFor(L.normalizePlan({ scenes: [{ duration: 5, visual: "a", voiceover: "Hi there.", motionPrompt: "creator smiles" }, { duration: 5, visual: "b", motionPrompt: "logo spins" }] }, "ugc_influencer", {}), {});
+const clips = narratedJobs.filter((j) => j.kind === "clip");
+has(clips.every((j) => j.prompt.includes(R.NO_LETTERING)), "every clip is asked for no lettering of its own — the captions are added at the cut");
+has(clips[0].prompt.includes(R.NO_SPEECH) && !clips[1].prompt.includes(R.NO_SPEECH), "a clip under a voice line is asked for no speech; one without keeps its sound");
+has(R.clipPrompt("x".repeat(3000), true).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
+const composeSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+has(/volume=\$\{hasVoice \? 0\.06/.test(composeSrc), "under a voice line, the clip's own sound is faint ambience — the script is the only voice");
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");

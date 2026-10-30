@@ -26,7 +26,7 @@ import { frameFor } from "./frames";
 import type { ProductionPlan } from "./plan";
 import { advance } from "./production";
 import { clipWebhookUrl, speak, submitClip } from "./providers";
-import { VOICE_COST, languageFor, voiceIdFor } from "./render";
+import { VOICE_COST, clipPrompt, languageFor, voiceIdFor } from "./render";
 
 export type Landing = {
   videoId: string;
@@ -136,7 +136,7 @@ export async function retryClip(
   for (const engine of next) {
     const sent = await submitClip(
       engine,
-      { prompt: scene.motionPrompt || scene.visual, seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
+      { prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim())), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
       clipWebhookUrl(input.origin, input.videoId, input.version, input.n, engine),
     );
     if (sent.ok) {
