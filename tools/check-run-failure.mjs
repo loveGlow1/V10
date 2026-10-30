@@ -58,7 +58,7 @@ writeFileSync(
 execFileSync("npx", ["tsc", "-p", join(out, "tsconfig.json")], { stdio: ["ignore", "ignore", "inherit"] });
 
 const require = createRequire(import.meta.url);
-const { describeRunFailure, sayFailure } = require(join(out, "lib/builder/run-failure.js"));
+const { describeRunFailure, sayFailure, isBrowserNetworkError } = require(join(out, "lib/builder/run-failure.js"));
 
 let failed = 0;
 const ok = (t) => console.log(`ok    ${t}`);
@@ -267,6 +267,14 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
     "without it a timeout cannot be told apart from a dropped connection",
   );
 }
+
+/* Chrome's "network error" (a stream that dropped) is the browser talking,
+   not the server refusing — it must never tell anybody to change their message. */
+for (const browser of ["network error", "TypeError: network error", "NetworkError when attempting to fetch resource.", "Load failed", "Failed to fetch", "terminated"]) {
+  const f = describeRunFailure({ status: 0, answered: false, started: false, elapsedMs: 900, said: browser, thrown: browser });
+  has(isBrowserNetworkError(browser) && !/Changing what you asked for/.test(sayFailure(f)) && f.retryable, `"${browser}" reads as a dropped connection, not a refusal`, sayFailure(f));
+}
+has(!isBrowserNetworkError("The network of salons needs a page"), "a real server sentence mentioning a network is still said");
 
 console.log(failed === 0 ? "\nAll run failure checks passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

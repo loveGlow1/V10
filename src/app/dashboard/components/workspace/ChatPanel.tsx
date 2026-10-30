@@ -59,7 +59,7 @@ import {
   requestConnect,
   type ParkedBuild,
 } from "./database-connect";
-import { describeRunFailure, sayFailure } from "@/lib/builder/run-failure";
+import { describeRunFailure, isBrowserNetworkError, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { ASK_CHANNEL, VISUAL_ASK_EVENT, askChat, type VisualAsk, settleTypedEdits } from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -1663,7 +1663,7 @@ export default function ChatPanel({
           /* A message thrown by one of our own gates is already a sentence
              somebody can read; the browser's is not. `Load failed` and
              `NetworkError` are the ones to translate. */
-          said: /load failed|networkerror|failed to fetch|terminated/i.test(thrown) ? null : thrown,
+          said: isBrowserNetworkError(thrown) ? null : thrown,
           thrown,
         });
         say({ from: "system", text: sayFailure(failure).trim(), tone: "error" });
