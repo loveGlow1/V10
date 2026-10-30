@@ -63,11 +63,11 @@ export async function startVideoTurn(input: {
   const { supabase, service, userId, project, prompt, origin } = input;
   const { data: video } = await supabase
     .from("video_projects")
-    .select("id, current_version, status")
+    .select("id, current_version, status, brief")
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ id: string; current_version: number; status: string }>();
+    .maybeSingle<{ id: string; current_version: number; status: string; brief: string | null }>();
   if (!video) return { ok: false, status: 404, error: "This video's settings are missing. Start it again from the Video tab on Home." };
   if (video.status === "rendering") {
     return { ok: false, status: 409, error: "The last version is still rendering — its clips are landing in the preview. Ask for the change once it finishes." };
@@ -102,7 +102,10 @@ export async function startVideoTurn(input: {
       const { data: current } = await writer.from("video_versions").select("version, plan").eq("video_id", video.id).eq("version", video.current_version).maybeSingle();
       plan = current ? { version: current.version as number, plan: current.plan as { scenes?: unknown[] } } : null;
     } else {
-      const planned = await planVideo(writer, userId, video.id, first ? {} : { note: prompt });
+      /* Before the first plan, a message other than the brief itself is the
+         person filling in its blanks. */
+      const fill = first && prompt.trim() && prompt.trim() !== (video.brief ?? "").trim() ? prompt : undefined;
+      const planned = await planVideo(writer, userId, video.id, first ? { fill } : { note: prompt });
       plan = (await planned.json().catch(() => null)) as typeof plan;
       if (!planned.ok) plan = { error: plan?.error };
     }

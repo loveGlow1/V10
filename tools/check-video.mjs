@@ -84,7 +84,23 @@ has(/Shop now/.test(fixed.scenes[2].onScreenText), "the CTA is on the last scene
 has(issues.every((i) => typeof i.issue === "string") && issues.some((i) => i.repaired), "issues reported, repairs marked");
 has(plan.scenes[0].duration === 10, "the input plan is not mutated");
 const ugc = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 15, visual: "creator holds the serum", voiceover: "ok", motionPrompt: "x" }] }, "ugc_influencer", { length: "15s" }));
-has(/AI-generated · Ad/.test(ugc.plan.scenes[0].onScreenText), "UGC carries an AI-generated · Ad disclosure");
+has(/AI-generated · Ad/.test(ugc.plan.scenes.at(-1).onScreenText), "UGC carries an AI-generated · Ad disclosure");
+has(ugc.plan.scenes.length === 3 && ugc.plan.scenes.every((s) => s.duration <= L.MAX_CLIP_SECONDS) && L.totalSeconds(ugc.plan) === 15, "a 15s scene becomes three clips that fit, same total");
+
+console.log("\nclips that fit");
+const beat = { n: 1, duration: 10, shot: "selfie", visual: "creator holds the serum", onScreenText: "Day 1", voiceover: "My skin looked dull. Then I found this serum.", motionPrompt: "creator holds serum", sound: "", engine: "video" };
+const halves = L.splitScene(beat);
+has(halves.length === 2 && halves[0].duration + halves[1].duration === 10, "a 10s beat is two clips");
+has(halves[0].voiceover === "My skin looked dull." && halves[1].voiceover === "Then I found this serum.", "its line is shared at the sentence end", JSON.stringify(halves.map((h) => h.voiceover)));
+has(halves[0].onScreenText === "Day 1" && halves[1].onScreenText === "", "a title card shows once");
+has(/Continuation of the previous shot/.test(halves[1].motionPrompt), "the second clip carries on from the first");
+has(L.splitScene({ ...beat, duration: 13, voiceover: "one long line with no stops at all in it" }).every((s) => s.duration <= 6 && s.duration >= 4), "13s → three clips of 4–5s");
+has(L.splitScene({ ...beat, duration: 6 }).length === 1, "a clip that fits is left alone");
+const timeline = L.qaAndRepair(L.normalizePlan({ scenes: [2, 8, 10, 6, 4].map((d, i) => ({ duration: d, visual: "creator talks to camera", voiceover: `Line ${i + 1}. Part two.`, motionPrompt: "x" })) }, "ugc_influencer", { length: "30s" }));
+has(timeline.plan.scenes.every((s, i) => s.duration <= 6 && s.n === i + 1) && L.totalSeconds(timeline.plan) === 30, "the UGC template's timeline renders as clips that fit, numbered in order", timeline.plan.scenes.map((s) => s.duration).join(","));
+const cloneLong = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 12, visual: "presenter talks to camera", voiceover: "hi there. bye now.", motionPrompt: "x", engine: "avatar" }] }, "clone", { length: "12s" }));
+has(cloneLong.plan.scenes.length === 1, "a clone's presenter scene stays whole — it is made from their photo, not a clip");
+has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");
 has(/SCENE 1/.test(L.scriptText(fixed)) && /CTA: Shop now/.test(L.scriptText(fixed)), "script export");
@@ -241,7 +257,10 @@ const vpreview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts")
 const vstart = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
 has(/projectId: workspace\.id/.test(vstart) && /router\.push\(`\/dashboard\/project\/\$\{workspace\.id\}/.test(vstart), "the Video tab opens the workspace on a project linked to the video");
 has(/project\.intent === VIDEO_INTENT/.test(vbuild) && /startVideoTurn\(/.test(vbuild), "a video project's messages plan and render it, not build a page");
-has(/planVideo\(writer, userId, video\.id, first \? \{\} : \{ note: prompt \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
+has(/planVideo\(writer, userId, video\.id, first \? \{ fill \} : \{ note: prompt \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
+const vplan = readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8");
+has(vplan.indexOf("unfilledPlaceholders(brief)") > 0 && vplan.indexOf("unfilledPlaceholders(brief)") < vplan.indexOf("currentBalance("), "a first plan with [BLANKS] left is stopped before any credit");
+has(/FILLED\}\\n\$\{fill\}/.test(vplan) && /first && prompt\.trim\(\) && prompt\.trim\(\) !== \(video\.brief/.test(vws), "a reply before the first plan fills the blanks, and is kept with the brief");
 has(/owner\?\.intent === VIDEO_INTENT/.test(vpreview) && /videoBoardHtml\(/.test(vpreview), "the preview iframe shows the video board");
 has(/verifyBoardToken\(id/.test(vboard) && /Access-Control-Allow-Origin/.test(vboard) && /\{ video: video \? \{ id: video\.id, status: video\.status, title: video\.title \} : null, latest, renders, final \}/.test(vboard), "the board reads its video's state with a token for that video only");
 has(/setTimeout\(load,busy\?6000:30000\)/.test(vws), "the board updates itself as clips land");
