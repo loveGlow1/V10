@@ -67,6 +67,11 @@ export type RunFacts = {
   thrown?: string | null;
 };
 
+/** Whether an error message is the browser reporting a dropped connection. */
+export function isBrowserNetworkError(message: string): boolean {
+  return /^(type ?error:\s*)?(load failed|network ?error|failed to fetch|terminated|network connection was lost|the internet connection appears to be offline)/i.test(message.trim());
+}
+
 /** One sentence, for a chat bubble: the cause, then what to do about it. */
 export function sayFailure(failure: RunFailure): string {
   return `${failure.cause}\n\n${failure.remedy}`;
@@ -79,7 +84,12 @@ export function sayFailure(failure: RunFailure): string {
  * causes are tested before the general ones, so a timeout is reported as a
  * timeout rather than as "something went wrong".
  */
-export function describeRunFailure(facts: RunFacts): RunFailure {
+export function describeRunFailure(input: RunFacts): RunFailure {
+  /* A browser's own words are never what the server said: Chrome's
+     "network error" (a dropped stream), Safari's "Load failed", Firefox's
+     "NetworkError…". Passed through as `said`, they read as a refusal and
+     the customer is told to change a message nothing was wrong with. */
+  const facts = input.said && isBrowserNetworkError(input.said) ? { ...input, said: null, thrown: input.thrown ?? input.said } : input;
   /* Stopped by hand is not a failure and must never read as one. */
   if (facts.aborted) {
     return {
@@ -187,7 +197,7 @@ export function describeRunFailure(facts: RunFacts): RunFailure {
   if (!facts.started && facts.elapsedMs < NEAR_CEILING_MS) {
     return {
       cause:
-        facts.thrown && /load failed|network|fetch/i.test(facts.thrown)
+        facts.thrown && /load failed|network|fetch|terminated|connection/i.test(facts.thrown)
           ? "That didn't reach the server — the connection dropped on the way out. Nothing was changed."
           : "That didn't reach the server. Nothing was changed.",
       remedy: "Check your connection and send it again; your message is still in the box.",
