@@ -549,7 +549,7 @@ function RenderProgress({ renders }: { renders: RenderRow[] }) {
                 {voice && <span className="flex items-center gap-1 text-muted">voice {mark(voice)}</span>}
                 {talking && <span className="flex items-center gap-1 text-muted">lip sync {mark(talking)}</span>}
               </span>
-              {failure && <span className="block truncate text-[11.5px] text-muted" title={failure}>{failure}</span>}
+              {failure && <span className="block truncate text-[11.5px] text-muted">{sceneFailure(failure)}</span>}
             </li>
           );
         })}
@@ -752,6 +752,13 @@ function renderFailure(renders: RenderRow[]): string | null {
     return "The video engine declined some scenes. Ask me to tone them down, then render again.";
   }
   return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
+}
+
+/* One scene that was not made, in a few plain words — the engine's own
+   message is for us (it names keys and providers), not for the person. */
+function sceneFailure(error: string): string {
+  if (/sensitive|safety|moderation|policy/i.test(error)) return "Not made — the engine declined this scene. Nothing was charged.";
+  return "Not made this time. Nothing was charged.";
 }
 
 /* A version's note, as the person said it. */

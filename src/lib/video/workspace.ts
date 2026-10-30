@@ -155,8 +155,12 @@ export function videoBoardHtml(input: { videoId: string | null; token: string; o
 #status{margin:0 0 14px;color:#a1a1aa;font-size:13.5px}
 .stage{position:relative;margin:0 auto;background:#000;border-radius:16px;overflow:hidden;max-width:100%}
 .stage video{width:100%;height:100%;object-fit:cover;display:block;background:#000}
-.card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:linear-gradient(160deg,#1e1b4b,#4c1d95 60%,#0b0b0d)}
-.card b{font-size:22px;line-height:1.2}.card span{margin-top:8px;color:#d4d4d8;font-size:13px}
+.card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:linear-gradient(120deg,#17171c,#24212f 40%,#17171c 80%);background-size:300% 100%}
+.card.busy{animation:sheen 2.6s ease-in-out infinite}@keyframes sheen{0%{background-position:100% 0}100%{background-position:0 0}}
+.card .spin{width:26px;height:26px;border-radius:99px;border:2.5px solid #3f3f46;border-top-color:#f4f4f5;animation:r .9s linear infinite}.card.busy .spin{display:block}.card .spin{display:none}@keyframes r{to{transform:rotate(360deg)}}
+.card b{font-size:17px;line-height:1.3;font-weight:600}.card span{max-width:34ch;color:#a1a1aa;font-size:13.5px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.prog{height:4px;background:#27272a;border-radius:4px;overflow:hidden;margin:0 0 6px}.prog i{display:block;height:100%;width:0;background:#f4f4f5;border-radius:4px;transition:width .6s ease}
+#note{margin:0 0 14px;color:#71717a;font-size:12.5px}
 .ost{position:absolute;left:0;right:0;top:12%;text-align:center;padding:0 16px;font-weight:800;font-size:clamp(18px,4.5vw,30px);text-shadow:0 2px 12px rgba(0,0,0,.8)}
 .cap{position:absolute;left:8%;right:8%;bottom:7%;text-align:center;background:rgba(0,0,0,.6);border-radius:10px;padding:6px 10px;font-size:14px}
 .bar{display:flex;align-items:center;gap:10px;margin:12px auto 0;max-width:100%}.play{width:44px;height:44px;border-radius:999px;border:0;background:#f4f4f5;color:#111;font-size:16px;cursor:pointer}
@@ -164,12 +168,13 @@ export function videoBoardHtml(input: { videoId: string | null; token: string; o
 .time{color:#a1a1aa;font-size:12px;min-width:64px;text-align:right}
 h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
 .scene{display:flex;gap:10px;align-items:center;min-width:0;border:1px solid #27272a;border-radius:12px;padding:8px 10px;background:#111113;cursor:pointer}
-.scene.on{border-color:#f97316}.dot{width:9px;height:9px;border-radius:9px;flex:none;background:#52525b}.dot.done{background:#22c55e}.dot.run{background:#f59e0b;animation:p 1s infinite}.dot.fail{background:#ef4444}@keyframes p{50%{opacity:.3}}
+.scene.on{border-color:#52525b}.dot{width:8px;height:8px;border-radius:8px;flex:none;background:#3f3f46}.dot.done{background:#22c55e}.dot.run{background:#a1a1aa;animation:p 1.2s infinite}.dot.fail{background:#71717a}@keyframes p{50%{opacity:.3}}
+.tag{flex:none;color:#71717a;font-size:12px}
 .scene p{margin:0;font-size:13px;color:#d4d4d8;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scene a{color:#f97316;font-size:12px;text-decoration:none}
 .empty{max-width:420px;margin:70px auto;text-align:center;color:#a1a1aa}
 </style></head><body><div class="wrap">
-<p class="eyebrow">Video</p><h1 id="title">${escape(input.title || "Your video")}</h1><p id="status">Loading…</p>
-<div id="player" hidden><div class="stage" id="stage"><video id="clip" playsinline muted></video><div class="card" id="card"><b></b><span></span></div><div class="ost" id="ost"></div><div class="cap" id="cap" hidden></div></div>
+<p class="eyebrow">Video</p><h1 id="title">${escape(input.title || "Your video")}</h1><p id="status">Loading…</p><div class="prog" id="progwrap" hidden><i id="progall"></i></div><p id="note" hidden></p>
+<div id="player" hidden><div class="stage" id="stage"><video id="clip" playsinline muted></video><div class="card" id="card"><div class="spin"></div><b></b><span></span></div><div class="ost" id="ost"></div><div class="cap" id="cap" hidden></div></div>
 <div class="bar" id="bar"><button class="play" id="play" aria-label="Play">▶</button><div class="track"><i id="prog"></i></div><span class="time" id="time">0s</span></div>
 <audio id="voice"></audio></div>
 <div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p></div>
@@ -212,10 +217,18 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     i=k;var s=scenes[k];if(!s)return;
     document.querySelectorAll('.scene').forEach(function(el,j){el.classList.toggle('on',j===k)});
     var clip=media(s.n,'avatar')||media(s.n,'video'),v=$('clip'),card=$('card');
-    $('ost').textContent=s.onScreenText||'';
-    $('cap').hidden=!s.voiceover;$('cap').textContent=s.voiceover||'';
+    /* Words over the picture only when there is a picture: over the waiting
+       card they collide with it. */
+    $('ost').textContent=clip?(s.onScreenText||''):'';
+    $('cap').hidden=!(clip&&s.voiceover);$('cap').textContent=s.voiceover||'';
     if(clip){card.style.display='none';if(v.getAttribute('src')!==clip)v.src=clip;v.currentTime=0;if(playing)v.play().catch(function(){})}
-    else{v.removeAttribute('src');v.load();card.style.display='flex';card.querySelector('b').textContent='Scene '+s.n+(job(s.n)==='run'?' — rendering…':job(s.n)==='fail'?' — could not be made':'');card.querySelector('span').textContent=s.visual||''}
+    else{
+      /* What a person waiting wants: which scene, and what it will say —
+         never the prompt the engine was given, never a red error. */
+      v.removeAttribute('src');v.load();card.style.display='flex';var j=job(s.n);
+      card.classList.toggle('busy',j==='run'||state.video.status==='rendering'&&j!=='fail');
+      card.querySelector('b').textContent=j==='fail'?'Scene '+s.n+' isn\u2019t ready':j==='run'||state.video.status==='rendering'?'Filming scene '+s.n+' of '+scenes.length+'\u2026':'Scene '+s.n;
+      var line=s.voiceover||s.onScreenText||'';card.querySelector('span').textContent=line?'\u201c'+line+'\u201d':''}
     var a=$('voice'),vo=media(s.n,'voice');if(vo){if(a.getAttribute('src')!==vo)a.src=vo;a.currentTime=0;if(playing)a.play().catch(function(){})}else{a.pause();a.removeAttribute('src')}
   }
   function startedAt(k){var x=0;for(var j=0;j<k;j++)x+=scenes[j].duration||3;return x}
@@ -229,17 +242,29 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
   function stop(){playing=false;$('play').textContent='▶';cancelAnimationFrame(timer);$('clip').pause();$('voice').pause()}
   $('play').addEventListener('click',function(){playing?stop():play()});
   function render(){
-    var latest=state.latest;if(!latest){$('status').textContent='Planning your video…';$('empty').hidden=false;return}
+    var latest=state.latest;if(!latest){$('status').textContent='Writing your script\u2026';$('empty').hidden=false;return}
     $('empty').hidden=true;var plan=latest.plan;scenes=plan.scenes||[];$('title').textContent=plan.title||$('title').textContent;
-    var st=state.video.status,done=scenes.filter(function(s){return job(s.n)==='done'}).length;
-    $('status').textContent=state.final?'Your video is ready — play it, or open the MP4.':st==='rendering'?'Rendering — '+done+' of '+scenes.length+' scenes have landed. They play as soon as they arrive.':st==='failed'?'Some scenes could not be made. Ask in the chat to try again or change them.':done?'Rendered — press play.':'Version '+latest.version+' planned — the preview plays the plan until the clips land.';
+    var st=state.video.status,n=scenes.length,done=scenes.filter(function(s){return job(s.n)==='done'}).length,failed=scenes.filter(function(s){return job(s.n)==='fail'}).length;
+    var filming=!state.final&&(st==='rendering'||scenes.some(function(s){return job(s.n)==='run'}));
+    $('status').textContent=state.final?'Your video is ready.'
+      :filming?'Filming your video \u2014 '+done+' of '+n+' scenes ready'
+      :failed&&!done?'We couldn\u2019t film this video just now.'
+      :failed?done+' of '+n+' scenes are ready.'
+      :done?'Your scenes are ready \u2014 press play.'
+      :'Your script is ready.';
+    var note=filming?'This usually takes 10\u201320 minutes. You can leave this page \u2014 the finished video will be in the chat.'
+      :failed&&!done?'You haven\u2019t been charged for the scenes. Ask in the chat to try again in a little while.'
+      :failed?(failed===1?'One scene':failed+' scenes')+' couldn\u2019t be made \u2014 ask in the chat to try '+(failed===1?'it':'them')+' again.':'';
+    $('note').textContent=note;$('note').hidden=!note;
+    $('progwrap').hidden=!filming;$('progall').style.width=Math.max(6,n?done/n*100:0)+'%';
+    $('bar').style.display=done||state.final?'':'none';
     if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=FILE?FILE+'?v='+latest.version+'&download=1':state.final}}
     else{$('final').hidden=true;$('player').hidden=false;var ratio=RATIO[plan.aspect]||'9 / 16',p=ratio.split(' / ');$('stage').style.aspectRatio=ratio;
       /* As large as fits: the full width, or the height of the screen less the controls — whichever is smaller. */
       $('stage').style.width='min(100%, calc((100vh - 170px) * '+p[0]+' / '+p[1]+'))';$('bar').style.width=$('stage').style.width}
-    var key=JSON.stringify((state.renders||[]).map(function(r){return[r.scene,r.engine,r.status]}))+latest.version;
+    var key=JSON.stringify((state.renders||[]).map(function(r){return[r.scene,r.engine,r.status]}))+latest.version+st;
     if(key!==lastKey){lastKey=key;$('sh').hidden=false;
-      $('scenes').innerHTML=scenes.map(function(s,k){var j=job(s.n),c=media(s.n,'avatar')||media(s.n,'video');return'<div class="scene" data-k="'+k+'"><span class="dot '+(j==='done'?'done':j==='run'?'run':j==='fail'?'fail':'')+'"></span><p>'+(s.n)+'. '+String(s.onScreenText||s.visual||'').replace(/[<>&]/g,'')+'</p>'+(c?'<a href="'+c+'" target="_blank" rel="noopener">Clip</a>':'')+'</div>'}).join('');
+      $('scenes').innerHTML=scenes.map(function(s,k){var j=job(s.n),c=media(s.n,'avatar')||media(s.n,'video');var tag=j==='done'?'Ready':j==='run'?'Filming\u2026':j==='fail'?'Not made':'';return'<div class="scene" data-k="'+k+'"><span class="dot '+(j==='done'?'done':j==='run'?'run':j==='fail'?'fail':'')+'"></span><p>'+(s.n)+'. '+String(s.voiceover||s.onScreenText||'Scene '+s.n).replace(/[<>&]/g,'')+'</p>'+(tag?'<span class="tag">'+tag+'</span>':'')+'</div>'}).join('');
       document.querySelectorAll('.scene').forEach(function(el){el.addEventListener('click',function(e){if(e.target.tagName==='A')return;stop();show(+el.dataset.k)})});
       if(!playing)show(i<scenes.length?i:0);
     }
