@@ -67,14 +67,19 @@ export function languageFor(answers: Record<string, string>): string {
 }
 
 /* MiniMax-H3 makes a clip with its own sound, and left to itself it has the
-   person on screen speak lines it invents and burns subtitles for them ("Hey
-   guys, look at these designs"). The script's own voice line and captions are
-   added at the cut, so the clip is asked for picture alone: no lettering of its
-   own, and no speech where a voice line will play. Pure. */
+   person on screen speak lines it invents, burns subtitles for them ("Hey
+   guys, look at these designs"), and mumbles half-words that are no language
+   at all ("here we do a stark A"). The script's own voice line and captions
+   are added at the cut, so a clip is asked for picture alone: no lettering of
+   its own, no speech where a voice line will play, and where its sound is
+   kept, only clear words in the video's language. Pure. */
 export const NO_LETTERING = "No subtitles, captions, titles or any added on-screen text.";
-export const NO_SPEECH = "No dialogue: the person does not talk; natural ambient room sound only.";
-export function clipPrompt(prompt: string, narrated: boolean): string {
-  const rules = narrated ? `${NO_LETTERING} ${NO_SPEECH}` : NO_LETTERING;
+export const NO_SPEECH = "No dialogue: the person does not talk, mouth words or mumble; natural ambient room sound only.";
+export const clearSpeech = (language: string) =>
+  `If anyone speaks, every word is clear, natural ${language}: no mumbling, no made-up or half-formed words.`;
+export function clipPrompt(prompt: string, narrated: boolean, language = "English"): string {
+  const spoken = !language || language === "auto" ? "English" : language;
+  const rules = `${NO_LETTERING} ${narrated ? NO_SPEECH : clearSpeech(spoken)}`;
   return `${prompt.slice(0, 2000 - rules.length - 1)} ${rules}`;
 }
 
@@ -99,7 +104,7 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       kind: "clip",
       n: scene.n,
       duration: Math.min(MAX_CLIP_SECONDS, Math.max(4, scene.duration)),
-      prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim())),
+      prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim()), language),
       /* Photo → Video animates the photo itself: it is the first frame. */
       ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
     });

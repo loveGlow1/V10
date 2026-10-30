@@ -136,7 +136,7 @@ export async function retryClip(
   for (const engine of next) {
     const sent = await submitClip(
       engine,
-      { prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim())), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
+      { prompt: clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim()), languageFor(answers)), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
       clipWebhookUrl(input.origin, input.videoId, input.version, input.n, engine),
     );
     if (sent.ok) {

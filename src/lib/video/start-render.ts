@@ -190,7 +190,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene ? clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim())) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? clipPrompt(scene.motionPrompt || scene.visual, Boolean(scene.voiceover.trim()), languageFor(answers)) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {
