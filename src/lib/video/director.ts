@@ -11,7 +11,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { PIPELINES, type PipelineId } from "./pipelines";
-import { normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIssue } from "./plan";
+import { MAX_CLIP_SECONDS, normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIssue } from "./plan";
 import { withPolicy } from "@/lib/safety/policy";
 
 export const DIRECTOR_MODEL = "claude-sonnet-5";
@@ -39,6 +39,7 @@ ${spec.director.map((rule) => `- ${rule}`).join("\n")}
 
 RULES FOR EVERY VIDEO:
 - Target length: ${target} seconds. Scene durations must add up to it.
+- Each scene is ONE generated clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
 - ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - Anything that must look the same in more than one scene (product, creator, characters, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.

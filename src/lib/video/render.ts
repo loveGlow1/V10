@@ -19,11 +19,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { WEBHOOK_TOKEN_HEADER } from "@/lib/n8n";
 
 import { CLIP_COST, VOICE_COST } from "./engines";
-import type { ProductionPlan } from "./plan";
+import { MAX_CLIP_SECONDS, type ProductionPlan } from "./plan";
 
-export { CLIP_COST, VOICE_COST };
-
-export const MAX_CLIP_SECONDS = 6;
+export { CLIP_COST, VOICE_COST, MAX_CLIP_SECONDS };
 
 /* A clip that has not reported in this long is not coming. Not minutes: the
    n8n plan runs five executions at a time and queues the rest, and with five

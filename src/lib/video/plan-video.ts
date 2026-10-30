@@ -18,11 +18,14 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { direct } from "@/lib/video/director";
 import { readiness } from "@/lib/video/engines";
 import { isPipelineId } from "@/lib/video/pipelines";
-import { normalizePlan, qaAndRepair, type ProductionPlan } from "@/lib/video/plan";
+import { normalizePlan, qaAndRepair, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
 
 
 
 const PLAN_COST = 1;
+
+/* Heads the person's answers to a template's [BLANKS], kept in the brief. */
+const FILLED = "THE [BLANKS] ABOVE, FILLED IN BY THE PERSON (use these wherever a blank appears):";
 
 
 
@@ -31,7 +34,7 @@ export async function planVideo(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { note?: unknown; plan?: unknown },
+  body: { note?: unknown; plan?: unknown; fill?: unknown },
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("*").eq("id", id).maybeSingle();
   if (!video || !isPipelineId(video.pipeline)) return NextResponse.json({ error: "No such video." }, { status: 404 });
@@ -53,6 +56,21 @@ export async function planVideo(
     ({ plan, issues } = qaAndRepair(normalizePlan(body.plan, video.pipeline, answers)));
     note = "Your edits";
   } else {
+    /* Before any credit, on a first plan: a template's blanks planned as they
+       are would be spoken as "[PRODUCT]". The person's answer is kept with the
+       brief, so every later plan reads the blanks filled in. */
+    let brief = String(video.brief ?? "");
+    const fill = typeof body.fill === "string" ? body.fill.trim().slice(0, 2000) : "";
+    const blanks = brief.includes(FILLED) ? [] : unfilledPlaceholders(brief);
+    if (blanks.length && fill && !unfilledPlaceholders(fill).length) {
+      brief = `${brief}\n\n${FILLED}\n${fill}`;
+      await supabase.from("video_projects").update({ brief }).eq("id", id);
+    } else if (blanks.length && !video.current_version) {
+      return NextResponse.json(
+        { error: `Your idea still has blanks to fill: ${blanks.slice(0, 6).join(", ")}. Reply with what each one is (e.g. "${blanks[0]}: …"), and I'll plan it.`, placeholders: blanks },
+        { status: 400 },
+      );
+    }
     const service = createSupabaseServiceClient();
     if (service) {
       const balance = await currentBalance(service, userId);
@@ -70,7 +88,7 @@ export async function planVideo(
 
     const directed = await direct({
       pipeline: video.pipeline,
-      brief: video.brief,
+      brief,
       answers,
       images,
       note: typeof body.note === "string" ? body.note : undefined,

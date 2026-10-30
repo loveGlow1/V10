@@ -48,6 +48,61 @@ export type ProductionPlan = {
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
 
+/* The longest clip one generation makes: a 4s MiniMax-H3 clip took ~126s
+   against the n8n instance's 180s run limit (render.ts). A scene longer than
+   this would freeze on its last frame, so QA splits it into clips that fit. */
+export const MAX_CLIP_SECONDS = 6;
+
+/* A brief written from a template still carrying "[PRODUCT]" or "[CTA]" —
+   planned as is, the video would say "[PRODUCT]" out loud. */
+export function unfilledPlaceholders(brief: string): string[] {
+  const found = brief.match(/\[[A-Z][A-Z0-9 /&'-]{1,40}\]/g) ?? [];
+  return [...new Set(found)];
+}
+
+/* A spoken line cut into `parts` pieces at sentence ends where it has them,
+   else at the word nearest an even split — so each clip carries the words
+   that fit its seconds. */
+function splitLine(line: string, parts: number): string[] {
+  if (!line || parts < 2) return [line, ...Array(Math.max(0, parts - 1)).fill("")];
+  const sentences = line.match(/[^.!?]+[.!?]+["”']?|[^.!?]+$/g)?.map((x) => x.trim()).filter(Boolean) ?? [line];
+  const units = sentences.length >= parts ? sentences : line.split(/\s+/);
+  const total = units.reduce((sum, unit) => sum + unit.split(/\s+/).length, 0);
+  const out: string[] = [];
+  let current: string[] = [];
+  let words = 0;
+  for (const unit of units) {
+    const count = unit.split(/\s+/).length;
+    /* Cut before this unit when that lands nearer the even share than after it. */
+    const share = (total * (out.length + 1)) / parts;
+    if (current.length && out.length < parts - 1 && Math.abs(words - share) <= Math.abs(words + count - share)) {
+      out.push(current.join(" "));
+      current = [];
+    }
+    current.push(unit);
+    words += count;
+  }
+  out.push(current.join(" "));
+  while (out.length < parts) out.push("");
+  return out;
+}
+
+/** One scene as clips no longer than MAX_CLIP_SECONDS, its line shared across them in order. */
+export function splitScene(scene: Scene, max = MAX_CLIP_SECONDS): Scene[] {
+  if (scene.duration <= max) return [scene];
+  const parts = Math.ceil(scene.duration / max);
+  const base = Math.floor(scene.duration / parts);
+  const lines = splitLine(scene.voiceover, parts);
+  return Array.from({ length: parts }, (_, i) => ({
+    ...scene,
+    duration: base + (i < scene.duration - base * parts ? 1 : 0),
+    voiceover: lines[i],
+    /* A title card is shown once, on the first shot. */
+    onScreenText: i === 0 ? scene.onScreenText : "",
+    motionPrompt: i === 0 ? scene.motionPrompt : `${scene.motionPrompt} Continuation of the previous shot: same subject, setting, framing and light, the action carrying on.`,
+  }));
+}
+
 const ASPECTS = ["9:16", "1:1", "16:9", "4:5"] as const;
 
 /** "Vertical 9:16" → "9:16"; "30s" → 30; "2 min" → 120. */
@@ -141,6 +196,17 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
     const factor = plan.target / total;
     for (const scene of plan.scenes) scene.duration = Math.max(1, Math.round(scene.duration * factor));
     issues.push({ scene: null, issue: `Scenes ran ${total}s against a ${plan.target}s target — durations rescaled to ${totalSeconds(plan)}s.`, repaired: true });
+  }
+
+  /* One clip per scene, each short enough to be made in one go. A clone's
+     presenter scene is made from the person's own photo and voice instead,
+     at any length, so it stays whole. */
+  const before = plan.scenes.length;
+  plan.scenes = plan.scenes
+    .flatMap((scene) => (plan.pipeline === "clone" && scene.engine === "avatar" ? [scene] : splitScene(scene)))
+    .map((scene, index) => ({ ...scene, n: index + 1 }));
+  if (plan.scenes.length > before) {
+    issues.push({ scene: null, issue: `Scenes longer than ${MAX_CLIP_SECONDS}s split into ${plan.scenes.length - before} more clip${plan.scenes.length - before === 1 ? "" : "s"}, so none freezes on its last frame.`, repaired: true });
   }
 
   for (const scene of plan.scenes) {
