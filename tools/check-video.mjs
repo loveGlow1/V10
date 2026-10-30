@@ -110,6 +110,13 @@ has(/clip\.audio && \(talking \|\| !narrated\) \?/.test(composeSrc) && /const na
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
 has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
 has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
+const boardSrc = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+const boardShow = boardSrc.slice(boardSrc.indexOf("function show(k)"), boardSrc.indexOf("function startedAt"));
+has(!/s\.visual/.test(boardShow) && /Filming scene/.test(boardShow), "a scene still filming shows which scene and its line — never the engine prompt");
+has(/We couldn\\u2019t film this video just now/.test(boardSrc) && /You haven\\u2019t been charged for the scenes/.test(boardSrc), "a video that could not be made says so plainly, once, and that nothing was charged for it");
+has(!/could not be made/.test(boardSrc) && /\$\('cap'\)\.hidden=!\(clip&&s\.voiceover\)/.test(boardSrc), "no red per-scene alarms, and no caption laid over the waiting card");
+const studioSrc = readFileSync(join(process.cwd(), "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");
