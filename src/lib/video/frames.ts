@@ -20,6 +20,7 @@
  *
  * Server-only. */
 
+import { googleKey } from "@/lib/keys";
 import { generateN8nImage, n8nImagesConfigured } from "@/lib/flyers/providers/n8n";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -105,6 +106,61 @@ async function n8nMinimax(prompt: string, aspect: Aspect): Promise<Buffer | null
   return image ?? null;
 }
 
+/* Every still maker this deployment has a key for, best first. MiniMax
+   image-01 on MINIMAX_API_KEY comes before n8n, so the one MiniMax key is
+   enough to make stills. */
+function imageMakers(prompt: string, aspect: Aspect): (() => Promise<Buffer | null>)[] {
+  const makers: (() => Promise<Buffer | null>)[] = [];
+  if (process.env.IDEOGRAM_API_KEY) makers.push(() => ideogram(prompt, aspect));
+  if (googleKey()) makers.push(() => gemini(prompt, aspect));
+  if (process.env.OPENAI_API_KEY) makers.push(() => openai(prompt, aspect));
+  /* Nano Banana Pro on fal, on the FAL_KEY the production line already uses. */
+  if (process.env.FAL_KEY) makers.push(() => falNanoBanana(prompt, aspect));
+  if (process.env.MINIMAX_API_KEY) makers.push(() => minimaxDirect(prompt, aspect));
+  /* Last, and needing no key of our own: MiniMax image-01 on the n8n usage
+     credit, through the Flier Image workflow. */
+  if (n8nImagesConfigured()) makers.push(() => n8nMinimax(prompt, aspect));
+  return makers;
+}
+
+async function minimaxDirect(prompt: string, aspect: Aspect): Promise<Buffer | null> {
+  const { generateMiniMaxImage } = await import("@/lib/flyers/providers/minimax");
+  const format = aspect === "9:16" ? "story" : aspect === "1:1" ? "square" : aspect === "16:9" ? "landscape" : "portrait";
+  const [image] = await generateMiniMaxImage({ prompt, format, n: 1, large: true });
+  return image ?? null;
+}
+
+export const sceneFramePath = (userId: string, videoId: string, version: number, n: number) => `${userId}/${videoId}/v${version}/frame-${n}.png`;
+
+/**
+ * A still of one scene, for a scene no connected engine can film from text at
+ * the plan's shape (MiniMax's own API makes vertical video from a frame, not
+ * from a prompt): the still is made first and the scene animated from it. A
+ * signed URL, or null when no still maker is connected.
+ */
+export async function ensureSceneFrame(
+  service: SupabaseClient,
+  input: { userId: string; videoId: string; version: number; plan: ProductionPlan; scene: Pick<Scene, "n" | "motionPrompt" | "visual"> },
+): Promise<string | null> {
+  const path = sceneFramePath(input.userId, input.videoId, input.version, input.scene.n);
+  const existing = await service.storage.from("video-assets").createSignedUrl(path, 6 * 60 * 60);
+  if (existing.data?.signedUrl) return existing.data.signedUrl;
+  const prompt = `${(input.scene.motionPrompt || input.scene.visual).slice(0, 1200)} A single photoreal still frame of this shot, the first moment of it. No text, no captions, no logos, no watermark.`;
+  for (const make of imageMakers(prompt, input.plan.aspect as Aspect)) {
+    try {
+      const image = await make();
+      if (!image?.length) continue;
+      const { error } = await service.storage.from("video-assets").upload(path, image, { contentType: "image/png", upsert: true });
+      if (error) continue;
+      const signed = await service.storage.from("video-assets").createSignedUrl(path, 6 * 60 * 60);
+      return signed.data?.signedUrl ?? null;
+    } catch {
+      /* The next maker. */
+    }
+  }
+  return null;
+}
+
 /** Makes (or finds) the version's creator keyframe. A signed URL, or null when none can be made. */
 export async function ensureKeyframe(
   service: SupabaseClient,
@@ -116,16 +172,7 @@ export async function ensureKeyframe(
 
   const prompt = keyframePrompt(input.plan);
   const aspect = input.plan.aspect as Aspect;
-  const makers: (() => Promise<Buffer | null>)[] = [];
-  if (process.env.IDEOGRAM_API_KEY) makers.push(() => ideogram(prompt, aspect));
-  if (process.env.GEMINI_API_KEY) makers.push(() => gemini(prompt, aspect));
-  if (process.env.OPENAI_API_KEY) makers.push(() => openai(prompt, aspect));
-  /* Nano Banana Pro on fal, on the FAL_KEY the production line already uses. */
-  if (process.env.FAL_KEY) makers.push(() => falNanoBanana(prompt, aspect));
-  /* Last, and needing no key of our own: MiniMax image-01 on the n8n usage
-     credit, through the Flier Image workflow. */
-  if (n8nImagesConfigured()) makers.push(() => n8nMinimax(prompt, aspect));
-
+  const makers = imageMakers(prompt, aspect);
   for (const make of makers) {
     try {
       const image = await make();
@@ -145,7 +192,7 @@ export async function ensureKeyframe(
 /** The frame one scene starts from, or null for text-to-video. */
 export async function frameFor(
   service: SupabaseClient,
-  input: { userId: string; videoId: string; version: number; plan: ProductionPlan; scene: Pick<Scene, "engine"> },
+  input: { userId: string; videoId: string; version: number; plan: ProductionPlan; scene: Pick<Scene, "engine"> & { n?: number } },
 ): Promise<string | null> {
   if (input.plan.pipeline === "photo_to_video") {
     const { data: photo } = await service.from("video_assets").select("storage_path").eq("video_id", input.videoId).eq("kind", "photo").order("created_at").limit(1).maybeSingle();
@@ -153,7 +200,12 @@ export async function frameFor(
     const { data } = await service.storage.from("video-assets").createSignedUrl(photo.storage_path, 6 * 60 * 60);
     return data?.signedUrl ?? null;
   }
-  if (input.scene.engine !== "avatar") return null;
+  if (input.scene.engine !== "avatar") {
+    /* A scene animated from its own still keeps that still on a retry. */
+    if (input.scene.n === undefined) return null;
+    const { data } = await service.storage.from("video-assets").createSignedUrl(sceneFramePath(input.userId, input.videoId, input.version, input.scene.n), 6 * 60 * 60);
+    return data?.signedUrl ?? null;
+  }
   const path = keyframePath(input.userId, input.videoId, input.version);
   const { data } = await service.storage.from("video-assets").createSignedUrl(path, 6 * 60 * 60);
   return data?.signedUrl ?? null;

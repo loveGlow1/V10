@@ -121,7 +121,6 @@ export function readiness(plan: ProductionPlan, env?: Env) {
       : [
           ...(onCamera ? ["On-camera lines are voiced over the clip — lip sync needs FAL_KEY."] : []),
           ...(wantsMusic(plan) ? ["Music needs FAL_KEY; the cut plays with voice only."] : []),
-          "One-file MP4 export needs FAL_KEY; the studio plays the scenes in order.",
         ],
   };
 }

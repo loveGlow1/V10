@@ -29,13 +29,14 @@ export function aiImageProvider(): AssetProvider {
     capabilities: { bespoke: true, edit: true, upscale: true },
 
     health(): ProviderHealth {
-      if (process.env.AI_IMAGE_ENABLED !== "true") return "disabled";
+      /* On once its endpoint and key are set; AI_IMAGE_ENABLED=false turns it off. */
+      if (process.env.AI_IMAGE_ENABLED === "false") return "disabled";
       if (!endpoint || !key) return "misconfigured";
       return "available";
     },
 
     async supply(request): Promise<Supply | null> {
-      if (process.env.AI_IMAGE_ENABLED !== "true" || !endpoint || !key || !request.spec) return null;
+      if (process.env.AI_IMAGE_ENABLED === "false" || !endpoint || !key || !request.spec) return null;
 
       /* The structured spec becomes one sentence here and nowhere else, so
          every vendor gets the same brief and two projects asking for the same

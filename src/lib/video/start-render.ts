@@ -27,7 +27,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
 import { n8nPausedUntil } from "@/lib/video/credit";
-import { ensureKeyframe, wantsKeyframe } from "@/lib/video/frames";
+import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
@@ -189,8 +189,14 @@ export async function startRender(
         return;
       }
       const scene = plan.scenes.find((entry) => entry.n === job.n);
-      const frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
-      const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip });
+      let frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
+      let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip });
+      /* No connected engine can film this scene from text at this shape:
+         make a still of it and animate that (frames.ts). */
+      if (!chain.length && !frame && scene && writer) {
+        frame = await ensureSceneFrame(writer, { userId, videoId: id, version, plan, scene });
+        if (frame) chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: true, tier, skip });
+      }
       let reason = "No connected video engine can make this scene at this aspect ratio.";
       for (const engine of chain) {
         if (engine === "n8n") {
