@@ -78,5 +78,16 @@ has(/if \(!kept\.length\) continue;/.test(run), "a set with the wrong words fall
 has(/cost: flyerJobCost\(stage, outputs\.length\)/.test(run), "only the images kept are charged");
 has(/attachmentIds: Array\.isArray\(body\.attachmentIds\)/.test(read("src/app/api/build/route.ts")), "a logo attached in the workspace reaches the flier");
 
+/* Every word set in real type: the model makes the picture only. */
+{
+  const typesetSrc = read("src/lib/flyers/typeset.tsx");
+  const promptSrc = read("src/lib/flyers/prompt.ts");
+  const briefSrc = read("src/lib/flyers/brief.ts");
+  has(!/textMode: "ai"/.test(briefSrc) && (briefSrc.match(/textMode: "overlay"/g) ?? []).length >= 4, "every new and revised flier sets its words in real type — none is left to the image model");
+  has(/Do NOT render any text, letters, numbers, signs, labels or logos/.test(promptSrc) && /calm, darker and uncluttered for the words/.test(promptSrc), "the model is asked for the picture alone, with calm space where the words go");
+  has(/req\.spec\.textMode === 'overlay' \? await Promise\.all\(kept\.map\(\(image\) => typeset\(image/.test(run) && run.indexOf("typeset(image") < run.indexOf("stampLogo(image, logo)"), "the words are set after the picture passes its no-text check, then the logo goes on");
+  has(/spec\.headline\.trim\(\)/.test(typesetSrc) && /spec\.subhead/.test(typesetSrc) && /spec\.details/.test(typesetSrc) && /spec\.cta/.test(typesetSrc) && /brand\.name\.trim\(\)/.test(typesetSrc), "headline, subhead, details, button and brand are all set from the brief, word for word");
+  has(/!input\.logo && brand\.name\.trim\(\)/.test(typesetSrc), "the brand name is set only when there is no logo stamped");
+}
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);

@@ -42,7 +42,7 @@ export function heuristicRequest(brief: string, format: FlyerFormat): FlyerReque
       subhead: offer && forWhat ? forWhat.replace(/^./, (c) => c.toUpperCase()) : undefined,
       imagery: text.slice(0, 300),
       format,
-      textMode: "ai",
+      textMode: "overlay",
       styleIntent: "brand",
     },
     stage: "preview",
@@ -94,7 +94,7 @@ export async function requestFromBrief(brief: string, subtype: string | null | u
         cta: clip(parsed.cta, 40) || undefined,
         imagery: clip(parsed.imagery, 400) || fallback.spec.imagery,
         format,
-        textMode: "ai",
+        textMode: "overlay",
         styleIntent: style,
       },
       stage: "preview",
@@ -113,7 +113,7 @@ export async function reviseRequest(previous: FlyerRequest, change: string): Pro
   const text = change.replace(/\s+/g, " ").trim().slice(0, 1500);
   const fallback: FlyerRequest = {
     ...previous,
-    spec: { ...previous.spec, imagery: `${previous.spec.imagery ?? ""} Change: ${text}`.trim().slice(0, 600) },
+    spec: { ...previous.spec, imagery: `${previous.spec.imagery ?? ""} Change: ${text}`.trim().slice(0, 600), textMode: "overlay" },
     stage: "preview",
     parentJobId: undefined,
     selectedPreviewPath: undefined,
@@ -170,6 +170,9 @@ export async function reviseRequest(previous: FlyerRequest, change: string): Pro
         cta: typeof parsed.cta === "string" ? clip(parsed.cta, 40) || undefined : previous.spec.cta,
         imagery: clip(parsed.imagery, 400) || previous.spec.imagery,
         styleIntent: style,
+        /* A flier made before the words were set in real type is revised
+           into one that is. */
+        textMode: "overlay",
       },
       stage: "preview",
       parentJobId: undefined,
