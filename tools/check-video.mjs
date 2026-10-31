@@ -117,6 +117,10 @@ has(/We couldn\\u2019t film this video just now/.test(boardSrc) && /You haven\\u
 has(!/could not be made/.test(boardSrc) && /\$\('cap'\)\.hidden=!\(clip&&s\.voiceover\)/.test(boardSrc), "no red per-scene alarms, and no caption laid over the waiting card");
 const studioSrc = readFileSync(join(process.cwd(), "src/app/dashboard/video/[id]/page.tsx"), "utf8");
 has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
+const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/Integrations.tsx"), "utf8");
+const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
+has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");
+has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && /"Soon"|>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); services that need a key say Soon");
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");

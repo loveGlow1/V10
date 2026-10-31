@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Check, Plus, Search } from "lucide-react";
 
 import { BrandMark, tintFor } from "../brandMarks";
 import ConnectGitHub from "./ConnectGitHub";
+import { askChat } from "./visual-ask";
 import {
   INTEGRATIONS,
   INTEGRATION_CATEGORIES,
@@ -15,13 +16,17 @@ import {
    because the list only grows from here.
 
    GitHub is real: its row opens Connect GitHub (ConnectGitHub.tsx) beneath it.
-   The rest do not pretend to connect anything yet — Add says so and stays out
-   of the way. */
+   A row with a `request` (storage, email login) is real too: Add sends that
+   request to this app's chat, which builds it on the app's own Supabase —
+   connecting one first if the app has none. The rest need a key of the
+   person's that there is no place for yet, so they say "Soon" rather than
+   offering an Add that does nothing. */
 export default function Integrations({
   initialCategory = "All",
   projectId = null,
   githubReturned = null,
   onUpgrade,
+  onAdded,
 }: {
   initialCategory?: IntegrationCategory;
   /** The app these integrations are for. Without one, GitHub has nothing to push. */
@@ -29,10 +34,12 @@ export default function Integrations({
   /** The ?github= value a GitHub sign-in came back with; opens the GitHub row. */
   githubReturned?: string | null;
   onUpgrade?: () => void;
+  /** After Add sends its request: on a phone, show the chat it went to. */
+  onAdded?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<IntegrationCategory>(initialCategory);
-  const [pending, setPending] = useState<string | null>(null);
+  const [added, setAdded] = useState<string | null>(null);
   const [githubOpen, setGithubOpen] = useState(Boolean(githubReturned));
 
   const needle = query.trim().toLowerCase();
@@ -122,23 +129,27 @@ export default function Integrations({
                   >
                     {githubOpen ? "Close" : "Manage"}
                   </button>
-                ) : pending === integration.id ? (
-                  <button
-                    onClick={() => setPending(null)}
-                    className="shrink-0 text-right text-[12px] leading-tight text-muted hover:text-ink"
-                  >
-                    Connects once
-                    <br />
-                    building is live
-                  </button>
+                ) : integration.request && projectId ? (
+                  added === integration.id ? (
+                    <span className="flex h-8 shrink-0 items-center gap-1 px-1 text-[12.5px] text-muted">
+                      <Check className="h-3.5 w-3.5 text-accent" />
+                      Adding — see chat
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        askChat({ projectId, texts: [integration.request as string] });
+                        setAdded(integration.id);
+                        onAdded?.();
+                      }}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-line/[0.09] px-2.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                    </button>
+                  )
                 ) : (
-                  <button
-                    onClick={() => setPending(integration.id)}
-                    className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-line/[0.09] px-2.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add
-                  </button>
+                  <span className="shrink-0 rounded-full bg-layer/[0.05] px-2.5 py-1 text-[12px] text-muted">Soon</span>
                 )}
               </div>
               {isGitHub && githubOpen && projectId && (
