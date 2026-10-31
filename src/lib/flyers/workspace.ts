@@ -95,7 +95,10 @@ export async function startFlierTurn(input: {
      a new flier takes the brand used before — its spelling and its logo. */
   let request = latest?.request ? await reviseRequest(latest.request, prompt) : await requestFromBrief(prompt.slice(0, 3000), subtype);
   if (latest?.request) request.brand.name = keepName(latest.request.brand.name ?? "", request.brand.name ?? "", prompt);
-  else request = withHouse(request, await houseBrand(supabase, userId, request.brand.name || null));
+  else {
+    const named = request.brand.name && prompt.toLowerCase().includes(request.brand.name.toLowerCase()) ? request.brand.name : null;
+    request = withHouse(request, await houseBrand(supabase, userId, named), prompt);
+  }
   request.variants = 4;
   request.stage = "preview";
   request.siteId = project.id;

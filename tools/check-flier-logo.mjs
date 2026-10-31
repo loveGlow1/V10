@@ -101,11 +101,13 @@ has(/attachmentIds: Array\.isArray\(body\.attachmentIds\)/.test(read("src/app/ap
   const house = { name: "Luxe Studio", logoPath: "u1/brand/logo.png" };
   const unnamed = H.withHouse(base, house);
   const same = H.withHouse({ ...base, brand: { ...base.brand, name: "luxe studio" } }, house);
-  const other = H.withHouse({ ...base, brand: { ...base.brand, name: "Glow Salon" } }, house);
+  const other = H.withHouse({ ...base, brand: { ...base.brand, name: "Glow Salon" } }, house, "a flier for Glow Salon's opening");
+  const picked = H.withHouse({ ...base, brand: { ...base.brand, name: "Grand Opening" } }, house, "a flier for my salon's grand-opening weekend");
   has(unnamed.brand.name === "Luxe Studio" && unnamed.brand.logoPath === "u1/brand/logo.png" && same.brand.name === "Luxe Studio" && same.brand.logoPath === "u1/brand/logo.png", "a new flier for the same brand — or naming none — carries its exact name and logo");
-  has(other.brand.name === "Glow Salon" && !other.brand.logoPath, "a flier for a different brand (a client's) is that brand, without your logo");
+  has(other.brand.name === "Glow Salon" && !other.brand.logoPath, "a flier for a different brand the person typed (a client's) is that brand, without your logo");
+  has(picked.brand.name === "Luxe Studio" && picked.brand.logoPath === "u1/brand/logo.png", "a name the model picked out of a sentence never changes the brand — only one the person typed");
   const ws = read("src/lib/flyers/workspace.ts");
-  has(/keepName\(latest\.request\.brand\.name/.test(ws) && /withHouse\(request, await houseBrand\(supabase, userId/.test(ws), "the flier turn applies both: revisions keep the name, new fliers take the house brand");
+  has(/keepName\(latest\.request\.brand\.name/.test(ws) && /withHouse\(request, await houseBrand\(supabase, userId, named\), prompt\)/.test(ws), "the flier turn applies both: revisions keep the name, new fliers take the house brand");
   has(/\.eq\("user_id", userId\)/.test(read("src/lib/flyers/house.ts")) && /isOwnPreviewPath\(req\.brand\.logoPath, userId\)/.test(run), "a house logo only ever comes from the person's own fliers and folder");
 }
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");

@@ -7,10 +7,8 @@
  * started without it. Now:
  *
  *   a new flier      takes the brand the person has used before — its exact
- *                    spelling and its logo — when the request names that
- *                    brand or names none; a request that names a different
- *                    brand (a client's) is that brand, with its own logo if
- *                    it has had one;
+ *                    spelling and its logo — unless they typed a different
+ *                    brand's name (a client's), which is then that brand;
  *   a revision       keeps the name character for character unless the
  *                    person typed a new one.
  *
@@ -77,10 +75,17 @@ export async function houseBrand(client: SupabaseClient, userId: string, named: 
   return { name: canonicalName(match.name), ...(withLogo?.logoPath ? { logoPath: withLogo.logoPath } : {}), colors: match.colors };
 }
 
-/** A new flier's request with the house brand applied. Pure. */
-export function withHouse(request: FlyerRequest, house: House | null): FlyerRequest {
+/**
+ * A new flier's request with the house brand applied. Pure.
+ *
+ * The brand changes only when the person asks for it: a different name counts
+ * only when they typed it in their message — never because the model that
+ * read the request picked a name out of a sentence ("my salon's opening").
+ */
+export function withHouse(request: FlyerRequest, house: House | null, message = ""): FlyerRequest {
   const named = request.brand.name.trim();
-  if (!house || (named && !sameBrand(named, house.name))) {
+  const typed = Boolean(named) && message.toLowerCase().includes(named.toLowerCase());
+  if (!house || (named && typed && !sameBrand(named, house.name))) {
     return { ...request, brand: { ...request.brand, name: named ? canonicalName(named) : "" } };
   }
   return {
