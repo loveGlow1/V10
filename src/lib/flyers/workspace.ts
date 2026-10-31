@@ -30,6 +30,7 @@ import { recordMessage } from "@/lib/thread-server";
 import { loadAttachments } from "@/lib/builder/attachments";
 
 import { requestFromBrief, reviseRequest } from "./brief";
+import { houseBrand, keepName, withHouse } from "./house";
 import { keepLogo, logoAttachment, wantsNoLogo } from "./logo";
 import { providerChain } from "./router";
 import { flyerJobCost, runFlyerJob } from "./run";
@@ -90,7 +91,11 @@ export async function startFlierTurn(input: {
   const latest = showing ?? newest;
 
   const subtype = typeof input.target === "string" ? input.target.split(":")[1] ?? null : null;
-  const request = latest?.request ? await reviseRequest(latest.request, prompt) : await requestFromBrief(prompt.slice(0, 3000), subtype);
+  /* One brand on every flier (house.ts): a revision keeps the name exactly;
+     a new flier takes the brand used before — its spelling and its logo. */
+  let request = latest?.request ? await reviseRequest(latest.request, prompt) : await requestFromBrief(prompt.slice(0, 3000), subtype);
+  if (latest?.request) request.brand.name = keepName(latest.request.brand.name ?? "", request.brand.name ?? "", prompt);
+  else request = withHouse(request, await houseBrand(supabase, userId, request.brand.name || null));
   request.variants = 4;
   request.stage = "preview";
   request.siteId = project.id;
