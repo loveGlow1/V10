@@ -244,7 +244,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
 
       /* The script's voice, unless the cut is the clips' own sound. A
          lip-synced clip already carries its line. */
-      const voice = talking || cut.audio === "original" ? null : pick(scene.n, "voice");
+      const voice = talking || cut.audio === "original" || cut.audio === "none" ? null : pick(scene.n, "voice");
       const voiceUrl = voice ? await signedUrl(service, voice.output_path) : null;
       const voicePath = join(dir, `voice-${scene.n}.mp3`);
       const hasVoice = Boolean(voiceUrl && (await download(voiceUrl, voicePath)));
@@ -255,7 +255,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
          when the cut asks for it (original, or mixed under the voice) and
          the scene is not muted; a lip-synced clip's sound is the voice line
          itself and always stays. */
-      const ownSound = clip.audio && !cut.muted.has(scene.n) && (Boolean(talking) || cut.audio !== "voiceover");
+      const ownSound = clip.audio && cut.audio !== "none" && !cut.muted.has(scene.n) && (Boolean(talking) || cut.audio !== "voiceover");
       const { seconds, stretch } = sceneTiming({ planned: Number(scene.duration) || 3, clip: clip.seconds, voice: voiceSeconds, ownSound: Boolean(ownSound) && !hasVoice });
 
       /* Words on the frame, set here in clean type — a video model garbles
@@ -263,7 +263,9 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
          spoken line is the caption and the scene's own words, or the end
          card, sit at the top. */
       const titleCard = isTitleCard(scene) && Boolean(scene.onScreenText?.trim());
-      const spoken = cut.captions && hasVoice ? scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim() : "";
+      /* A silent cut keeps the script as captions: muted is how most people
+         watch, and the words are what carries it. */
+      const spoken = cut.captions && (hasVoice || cut.audio === "none") ? scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim() : "";
       const headlineText = scene.n === last && cut.endCard ? cut.endCard : !titleCard && scene.onScreenText?.trim() && scene.onScreenText.trim() !== spoken ? scene.onScreenText.trim() : "";
       const texts: Record<string, string> = {};
       if (titleCard) texts.title = wrap(scene.onScreenText, width, true);
@@ -306,9 +308,12 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     /* One loudness for the whole video, at the level social apps play at
        (-14 LUFS), so it is neither quieter nor louder than what is around it.
        The picture is copied, not encoded again. */
+    /* A silent cut has nothing to level; its track stays silence. */
     await exec(
       ffmpegPath as string,
-      ["-hide_banner", "-y", "-i", joined, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
+      cut.audio === "none"
+        ? ["-hide_banner", "-y", "-i", joined, "-c", "copy", "-movflags", "+faststart", final]
+        : ["-hide_banner", "-y", "-i", joined, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
       { maxBuffer: 1 << 24, timeout: 120_000 },
     );
 

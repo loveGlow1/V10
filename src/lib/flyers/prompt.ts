@@ -24,7 +24,13 @@ export function buildPrompt(brand: BrandKit, spec: FlyerSpec, provider: Provider
           `Only the text above, character for character, in the language and alphabet it is written in. No other words, letters or numbers anywhere: no Chinese, Japanese or Korean characters, no other script, no placeholder or filler text, no captions, labels or signage in the picture.`,
           NO_MARKS,
         ].filter(Boolean).join('\n')
-      : `Do NOT render any text, letters, numbers or logos in any language or script. Leave clean, uncluttered negative space in the top third and a bottom band for text to be added later.`;
+      : [
+          `Do NOT render any text, letters, numbers, signs, labels or logos in any language or script — the words are set afterwards in real type.`,
+          spec.format === 'landscape'
+            ? `Keep the left half of the image calm, darker and uncluttered for the words; put the subject on the right.`
+            : `Keep the lower half of the image calm, darker and uncluttered for the words; put the subject in the upper half.`,
+          NO_MARKS,
+        ].join('\n');
 
   /* The logo is never the model's to draw — it would draw a different one
      every time. A clear corner is left for the real one, stamped on after

@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -39,6 +39,7 @@ const C = await import(join(dir, "clip-engines.js"));
 const K = await import(join(dir, "credit.js"));
 const ED = await import(join(dir, "editor.js"));
 const X = await import(join(dir, "exports.js"));
+const SD = await import(join(dir, "sound.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -134,8 +135,8 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
   has(/setpts=PTS\*\$\{input\.stretch\.toFixed\(4\)\}/.test(c) && /Math\.min\(1\.4, Math\.max\(1, seconds \/ clip\)\)/.test(c), "a clip shorter than its line is slowed to fit (up to 1.4×) before its last frame is held");
   has(/loudnorm=I=-14:TP=-1\.5:LRA=11/.test(c) && /"-c:v", "copy", "-af", "loudnorm/.test(c), "the whole cut is set to -14 LUFS, the picture copied, not encoded again");
-  has(/cut\.captions && hasVoice \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
-  has(/talking \|\| cut\.audio === "original" \? null : pick\(scene\.n, "voice"\)/.test(c) && /cut\.audio !== "voiceover"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
+  has(/cut\.captions && \(hasVoice \|\| cut\.audio === "none"\) \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
+  has(/talking \|\| cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick\(scene\.n, "voice"\)/.test(c) && /cut\.audio !== "voiceover"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
   const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.ai", muted: [1, "2", -3, 1], junk: 1 });
   has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
   const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
@@ -155,7 +156,7 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(junk.replan === false && junk.scenes.length === 0 && !junk.order && junk.reply === "Done.", "the editor's answer is read strictly — unknown scenes, actions and orders are dropped");
   const apply = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
   const ws = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
-  has(/if \(!first\) \{\s*const edited = await editVideo/.test(ws) && /if \(edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
+  has(/: await editVideo\(\{ writer, userId, videoId: video\.id, instruction: prompt, origin \}\)/.test(ws) && /if \(decided\.edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
   has(/status: "done", output_path: picture\.output_path/.test(apply) && /onlyMissing: true/.test(apply) && /keyframePath\(video\.user_id as string, videoId, nextVersion\)/.test(apply), "carried clips and lines are filed under the new version as they are, the keyframe too; only the missing pieces render");
   has(/await advance\(service, videoId, nextVersion, origin\)/.test(apply), "with nothing to make, the new cut is made at once");
 }
@@ -167,6 +168,22 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   const fr = readFileSync(join(process.cwd(), "src/app/api/video/[id]/file/route.ts"), "utf8");
   const bd = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
   has(/exports,\n  \}\);/.test(st) && /isExportKind\(format\)/.test(fr) && /state\.exports\|\|\[\]/.test(bd) && /closest\('a\.dl'\)/.test(bd), "the preview offers each version with its own Download, saved to Photos on a phone");
+}
+{
+  /* No sound at all, and the Sound switch. */
+  has(L.normalizeCut({ audio: "none" })?.audio === "none" && L.usesVoice({ audio: "none" }) === false && L.usesVoice(undefined) === true, "a cut can be silent, and a silent cut uses no voice lines");
+  const silent = L.normalizePlan({ cut: { audio: "none" }, scenes: [{ duration: 5, visual: "a", voiceover: "Hi.", motionPrompt: "x" }] }, "ugc_influencer", {});
+  has(R.jobsFor(silent, {}).every((j) => j.kind === "clip") && E.renderCost(silent, {}) < E.renderCost({ ...silent, cut: undefined }, {}), "a silent video orders and charges no voice lines");
+  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  has(/cut\.audio !== "none" && !cut\.muted\.has/.test(c) && /cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick/.test(c) && /hasVoice \|\| cut\.audio === "none"\) \? scene\.voiceover/.test(c), "a silent cut has no voice and no clip sound — and keeps the script as captions");
+  has(Object.keys(SD.SOUND_COMMANDS).join() === "voiceover,original,mix,none" && SD.soundCommand(SD.SOUND_COMMANDS.none) === "none" && SD.soundCommand("mute it please") === null, "the Sound switch's four requests are fixed phrases, told apart from an edit");
+  const ap = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
+  const ws2 = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+  has(/charge: 0 \}\);/.test(ap) && /const audio = soundCommand\(prompt\);/.test(ws2) && /setSound\(/.test(ws2), "switching the sound asks no model and charges nothing");
+  has(/entry\.voice && voice &&/.test(ap) && /if \(!scene\.voiceover\.trim\(\) \|\| noVoice\) voice = true;/.test(readFileSync(join(process.cwd(), "src/lib/video/editor.ts"), "utf8")), "muting keeps the voice lines, so turning the sound back on records nothing again");
+  const pp = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+  has(/project\.intent !== "video"\) return;/.test(pp) && /isSound\(data\.detail\?\.sound\)\) askChat\(\{ projectId, texts: \[SOUND_COMMANDS\[data\.detail\.sound\]\] \}\)/.test(pp), "the preview's switch reaches the chat only as one of the four fixed choices, and only for a video");
+  has(/data-s="none">No sound</.test(ws2) && /parent\.postMessage\(\{source:'quickstark-preview',state:'ask',detail:\{sound:s\}\}/.test(ws2), "the finished video has a Sound switch: Voice-over · Original · Both · No sound");
 }
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));

@@ -111,7 +111,7 @@ export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionP
 
   const merged = { ...(plan.cut ?? {}), ...(edit.cut ?? {}) };
   const cut = normalizeCut(merged.endCard ? { ...merged, endCard: withBrand(merged.endCard) } : merged);
-  const original = cut?.audio === "original";
+  const noVoice = cut?.audio === "original" || cut?.audio === "none";
   const carry: Carry[] = [];
   const refilm: number[] = [];
   const revoice: number[] = [];
@@ -132,8 +132,8 @@ export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionP
     if (e?.onScreenText !== undefined) scene.onScreenText = withBrand(e.onScreenText);
     if (e?.duration) scene.duration = e.duration;
     /* A scene that says nothing needs no voice line; a cut of the clips' own
-       sound uses none. */
-    if (!scene.voiceover.trim() || original) voice = true;
+       sound, or a silent one, uses none. */
+    if (!scene.voiceover.trim() || noVoice) voice = true;
     carry.push({ from: old.n, to: n, clip, voice });
     if (!clip) refilm.push(n);
     if (!voice) revoice.push(n);
@@ -170,7 +170,7 @@ const SYSTEM = `You are QuickStark's video editor. A video has already been plan
 
 What you can do, cheapest first:
 1. cut — how the final cut is assembled. Costs nothing, re-films nothing.
-   - audio: "voiceover" (only the script's voice — the default for narrated videos), "original" (only the clips' own sound, no voice-over), "mix" (voice-over over the clips' sound).
+   - audio: "voiceover" (only the script's voice — the default for narrated videos), "original" (only the clips' own sound, no voice-over), "mix" (voice-over over the clips' sound), "none" (completely silent — no sound at all; captions stay).
    - captions: true/false (captions of each spoken line).
    - endCard: words shown on the last scene (e.g. "QuickStark.ai").
    - muted: scene numbers whose own sound is silenced.
@@ -189,7 +189,7 @@ Rules:
 - reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
-{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5}],"order":[1,2,3]}
+{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5}],"order":[1,2,3]}
 Omit any field you are not changing.`;
 
 /** Asks the editor model for the edits an instruction needs. Server-only. */

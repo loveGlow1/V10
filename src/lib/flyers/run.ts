@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { generateFalNanoBanana } from './providers/fal';
 import { chargeCredits } from '@/lib/credits-server';
 import { buildPrompt, NEGATIVE } from './prompt';
+import { typeset } from './typeset';
 import { providerChain, refsFor } from './router';
 import { generateOpenAI } from './providers/openai';
 import { generateIdeogram } from './providers/ideogram';
@@ -129,7 +130,10 @@ export async function runFlyerJob(jobId: string, userId: string, input: FlyerReq
         /* A whole set with the wrong words is a model failing at this brief:
            the next one is asked, and none of it is charged. */
         if (!kept.length) continue;
-        result = { provider: made.provider, images: logo ? await Promise.all(kept.map((image) => stampLogo(image, logo))) : kept };
+        /* The words, set in real type over the picture (typeset.tsx) — every
+           one exactly as the brief spells it — then the logo. */
+        const set = req.spec.textMode === 'overlay' ? await Promise.all(kept.map((image) => typeset(image, { spec: req.spec, brand: req.brand, logo: Boolean(logo) }))) : kept;
+        result = { provider: made.provider, images: logo ? await Promise.all(set.map((image) => stampLogo(image, logo))) : set };
         break;
       } catch (e) {
         failures.push(`${p}: ${msg(e)}`);

@@ -19,7 +19,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { WEBHOOK_TOKEN_HEADER } from "@/lib/n8n";
 
 import { CLIP_COST, VOICE_COST } from "./engines";
-import { MAX_CLIP_SECONDS, type ProductionPlan } from "./plan";
+import { MAX_CLIP_SECONDS, usesVoice, type ProductionPlan } from "./plan";
 
 export { CLIP_COST, VOICE_COST, MAX_CLIP_SECONDS };
 
@@ -106,9 +106,10 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
     });
     /* "NAME: line" is dialogue; the name is for the script, not the voice.
-       A cut of the clips' own sound uses no voice lines, so none is made. */
+       A cut of the clips' own sound, or a silent one, uses no voice lines,
+       so none is made. */
     const text = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-    if (text && plan.cut?.audio !== "original") jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });
+    if (text && usesVoice(plan.cut)) jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });
   }
   return jobs;
 }
