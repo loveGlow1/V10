@@ -29,7 +29,8 @@ import { currentBalance } from "@/lib/credits-server";
 import { recordMessage } from "@/lib/thread-server";
 
 import { falToken, verifyFalToken } from "./fal";
-import { editVideo } from "./apply-edit";
+import { editVideo, setSound } from "./apply-edit";
+import { soundCommand } from "./sound";
 import { planVideo } from "./plan-video";
 import { startRender } from "./start-render";
 
@@ -107,7 +108,11 @@ export async function startVideoTurn(input: {
          message asks for changes, and every clip and line that was right is
          reused (apply-edit.ts). Null means it is not an edit — plan it. */
       if (!first) {
-        const edited = await editVideo({ writer, userId, videoId: video.id, instruction: prompt, origin });
+        /* The preview's Sound control: free and instant, no model asked. */
+        const audio = soundCommand(prompt);
+        const edited = audio
+          ? await setSound({ writer, userId, videoId: video.id, audio, origin })
+          : await editVideo({ writer, userId, videoId: video.id, instruction: prompt, origin });
         if (edited) {
           await finish(edited.ok, edited.message);
           return;
@@ -183,13 +188,14 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
 .tag{flex:none;color:#71717a;font-size:12px}
 .scene p{margin:0;font-size:13px;color:#d4d4d8;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scene a{color:#f97316;font-size:12px;text-decoration:none}
 .empty{max-width:420px;margin:70px auto;text-align:center;color:#a1a1aa}
+.sound{margin:18px auto 0;max-width:460px;text-align:center}.sound>span{display:block;color:#a1a1aa;font-size:12px;margin:0 0 6px}.seg{display:inline-flex;flex-wrap:wrap;justify-content:center;gap:4px;padding:4px;border-radius:999px;background:#18181b;border:1px solid #27272a}.seg button{height:32px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:#a1a1aa;font-size:13px;cursor:pointer}.seg button.on{background:#f4f4f5;color:#111}.seg button:disabled{opacity:.6;cursor:default}#soundnote{margin:6px 0 0;color:#71717a;font-size:12px;min-height:1em}
 .exports{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:12px 0 0}.exports:empty{display:none}.exports a{display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:999px;border:1px solid #3f3f46;color:#e4e4e7;font-size:13px;text-decoration:none}
 </style></head><body><div class="wrap">
 <p class="eyebrow">Video</p><h1 id="title">${escape(input.title || "Your video")}</h1><p id="status">Loading…</p><div class="prog" id="progwrap" hidden><i id="progall"></i></div><p id="note" hidden></p>
 <div id="player" hidden><div class="stage" id="stage"><video id="clip" playsinline muted></video><div class="card" id="card"><div class="spin"></div><b></b><span></span></div><div class="ost" id="ost"></div><div class="cap" id="cap" hidden></div></div>
 <div class="bar" id="bar"><button class="play" id="play" aria-label="Play">▶</button><div class="track"><i id="prog"></i></div><span class="time" id="time">0s</span></div>
 <audio id="voice"></audio></div>
-<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" class="dl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p><div id="exports" class="exports"></div></div>
+<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" class="dl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p><div id="exports" class="exports"></div><div class="sound" id="sound"><span>Sound</span><div class="seg" role="group" aria-label="Sound"><button data-s="voiceover">Voice-over</button><button data-s="original">Original</button><button data-s="mix">Both</button><button data-s="none">No sound</button></div><p id="soundnote"></p></div></div>
 <h2 id="sh" hidden>Scenes</h2><div class="scenes" id="scenes"></div>
 <p class="empty" id="empty" hidden>Describe your video in the chat to plan it.</p>
 </div>
@@ -226,6 +232,23 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     dl.setAttribute('data-label',label);dl.textContent='Preparing\u2026';
     s.loading=fetch(src).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob()}).then(function(b){s.file=new File([b],name,{type:b.type||'video/mp4'});dl.textContent='Save to Photos'}).catch(function(){s.loading=null;dl.textContent=label;window.open(dl.href,'_blank')});
   });
+  /* Sound: asks the app (the chat) for one of four fixed cuts; free and
+     instant, and the new cut replaces this one when it lands. */
+  var asked=null,askedAt=0;
+  document.querySelectorAll('#sound button').forEach(function(b){b.addEventListener('click',function(){
+    var s=b.getAttribute('data-s');if(!state||!state.latest||b.classList.contains('on')||asked)return;
+    asked={sound:s,version:state.latest.version};askedAt=Date.now();
+    try{parent.postMessage({source:'quickstark-preview',state:'ask',detail:{sound:s}},'*')}catch(x){}
+    paintSound();setTimeout(load,1500);
+  })});
+  function soundNow(){var p=state&&state.latest&&state.latest.plan;if(!p)return'voiceover';var c=p.cut&&p.cut.audio;if(c)return c;return(p.scenes||[]).some(function(s){return s.voiceover})?'voiceover':'original'}
+  function paintSound(){
+    if(asked&&state&&state.latest&&state.latest.version!==asked.version)asked=null;
+    if(asked&&Date.now()-askedAt>180000)asked=null;
+    var now=asked?asked.sound:soundNow();
+    document.querySelectorAll('#sound button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-s')===now);b.disabled=Boolean(asked)});
+    $('soundnote').textContent=asked?'Making the new cut \u2014 about a minute. Free.':now==='none'?'Muted. The captions stay; turn the sound back on any time.':'Switch any time \u2014 free, and nothing is filmed again.';
+  }
   var RATIO={'9:16':'9 / 16','1:1':'1 / 1','16:9':'16 / 9','4:5':'4 / 5'};
   function media(n,engine){var r=(state.renders||[]).find(function(x){return x.scene===n&&x.engine===engine&&x.status==='done'&&x.url});return r?r.url:null}
   function job(n){var rs=(state.renders||[]).filter(function(x){return x.scene===n&&(x.engine==='video'||x.engine==='avatar')});if(!rs.length)return'';if(rs.some(function(x){return x.status==='done'}))return'done';if(rs.some(function(x){return x.status==='failed'}))return'fail';return'run'}
@@ -276,8 +299,9 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     $('progwrap').hidden=!filming;$('progall').style.width=Math.max(6,n?done/n*100:0)+'%';
     $('bar').style.display=done||state.final?'':'none';
     if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=FILE?FILE+'?v='+latest.version+'&download=1':state.final}
-      var ex=(state.exports||[]).map(function(x){return'<a class="dl" target="_blank" rel="noopener" data-kind="'+x.kind+'" data-src="'+String(x.url).replace(/"/g,'&quot;')+'" href="'+(FILE?FILE+'?v='+latest.version+'&download=1&format='+x.kind:x.url).replace(/"/g,'&quot;')+'">'+String(x.label).replace(/[<>&]/g,'')+'</a>'}).join('');
-      if($('exports').getAttribute('data-k')!==ex){$('exports').innerHTML=ex;$('exports').setAttribute('data-k',ex)}}
+      var ex=(state.exports||[]).map(function(x){return'<a class="dl" target="_blank" rel="noopener" data-kind="'+x.kind+'" data-src="'+String(x.url).replace(/"/g,'&quot;')+'" href="'+(FILE?FILE+'?v='+latest.version+'&download=1&format='+x.kind:x.url).replace(/"/g,'&quot;')+'">'+String(x.label).replace(/[<>&]/g,function(c){return c==='<'?'&lt;':c==='>'?'&gt;':'&amp;'})+'</a>'}).join('');
+      if($('exports').getAttribute('data-k')!==ex){$('exports').innerHTML=ex;$('exports').setAttribute('data-k',ex)}
+      paintSound()}
     else{$('final').hidden=true;$('player').hidden=false;var ratio=RATIO[plan.aspect]||'9 / 16',p=ratio.split(' / ');$('stage').style.aspectRatio=ratio;
       /* As large as fits: the full width, or the height of the screen less the controls — whichever is smaller. */
       $('stage').style.width='min(100%, calc((100vh - 170px) * '+p[0]+' / '+p[1]+'))';$('bar').style.width=$('stage').style.width}

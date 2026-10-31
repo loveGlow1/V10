@@ -47,6 +47,7 @@ import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@
 import type { Diagnosis } from "@/lib/publish/diagnosis";
 import PublishPanel, { type PublishRun } from "./PublishPanel";
 import { askChat } from "./visual-ask";
+import { SOUND_COMMANDS, isSound } from "@/lib/video/sound";
 import ServerKeys from "./ServerKeys";
 import { safeHttpUrl } from "@/lib/safe-url";
 import Integrations from "./Integrations";
@@ -549,6 +550,22 @@ export default function PreviewPanel({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+
+  /* A video's Sound control, from its preview board. Only the four fixed
+     sound choices are relayed — words from the frame never reach the chat
+     as they are — and only for a video, whose board is this app's own page. */
+  useEffect(() => {
+    if (!project?.id || project.intent !== "video") return;
+    const projectId = project.id;
+    function onMessage(event: MessageEvent) {
+      const data = event.data as { source?: string; state?: string; detail?: { sound?: unknown } } | null;
+      if (!data || data.source !== "quickstark-preview" || data.state !== "ask") return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (isSound(data.detail?.sound)) askChat({ projectId, texts: [SOUND_COMMANDS[data.detail.sound]] });
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [project?.id, project?.intent]);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
 

@@ -96,7 +96,7 @@ export function renderCost(plan: ProductionPlan, env: Env = process.env, quality
   let total = 0;
   for (const scene of plan.scenes) {
     const avatar = scene.engine === "avatar";
-    const spoken = Boolean(scene.voiceover.trim()) && plan.cut?.audio !== "original";
+    const spoken = Boolean(scene.voiceover.trim()) && plan.cut?.audio !== "original" && plan.cut?.audio !== "none";
     if (!(avatar && isClone(plan.pipeline))) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality, skip)) : CLIP_COST;
     if (spoken) total += VOICE_COST;
     if (avatar && fal && spoken) total += isClone(plan.pipeline) ? AVATAR_COST : LIPSYNC_COST;

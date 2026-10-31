@@ -30,8 +30,8 @@ export type Scene = {
    ("use the original voices", "no captions", "end on QuickStark.ai") without
    anything being generated again. Absent means the defaults. */
 export type Cut = {
-  /** voiceover: only the script's voice. original: only the clips' own sound. mix: both. */
-  audio?: "voiceover" | "original" | "mix";
+  /** voiceover: only the script's voice. original: only the clips' own sound. mix: both. none: silent. */
+  audio?: "voiceover" | "original" | "mix" | "none";
   /** Captions of each spoken line, burned in. Default on. */
   captions?: boolean;
   /** Words on the last scene, e.g. "QuickStark.ai". */
@@ -198,11 +198,14 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
 }
 
 /** A cut as written by a person or the editor, with anything unknown dropped. Pure. */
+/** Whether a cut uses the script's voice lines at all. Pure. */
+export const usesVoice = (cut: Cut | undefined) => cut?.audio !== "original" && cut?.audio !== "none";
+
 export function normalizeCut(raw: unknown): Cut | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
   const cut: Cut = {};
-  if (r.audio === "voiceover" || r.audio === "original" || r.audio === "mix") cut.audio = r.audio;
+  if (r.audio === "voiceover" || r.audio === "original" || r.audio === "mix" || r.audio === "none") cut.audio = r.audio;
   if (typeof r.captions === "boolean") cut.captions = r.captions;
   const end = text(r.endCard, 80);
   if (end) cut.endCard = end;

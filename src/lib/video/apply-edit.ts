@@ -22,9 +22,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { chargeCredits } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
-import { applyEdit, decideEdit } from "./editor";
+import { applyEdit, decideEdit, type Edit } from "./editor";
+import { SOUND_COMMANDS } from "./sound";
 import { keyframePath } from "./frames";
-import type { ProductionPlan } from "./plan";
+import { usesVoice, type Cut, type ProductionPlan } from "./plan";
 import { advance } from "./production";
 import { startRender } from "./start-render";
 
@@ -34,14 +35,28 @@ type Row = { scene: number | null; engine: string; status: string; provider: str
 
 export type EditResult = { ok: true; message: string } | { ok: false; message: string };
 
-export async function editVideo(input: {
-  writer: SupabaseClient;
-  userId: string;
-  videoId: string;
-  instruction: string;
-  origin: string;
-}): Promise<EditResult | null> {
-  const { writer, userId, videoId, origin } = input;
+/* The sound of a made video, switched from the preview's Sound control
+   (lib/video/sound.ts): a fixed request, so no model is asked and nothing is
+   charged — every clip and line carries over, and only the cut is made again.
+   Always reversible: the voice lines and the clips' own sound are kept
+   whichever is heard. */
+const SOUND_REPLY: Record<NonNullable<Cut["audio"]>, string> = {
+  voiceover: "Voice-over only, coming up.",
+  original: "Switching to the clips' original sound — the voice-over is kept, so you can bring it back any time.",
+  mix: "Putting the voice-over over the original sound.",
+  none: "Muting the whole video — no sound at all. The captions stay, and you can turn the sound back on any time.",
+};
+
+export async function setSound(input: { writer: SupabaseClient; userId: string; videoId: string; audio: NonNullable<Cut["audio"]>; origin: string }): Promise<EditResult | null> {
+  const loaded = await load(input.writer, input.videoId);
+  if (!loaded) return { ok: false, message: "There's no finished video to change the sound of yet." };
+  const edit: Edit = { reply: SOUND_REPLY[input.audio], replan: false, cut: { audio: input.audio }, scenes: [] };
+  return commitEdit({ ...input, ...loaded, edit, instruction: SOUND_COMMANDS[input.audio], charge: 0 });
+}
+
+type Loaded = { video: { user_id: string }; version: number; plan: ProductionPlan; done: (scene: number, engine: string) => Row | undefined };
+
+async function load(writer: SupabaseClient, videoId: string): Promise<Loaded | null> {
   const { data: video } = await writer.from("video_projects").select("id, user_id, current_version, title").eq("id", videoId).maybeSingle();
   if (!video?.current_version) return null;
   const version = video.current_version as number;
@@ -51,16 +66,40 @@ export async function editVideo(input: {
   const { data: renderRows } = await writer.from("video_renders").select("scene, engine, status, provider, output_path").eq("video_id", videoId).eq("version", version);
   const rows = (renderRows ?? []) as Row[];
   const done = (scene: number, engine: string) => rows.find((row) => row.scene === scene && row.engine === engine && row.status === "done" && row.output_path);
-
-  /* Nothing filmed yet: there is nothing to edit — plan it. */
+  /* Nothing filmed yet: there is nothing to edit. */
   if (!plan.scenes.some((scene) => done(scene.n, "video") || done(scene.n, "avatar"))) return null;
+  return { video: { user_id: video.user_id as string }, version, plan, done };
+}
 
+export async function editVideo(input: {
+  writer: SupabaseClient;
+  userId: string;
+  videoId: string;
+  instruction: string;
+  origin: string;
+}): Promise<EditResult | null> {
+  const loaded = await load(input.writer, input.videoId);
+  if (!loaded) return null;
+  const { plan, done } = loaded;
   const made = plan.scenes.map((scene) => ({ scene: scene.n, clip: Boolean(done(scene.n, "video") || done(scene.n, "avatar")), voice: Boolean(done(scene.n, "voice")) }));
   const decided = await decideEdit({ plan, made, instruction: input.instruction });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
-  const { edit } = decided;
-  if (edit.replan) return null;
+  if (decided.edit.replan) return null;
+  return commitEdit({ ...input, ...loaded, edit: decided.edit, charge: EDIT_COST, outputTokens: decided.outputTokens });
+}
 
+/* An edit, made real as the next version. */
+async function commitEdit(input: Loaded & {
+  writer: SupabaseClient;
+  userId: string;
+  videoId: string;
+  origin: string;
+  instruction: string;
+  edit: Edit;
+  charge: number;
+  outputTokens?: number;
+}): Promise<EditResult> {
+  const { writer, userId, videoId, origin, video, version, plan, done, edit } = input;
   const { plan: next, carry, refilm, revoice } = applyEdit(plan, edit);
   if (!next.scenes.length) return { ok: false, message: "That would leave the video with no scenes, so I've left it as it is." };
 
@@ -94,18 +133,20 @@ export async function editVideo(input: {
     .catch(() => null);
 
   await writer.from("video_projects").update({ current_version: nextVersion, title: next.title.slice(0, 160) }).eq("id", videoId);
-  await chargeCredits(service, {
-    userId,
-    action: "generate",
-    cost: EDIT_COST,
-    description: `Video edit: ${next.title}`,
-    outputTokens: decided.outputTokens,
-    dedupeKey: `video-edit:${videoId}:${nextVersion}`,
-  });
+  if (input.charge > 0) {
+    await chargeCredits(service, {
+      userId,
+      action: "generate",
+      cost: input.charge,
+      description: `Video edit: ${next.title}`,
+      outputTokens: input.outputTokens,
+      dedupeKey: `video-edit:${videoId}:${nextVersion}`,
+    });
+  }
 
   /* 3. Only what is missing is made. */
   const missing = next.scenes.some((scene) => !carried.some((row) => row.scene === scene.n && (row.engine === "video" || row.engine === "avatar")))
-    || next.scenes.some((scene) => next.cut?.audio !== "original" && scene.voiceover.trim() && !carried.some((row) => row.scene === scene.n && row.engine === "voice"));
+    || next.scenes.some((scene) => usesVoice(next.cut) && scene.voiceover.trim() && !carried.some((row) => row.scene === scene.n && row.engine === "voice"));
   if (missing) {
     const rendered = await startRender(writer, userId, videoId, { onlyMissing: true }, origin);
     const body = (await rendered.json().catch(() => null)) as { error?: string; cost?: number } | null;
