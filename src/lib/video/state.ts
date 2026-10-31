@@ -2,6 +2,7 @@
    whether the engines its plan needs are connected, and the current render —
    each job's clip or voice line as a short-lived signed URL. */
 
+import { EXPORT_LABEL, exportPath, exportsFor } from "@/lib/video/exports";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -125,6 +126,19 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
   }
 
   const latest = versions?.find((row) => row.version === video.current_version) ?? versions?.[0] ?? null;
+
+  /* The ready-to-post versions made beside the cut (compose-local.ts). */
+  const cutPath = (renderRows ?? []).find((row) => row.engine === "compose" && row.status === "done")?.output_path;
+  const exports = cutPath?.startsWith("storage:") && latest
+    ? (
+        await Promise.all(
+          exportsFor((latest.plan as ProductionPlan).aspect).map(async (kind) => {
+            const { data } = await supabase.storage.from("video-assets").createSignedUrl(exportPath(cutPath.slice(8), kind), 60 * 60);
+            return data?.signedUrl ? { kind, label: EXPORT_LABEL[kind], url: data.signedUrl } : null;
+          }),
+        )
+      ).filter(Boolean)
+    : [];
   return NextResponse.json({
     video: { ...video, status },
     latest,
@@ -136,5 +150,6 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     renders,
     /* The one-file cut, when fal has composed it. */
     final: renders.find((row) => row.engine === "compose" && row.status === "done")?.url ?? null,
+    exports,
   });
 }

@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -37,6 +37,8 @@ const R = await import(join(dir, "render.js"));
 const F = await import(join(dir, "fal.js"));
 const C = await import(join(dir, "clip-engines.js"));
 const K = await import(join(dir, "credit.js"));
+const ED = await import(join(dir, "editor.js"));
+const X = await import(join(dir, "exports.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -106,7 +108,7 @@ has(clips.every((j) => j.prompt.includes(R.NO_LETTERING)), "every clip is asked 
 has(clips.every((j) => j.prompt.includes(R.NO_SPEECH)), "no clip is asked to speak — every spoken word comes from the voice model");
 has(R.clipPrompt("x".repeat(3000)).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
 const composeSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
-has(/clip\.audio && \(talking \|\| !narrated\) \?/.test(composeSrc) && /const narrated = plan\.scenes\.some/.test(composeSrc), "in a narrated video no scene keeps the clip's own sound — the script is the only voice (a lip-synced clip's sound is that voice, and stays)");
+has(/audio: plan\.cut\?\.audio \?\? \(narrated \? "voiceover" : "original"\)/.test(composeSrc) && /Boolean\(talking\) \|\| cut\.audio !== "voiceover"/.test(composeSrc), "a narrated video's cut is the script's voice only by default — a lip-synced clip's sound is that voice, and stays");
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
 has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
 has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
@@ -120,7 +122,52 @@ has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studi
 const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/Integrations.tsx"), "utf8");
 const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
 has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");
-has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && /"Soon"|>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); services that need a key say Soon");
+has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && !/>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); no row is a dead end");
+{
+  const rows = integrationsList.split(/\n  \{\n/).slice(1);
+  const dead = rows.filter((row) => !/id: "github"/.test(row) && !/request:/.test(row));
+  has(dead.length === 0, "every integration connects: GitHub, or a build request — with the person's own keys where the service needs them", String(dead.length));
+  has(/name: "STRIPE_SECRET_KEY"/.test(integrationsList) && /name: "OPENAI_API_KEY"/.test(integrationsList) && /name: "ANTHROPIC_API_KEY"/.test(integrationsList) && /name: "GEMINI_API_KEY"/.test(integrationsList) && /name: "RESEND_API_KEY"/.test(integrationsList) && /name: "TWILIO_AUTH_TOKEN"/.test(integrationsList), "each keyed service asks for the key name the builder detects it by");
+  has(/\/api\/projects\/\$\{projectId\}\/secrets`, \{\s*method: "POST"/.test(integrationsSrc) && /type="password"/.test(integrationsSrc) && /setValues\(\{\}\)/.test(integrationsSrc) && !/NEXT_PUBLIC_/.test(integrationsList), "keys go to the app's server environment through the Server keys route — masked, cleared once used, never NEXT_PUBLIC_");
+}
+{
+  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  has(/setpts=PTS\*\$\{input\.stretch\.toFixed\(4\)\}/.test(c) && /Math\.min\(1\.4, Math\.max\(1, seconds \/ clip\)\)/.test(c), "a clip shorter than its line is slowed to fit (up to 1.4×) before its last frame is held");
+  has(/loudnorm=I=-14:TP=-1\.5:LRA=11/.test(c) && /"-c:v", "copy", "-af", "loudnorm/.test(c), "the whole cut is set to -14 LUFS, the picture copied, not encoded again");
+  has(/cut\.captions && hasVoice \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
+  has(/talking \|\| cut\.audio === "original" \? null : pick\(scene\.n, "voice"\)/.test(c) && /cut\.audio !== "voiceover"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
+  const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.ai", muted: [1, "2", -3, 1], junk: 1 });
+  has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
+  const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
+  has(kept.plan.cut?.audio === "mix" && kept.plan.cut?.endCard === "Try QuickStark.ai", "a plan keeps its cut settings through QA, the brand in full on the end card");
+}
+{
+  /* The editor: only what was asked changes; the rest is reused. */
+  const made = L.normalizePlan({ title: "Four Fliers", aspect: "9:16", locks: { creator: "brunette woman, cream sweater" }, scenes: [1, 2, 3, 4].map((n) => ({ duration: 5, visual: "v", voiceover: `Line ${n}.`, onScreenText: n === 4 ? "Try it" : "", motionPrompt: `prompt ${n}` })) }, "ugc_influencer", {});
+  const audioOnly = ED.applyEdit(made, ED.normalizeEdit({ reply: "Original voices.", cut: { audio: "original", endCard: "QuickStark" } }, made));
+  has(audioOnly.refilm.length === 0 && audioOnly.revoice.length === 0 && audioOnly.carry.every((c) => c.clip && c.voice) && audioOnly.plan.cut.audio === "original" && audioOnly.plan.cut.endCard === "QuickStark.ai", "\"use the original voices\" re-films and re-voices nothing — a new cut only");
+  has(R.jobsFor(audioOnly.plan, {}).every((j) => j.kind === "clip"), "a cut of the clips' own sound orders no voice lines");
+  const refilm = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 3, action: "refilm", motionPrompt: "closer shot, brunette woman, cream sweater" }, { n: 2, action: "revoice", voiceover: "A brand new line." }] }, made));
+  has(refilm.refilm.join() === "3" && refilm.revoice.join() === "2" && refilm.carry.filter((c) => c.clip).length === 3 && refilm.plan.scenes[2].motionPrompt.startsWith("closer"), "re-filming scene 3 and re-voicing scene 2 reuses every other clip and line");
+  const removed = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 2, action: "remove" }], order: [4, 1, 3] }, made));
+  has(removed.plan.scenes.map((s) => s.n).join() === "1,2,3" && removed.carry.map((c) => `${c.from}>${c.to}`).join() === "4>1,1>2,3>3" && removed.refilm.length === 0, "removing and reordering scenes renumbers them and carries each clip with its scene");
+  const junk = ED.normalizeEdit({ replan: "yes", scenes: [{ n: 9, action: "remove" }, { n: 1, action: "refilm" }, { n: 2, action: "explode" }], order: [1, 1] }, made);
+  has(junk.replan === false && junk.scenes.length === 0 && !junk.order && junk.reply === "Done.", "the editor's answer is read strictly — unknown scenes, actions and orders are dropped");
+  const apply = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
+  const ws = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+  has(/if \(!first\) \{\s*const edited = await editVideo/.test(ws) && /if \(edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
+  has(/status: "done", output_path: picture\.output_path/.test(apply) && /onlyMissing: true/.test(apply) && /keyframePath\(video\.user_id as string, videoId, nextVersion\)/.test(apply), "carried clips and lines are filed under the new version as they are, the keyframe too; only the missing pieces render");
+  has(/await advance\(service, videoId, nextVersion, origin\)/.test(apply), "with nothing to make, the new cut is made at once");
+}
+{
+  has(X.exportsFor("9:16").join() === "feed,whatsapp" && X.exportsFor("16:9").join() === "vertical,feed,whatsapp" && X.exportPath("u/v/v2/final.mp4", "feed") === "u/v/v2/final-feed.mp4", "every cut gets the ready-to-post shapes it is not already, stored beside it");
+  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  has(/Math\.floor\(\(15 \* 8 \* 1024\) \/ Math\.max\(1, input\.seconds\)\) - 140/.test(c) && /boxblur=24:2/.test(c), "the WhatsApp file is sized under 16 MB; feed and vertical keep the whole picture over a blurred fill");
+  const st = readFileSync(join(process.cwd(), "src/lib/video/state.ts"), "utf8");
+  const fr = readFileSync(join(process.cwd(), "src/app/api/video/[id]/file/route.ts"), "utf8");
+  const bd = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+  has(/exports,\n  \}\);/.test(st) && /isExportKind\(format\)/.test(fr) && /state\.exports\|\|\[\]/.test(bd) && /closest\('a\.dl'\)/.test(bd), "the preview offers each version with its own Download, saved to Photos on a phone");
+}
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");
