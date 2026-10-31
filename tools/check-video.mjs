@@ -122,7 +122,14 @@ has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studi
 const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/Integrations.tsx"), "utf8");
 const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
 has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");
-has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && /"Soon"|>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); services that need a key say Soon");
+has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && !/>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); no row is a dead end");
+{
+  const rows = integrationsList.split(/\n  \{\n/).slice(1);
+  const dead = rows.filter((row) => !/id: "github"/.test(row) && !/request:/.test(row));
+  has(dead.length === 0, "every integration connects: GitHub, or a build request — with the person's own keys where the service needs them", String(dead.length));
+  has(/name: "STRIPE_SECRET_KEY"/.test(integrationsList) && /name: "OPENAI_API_KEY"/.test(integrationsList) && /name: "ANTHROPIC_API_KEY"/.test(integrationsList) && /name: "GEMINI_API_KEY"/.test(integrationsList) && /name: "RESEND_API_KEY"/.test(integrationsList) && /name: "TWILIO_AUTH_TOKEN"/.test(integrationsList), "each keyed service asks for the key name the builder detects it by");
+  has(/\/api\/projects\/\$\{projectId\}\/secrets`, \{\s*method: "POST"/.test(integrationsSrc) && /type="password"/.test(integrationsSrc) && /setValues\(\{\}\)/.test(integrationsSrc) && !/NEXT_PUBLIC_/.test(integrationsList), "keys go to the app's server environment through the Server keys route — masked, cleared once used, never NEXT_PUBLIC_");
+}
 {
   const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
   has(/setpts=PTS\*\$\{input\.stretch\.toFixed\(4\)\}/.test(c) && /Math\.min\(1\.4, Math\.max\(1, seconds \/ clip\)\)/.test(c), "a clip shorter than its line is slowed to fit (up to 1.4×) before its last frame is held");
