@@ -183,12 +183,13 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
 .tag{flex:none;color:#71717a;font-size:12px}
 .scene p{margin:0;font-size:13px;color:#d4d4d8;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scene a{color:#f97316;font-size:12px;text-decoration:none}
 .empty{max-width:420px;margin:70px auto;text-align:center;color:#a1a1aa}
+.exports{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:12px 0 0}.exports:empty{display:none}.exports a{display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:999px;border:1px solid #3f3f46;color:#e4e4e7;font-size:13px;text-decoration:none}
 </style></head><body><div class="wrap">
 <p class="eyebrow">Video</p><h1 id="title">${escape(input.title || "Your video")}</h1><p id="status">Loading…</p><div class="prog" id="progwrap" hidden><i id="progall"></i></div><p id="note" hidden></p>
 <div id="player" hidden><div class="stage" id="stage"><video id="clip" playsinline muted></video><div class="card" id="card"><div class="spin"></div><b></b><span></span></div><div class="ost" id="ost"></div><div class="cap" id="cap" hidden></div></div>
 <div class="bar" id="bar"><button class="play" id="play" aria-label="Play">▶</button><div class="track"><i id="prog"></i></div><span class="time" id="time">0s</span></div>
 <audio id="voice"></audio></div>
-<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p></div>
+<div id="final" hidden><video id="finalv" controls playsinline style="width:100%;max-height:70vh;border-radius:16px;background:#000"></video><p style="margin:12px 0 0;text-align:center"><a id="finaldl" class="dl" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;height:42px;padding:0 20px;border-radius:999px;background:#f97316;color:#111;font-weight:600;text-decoration:none">Download MP4</a></p><div id="exports" class="exports"></div></div>
 <h2 id="sh" hidden>Scenes</h2><div class="scenes" id="scenes"></div>
 <p class="empty" id="empty" hidden>Describe your video in the chat to plan it.</p>
 </div>
@@ -204,21 +205,26 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
      the second shares it. A link opened in a new tab inherited this frame's
      sandbox there and saved nothing. A computer keeps the link. */
   var phone=/iphone|ipad|ipod|android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/macintosh/i.test(navigator.userAgent));
-  var saved={src:'',file:null,loading:null};
-  if(phone)$('finaldl').addEventListener('click',function(e){
-    var src=state&&state.final;if(!src)return;
+  /* One saver for every download link: the cut and each ready-to-post
+     version. data-src is the file itself (a signed link); the href is the
+     app's own download for a computer. */
+  var saved={};
+  function base(){return(($('title').textContent||'video').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'video')}
+  function share(f){
+    var ok=false;try{ok=typeof navigator.share==='function'&&navigator.canShare&&navigator.canShare({files:[f]})}catch(x){}
+    if(ok){navigator.share({files:[f],title:f.name}).catch(function(){});return}
+    var u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000);
+  }
+  if(phone)document.addEventListener('click',function(e){
+    var dl=e.target&&e.target.closest&&e.target.closest('a.dl');if(!dl)return;
+    var src=dl.getAttribute('data-src')||(state&&state.final);if(!src)return;
     e.preventDefault();
-    var dl=$('finaldl'),name=(($('title').textContent||'video').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'video')+'.mp4';
-    if(saved.src!==src)saved={src:src,file:null,loading:null};
-    function share(f){
-      var ok=false;try{ok=typeof navigator.share==='function'&&navigator.canShare&&navigator.canShare({files:[f]})}catch(x){}
-      if(ok){navigator.share({files:[f],title:f.name}).catch(function(){});return}
-      var u=URL.createObjectURL(f),a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},60000);
-    }
-    if(saved.file){share(saved.file);return}
-    if(saved.loading)return;
-    dl.textContent='Preparing…';
-    saved.loading=fetch(src).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob()}).then(function(b){saved.file=new File([b],name,{type:b.type||'video/mp4'});dl.textContent='Save to Photos'}).catch(function(){saved.loading=null;dl.textContent='Download MP4';window.open(dl.href,'_blank')});
+    var label=dl.getAttribute('data-label')||dl.textContent,name=base()+(dl.getAttribute('data-kind')?'-'+dl.getAttribute('data-kind'):'')+'.mp4';
+    var s=saved[src]||(saved[src]={file:null,loading:null});
+    if(s.file){share(s.file);return}
+    if(s.loading)return;
+    dl.setAttribute('data-label',label);dl.textContent='Preparing\u2026';
+    s.loading=fetch(src).then(function(r){if(!r.ok)throw new Error(r.status);return r.blob()}).then(function(b){s.file=new File([b],name,{type:b.type||'video/mp4'});dl.textContent='Save to Photos'}).catch(function(){s.loading=null;dl.textContent=label;window.open(dl.href,'_blank')});
   });
   var RATIO={'9:16':'9 / 16','1:1':'1 / 1','16:9':'16 / 9','4:5':'4 / 5'};
   function media(n,engine){var r=(state.renders||[]).find(function(x){return x.scene===n&&x.engine===engine&&x.status==='done'&&x.url});return r?r.url:null}
@@ -269,7 +275,9 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     $('note').textContent=note;$('note').hidden=!note;
     $('progwrap').hidden=!filming;$('progall').style.width=Math.max(6,n?done/n*100:0)+'%';
     $('bar').style.display=done||state.final?'':'none';
-    if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=FILE?FILE+'?v='+latest.version+'&download=1':state.final}}
+    if(state.final){$('final').hidden=false;$('player').hidden=true;if($('finalv').getAttribute('src')!==state.final){$('finalv').src=state.final;$('finaldl').href=FILE?FILE+'?v='+latest.version+'&download=1':state.final}
+      var ex=(state.exports||[]).map(function(x){return'<a class="dl" target="_blank" rel="noopener" data-kind="'+x.kind+'" data-src="'+String(x.url).replace(/"/g,'&quot;')+'" href="'+(FILE?FILE+'?v='+latest.version+'&download=1&format='+x.kind:x.url).replace(/"/g,'&quot;')+'">'+String(x.label).replace(/[<>&]/g,'')+'</a>'}).join('');
+      if($('exports').getAttribute('data-k')!==ex){$('exports').innerHTML=ex;$('exports').setAttribute('data-k',ex)}}
     else{$('final').hidden=true;$('player').hidden=false;var ratio=RATIO[plan.aspect]||'9 / 16',p=ratio.split(' / ');$('stage').style.aspectRatio=ratio;
       /* As large as fits: the full width, or the height of the screen less the controls — whichever is smaller. */
       $('stage').style.width='min(100%, calc((100vh - 170px) * '+p[0]+' / '+p[1]+'))';$('bar').style.width=$('stage').style.width}

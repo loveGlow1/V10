@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -38,6 +38,7 @@ const F = await import(join(dir, "fal.js"));
 const C = await import(join(dir, "clip-engines.js"));
 const K = await import(join(dir, "credit.js"));
 const ED = await import(join(dir, "editor.js"));
+const X = await import(join(dir, "exports.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -150,6 +151,15 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(/if \(!first\) \{\s*const edited = await editVideo/.test(ws) && /if \(edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
   has(/status: "done", output_path: picture\.output_path/.test(apply) && /onlyMissing: true/.test(apply) && /keyframePath\(video\.user_id as string, videoId, nextVersion\)/.test(apply), "carried clips and lines are filed under the new version as they are, the keyframe too; only the missing pieces render");
   has(/await advance\(service, videoId, nextVersion, origin\)/.test(apply), "with nothing to make, the new cut is made at once");
+}
+{
+  has(X.exportsFor("9:16").join() === "feed,whatsapp" && X.exportsFor("16:9").join() === "vertical,feed,whatsapp" && X.exportPath("u/v/v2/final.mp4", "feed") === "u/v/v2/final-feed.mp4", "every cut gets the ready-to-post shapes it is not already, stored beside it");
+  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  has(/Math\.floor\(\(15 \* 8 \* 1024\) \/ Math\.max\(1, input\.seconds\)\) - 140/.test(c) && /boxblur=24:2/.test(c), "the WhatsApp file is sized under 16 MB; feed and vertical keep the whole picture over a blurred fill");
+  const st = readFileSync(join(process.cwd(), "src/lib/video/state.ts"), "utf8");
+  const fr = readFileSync(join(process.cwd(), "src/app/api/video/[id]/file/route.ts"), "utf8");
+  const bd = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+  has(/exports,\n  \}\);/.test(st) && /isExportKind\(format\)/.test(fr) && /state\.exports\|\|\[\]/.test(bd) && /closest\('a\.dl'\)/.test(bd), "the preview offers each version with its own Download, saved to Photos on a phone");
 }
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));

@@ -30,6 +30,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import ffmpegPath from "ffmpeg-static";
 
 import type { Cut, ProductionPlan, Scene } from "./plan";
+import { exportPath, exportsFor, type ExportKind } from "./exports";
 import { announceFinal } from "./announce";
 import { signedUrl } from "./production";
 
@@ -152,6 +153,20 @@ export function sceneArgs(input: { clipPath: string; voicePath: string | null; o
     input.out,
   );
   return args;
+}
+
+/** The ffmpeg arguments for one ready-to-post version. Pure. */
+export function exportArgs(kind: ExportKind, input: { source: string; out: string; seconds: number; width: number; height: number }): string[] {
+  const common = ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-movflags", "+faststart", input.out];
+  if (kind === "whatsapp") {
+    /* 15 MB over the whole length, less the sound — never above 2.4 Mb/s. */
+    const kbps = Math.max(500, Math.min(2400, Math.floor((15 * 8 * 1024) / Math.max(1, input.seconds)) - 140));
+    const scale = input.width >= input.height ? "scale=720:-2" : "scale=-2:1280";
+    return ["-hide_banner", "-y", "-i", input.source, "-vf", `${scale},setsar=1`, "-c:v", "libx264", "-preset", "veryfast", "-b:v", `${kbps}k`, "-maxrate", `${kbps}k`, "-bufsize", `${kbps * 2}k`, "-profile:v", "main", "-pix_fmt", "yuv420p", ...common];
+  }
+  const [w, h] = kind === "vertical" ? [720, 1280] : [864, 1080];
+  const filter = `[0:v]split[a][b];[a]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.08[bg];[b]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[v]`;
+  return ["-hide_banner", "-y", "-i", input.source, "-filter_complex", filter, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", ...common];
 }
 
 /* Breaks a line for the frame: drawtext does not wrap. Pure. */
@@ -300,6 +315,19 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const path = `${video.user_id}/${videoId}/v${version}/final.mp4`;
     const { error } = await service.storage.from("video-assets").upload(path, await readFile(final), { contentType: "video/mp4", upsert: true });
     if (error) throw new Error(`The MP4 could not be stored: ${error.message}`);
+
+    /* The ready-to-post versions, beside the cut. One that fails is left
+       out; the cut itself is already made. */
+    const total = (await probe(final)).seconds;
+    for (const kind of exportsFor(plan.aspect)) {
+      try {
+        const out = join(dir, `final-${kind}.mp4`);
+        await exec(ffmpegPath as string, exportArgs(kind, { source: final, out, seconds: total, width, height }), { maxBuffer: 1 << 24, timeout: 120_000 });
+        await service.storage.from("video-assets").upload(exportPath(path, kind), await readFile(out), { contentType: "video/mp4", upsert: true });
+      } catch {
+        /* Left out. */
+      }
+    }
 
     await finish({ status: "done", output_path: `storage:${path}`, error: null });
     await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
