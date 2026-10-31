@@ -29,7 +29,7 @@ import { promisify } from "node:util";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import ffmpegPath from "ffmpeg-static";
 
-import type { ProductionPlan, Scene } from "./plan";
+import type { Cut, ProductionPlan, Scene } from "./plan";
 import { announceFinal } from "./announce";
 import { signedUrl } from "./production";
 
@@ -56,32 +56,102 @@ export function isTitleCard(scene: Pick<Scene, "visual" | "shot" | "motionPrompt
   );
 }
 
+/* How the cut is put together, from the plan's own settings (plan.cut) and
+   what the video is. Pure. */
+export function cutFor(plan: Pick<ProductionPlan, "scenes" | "cut">): Required<Pick<Cut, "audio" | "captions">> & Pick<Cut, "endCard"> & { muted: Set<number> } {
+  const narrated = plan.scenes.some((scene) => scene.voiceover.trim());
+  return {
+    audio: plan.cut?.audio ?? (narrated ? "voiceover" : "original"),
+    captions: plan.cut?.captions ?? true,
+    endCard: plan.cut?.endCard,
+    muted: new Set(plan.cut?.muted ?? []),
+  };
+}
+
+/* How long a scene runs and how its clip fills it. A scene lasts as long as
+   it must — its planned length, its voice line's when that is longer, the
+   clip's own when its own sound is what is heard — and a clip shorter than
+   that is slowed to fit (up to 1.4×, which reads as natural motion) before
+   its last frame is held. Pure. */
+export function sceneTiming(input: { planned: number; clip: number; voice: number; ownSound: boolean }): { seconds: number; stretch: number } {
+  const clip = input.clip > 0 ? input.clip : input.planned;
+  let seconds = Math.max(1, input.planned || 3);
+  if (input.voice) seconds = Math.max(seconds, input.voice + 0.45);
+  if (input.ownSound) seconds = Math.max(seconds, clip);
+  seconds = Math.round(seconds * 1000) / 1000;
+  const stretch = Math.min(1.4, Math.max(1, seconds / clip));
+  return { seconds, stretch };
+}
+
 /** The video filter for one scene. Pure. */
-export function sceneFilter(input: { width: number; height: number; seconds: number; text: string | null; title: boolean; fontPath: string; textPath: string }): string {
+export function sceneFilter(input: {
+  width: number;
+  height: number;
+  seconds: number;
+  stretch?: number;
+  /** A title card's words, set large on a darkened screen. */
+  title?: string | null;
+  /** Words at the top of the frame: the scene's on-screen text, or the end card. */
+  headline?: string | null;
+  /** The spoken line, as a caption band. */
+  caption?: string | null;
+  fontPath: string;
+  dir: string;
+  n: number;
+}): string {
   const { width, height, seconds } = input;
+  const small = Math.min(width, height);
   const parts = [
     `scale=${width}:${height}:force_original_aspect_ratio=increase`,
     `crop=${width}:${height}`,
     "setsar=1",
+    ...(input.stretch && input.stretch > 1.001 ? [`setpts=PTS*${input.stretch.toFixed(4)}`] : []),
     "fps=30",
     `tpad=stop_mode=clone:stop_duration=${seconds}`,
   ];
-  if (input.text) {
-    const small = Math.min(width, height);
-    if (input.title) {
-      parts.push("drawbox=x=0:y=0:w=iw:h=ih:color=black@0.97:t=fill");
-      parts.push(
-        `drawtext=fontfile=${input.fontPath}:textfile=${input.textPath}:fontcolor=white:fontsize=${Math.round(small * 0.085)}:x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=12`,
-      );
-    } else {
-      parts.push(
-        `drawtext=fontfile=${input.fontPath}:textfile=${input.textPath}:fontcolor=white:fontsize=${Math.round(small * 0.05)}:x=(w-text_w)/2:y=h*0.80-text_h/2:box=1:boxcolor=black@0.5:boxborderw=${Math.round(small * 0.022)}:line_spacing=8`,
-      );
-    }
+  const file = (kind: string) => `${input.dir}/${kind}-${input.n}.txt`;
+  if (input.title) {
+    parts.push("drawbox=x=0:y=0:w=iw:h=ih:color=black@0.97:t=fill");
+    parts.push(`drawtext=fontfile=${input.fontPath}:textfile=${file("title")}:fontcolor=white:fontsize=${Math.round(small * 0.085)}:x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=12`);
   }
-  const fade = Math.min(0.25, seconds / 6);
+  if (input.headline) {
+    parts.push(
+      `drawtext=fontfile=${input.fontPath}:textfile=${file("headline")}:fontcolor=white:fontsize=${Math.round(small * 0.055)}:x=(w-text_w)/2:y=h*0.11:box=1:boxcolor=black@0.55:boxborderw=${Math.round(small * 0.02)}:line_spacing=8`,
+    );
+  }
+  if (input.caption) {
+    parts.push(
+      `drawtext=fontfile=${input.fontPath}:textfile=${file("caption")}:fontcolor=white:fontsize=${Math.round(small * 0.058)}:x=(w-text_w)/2:y=h*0.80-text_h/2:box=1:boxcolor=black@0.72:boxborderw=${Math.round(small * 0.024)}:line_spacing=10`,
+    );
+  }
+  const fade = Math.min(0.2, seconds / 6);
   parts.push(`fade=t=in:st=0:d=${fade}`, `fade=t=out:st=${(seconds - fade).toFixed(2)}:d=${fade}`);
   return parts.join(",");
+}
+
+/* The ffmpeg arguments for one scene: its picture through `filter`, its
+   sound the voice line over the clip's own sound (when that is heard) or
+   over silence. Pure. */
+export function sceneArgs(input: { clipPath: string; voicePath: string | null; ownSound: boolean; seconds: number; stretch: number; filter: string; out: string }): string[] {
+  const { seconds, stretch } = input;
+  const hasVoice = Boolean(input.voicePath);
+  const args = ["-hide_banner", "-y", "-i", input.clipPath, "-f", "lavfi", "-t", String(seconds), "-i", "anullsrc=r=44100:cl=stereo"];
+  if (input.voicePath) args.push("-i", input.voicePath);
+  const tempo = stretch > 1.001 ? `,atempo=${(1 / stretch).toFixed(4)}` : "";
+  const bed = input.ownSound ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo${tempo},volume=${hasVoice ? 0.22 : 0.9},apad[bed]` : `[1:a]anull[bed]`;
+  const fadeOut = `afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3`;
+  const audio = hasVoice
+    ? `${bed};[2:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5,adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]atrim=0:${seconds},${fadeOut}[a]`
+    : `${bed};[bed]atrim=0:${seconds},${fadeOut}[a]`;
+  args.push(
+    "-filter_complex", `[0:v]${input.filter}[v];${audio}`,
+    "-map", "[v]", "-map", "[a]",
+    "-t", String(seconds),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
+    input.out,
+  );
+  return args;
 }
 
 /* Breaks a line for the frame: drawtext does not wrap. Pure. */
@@ -145,7 +215,8 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const fontPath = await font();
     const [width, height] = FRAME[plan.aspect] ?? FRAME["16:9"];
     const segments: string[] = [];
-    const narrated = plan.scenes.some((scene) => scene.voiceover.trim());
+    const cut = cutFor(plan);
+    const last = plan.scenes[plan.scenes.length - 1]?.n;
 
     for (const scene of plan.scenes) {
       const talking = pick(scene.n, "avatar");
@@ -156,40 +227,57 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       if (!(await download(pictureUrl, clipPath))) continue;
       const clip = await probe(clipPath);
 
-      /* A lip-synced clip already carries its line. */
-      const voice = talking ? null : pick(scene.n, "voice");
+      /* The script's voice, unless the cut is the clips' own sound. A
+         lip-synced clip already carries its line. */
+      const voice = talking || cut.audio === "original" ? null : pick(scene.n, "voice");
       const voiceUrl = voice ? await signedUrl(service, voice.output_path) : null;
       const voicePath = join(dir, `voice-${scene.n}.mp3`);
       const hasVoice = Boolean(voiceUrl && (await download(voiceUrl, voicePath)));
       const voiceSeconds = hasVoice ? (await probe(voicePath)).seconds : 0;
 
-      /* The scene runs its planned length — longer when its line needs it. */
-      const seconds = Math.max(1, Number(scene.duration) || 3, voiceSeconds ? voiceSeconds + 0.4 : 0);
-      const text = scene.onScreenText?.trim() ? wrap(scene.onScreenText, width, isTitleCard(scene)) : null;
-      const textPath = join(dir, `text-${scene.n}.txt`);
-      if (text) await writeFile(textPath, text);
-
-      const args = ["-hide_banner", "-y", "-i", clipPath, "-f", "lavfi", "-t", String(seconds), "-i", "anullsrc=r=44100:cl=stereo"];
-      if (hasVoice) args.push("-i", voicePath);
       /* A clip's own sound is the video model's: room tone at best, at worst
-         lines it made up or mumbled words in no language. In a narrated video
-         it is left out of every scene, so the script is the only voice; a
-         video with no narration keeps it as its sound bed. A lip-synced clip
-         is the exception: its sound is the voice line itself. */
-      const bed = clip.audio && (talking || !narrated) ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.9,apad[bed]` : `[1:a]anull[bed]`;
-      const audio = hasVoice
-        ? `${bed};[2:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5,adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]atrim=0:${seconds},afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3[a]`
-        : `${bed};[bed]atrim=0:${seconds},afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3[a]`;
-      const video = `[0:v]${sceneFilter({ width, height, seconds, text: text && fontPath ? text : null, title: isTitleCard(scene), fontPath: fontPath ?? "", textPath })}[v]`;
+         lines it made up or mumbled words in no language. It is heard only
+         when the cut asks for it (original, or mixed under the voice) and
+         the scene is not muted; a lip-synced clip's sound is the voice line
+         itself and always stays. */
+      const ownSound = clip.audio && !cut.muted.has(scene.n) && (Boolean(talking) || cut.audio !== "voiceover");
+      const { seconds, stretch } = sceneTiming({ planned: Number(scene.duration) || 3, clip: clip.seconds, voice: voiceSeconds, ownSound: Boolean(ownSound) && !hasVoice });
+
+      /* Words on the frame, set here in clean type — a video model garbles
+         lettering. A title card is large on a dark screen; otherwise the
+         spoken line is the caption and the scene's own words, or the end
+         card, sit at the top. */
+      const titleCard = isTitleCard(scene) && Boolean(scene.onScreenText?.trim());
+      const spoken = cut.captions && hasVoice ? scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim() : "";
+      const headlineText = scene.n === last && cut.endCard ? cut.endCard : !titleCard && scene.onScreenText?.trim() && scene.onScreenText.trim() !== spoken ? scene.onScreenText.trim() : "";
+      const texts: Record<string, string> = {};
+      if (titleCard) texts.title = wrap(scene.onScreenText, width, true);
+      if (headlineText) texts.headline = wrap(headlineText, width, false);
+      if (spoken) texts.caption = wrap(spoken, width, false);
+      for (const [kind, value] of Object.entries(texts)) await writeFile(join(dir, `${kind}-${scene.n}.txt`), value);
+      const ready = Boolean(fontPath);
+
       const out = join(dir, `scene-${scene.n}.mp4`);
-      args.push(
-        "-filter_complex", `${video};${audio}`,
-        "-map", "[v]", "-map", "[a]",
-        "-t", String(seconds),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
+      const args = sceneArgs({
+        clipPath,
+        voicePath: hasVoice ? voicePath : null,
+        ownSound: Boolean(ownSound),
+        seconds,
+        stretch,
         out,
-      );
+        filter: sceneFilter({
+          width,
+          height,
+          seconds,
+          stretch,
+          title: ready ? texts.title : null,
+          headline: ready ? texts.headline : null,
+          caption: ready ? texts.caption : null,
+          fontPath: fontPath ?? "",
+          dir,
+          n: scene.n,
+        }),
+      });
       await exec(ffmpegPath as string, args, { maxBuffer: 1 << 24, timeout: 120_000 });
       segments.push(out);
     }
@@ -198,7 +286,16 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const list = join(dir, "list.txt");
     await writeFile(list, segments.map((path) => `file '${path}'`).join("\n"));
     const final = join(dir, "final.mp4");
-    await exec(ffmpegPath as string, ["-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", final], { maxBuffer: 1 << 24, timeout: 120_000 });
+    const joined = join(dir, "joined.mp4");
+    await exec(ffmpegPath as string, ["-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined], { maxBuffer: 1 << 24, timeout: 120_000 });
+    /* One loudness for the whole video, at the level social apps play at
+       (-14 LUFS), so it is neither quieter nor louder than what is around it.
+       The picture is copied, not encoded again. */
+    await exec(
+      ffmpegPath as string,
+      ["-hide_banner", "-y", "-i", joined, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
+      { maxBuffer: 1 << 24, timeout: 120_000 },
+    );
 
     const path = `${video.user_id}/${videoId}/v${version}/final.mp4`;
     const { error } = await service.storage.from("video-assets").upload(path, await readFile(final), { contentType: "video/mp4", upsert: true });

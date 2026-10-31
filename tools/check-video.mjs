@@ -106,7 +106,7 @@ has(clips.every((j) => j.prompt.includes(R.NO_LETTERING)), "every clip is asked 
 has(clips.every((j) => j.prompt.includes(R.NO_SPEECH)), "no clip is asked to speak — every spoken word comes from the voice model");
 has(R.clipPrompt("x".repeat(3000)).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
 const composeSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
-has(/clip\.audio && \(talking \|\| !narrated\) \?/.test(composeSrc) && /const narrated = plan\.scenes\.some/.test(composeSrc), "in a narrated video no scene keeps the clip's own sound — the script is the only voice (a lip-synced clip's sound is that voice, and stays)");
+has(/audio: plan\.cut\?\.audio \?\? \(narrated \? "voiceover" : "original"\)/.test(composeSrc) && /Boolean\(talking\) \|\| cut\.audio !== "voiceover"/.test(composeSrc), "a narrated video's cut is the script's voice only by default — a lip-synced clip's sound is that voice, and stays");
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
 has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
 has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
@@ -121,6 +121,17 @@ const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/comp
 const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
 has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");
 has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage"'))) && /"Soon"|>Soon</.test(integrationsSrc), "the storage request names uploads (what turns storage on); services that need a key say Soon");
+{
+  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  has(/setpts=PTS\*\$\{input\.stretch\.toFixed\(4\)\}/.test(c) && /Math\.min\(1\.4, Math\.max\(1, seconds \/ clip\)\)/.test(c), "a clip shorter than its line is slowed to fit (up to 1.4×) before its last frame is held");
+  has(/loudnorm=I=-14:TP=-1\.5:LRA=11/.test(c) && /"-c:v", "copy", "-af", "loudnorm/.test(c), "the whole cut is set to -14 LUFS, the picture copied, not encoded again");
+  has(/cut\.captions && hasVoice \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
+  has(/talking \|\| cut\.audio === "original" \? null : pick\(scene\.n, "voice"\)/.test(c) && /cut\.audio !== "voiceover"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
+  const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.ai", muted: [1, "2", -3, 1], junk: 1 });
+  has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
+  const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
+  has(kept.plan.cut?.audio === "mix" && kept.plan.cut?.endCard === "Try QuickStark.ai", "a plan keeps its cut settings through QA, the brand in full on the end card");
+}
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));
 has(noLock.issues.some((i) => !i.repaired && /product lock/i.test(i.issue)), "a product video without a product lock is flagged, not hidden");

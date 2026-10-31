@@ -26,6 +26,20 @@ export type Scene = {
   engine: Engine;
 };
 
+/* How the final cut is put together — what a person changes by asking
+   ("use the original voices", "no captions", "end on QuickStark.ai") without
+   anything being generated again. Absent means the defaults. */
+export type Cut = {
+  /** voiceover: only the script's voice. original: only the clips' own sound. mix: both. */
+  audio?: "voiceover" | "original" | "mix";
+  /** Captions of each spoken line, burned in. Default on. */
+  captions?: boolean;
+  /** Words on the last scene, e.g. "QuickStark.ai". */
+  endCard?: string;
+  /** Scenes whose own sound is silenced. */
+  muted?: number[];
+};
+
 export type ProductionPlan = {
   pipeline: PipelineId;
   title: string;
@@ -44,6 +58,7 @@ export type ProductionPlan = {
   locks: Record<string, string>;
   scenes: Scene[];
   cta: string;
+  cut?: Cut;
 };
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
@@ -178,7 +193,24 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
     locks,
     scenes,
     cta: text(r.cta, 300),
+    ...(normalizeCut(r.cut) ? { cut: normalizeCut(r.cut) } : {}),
   };
+}
+
+/** A cut as written by a person or the editor, with anything unknown dropped. Pure. */
+export function normalizeCut(raw: unknown): Cut | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const cut: Cut = {};
+  if (r.audio === "voiceover" || r.audio === "original" || r.audio === "mix") cut.audio = r.audio;
+  if (typeof r.captions === "boolean") cut.captions = r.captions;
+  const end = text(r.endCard, 80);
+  if (end) cut.endCard = end;
+  if (Array.isArray(r.muted)) {
+    const muted = r.muted.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 24);
+    if (muted.length) cut.muted = [...new Set(muted)];
+  }
+  return Object.keys(cut).length ? cut : undefined;
 }
 
 export const totalSeconds = (plan: ProductionPlan) => plan.scenes.reduce((sum, scene) => sum + scene.duration, 0);
@@ -257,6 +289,7 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
     }
   }
   if (plan.cta) plan.cta = withBrand(plan.cta);
+  if (plan.cut?.endCard) plan.cut = { ...plan.cut, endCard: withBrand(plan.cut.endCard) };
   if (plan.title) plan.title = withBrand(plan.title);
   if (branded) issues.push({ scene: null, issue: `The name is said and shown as ${BRAND} throughout.`, repaired: true });
 
