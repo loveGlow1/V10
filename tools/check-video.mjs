@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -37,6 +37,7 @@ const R = await import(join(dir, "render.js"));
 const F = await import(join(dir, "fal.js"));
 const C = await import(join(dir, "clip-engines.js"));
 const K = await import(join(dir, "credit.js"));
+const ED = await import(join(dir, "editor.js"));
 
 let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
@@ -131,6 +132,24 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
   const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
   has(kept.plan.cut?.audio === "mix" && kept.plan.cut?.endCard === "Try QuickStark.ai", "a plan keeps its cut settings through QA, the brand in full on the end card");
+}
+{
+  /* The editor: only what was asked changes; the rest is reused. */
+  const made = L.normalizePlan({ title: "Four Fliers", aspect: "9:16", locks: { creator: "brunette woman, cream sweater" }, scenes: [1, 2, 3, 4].map((n) => ({ duration: 5, visual: "v", voiceover: `Line ${n}.`, onScreenText: n === 4 ? "Try it" : "", motionPrompt: `prompt ${n}` })) }, "ugc_influencer", {});
+  const audioOnly = ED.applyEdit(made, ED.normalizeEdit({ reply: "Original voices.", cut: { audio: "original", endCard: "QuickStark" } }, made));
+  has(audioOnly.refilm.length === 0 && audioOnly.revoice.length === 0 && audioOnly.carry.every((c) => c.clip && c.voice) && audioOnly.plan.cut.audio === "original" && audioOnly.plan.cut.endCard === "QuickStark.ai", "\"use the original voices\" re-films and re-voices nothing — a new cut only");
+  has(R.jobsFor(audioOnly.plan, {}).every((j) => j.kind === "clip"), "a cut of the clips' own sound orders no voice lines");
+  const refilm = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 3, action: "refilm", motionPrompt: "closer shot, brunette woman, cream sweater" }, { n: 2, action: "revoice", voiceover: "A brand new line." }] }, made));
+  has(refilm.refilm.join() === "3" && refilm.revoice.join() === "2" && refilm.carry.filter((c) => c.clip).length === 3 && refilm.plan.scenes[2].motionPrompt.startsWith("closer"), "re-filming scene 3 and re-voicing scene 2 reuses every other clip and line");
+  const removed = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 2, action: "remove" }], order: [4, 1, 3] }, made));
+  has(removed.plan.scenes.map((s) => s.n).join() === "1,2,3" && removed.carry.map((c) => `${c.from}>${c.to}`).join() === "4>1,1>2,3>3" && removed.refilm.length === 0, "removing and reordering scenes renumbers them and carries each clip with its scene");
+  const junk = ED.normalizeEdit({ replan: "yes", scenes: [{ n: 9, action: "remove" }, { n: 1, action: "refilm" }, { n: 2, action: "explode" }], order: [1, 1] }, made);
+  has(junk.replan === false && junk.scenes.length === 0 && !junk.order && junk.reply === "Done.", "the editor's answer is read strictly — unknown scenes, actions and orders are dropped");
+  const apply = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
+  const ws = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
+  has(/if \(!first\) \{\s*const edited = await editVideo/.test(ws) && /if \(edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
+  has(/status: "done", output_path: picture\.output_path/.test(apply) && /onlyMissing: true/.test(apply) && /keyframePath\(video\.user_id as string, videoId, nextVersion\)/.test(apply), "carried clips and lines are filed under the new version as they are, the keyframe too; only the missing pieces render");
+  has(/await advance\(service, videoId, nextVersion, origin\)/.test(apply), "with nothing to make, the new cut is made at once");
 }
 has(L.unfilledPlaceholders("Recommend [PRODUCT] to [TARGET AUDIENCE] [Push in] [PRODUCT]").join() === "[PRODUCT],[TARGET AUDIENCE]", "unfilled template blanks are found; camera commands are not");
 const noLock = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 5, visual: "a product", motionPrompt: "x" }] }, "product_showcase", { length: "5s" }));

@@ -105,9 +105,10 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       /* Photo → Video animates the photo itself: it is the first frame. */
       ...(opts.firstFrameUrl ? { imageUrl: opts.firstFrameUrl } : {}),
     });
-    /* "NAME: line" is dialogue; the name is for the script, not the voice. */
+    /* "NAME: line" is dialogue; the name is for the script, not the voice.
+       A cut of the clips' own sound uses no voice lines, so none is made. */
     const text = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-    if (text) jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });
+    if (text && plan.cut?.audio !== "original") jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });
   }
   return jobs;
 }

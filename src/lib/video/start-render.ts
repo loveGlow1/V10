@@ -12,6 +12,8 @@
  *
  *   {}                    render the current version
  *   { retryFailed: true } send only the jobs of the current render that failed
+ *   { onlyMissing: true } send only the jobs this version has no piece for —
+ *                         an edit (apply-edit.ts) files what carries over first
  *
  * Nothing is sent unless every required engine is connected and the account
  * can cover the render. Credits are charged per job as each one arrives —
@@ -38,7 +40,7 @@ export async function startRender(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { retryFailed?: unknown },
+  body: { retryFailed?: unknown; onlyMissing?: unknown },
   origin: string,
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("id, current_version, answers, status").eq("id", id).maybeSingle();
@@ -97,6 +99,19 @@ export async function startRender(
       await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
       return NextResponse.json({ queued: falFailed.length, failed: 0, readiness: ready });
     }
+  } else if (body.onlyMissing === true) {
+    /* An edit: what carried over is already here; make the rest. */
+    const have = new Set((existing ?? []).filter((r) => r.status !== "failed").map((r) => `${r.engine}:${r.scene}`));
+    jobs = jobs.filter((job) => !have.has(`${engineOf(job.kind)}:${job.n}`) && !(job.kind === "clip" && have.has(`avatar:${job.n}`)));
+    for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose")) {
+      await supabase.from("video_renders").delete().eq("id", row.id);
+    }
+    if (jobs.length === 0) {
+      const service = createSupabaseServiceClient();
+      if (service) await advance(service, id, version, origin);
+      await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
+      return NextResponse.json({ queued: 0, failed: 0, cost: 0, readiness: ready });
+    }
   } else if ((existing ?? []).some((r) => r.status === "queued" || r.status === "running")) {
     return NextResponse.json({ error: "This version is already rendering." }, { status: 409 });
   } else {
@@ -110,7 +125,7 @@ export async function startRender(
      API until it is worth trying again (lib/video/credit.ts). */
   const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
   const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
-  const cost = body.retryFailed === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
+  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -235,7 +250,7 @@ export async function startRender(
   }
 
   const accepted = sent.filter((entry) => entry.ok).length;
-  if (accepted && body.retryFailed !== true) {
+  if (accepted && body.retryFailed !== true && body.onlyMissing !== true) {
     const service = createSupabaseServiceClient();
     if (service) await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
   }

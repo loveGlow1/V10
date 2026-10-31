@@ -29,6 +29,7 @@ import { currentBalance } from "@/lib/credits-server";
 import { recordMessage } from "@/lib/thread-server";
 
 import { falToken, verifyFalToken } from "./fal";
+import { editVideo } from "./apply-edit";
 import { planVideo } from "./plan-video";
 import { startRender } from "./start-render";
 
@@ -102,6 +103,16 @@ export async function startVideoTurn(input: {
       const { data: current } = await writer.from("video_versions").select("version, plan").eq("video_id", video.id).eq("version", video.current_version).maybeSingle();
       plan = current ? { version: current.version as number, plan: current.plan as { scenes?: unknown[] } } : null;
     } else {
+      /* A video already made is edited, not planned again: only what the
+         message asks for changes, and every clip and line that was right is
+         reused (apply-edit.ts). Null means it is not an edit — plan it. */
+      if (!first) {
+        const edited = await editVideo({ writer, userId, videoId: video.id, instruction: prompt, origin });
+        if (edited) {
+          await finish(edited.ok, edited.message);
+          return;
+        }
+      }
       /* Before the first plan, a message other than the brief itself is the
          person filling in its blanks. */
       const fill = first && prompt.trim() && prompt.trim() !== (video.brief ?? "").trim() ? prompt : undefined;
@@ -136,7 +147,7 @@ export async function startVideoTurn(input: {
       ? "Planning your video, then sending every scene to render…"
       : renderOnly
         ? "Sending this version to render…"
-        : "Revising the video with that change, then rendering it again…",
+        : "Working on that change…",
   };
 }
 
