@@ -24,6 +24,7 @@
  *
  * Server-only apart from the pure routing at the top. */
 
+import { googleKey } from "@/lib/keys";
 import { createHash } from "node:crypto";
 
 import type { ChoiceOptions, ImageProvider, ImageSlot, Shot } from "@/lib/builder/images";
@@ -60,7 +61,7 @@ export function artChain(style: ArtStyle, env: Env = process.env): ArtMaker[] {
   const has: Record<ArtMaker, boolean> = {
     ideogram: Boolean(env.IDEOGRAM_API_KEY),
     openai: Boolean(env.OPENAI_API_KEY),
-    gemini: Boolean(env.GEMINI_API_KEY),
+    gemini: Boolean(googleKey(env)),
   };
   return order.filter((maker) => has[maker]);
 }

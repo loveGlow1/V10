@@ -1,10 +1,11 @@
+import { googleKey } from "@/lib/keys";
 import { GoogleGenAI } from '@google/genai';
 import type { FlyerFormat } from '../types';
 
 /* Created on first use rather than at import, like the OpenAI client: the
    build imports this module while collecting route data. */
 let client: GoogleGenAI | null = null;
-const ai = () => (client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! }));
+const ai = () => (client ??= new GoogleGenAI({ apiKey: googleKey()! }));
 
 /* GA ids at ai.google.dev: gemini-3.1-flash-image (Nano Banana 2),
    gemini-3-pro-image (Nano Banana Pro). */

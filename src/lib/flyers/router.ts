@@ -1,3 +1,4 @@
+import { googleKey } from '@/lib/keys';
 import type { FlyerRequest, Provider } from './types';
 
 const MIN_REFS_FOR_PRO = 2;
@@ -41,7 +42,7 @@ const KEY: Record<Provider, string> = {
 };
 const n8nUrl = (env: Record<string, string | undefined>) => Boolean(env.N8N_FLIER_WEBHOOK_URL || env.N8N_WEBHOOK_URL);
 export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) =>
-  Boolean(env[KEY[p]]) && (!p.startsWith('n8n-') || n8nUrl(env));
+  Boolean(KEY[p] === 'GEMINI_API_KEY' ? googleKey(env) : env[KEY[p]]) && (!p.startsWith('n8n-') || n8nUrl(env));
 
 /* The n8n usage credit first: its gateway pays for MiniMax and OpenAI, so a
    draft goes to MiniMax there (four in one call) and a final to OpenAI there

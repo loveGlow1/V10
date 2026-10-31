@@ -166,7 +166,13 @@ try {
   is(bare.find((p) => p.id === "project").health, "available", "project assets are always available");
   is(bare.find((p) => p.id === "curated").health, "misconfigured", "an unpopulated library says so rather than serving 404s");
   is(bare.find((p) => p.id === "unsplash").health, "misconfigured", "a missing key is misconfigured, not an error");
-  is(bare.find((p) => p.id === "ai").health, "disabled", "generation is off until somebody turns it on");
+  is(bare.find((p) => p.id === "ai").health, "misconfigured", "generation waits for its endpoint and key — and needs nothing else");
+  process.env.AI_IMAGE_ENDPOINT = "https://img.example.test/generate";
+  process.env.AI_IMAGE_API_KEY = "k";
+  is((await registry.providerStatus({ assets: [] })).find((p) => p.id === "ai").health, "available", "with its endpoint and key set, generation is on — no second switch");
+  process.env.AI_IMAGE_ENABLED = "false";
+  is((await registry.providerStatus({ assets: [] })).find((p) => p.id === "ai").health, "disabled", "AI_IMAGE_ENABLED=false still turns it off");
+  for (const key of ["AI_IMAGE_ENDPOINT", "AI_IMAGE_API_KEY", "AI_IMAGE_ENABLED"]) delete process.env[key];
 
   const bareChain = await registry.usableProviders({ assets: [] });
   is(bareChain.length, 1, "with nothing configured the chain is project assets alone");

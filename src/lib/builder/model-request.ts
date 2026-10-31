@@ -1,3 +1,4 @@
+import { googleKey } from "@/lib/keys";
 import type { Model, Provider } from "@/app/dashboard/models";
 import { withPolicy } from "@/lib/safety/policy";
 
@@ -337,6 +338,6 @@ export function textFromResponse(shape: GenerationRequest["shape"], body: unknow
 export function providerConfigured(provider: Provider): boolean {
   if (provider === "claude") return Boolean(process.env.ANTHROPIC_API_KEY);
   if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY);
-  if (provider === "google") return Boolean(process.env.GOOGLE_API_KEY);
+  if (provider === "google") return Boolean(googleKey());
   return false;
 }

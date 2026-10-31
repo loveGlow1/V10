@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { purchaseLabel } from "@/lib/crypto-payments";
 import { paymentFromRow, PAYMENT_COLUMNS, type CryptoPaymentRow } from "@/lib/crypto-payments-server";
+import { defaultSender } from "@/lib/keys";
 import { SITE_URL } from "@/lib/site";
 
 /* The receipt for a deposit or a plan paid in crypto.
@@ -19,7 +20,7 @@ import { SITE_URL } from "@/lib/site";
  * is settled whether or not its receipt could be sent. */
 
 export function isCryptoReceiptConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY?.trim() && (process.env.RECEIPT_FROM?.trim() || process.env.ALERT_FROM?.trim()));
+  return Boolean(process.env.RESEND_API_KEY?.trim() && (process.env.RECEIPT_FROM?.trim() || process.env.ALERT_FROM?.trim() || defaultSender("receipts")));
 }
 
 function usd(amount: number): string {
@@ -47,7 +48,7 @@ function receiptLines(row: CryptoPaymentRow): [string, string][] {
 
 async function deliver(to: string, row: CryptoPaymentRow): Promise<boolean> {
   const key = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.RECEIPT_FROM?.trim() || process.env.ALERT_FROM?.trim();
+  const from = process.env.RECEIPT_FROM?.trim() || process.env.ALERT_FROM?.trim() || defaultSender("receipts");
   if (!key || !from) {
     // eslint-disable-next-line no-console
     console.warn("crypto receipt: not sent — set RESEND_API_KEY and RECEIPT_FROM (a sender on a domain verified with Resend)");

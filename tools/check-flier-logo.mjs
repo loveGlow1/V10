@@ -89,5 +89,26 @@ has(/attachmentIds: Array\.isArray\(body\.attachmentIds\)/.test(read("src/app/ap
   has(/spec\.headline\.trim\(\)/.test(typesetSrc) && /spec\.subhead/.test(typesetSrc) && /spec\.details/.test(typesetSrc) && /spec\.cta/.test(typesetSrc) && /brand\.name\.trim\(\)/.test(typesetSrc), "headline, subhead, details, button and brand are all set from the brief, word for word");
   has(/!input\.logo && brand\.name\.trim\(\)/.test(typesetSrc), "the brand name is set only when there is no logo stamped");
 }
+/* One brand: the same name and logo on every flier. */
+{
+  const houseJs = ts.transpileModule(read("src/lib/flyers/house.ts"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  writeFileSync(join(dir, "house.mjs"), houseJs);
+  const H = await import(join(dir, "house.mjs"));
+  has(H.sameBrand("QuickStark.Ai", "quickstark") && H.sameBrand("Luxe Studio", "LUXE studio ltd") && !H.sameBrand("Luxe Studio", "Glow Salon") && !H.sameBrand("", ""), "the same brand is recognised however it is cased, spaced or suffixed — and a different one is not");
+  has(H.canonicalName("Quickstark") === "QuickStark.ai" && H.canonicalName("quick stark ai") === "QuickStark.ai" && H.canonicalName(" Luxe Studio ") === "Luxe Studio", "QuickStark's own name is always QuickStark.ai");
+  has(H.keepName("Luxe Studio", "LUXE STUDIO", "make the headline bigger") === "Luxe Studio" && H.keepName("Luxe Studio", "Luxe Hair", "make the headline bigger") === "Luxe Studio" && H.keepName("Luxe Studio", "Glow Salon", "rename it to Glow Salon") === "Glow Salon", "a revision keeps the name exactly — unless the person typed a new one");
+  const base = { brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "Sale", format: "portrait", textMode: "overlay" } };
+  const house = { name: "Luxe Studio", logoPath: "u1/brand/logo.png" };
+  const unnamed = H.withHouse(base, house);
+  const same = H.withHouse({ ...base, brand: { ...base.brand, name: "luxe studio" } }, house);
+  const other = H.withHouse({ ...base, brand: { ...base.brand, name: "Glow Salon" } }, house, "a flier for Glow Salon's opening");
+  const picked = H.withHouse({ ...base, brand: { ...base.brand, name: "Grand Opening" } }, house, "a flier for my salon's grand-opening weekend");
+  has(unnamed.brand.name === "Luxe Studio" && unnamed.brand.logoPath === "u1/brand/logo.png" && same.brand.name === "Luxe Studio" && same.brand.logoPath === "u1/brand/logo.png", "a new flier for the same brand — or naming none — carries its exact name and logo");
+  has(other.brand.name === "Glow Salon" && !other.brand.logoPath, "a flier for a different brand the person typed (a client's) is that brand, without your logo");
+  has(picked.brand.name === "Luxe Studio" && picked.brand.logoPath === "u1/brand/logo.png", "a name the model picked out of a sentence never changes the brand — only one the person typed");
+  const ws = read("src/lib/flyers/workspace.ts");
+  has(/keepName\(latest\.request\.brand\.name/.test(ws) && /withHouse\(request, await houseBrand\(supabase, userId, named\), prompt\)/.test(ws), "the flier turn applies both: revisions keep the name, new fliers take the house brand");
+  has(/\.eq\("user_id", userId\)/.test(read("src/lib/flyers/house.ts")) && /isOwnPreviewPath\(req\.brand\.logoPath, userId\)/.test(run), "a house logo only ever comes from the person's own fliers and folder");
+}
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);
