@@ -1815,6 +1815,7 @@ export default function PreviewPanel({
             projectId={project?.id ?? null}
             githubReturned={githubReturned}
             onUpgrade={onUpgradeClick}
+            onAdded={onBackToChat}
           />
         )}
 

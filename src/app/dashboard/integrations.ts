@@ -23,6 +23,11 @@ export type Integration = {
      would actually serve it, because a capability has no logo and a tile with a
      letter in it tells nobody anything. Swapping a provider is this one line. */
   brand: BrandId;
+  /* What Add asks the builder for, when the builder can wire this itself on
+     the app's own Supabase — no key of the person's needed. Sent through the
+     chat like any message, so it is a build with its steps, credits and undo,
+     and an app with no database yet is taken through connecting one first. */
+  request?: string;
 };
 
 /* GitHub leads: it is the one people reach for first, and the only one that
@@ -48,6 +53,8 @@ export const INTEGRATIONS: Integration[] = [
     blurb: "Let people log in with an email and password",
     category: "Login",
     brand: "supabase",
+    request:
+      "Add email and password login: sign up, log in, log out and password reset, and each person sees only their own data.",
   },
   {
     id: "claude",
@@ -83,6 +90,8 @@ export const INTEGRATIONS: Integration[] = [
     blurb: "Let people upload and download files",
     category: "Storage",
     brand: "supabase",
+    request:
+      "Add file uploads and downloads with Supabase Storage: people can upload files, see the files they uploaded, and download or delete them.",
   },
   {
     id: "email",
