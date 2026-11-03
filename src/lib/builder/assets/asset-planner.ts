@@ -180,13 +180,44 @@ const ALWAYS_AVOID = [
   "unrelated subject matter used as decoration",
 ];
 
+/* ── Where the business is, and so who is in its pictures ────────────────
+ *
+ * A Nigerian logistics company was given three photographs of nobody in
+ * particular, somewhere in Europe, because nothing between the brief and the
+ * stock search carried "Abuja". The register was spent; the place was not.
+ * A business's customers should be able to see themselves on its page.
+ *
+ * Read from the brief, most specific first: a city names its country, a
+ * country names its people, and "African" on its own is still an answer. */
+const PLACES: { match: RegExp; people: string; place: (city: string | null) => string }[] = [
+  { match: /\b(nigeria\w*|naija|lagos|abuja|port harcourt|kano|ibadan|enugu|benin city|kaduna|jos|owerri|uyo|calabar|abeokuta|onitsha|warri|ilorin|lekki|ikeja|surulere|yaba|victoria island|wuse|garki|maitama|utako|jabi|gwarinpa|asokoro)\b|₦|\bnaira\b/i, people: "Nigerian", place: (city) => (city ? `${city}, Nigeria` : "Nigeria") },
+  { match: /\b(ghana\w*|accra|kumasi|tema|takoradi|cedis?)\b|₵/i, people: "Ghanaian", place: (city) => (city ? `${city}, Ghana` : "Ghana") },
+  { match: /\b(kenya\w*|nairobi|mombasa|kisumu)\b/i, people: "Kenyan", place: (city) => (city ? `${city}, Kenya` : "Kenya") },
+  { match: /\b(south africa\w*|johannesburg|joburg|cape town|durban|pretoria|soweto|rand)\b/i, people: "South African", place: (city) => (city ? `${city}, South Africa` : "South Africa") },
+  { match: /\b(rwanda\w*|kigali|uganda\w*|kampala|tanzania\w*|dar es salaam|ethiopia\w*|addis ababa|senegal\w*|dakar|cameroon\w*|douala|yaound[eé]|ivory coast|c[oô]te d'ivoire|abidjan)\b/i, people: "African", place: (city) => (city ? `${city}, Africa` : "Africa") },
+  { match: /\b(africa|african|pan-african|west africa\w*|east africa\w*)\b/i, people: "African", place: () => "Africa" },
+];
+
+const CITY = /\b(lagos|abuja|port harcourt|kano|ibadan|enugu|benin city|kaduna|owerri|calabar|accra|kumasi|nairobi|mombasa|johannesburg|cape town|durban|kigali|kampala|dar es salaam|addis ababa|dakar|abidjan)\b/i;
+
+/** Who and where this project's pictures are, from its brief. Null when the brief does not say. */
+export function localeOf(brief: string): { people: string; place: string } | null {
+  const found = PLACES.find((entry) => entry.match.test(brief));
+  if (!found) return null;
+  const city = brief.match(CITY)?.[1] ?? null;
+  const named = city ? city.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+  return { people: found.people, place: found.place(named) };
+}
+
 /** The one look every picture in this project inherits. */
 export function planDirection(kind: BuildKind, brief: string): VisualDirection {
   const named = REGISTERS.find((entry) => entry.match.test(brief));
   const base = named ? named.direction : BY_KIND[kind];
+  const locale = localeOf(brief);
 
   return {
     ...base,
+    ...(locale ? { people: locale.people, place: locale.place } : {}),
     avoid:
       kind === "webapp"
         ? [...ALWAYS_AVOID, "decorative photography inside functional software"]
@@ -219,7 +250,11 @@ export function specFor(
   return {
     type: request.type,
     subject,
-    environment: direction.environment,
+    /* The place, and the people in it, ride on the environment so a
+       generated picture is set where the business is. */
+    environment: direction.place
+      ? `${direction.environment}, in ${direction.place}${direction.people ? `, with ${direction.people} people` : ""}`
+      : direction.environment,
     composition: composition[request.type] ?? "clear single subject, balanced frame",
     lighting: direction.lighting,
     style: `${direction.register}, ${direction.palette}`,

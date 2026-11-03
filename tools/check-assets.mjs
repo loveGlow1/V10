@@ -94,6 +94,17 @@ try {
      "a brief that says neither gets the kind's own default, not the luxury one");
   is(luxury.avoid.length >= 5, true, "every direction forbids the tells of a generated image");
 
+  // ── Where the business is ───────────────────────────────────────────────
+  const jb = planner.planDirection("logistics", "Build a premium landing page for Jimmy Bankz Logistics, a young African logistics company in Jabi Park, Utako, Abuja.");
+  is(jb.people, "Nigerian", "a business in Abuja is pictured with Nigerian people");
+  is(jb.place, "Abuja, Nigeria", "set in Abuja, Nigeria");
+  is(planner.localeOf("A bakery in Accra")?.people, "Ghanaian", "Accra reads as Ghana");
+  is(planner.localeOf("Pan-African payments for traders")?.people, "African", "\"African\" on its own is still an answer");
+  is(planner.localeOf("Prices in ₦ for Lekki residents")?.people, "Nigerian", "naira and Lagos districts read as Nigeria");
+  is(planner.localeOf("A luxury skincare store"), null, "a brief that names no place gets no locale");
+  const jbSpec = planner.specFor({ slot: "hero", type: "hero", purpose: "hero", alt: "riders", aspectRatio: "4:5" }, jb, "dispatch riders");
+  is(/Abuja, Nigeria/.test(jbSpec.environment) && /Nigerian people/.test(jbSpec.environment), true, "a generated picture is set there, with its people");
+
   // ── The plan ────────────────────────────────────────────────────────────
   const store = planner.planAssets({ kind: "ecommerce", brief: "a luxury skincare store" });
   const app = planner.planAssets({ kind: "webapp", brief: "a CRM for a sales team" });

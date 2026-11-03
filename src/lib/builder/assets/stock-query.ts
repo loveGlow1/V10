@@ -48,6 +48,8 @@ export type StockWant = {
   orientation: Orientation;
   /** The longest edge this quality level asked for. */
   minWidth: number;
+  /** Who the pictures are of, when the brief places the business: "Nigerian", "African". */
+  people?: string;
 };
 
 /** One result from a stock search, in the only shape both APIs agree on. */
@@ -129,6 +131,23 @@ export function searchTerms(want: StockWant): string[] {
   const subject = subjectTerms(want.subject);
   const type = TYPE_TERMS[want.type] ?? "";
   const register = (want.register.match(REGISTER_TERMS) ?? []).slice(0, 2).join(" ");
+
+  /* A placed business: every rung keeps the place. Dropping it on the broad
+     rungs is how a Nigerian company ended up with European photographs — the
+     specific rung found nothing, and the broad one found anybody. The last
+     rung widens the people ("Nigerian" → "African"), never removes them. */
+  if (want.people) {
+    const kindTerms = KIND_TERMS[want.kind];
+    const placed = [
+      [want.people, subject, type],
+      [want.people, subject],
+      [want.people, kindTerms],
+      ["African", kindTerms.split(" ").slice(0, 2).join(" ")],
+    ]
+      .map((parts) => parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim())
+      .filter((term) => term.length >= 3);
+    return [...new Set(placed)].slice(0, 4);
+  }
 
   const ladder = [
     [subject, type, register],
@@ -271,7 +290,10 @@ function shapeOf(candidate: Candidate): Orientation | null {
   return "squarish";
 }
 
-/** How well one candidate answers what was wanted, from 0 to 1. */
+/* Words a stock caption uses when a photograph is of Africa or Africans. */
+const LOCALE_WORDS = /\b(africa\w*|nigeria\w*|lagos|abuja|ghana\w*|accra|kenya\w*|nairobi|black (man|woman|men|women|person|people|family|couple|boy|girl)|african american)\b/i;
+
+/** How well one candidate answers what was wanted, from 0 to 1 (a placed match can score a little over). */
 export function scoreCandidate(candidate: Candidate, want: StockWant): number {
   const said = words(candidate);
 
@@ -289,7 +311,12 @@ export function scoreCandidate(candidate: Candidate, want: StockWant): number {
      photograph is not a better answer than a 2000px one, it is a slower one. */
   const quality = candidate.width ? Math.min(1, candidate.width / Math.max(want.minWidth, 1)) : 0.5;
 
+  /* A placed business: a photograph that says where it was taken, or who is in
+     it, beats one that does not. Ranks, never gates — see pickBest. */
+  const placed = want.people ? (LOCALE_WORDS.test(said) ? 0.25 : 0) : 0;
+
   return (
+    placed +
     subject * WEIGHTS.subject +
     kind * WEIGHTS.kind +
     section * WEIGHTS.section +
@@ -366,5 +393,6 @@ export function wantFor(opts: {
     register: opts.direction.register,
     orientation: opts.orientation,
     minWidth: opts.minWidth,
+    ...(opts.direction.people ? { people: opts.direction.people } : {}),
   };
 }
