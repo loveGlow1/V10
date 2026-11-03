@@ -26,6 +26,19 @@ export const news: Blueprint = {
   identity:
     "A working news publication: a front page that ranks its stories rather than listing them, beats to browse, and articles stamped with when they happened and when they last changed.",
 
+  pages: [
+    "News homepage",
+    "Latest news",
+    "Article details",
+    "Categories",
+    "Trending stories",
+    "Breaking news",
+    "Author pages",
+    "Search",
+    "Editorial dashboard, where required",
+    "Publishing management, where required",
+  ],
+
   requirements: [
     "A masthead: the publication's name, today's date, and the beats it covers as real navigation. This is a newspaper's identity and it goes at the top.",
     "A FRONT PAGE THAT RANKS. One lead story, given more space, a larger headline and its own image than anything else on the page; two or three secondary stories below or beside it; then a denser list of everything else. Three visual tiers minimum. A grid of equal cards is not a front page.",

@@ -1,3 +1,4 @@
+import { detectDomain } from "@/lib/builder/domain";
 import { NextResponse } from "next/server";
 
 import {
@@ -5494,6 +5495,10 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       ? { dna: knownDesign, reason: "kept from the project it is added to" }
       : decideDesign(plan.direction.register, kind.kind, brief.text);
   steps.mark("design", `Set the design — ${design.dna.name}`, design.reason);
+  /* And the business it is for (domain.ts): its customer area, its modules
+     and its imagery. Read from the brief alone, so it costs nothing. */
+  const domain = detectDomain(brief.text);
+  if (domain) steps.mark("domain", `Recognised the business — ${domain.label}`, "its pages, customer area and imagery follow");
 
   steps.mark(
     "assets",
@@ -5661,6 +5666,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
       architecture: architecture.manifest,
       /* And what it looks like: one system, named tokens, no invented values. */
       design: design.dna,
+      /* And the business it is for — see domain.ts. */
+      domain: domain ?? undefined,
       /* And, when this is a project rather than a page, what a project has to
          come back as: the files, the routes, and the plumbing NOT to write
          because scaffold.ts writes it. Appended to the blueprint rather than

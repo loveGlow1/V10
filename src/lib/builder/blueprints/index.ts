@@ -20,6 +20,7 @@ import {
   architectureBrief,
 } from "@/lib/builder/architecture";
 import { type DesignDNA, designBrief } from "@/lib/builder/design";
+import { type Domain, domainBrief } from "@/lib/builder/domain";
 import { referenceBrief } from "@/lib/builder/reference";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
 import { DEFAULT_MARKET, type Market } from "@/lib/builder/market";
@@ -149,6 +150,12 @@ export type ProjectContext = {
      says "one palette, one type scale", which is the weaker instruction this
      replaces rather than contradicts. */
   design?: DesignDNA;
+  /* The business this is for — see src/lib/builder/domain.ts. The kind is
+     the project's shape; this is what that shape is filled with: a real-estate
+     customer area rather than a generic dashboard, freight photographs rather
+     than stock. Absent when the brief names no business we know, and then the
+     blueprint alone decides, as it always did. */
+  domain?: Domain;
 };
 
 function list(items: readonly string[]): string {
@@ -282,7 +289,14 @@ export function composeBuildPrompt(
 
 WHAT THIS IS: ${blueprint.identity}
 
-BUILD THESE, IN THIS ORDER:
+${
+    blueprint.pages?.length
+      ? `PAGES (${context.treeInstructions ? "each a route" : "each a section or view"}) — fit to this business, drop what it doesn't need:
+${list(blueprint.pages)}
+
+`
+      : ""
+  }BUILD THESE, IN THIS ORDER:
 ${list(blueprint.requirements)}
 ${admin(blueprint, context.architecture)}${conditionals(blueprint)}${
     blueprint.optionalFeatures.length > 0
@@ -304,7 +318,7 @@ DONE MEANS:
 ${list(blueprint.completionRules)}
 
 ────────────────────────────────────────
-${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}${context.design ? `\n${designBrief(context.design)}\n\n────────────────────────────────────────\n` : ""}
+${context.architecture ? `${architectureBrief(context.architecture)}\n\n────────────────────────────────────────\n` : ""}${context.design ? `\n${designBrief(context.design)}\n\n────────────────────────────────────────\n` : ""}${context.domain ? `\n${domainBrief(context.domain, kind, Boolean(context.architecture?.authentication))}\n\n────────────────────────────────────────\n` : ""}
 ${context.target ? `${context.target}\n\n────────────────────────────────────────\n\n` : ""}THE BRIEF — what to build, in their words. Where it is more specific than anything above, it wins; where it is silent, the blueprint decides:
 
 ${brief.trim()}

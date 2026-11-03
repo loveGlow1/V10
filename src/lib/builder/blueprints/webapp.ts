@@ -27,6 +27,13 @@ export const webapp: Blueprint = {
   identity:
     "A working application: the product the brief describes, with the shell, the navigation and the real workflows it would actually have — shaped by what it is, not forced into a dashboard.",
 
+  pages: [
+    "Public site",
+    "Sign-in, sign-up, password reset (with accounts)",
+    "Dashboard, workspace, profile, settings, the domain's modules",
+    "Admin, users, roles (where required)",
+  ],
+
   requirements: [
     "An application shell appropriate to THIS product. A tool with one job gets a workspace and a slim bar; a multi-object product gets a sidebar, a top bar and a content area. Choose the shell the product needs and say nothing about a dashboard unless it needs one.",
     "Navigation that names the real parts of this product, and leads to every one of them. Nothing in the navigation is unbuilt.",

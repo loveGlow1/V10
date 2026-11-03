@@ -17,6 +17,17 @@ export const portfolio: Blueprint = {
   identity:
     "A portfolio for a person or an agency: the best work shown large, each piece with the story of what was done and what it achieved, and a clear way to start a project together.",
 
+  pages: [
+    "Homepage",
+    "About",
+    "Projects",
+    "Project details / case studies",
+    "Services",
+    "Skills / experience",
+    "Testimonials",
+    "Contact",
+  ],
+
   requirements: [
     "Navigation — the name or wordmark, links to Work, Services, Process, About and Contact, and a 'Start a project' button. Sticky, and it collapses to a working menu on a phone.",
     "Hero — who this is and what they make, in one confident line (at most twelve words), a short line on who they make it for, and the call to action. Either one signature piece of work shown large, or the statement alone set in large display type.",

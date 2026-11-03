@@ -25,6 +25,21 @@ export const ecommerce: Blueprint = {
   identity:
     "A storefront someone can actually shop: find a product, inspect it, put it in a basket, change quantities, and reach a checkout whose total is correct.",
 
+  pages: [
+    "Storefront",
+    "Product listing",
+    "Product details",
+    "Categories",
+    "Cart",
+    "Checkout",
+    "Login",
+    "Sign-up",
+    "Customer account",
+    "Order history",
+    "Wishlist",
+    "Order tracking",
+  ],
+
   requirements: [
     "Announcement bar — one real offer or shipping threshold, dismissible.",
     "Header — wordmark, category navigation, a search field that filters the catalog on the page, and a cart button showing a live item count.",
