@@ -533,5 +533,17 @@ has(
   "and an edit to a page never enters the branch that deploys",
 );
 
+// ── A published page's address gets its own certificate ──────────────────
+/* quickstark.tech's DNS is not at Vercel, so there is no wildcard certificate:
+   every page published without this answered with a TLS reset. */
+{
+  const route = readFileSync(join(process.cwd(), "src/app/api/publish/route.ts"), "utf8");
+  const pageDomain = readFileSync(join(process.cwd(), "src/lib/publish/page-domain.ts"), "utf8");
+  has(/\} else \{[\s\S]{0,300}await attachPageDomain\(slug\)/.test(route), "publishing a page attaches <slug>.quickstark.tech to the platform's Vercel project");
+  has(/existingVercelProject\(service, projectId\)\)\) await attachPageDomain\(wanted\)/.test(route), "renaming a page's address attaches the new one");
+  has(/process\.env\.VERCEL_PROJECT_ID/.test(pageDomain) && /attachProjectDomain\(platform, pageHostFor\(slug\)/.test(pageDomain), "to this app's own project, not a generated app's");
+  has(/return \{ ok: false/.test(pageDomain) && !/throw /.test(pageDomain), "best effort: it never throws, so it can never undo a publish");
+}
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);

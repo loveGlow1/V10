@@ -21,6 +21,7 @@ import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { previewUrl, publishedUrl, slugIsUsable } from "@/lib/publish/naming";
 import { configureAuth } from "@/lib/builder/backend/managed";
 import { reserveSlug } from "@/lib/publish/reserve";
+import { attachPageDomain } from "@/lib/publish/page-domain";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { refuseWithoutCard } from "@/lib/card-gate";
@@ -355,6 +356,10 @@ export async function POST(request: Request) {
     }
 
     liveUrl = publishedAddress ?? hostedUrl;
+  } else {
+    /* A page is served by this app: its address has to be attached to this
+       app's Vercel project, or it has no certificate. See page-domain.ts. */
+    await attachPageDomain(slug);
   }
 
   /* ── The snapshot ────────────────────────────────────────────────────────
@@ -572,6 +577,11 @@ export async function PATCH(request: Request) {
     }
     return fail("That address couldn't be saved. Try again.", 502, "address");
   }
+
+  /* The new address needs its own certificate before anybody follows it. A
+     page is served here; an app has its own Vercel project and is bound to
+     it on its next publish instead. */
+  if (!(await existingVercelProject(service, projectId))) await attachPageDomain(wanted);
 
   return NextResponse.json({ slug: wanted, url: publishedUrl(wanted) });
 }
